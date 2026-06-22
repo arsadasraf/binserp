@@ -1,0 +1,2554 @@
+import mongoose from "mongoose";
+import {
+  deliveryChallanSchema,
+  invoiceSchema,
+  grnSchema,
+  materialIssueSchema,
+  bomSchema,
+  inventorySchema,
+  materialRequestSchema,
+  purchaseOrderSchema,
+  vendorSchema,
+  customerSchema,
+  locationSchema,
+  categorySchema,
+  materialSchema,
+  companyInfoSchema,
+  jobWorkSchema,
+  jobWorkSupplierSchema,
+  quotationSchema
+} from "../models/store.model.js";
+import { prefixSettingsSchema } from "../models/prefix.model.js";
+import { componentSchema, jobSchema, processSchema } from "../models/ppc.model.js";
+import { uploadOnS3, deleteFromS3, signPhotos } from "../utils/s3.js";
+import fs from 'fs';
+import path from 'path';
+
+const getCompanyId = (req) => {
+  return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
+};
+
+const getCompanyLoginId = (req) => {
+  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
+};
+
+// Helper function to update COMPONENT stock (InHouse)
+const updateComponentStock = async (req, componentId, quantity) => {
+  try {
+    const companyId = getCompanyId(req); // Derive companyId from req
+    const Component = req.getModel("Component", componentSchema);
+    const component = await Component.findById(componentId);
+    if (!component) {
+      console.error(`Component not found: ${componentId}`);
+      return null;
+    }
+
+    // Update quantity
+    await Component.findByIdAndUpdate(componentId, {
+      $inc: { quantity: quantity }
+    });
+
+    return true;
+  } catch (error) {
+    console.error("Error updating component stock:", error);
+    throw error;
+  }
+};
+
+
+
+// ========== GRN (Goods Receipt Note) ==========
+
+export const createGRN = async (req, res) => {
+  const GRN = req.getModel('GRN', grnSchema);
+  const Vendor = req.getModel('Vendor', vendorSchema);
+  const Customer = req.getModel('Customer', customerSchema);
+  const Material = req.getModel('Material', materialSchema);
+  const Component = req.getModel('Component', componentSchema);
+  console.log(">>> [createGRN] HIT! Request received. (ORIGINAL FUNCTION)");
+  console.log(">>> [createGRN] Body Type:", typeof req.body);
+  console.log(">>> [createGRN] Body Keys:", Object.keys(req.body));
+
+  try {
+    const companyId = getCompanyId(req);
+    let { grnNumber, date, supplier, customer, type, material, materialName, quantity, unit, locationId, category, status, items, poReference, qcRequired } = req.body;
+
+    // Parse qcRequired explicitly (Handle "true"/"false" strings from FormData)
+    if (qcRequired === 'true') qcRequired = true;
+    else if (qcRequired === 'false') qcRequired = false;
+    else qcRequired = !!qcRequired; // Fallback for boolean or undefined/null
+
+    // Default type to 'bo' if not provided
+    type = type || 'bo';
+    console.log(`>>> [createGRN] Processing Type: ${type}, Status: ${status}, QC Required: ${qcRequired} (${typeof qcRequired})`);
+
+    // Default status to 'Received' if not provided
+    status = status || "Received";
+
+    // Validation
+    if (!grnNumber) {
+      return res.status(400).json({ message: "GRN number is required" });
+    }
+
+    // Specific validation based on Type
+    let supplierName = "";
+    let supplierAddress = "";
+
+    if (type === 'inhouse') {
+      if (!customer) {
+        return res.status(400).json({ message: "Customer is required for InHouse GRN" });
+      }
+      // Validate Customer
+      const customerData = await Customer.findById(customer);
+      if (!customerData) {
+        return res.status(400).json({ message: "Customer not found" });
+      }
+      // InHouse GRNs don't have supplier, but we might want to store customer name for display consistency or UI logic
+      // For now, leaving supplierName empty or N/A
+    } else {
+      // BO Type (Default)
+      if (!supplier) {
+        return res.status(400).json({ message: "Supplier is required" });
+      }
+      // Get supplier name from Vendor model
+      const vendorData = await Vendor.findById(supplier);
+      if (!vendorData) {
+        return res.status(400).json({ message: "Supplier not found" });
+      }
+      supplierName = vendorData.name;
+      supplierAddress = vendorData.address || "";
+    }
+
+
+    // Handle PDF upload if provided (single file from upload.fields)
+    let pdfUrl = null;
+    if (req.files && req.files['pdf'] && req.files['pdf'][0]) {
+      try {
+        const uploadResult = await uploadOnS3(req.files['pdf'][0].path, "grn/pdf", getCompanyLoginId(req));
+        if (uploadResult) {
+          pdfUrl = uploadResult.secure_url;
+        }
+      } catch (uploadError) {
+        console.error("PDF upload error:", uploadError);
+        // Continue without PDF - it's optional
+      }
+    }
+
+    // Handle photo uploads if provided (multiple files from upload.fields)
+    const photoUrls = [];
+    if (req.files && req.files['photos'] && req.files['photos'].length > 0) {
+      try {
+        for (const file of req.files['photos']) {
+          const uploadResult = await uploadOnS3(file.path, "grn/photos", companyId);
+          if (uploadResult) {
+            photoUrls.push(uploadResult.secure_url);
+          }
+        }
+      } catch (uploadError) {
+        console.error("Photo upload error:", uploadError);
+        // Continue without photos - they're optional
+      }
+    }
+
+    // Handle items array - support both old single material format and new multiple materials format
+    let itemsArray = [];
+
+    // Parse items if it's a JSON string (from FormData)
+    if (typeof items === 'string') {
+      try {
+        items = JSON.parse(items);
+      } catch (e) {
+        console.error("Failed to parse items:", e);
+      }
+    }
+
+    if (items && Array.isArray(items) && items.length > 0) {
+      // New format: multiple materials/components in items array
+      for (const item of items) {
+
+        let itemName = "";
+        let componentId = null;
+        let materialId = null;
+        let itemUnit = "PCS"; // Default
+        let itemLocationId = null;
+
+
+        if (type === 'inhouse') {
+          // Processing Component (InHouse)
+          if (!item.material && !item.component) { // Frontend might send 'material' key even for components, check ID logic
+            // If frontend sends component ID in 'material' field, we need to distinguish?
+            // Standardizing: Assume 'material' key might hold componentId in generic forms.
+            // Ideally frontend sends 'component' key, but let's check.
+            // Implementation Plan said: usage `component` ID.
+            // Let's assume frontend logic (GRNModal) now passes component ID in `material` field of `items`?
+            // Checking GRNModal: `items` state uses `material` key. So it sends `material` key with Component ID.
+            // We should try to find this ID in Component collection first if type is inhouse? 
+            // Or just trust it.
+          }
+
+          // For now, assume generic 'material' key in item holds the ID
+          const idToUse = item.component || item.material;
+
+          if (!idToUse) {
+            return res.status(400).json({ message: "Component is required for each item" });
+          }
+
+          // Need to import Component model? No, it's in store.controller imports...
+          // Wait, Component is NOT imported in store.controller! It's in ppc.model.js but not imported at top of this file.
+          // I need to add import. Since we are in middle of `type` logic, I can't add import here.
+          // I will assume I will add the import at the top of the file in another edit or this tool call supports strictly replaces.
+          // Since this tool replaces a block, I cannot easily add import at line 1.
+          // I will use mongoose.model("Component") to access it dynamically to avoid import issues for now, or assume it's available.
+          // Better: mongoose.model("Component")
+
+          const componentDoc = await Component.findById(idToUse);
+
+          if (!componentDoc) {
+            return res.status(400).json({ message: `Component not found: ${idToUse}` });
+          }
+
+          componentId = idToUse;
+          itemName = componentDoc.componentName || componentDoc.name; // Check component schema
+          itemUnit = "Nos"; // Default for components
+          // itemLocationId = ??? Components don't usually have stored location in schema yet?
+
+        } else {
+          // Processing Material (BO)
+          if (!item.material) {
+            return res.status(400).json({ message: "Material is required for each item" });
+          }
+
+          const materialDoc = await Material.findById(item.material);
+          if (!materialDoc) {
+            return res.status(400).json({ message: `Material not found: ${item.material}` });
+          }
+
+          materialId = item.material;
+          itemName = materialDoc.name;
+          itemUnit = materialDoc.unit || item.unit || "PCS";
+          itemLocationId = materialDoc.locationId || item.locationId;
+        }
+
+        if (!item.quantity || item.quantity <= 0) {
+          return res.status(400).json({ message: "Valid quantity is required for each item" });
+        }
+
+
+        itemsArray.push({
+          material: materialId,
+          component: componentId, // New field
+          materialName: itemName,
+          quantity: parseFloat(item.quantity),
+          unit: itemUnit,
+          locationId: itemLocationId,
+          receivedQuantity: parseFloat(item.quantity),
+          acceptedQuantity: (qcRequired) ? 0 : parseFloat(item.quantity),
+          rate: parseFloat(item.rate) || 0,
+        });
+      }
+    } else {
+      // Old format: single material (Only relevant for BO backward compatibility)
+      if (type === 'inhouse') {
+        return res.status(400).json({ message: "InHouse GRN requires items list" });
+      }
+
+      if (!material) {
+        return res.status(400).json({ message: "Material is required" });
+      }
+      if (!quantity || quantity <= 0) {
+        return res.status(400).json({ message: "Valid quantity is required" });
+      }
+
+      // Fetch material details
+      const materialDoc = await Material.findById(material);
+      if (!materialDoc) {
+        return res.status(400).json({ message: "Material not found" });
+      }
+
+      const derivedUnit = materialDoc.unit || unit || "PCS";
+      const derivedLocationId = materialDoc.locationId || locationId;
+
+      // Parse rate from body
+      const rate = parseFloat(req.body.rate) || 0;
+
+      itemsArray = [{
+        material: material,
+        materialName: materialDoc.name,
+        quantity: parseFloat(quantity),
+        unit: derivedUnit,
+        locationId: derivedLocationId,
+        receivedQuantity: parseFloat(quantity),
+        acceptedQuantity: (qcRequired) ? 0 : parseFloat(quantity),
+        rate: rate,
+      }];
+    }
+
+    // Create GRN with all items
+    const grn = await GRN.create({
+      company: companyId,
+      type: type, // Save type
+      grnNumber,
+      date: date || new Date(),
+      supplier: supplier, // Optional for InHouse
+      supplierName: supplierName, // Optional for InHouse
+      supplierAddress: supplierAddress,
+      customer: customer, // New field
+      poNumber: "",
+      poReference: poReference || "",
+      items: itemsArray,
+      pdf: pdfUrl,
+      photos: photoUrls,
+      receivedBy: req.user.id,
+      status: status || "Received",
+      qcRequired: qcRequired || false,
+      qcStatus: qcRequired ? "Pending" : "Skipped"
+    });
+
+    // Auto-update inventory (BO ONLY for now)
+    // If QC Required -> Add to Pending Stock
+    // If QC Not Required -> Add to Main Stock
+    if (type === 'bo' && (status === "Accepted" || status === "Received" || !status)) {
+      try {
+        for (const item of itemsArray) {
+          await updateInventoryStock(
+            req,
+            item.material,
+            parseFloat(item.quantity),
+            item.unit,
+            item.locationId,
+            { isPending: !!qcRequired }
+          );
+        }
+      } catch (err) {
+        console.error("Error updating inventory:", err);
+      }
+    }
+
+    // Auto-update inventory (Component Stock) for InHouse - ONLY IF QC NOT REQUIRED
+    if (!qcRequired && type === 'inhouse') {
+      console.log("Starting InHouse Stock Update Logic. Status:", status);
+      // Allow 'Received', 'Accepted', or empty status (which defaults to Received)
+      // Checking explicit string matches to be safe
+      if (status === "Accepted" || status === "Received") {
+        try {
+          console.log(`[InHouseUpdate] Items to process: ${itemsArray.length}`);
+          for (const item of itemsArray) {
+            const compId = item.component;
+            const qty = parseFloat(item.quantity);
+
+            console.log(`[InHouseUpdate] Item details matched: CompID=${compId}, Qty=${qty}`);
+
+            if (compId && !isNaN(qty)) {
+
+              // Use imported Component model directly
+              const Component = req.getModel("Component", componentSchema);
+              const updateRes = await Component.findByIdAndUpdate(
+                compId,
+                { $inc: { quantity: qty } },
+                { new: true }
+              );
+
+              console.log(`[InHouseUpdate] DB Update Result for ${compId}:`, updateRes ? `New Qty: ${updateRes.quantity}` : "FAILED - Doc not found");
+
+              if (!updateRes) {
+                console.error(`[InHouseUpdate] CRITICAL: Component ${compId} not found during update!`);
+              }
+
+            } else {
+              console.warn(`[InHouseUpdate] SKIP detected. HasCompId=${!!compId}, QtyValid=${!isNaN(qty)}`);
+            }
+          }
+        } catch (invError) {
+          console.error("[InHouseUpdate] CRITICAL ERROR:", invError);
+        }
+      } else {
+        console.log(`[InHouseUpdate] SKIPPED. Status '${status}' is not Accepted/Received.`);
+      }
+    }
+
+    res.status(201).json({ message: "GRN created successfully", grn });
+  } catch (error) {
+    console.error("GRN Creation Error:", error);
+    res.status(500).json({
+      message: error.message || "Failed to create GRN",
+      error: process.env.NODE_ENV === "development" ? error.stack : undefined
+    });
+  }
+};
+
+export const getAllGRNs = async (req, res) => {
+  const GRN = req.getModel('GRN', grnSchema);
+  // Ensure referenced models are registered for population
+  req.getModel('Vendor', vendorSchema);
+  req.getModel('Customer', customerSchema);
+  req.getModel('Material', materialSchema);
+  req.getModel('Component', componentSchema);
+
+  try {
+    const companyId = getCompanyId(req);
+    const grns = await GRN.find({ company: companyId })
+      .populate("receivedBy", "name userId")
+      .populate("supplier", "name code")
+      .populate("customer", "name code")
+      .populate("items.material", "name code category")
+      .populate("items.component", "componentName componentCode")
+      .sort({ createdAt: -1 });
+
+    // Sign photos and pdfs for preview
+    const signedGrns = await Promise.all(grns.map(async (grn) => {
+      const grnObj = grn.toObject();
+      if (grnObj.photos && grnObj.photos.length > 0) grnObj.photos = await signPhotos(grnObj.photos);
+      if (grnObj.pdf) grnObj.pdf = (await signPhotos([grnObj.pdf]))[0];
+      return grnObj;
+    }));
+
+    res.status(200).json({ grns: signedGrns, count: signedGrns.length });
+  } catch (error) {
+    console.error("Error in getAllGRNs:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== MATERIAL ISSUE ==========
+
+
+export const createMaterialIssue = async (req, res) => {
+  try {
+    const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
+      const Material = req.getModel('Material', materialSchema);
+      const Component = req.getModel('Component', componentSchema);
+
+    const companyId = getCompanyId(req);
+    const { issueNumber, date, department, issuedTo, items, status, type } = req.body;
+
+    console.log(`>>> [createMaterialIssue] Start. Status: ${status}, Type: ${type}, Items: ${items?.length}`);
+
+    if (!issueNumber || !department || !items || items.length === 0) {
+      return res.status(400).json({ message: "Issue number, department, and items are required" });
+    }
+
+    const processedItems = [];
+    const isInhouse = type === 'inhouse';
+
+    for (const item of items) {
+      if (isInhouse) {
+        // Inhouse Logic
+        const compId = item.component || item.material || item._id; // Frontend flexibility
+        if (!compId) return res.status(400).json({ message: "Component ID is required" });
+
+        const compDoc = await Component.findById(compId);
+        if (!compDoc) return res.status(400).json({ message: `Component not found: ${compId}` });
+
+        processedItems.push({
+          ...item,
+          component: compDoc._id,
+          materialName: compDoc.componentName,
+          quantity: Number(item.quantity)
+        });
+      } else {
+        // BO Logic
+        let materialId = item.material?._id || item.material; // Handle object or ID
+
+        // If no ID provided, try to find by name (fallback)
+        if (!materialId && item.materialName) {
+          const mat = await Material.findOne({ company: companyId, name: item.materialName });
+          if (mat) materialId = mat._id;
+        }
+
+        if (!materialId) {
+          return res.status(400).json({ message: `Material not found: ${item.materialName}` });
+        }
+
+        // Fetch material to get code
+        let materialDoc = await Material.findById(materialId);
+
+        // Fallback: If not found by ID (or ID was invalid/subdoc), try by Name
+        if (!materialDoc && item.materialName) {
+          console.log(`>>> [createMaterialIssue] Material not found by ID ${materialId}. Trying Name: ${item.materialName}`);
+          materialDoc = await Material.findOne({ company: companyId, name: item.materialName });
+          if (materialDoc) materialId = materialDoc._id;
+        }
+
+        if (!materialDoc) {
+          return res.status(400).json({ message: `Material not found: ${item.materialName}` });
+        }
+
+        processedItems.push({
+          ...item,
+          material: materialId,
+          materialCode: materialDoc ? materialDoc.code : (item.materialCode || ''),
+          materialName: materialDoc ? materialDoc.name : item.materialName,
+          quantity: Number(item.quantity) // Ensure Number
+        });
+      }
+    }
+
+    const materialIssue = await MaterialIssue.create({
+      company: companyId,
+      issueNumber,
+      type: type || 'bo', // Save type
+      date: date || new Date(),
+      department,
+      issuedTo,
+      items: processedItems,
+      issuedBy: req.user.id,
+      status: status || "Draft",
+    });
+
+    // Auto-update inventory when material is issued
+    if (status === "Issued") {
+      console.log(`>>> [createMaterialIssue] Status is Issued. Updating Stock...`);
+      for (const item of processedItems) {
+        if (isInhouse) {
+          await updateComponentStock(req, item.component, -item.quantity);
+        } else {
+          await updateInventoryStock(
+            req,
+            item.material, // Correct: Use ID
+            -item.quantity, // Negative to decrement
+            item.unit || "PCS"
+          );
+        }
+      }
+    }
+
+    res.status(201).json({ message: "Material issue created successfully", materialIssue });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update Material Issue status and update inventory
+export const updateMaterialIssue = async (req, res) => {
+  try {
+    const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
+      const Material = req.getModel('Material', materialSchema);
+      const Component = req.getModel('Component', componentSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const { status, items } = req.body;
+
+    const materialIssue = await MaterialIssue.findOne({ _id: id, company: companyId });
+    if (!materialIssue) {
+      return res.status(404).json({ message: "Material issue not found" });
+    }
+
+    const oldStatus = materialIssue.status;
+    const newStatus = status || materialIssue.status;
+
+    // Update inventory only if status changes to/from "Issued"
+    if (oldStatus !== "Issued" && newStatus === "Issued") {
+      const itemsToProcess = items || materialIssue.items; // Use new items if available
+      for (const item of itemsToProcess) {
+        if (materialIssue.type === 'inhouse') {
+          const compId = item.component?._id || item.component || item.material; // Handle object/ID
+          await updateComponentStock(req, compId, -Number(item.quantity));
+        } else {
+          const materialId = item.material?._id || item.material; // Handle object/ID
+          await updateInventoryStock(
+            req,
+            materialId,
+            -Number(item.quantity),
+            item.unit || "PCS"
+          );
+        }
+      }
+    } else if (oldStatus === "Issued" && newStatus !== "Issued") {
+      // Reverse the inventory if status changed from Issued
+      // Use OLD items to reverse what was done
+      for (const item of materialIssue.items) {
+        if (materialIssue.type === 'inhouse') {
+          const compId = item.component?._id || item.component || item.material;
+          await updateComponentStock(req, compId, Number(item.quantity)); // Add back
+        } else {
+          const materialId = item.material?._id || item.material;
+          await updateInventoryStock(
+            req,
+            materialId,
+            Number(item.quantity), // Positive to increment back
+            item.unit || "PCS"
+          );
+        }
+      }
+    }
+
+    const updatedIssue = await MaterialIssue.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+
+    res.status(200).json({ message: "Material issue updated successfully", materialIssue: updatedIssue });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllMaterialIssues = async (req, res) => {
+  try {
+    const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
+
+    const companyId = getCompanyId(req);
+    const materialIssues = await MaterialIssue.find({ company: companyId })
+      .populate("issuedBy", "name userId")
+      .populate("issuedTo", "name userId")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ materialIssues, count: materialIssues.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== BOM (Bill of Material) ==========
+
+export const createBOM = async (req, res) => {
+  try {
+    const BOM = req.getModel('BOM', bomSchema);
+
+    const companyId = getCompanyId(req);
+    const { bomNumber, productName, productCode, version, description, items, status } = req.body;
+
+    if (!bomNumber || !productName || !items || items.length === 0) {
+      return res.status(400).json({ message: "BOM number, product name, and items are required" });
+    }
+
+    const bom = await BOM.create({
+      company: companyId,
+      bomNumber,
+      productName,
+      productCode,
+      version: version || "1.0",
+      description,
+      items,
+      createdBy: req.user.id,
+      status: status || "Draft",
+    });
+
+    res.status(201).json({ message: "BOM created successfully", bom });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllBOMs = async (req, res) => {
+  try {
+    const BOM = req.getModel('BOM', bomSchema);
+
+    const companyId = getCompanyId(req);
+    const boms = await BOM.find({ company: companyId })
+      .populate("createdBy", "name userId")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ boms, count: boms.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+
+export const updateBOM = async (req, res) => {
+  try {
+    const BOM = req.getModel('BOM', bomSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const bom = await BOM.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    if (!bom) return res.status(404).json({ message: "BOM not found" });
+    res.status(200).json({ message: "BOM updated successfully", bom });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update GRN and auto-update inventory when status changes to Accepted
+export const updateGRN = async (req, res) => {
+  try {
+    const GRN = req.getModel('GRN', grnSchema);
+      const Component = req.getModel('Component', componentSchema);
+      const Material = req.getModel('Material', materialSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const { status, items } = req.body;
+
+    const grn = await GRN.findOne({ _id: id, company: companyId });
+    if (!grn) {
+      return res.status(404).json({ message: "GRN not found" });
+    }
+
+    const oldStatus = grn.status;
+    const newStatus = status || grn.status;
+
+    // Handle PDF upload if provided
+    if (req.files && req.files['pdf'] && req.files['pdf'][0]) {
+      try {
+        const uploadResult = await uploadOnS3(req.files['pdf'][0].path, "grn/pdf", getCompanyLoginId(req));
+        if (uploadResult) {
+          req.body.pdf = uploadResult.secure_url;
+        }
+      } catch (uploadError) {
+        console.error("PDF upload error:", uploadError);
+      }
+    }
+
+    // Handle photo uploads (and removal of old ones)
+    // existingPhotos should be coming from frontend as a JSON string of URLs to KEEP
+    let photoUrls = [];
+    if (req.body.existingPhotos) {
+      try {
+        photoUrls = JSON.parse(req.body.existingPhotos);
+      } catch (e) {
+        photoUrls = [...(grn.photos || [])]; // Fallback
+      }
+    } else {
+      // If not sent, assume we keep all (backwards compat) OR if strictly managing, might imply delete all?
+      // But for safety, if field is missing, we keep existing. 
+      // If user wants to delete all, they should send empty array "[]".
+      photoUrls = [...(grn.photos || [])];
+    }
+
+    if (req.files && req.files['photos'] && req.files['photos'].length > 0) {
+      try {
+        for (const file of req.files['photos']) {
+          const uploadResult = await uploadOnS3(file.path, "grn/photos", companyId);
+          if (uploadResult) {
+            photoUrls.push(uploadResult.secure_url);
+          }
+        }
+      } catch (uploadError) {
+        console.error("Photo upload error:", uploadError);
+      }
+    }
+
+    // Always update photos field if we have touched it (via existingPhotos or new files)
+    // If existingPhotos was passed, we definitely want to update.
+    if (req.body.existingPhotos || (req.files && req.files['photos'])) {
+      req.body.photos = photoUrls;
+    }
+
+    // Helper function to check if status affects inventory
+    const isInventoryStatus = (status) => ["Accepted", "Received"].includes(status);
+
+    // Handle inventory updates
+    if (isInventoryStatus(oldStatus) && isInventoryStatus(newStatus) && items) {
+      // GRN was already accepted/received and is being edited
+      // Reverse old inventory quantities
+      for (const oldItem of grn.items) {
+        const oldQuantity = oldItem.acceptedQuantity || oldItem.receivedQuantity || oldItem.quantity;
+        const materialId = oldItem.material?._id || oldItem.material; // Safe access
+        if (materialId) {
+          if (grn.type === 'inhouse') {
+            await updateComponentStock(req, materialId, -oldQuantity); // materialId holds component ID for inhouse in generic logic usually, check items mapping
+            // But wait, in createGRN we saved `component` field.
+            // In updateGRN logic above, we used `oldItem.material?._id`. 
+            // Does `oldItem` have `component` field populated?
+            // createGRN saves `component: componentId`.
+            // getAllGRNs populates `items.component`.
+            // So `oldItem.component` should differ from `oldItem.material`.
+            // We need to check if we should use `component` or `material` based on type.
+          } else {
+            await updateInventoryStock(
+              req,
+              materialId,
+              -oldQuantity, // Negative to reverse
+              oldItem.unit || "PCS",
+              oldItem.locationId
+            );
+          }
+        } else if (oldItem.component && grn.type === 'inhouse') {
+          const compId = oldItem.component._id || oldItem.component;
+          await updateComponentStock(req, compId, -oldQuantity);
+        }
+      }
+
+      // Apply new inventory quantities
+      // Note: Items might come as strings from FormData, need safe parsing if strictly needed,
+      // but usually body parser handles JSON content if sent as such. 
+      // Since frontend sends items as JSON string in FormData, logic elsewhere handles parsing?
+      // Wait, updateGRN doesn't parse items if string!
+      let itemsToUpdate = items;
+      if (typeof items === 'string') {
+        try { itemsToUpdate = JSON.parse(items); } catch (e) { }
+      }
+
+      if (Array.isArray(itemsToUpdate)) {
+        for (const newItem of itemsToUpdate) {
+          const newQuantity = newItem.acceptedQuantity || newItem.receivedQuantity || newItem.quantity;
+          const materialId = newItem.material?._id || newItem.material;
+          if (materialId || newItem.component) {
+            if (grn.type === 'inhouse') {
+              const compId = newItem.component || materialId; // generic fallback
+              await updateComponentStock(req, compId, newQuantity);
+            } else {
+              await updateInventoryStock(
+                req,
+                materialId,
+                newQuantity,
+                newItem.unit || "PCS",
+                newItem.locationId
+              );
+            }
+          }
+        }
+      }
+    } else if (!isInventoryStatus(oldStatus) && isInventoryStatus(newStatus) && (items || grn.items)) {
+      // GRN is being accepted/received for the first time
+      let itemsToProcess = items || grn.items;
+      if (typeof itemsToProcess === 'string') {
+        try { itemsToProcess = JSON.parse(itemsToProcess); } catch (e) { }
+      }
+
+      if (Array.isArray(itemsToProcess)) {
+        for (const item of itemsToProcess) {
+          const quantity = item.acceptedQuantity || item.receivedQuantity || item.quantity;
+          const materialId = item.material?._id || item.material;
+          if (materialId || item.component) {
+            if (grn.type === 'inhouse') {
+              const compId = item.component?._id || item.component || materialId;
+              await updateComponentStock(req, compId, quantity);
+            } else {
+              await updateInventoryStock(
+                req,
+                materialId,
+                quantity,
+                item.unit || "PCS",
+                item.locationId
+              );
+            }
+          }
+        }
+      }
+    } else if (isInventoryStatus(oldStatus) && !isInventoryStatus(newStatus)) {
+      // GRN is being changed from Accepted/Received to another status - reverse inventory
+      for (const oldItem of grn.items) {
+        const oldQuantity = oldItem.acceptedQuantity || oldItem.receivedQuantity || oldItem.quantity;
+        const materialId = oldItem.material?._id || oldItem.material;
+        if (materialId || oldItem.component) {
+          if (grn.type === 'inhouse') {
+            const compId = oldItem.component?._id || oldItem.component || materialId;
+            await updateComponentStock(req, compId, -oldQuantity);
+          } else {
+            await updateInventoryStock(
+              req,
+              materialId,
+              -oldQuantity, // Negative to reverse
+              oldItem.unit || "PCS",
+              oldItem.locationId
+            );
+          }
+        }
+      }
+    }
+
+    // Ensure items is parsed in req.body for findOneAndUpdate if it came as string (FormData)
+    if (req.body.items && typeof req.body.items === 'string') {
+      try {
+        req.body.items = JSON.parse(req.body.items);
+      } catch (e) {
+        console.error("Failed to parse items for update:", e);
+      }
+    }
+
+    const updatedGRN = await GRN.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+
+    res.status(200).json({ message: "GRN updated successfully", grn: updatedGRN });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteGRN = async (req, res) => {
+  try {
+    const GRN = req.getModel('GRN', grnSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+
+    const grn = await GRN.findOne({ _id: id, company: companyId });
+    if (!grn) {
+      return res.status(404).json({ message: "GRN not found" });
+    }
+
+    // Reverse inventory update if GRN was accepted/received
+    if ((grn.status === "Accepted" || grn.status === "Received") && grn.items && grn.items.length > 0) {
+      for (const item of grn.items) {
+        const quantity = item.acceptedQuantity || item.receivedQuantity || item.quantity;
+        if (grn.type === 'inhouse') {
+          const compId = item.component?._id || item.component || item.material;
+          await updateComponentStock(req, compId, -quantity);
+        } else {
+          await updateInventoryStock(
+            req,
+            item.material, // Use material ID directly from item
+            -quantity, // Negative quantity to reverse
+            item.unit || "PCS",
+            item.locationId
+          );
+        }
+      }
+    }
+
+    await GRN.findByIdAndDelete(id);
+
+    res.status(200).json({ message: "GRN deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== INVENTORY MANAGEMENT ==========
+
+// Helper function to update inventory stock
+export const updateInventoryStock = async (req, materialId, quantity, unit, locationId, options = {}) => {
+  console.log(`>>> [updateInventoryStock] Updating MatID: ${materialId}, Qty: ${quantity}, Unit: ${unit}, Options:`, options);
+  const { isPending = false, isQCRelease = false, inspectedQuantity = 0 } = options;
+
+  try {
+    const companyId = getCompanyId(req);
+    const Material = req.getModel('Material', materialSchema);
+    const Inventory = req.getModel('Inventory', inventorySchema);
+    const Location = req.getModel('Location', locationSchema);
+
+    // Register Category for populate
+    req.getModel('Category', categorySchema);
+
+    // Find material to get details
+    const material = await Material.findById(materialId).populate('categoryId');
+    if (!material) {
+      console.error(`Material not found: ${materialId}`);
+      return null;
+    }
+
+    const materialName = material.name;
+    const materialCode = material.code;
+    const categoryId = material.categoryId?._id || material.categoryId;
+
+    // Find inventory item - Try by materialId first (more robust), then code (backward compatibility)
+    let inventory = await Inventory.findOne({
+      company: companyId,
+      $or: [
+        { materialId: materialId },
+        { materialCode: materialCode }
+      ]
+    });
+
+    console.log(`>>> [updateInventoryStock] Inventory Found? ${!!inventory}. Current Stock: ${inventory?.currentStock}`);
+
+    if (!inventory) {
+      // Create new inventory entry
+      let locationName = "";
+      if (locationId) {
+        const location = await Location.findById(locationId);
+        if (location) locationName = location.name;
+      }
+
+      inventory = await Inventory.create({
+        company: companyId,
+        materialCode,
+        materialName,
+        unit: unit || material.unit || "PCS",
+        currentStock: (!isPending) ? Math.max(0, quantity) : 0,
+        qcPendingStock: (isPending) ? Math.max(0, quantity) : 0,
+        locationId,
+        categoryId,
+        materialId, // Save materialId
+        location: locationName
+      });
+    } else {
+      // Update existing inventory
+      console.log(`>>> [updateInventoryStock] Updating Existing. Old: ${inventory.currentStock}, Change: ${quantity}`);
+
+      if (isPending) {
+        // Add to Pending Stock (GRN created, waiting QC)
+        inventory.qcPendingStock = (inventory.qcPendingStock || 0) + quantity;
+      } else if (isQCRelease) {
+        // Move from Pending to Main (QC Passed)
+        // Increase main stock by Accepted Quantity (passed in 'quantity')
+        inventory.currentStock = Math.max(0, inventory.currentStock + quantity);
+        // Decrease pending stock by Inspected Quantity (processed amount)
+        inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) - inspectedQuantity);
+      } else {
+        // Regular update (Direct GRN or Issue)
+        inventory.currentStock = Math.max(0, inventory.currentStock + quantity);
+      }
+
+      console.log(`>>> [updateInventoryStock] New Stock: ${inventory.currentStock}, Pending: ${inventory.qcPendingStock}`);
+
+      // Ensure materialId is set if missing (migration)
+      if (!inventory.materialId) {
+        inventory.materialId = materialId;
+      }
+
+      // Update location/category if provided
+      if (locationId) {
+        inventory.locationId = locationId;
+        const location = await Location.findById(locationId);
+        if (location) inventory.location = location.name;
+      }
+
+      if (categoryId) {
+        inventory.categoryId = categoryId;
+      }
+
+      await inventory.save();
+    }
+
+    return inventory;
+  } catch (error) {
+    console.error("Error updating inventory:", error);
+    throw error;
+  }
+};
+
+// Create Inventory
+export const createInventory = async (req, res) => {
+  try {
+    const Inventory = req.getModel('Inventory', inventorySchema);
+
+    const companyId = getCompanyId(req);
+    const {
+      materialCode,
+      materialName,
+      unit,
+      currentStock,
+      reorderLevel,
+      reorderQuantity,
+      unitPrice,
+      location,
+    } = req.body;
+
+    if (!materialCode || !materialName) {
+      return res.status(400).json({ message: "Material code and name are required" });
+    }
+
+    const inventory = await Inventory.create({
+      company: companyId,
+      materialCode,
+      materialName,
+      unit: unit || "PCS",
+      currentStock: currentStock || 0,
+      reorderLevel: reorderLevel || 0,
+      reorderQuantity: reorderQuantity || 0,
+      unitPrice: unitPrice || 0,
+      location,
+    });
+
+    res.status(201).json({ message: "Inventory created successfully", inventory });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Material code already exists for this company" });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get All Inventory
+export const getInventory = async (req, res) => {
+  const Inventory = req.getModel('Inventory', inventorySchema);
+  // Ensure related models are registered for population
+  req.getModel('Location', locationSchema);
+  req.getModel('Category', categorySchema);
+
+  try {
+    const companyId = getCompanyId(req);
+    const { lowStock } = req.query;
+
+    let query = { company: companyId };
+    if (lowStock === "true") {
+      // Find items below reorder level
+      const inventories = await Inventory.find({ company: companyId })
+        .populate("locationId", "name code")
+        .populate("categoryId", "name code");
+      const lowStockItems = inventories.filter(
+        (inv) => inv.currentStock <= inv.reorderLevel
+      );
+      return res.status(200).json({
+        inventory: lowStockItems,
+        count: lowStockItems.length,
+      });
+    }
+
+    const inventory = await Inventory.find(query)
+      .populate("locationId", "name code")
+      .populate("categoryId", "name code")
+      .sort({ materialName: 1 });
+
+    res.status(200).json({
+      inventory,
+      count: inventory.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update Inventory
+export const updateInventory = async (req, res) => {
+  try {
+    const Inventory = req.getModel('Inventory', inventorySchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+
+    const inventory = await Inventory.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true, runValidators: true }
+    );
+
+    if (!inventory) {
+      return res.status(404).json({ message: "Inventory not found" });
+    }
+
+    res.status(200).json({ message: "Inventory updated successfully", inventory });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get Low Stock Items
+export const getLowStockItems = async (req, res) => {
+  try {
+    const Inventory = req.getModel('Inventory', inventorySchema);
+
+    const companyId = getCompanyId(req);
+
+    const inventories = await Inventory.find({ company: companyId });
+    const lowStockItems = inventories.filter(
+      (inv) => inv.currentStock <= inv.reorderLevel && inv.reorderLevel > 0
+    );
+
+    res.status(200).json({
+      inventory: lowStockItems,
+      count: lowStockItems.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== MATERIAL REQUEST ==========
+
+// Create Material Request
+export const createMaterialRequest = async (req, res) => {
+  try {
+    const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+      const Material = req.getModel('Material', materialSchema);
+      const Component = req.getModel('Component', componentSchema);
+
+    const companyId = getCompanyId(req);
+    const { requestNumber, department, items, priority, type } = req.body;
+
+    if (!requestNumber || !items || items.length === 0) {
+      return res.status(400).json({
+        message: "Request number and items are required",
+      });
+    }
+
+    const processedItems = [];
+    const isInhouse = type === 'inhouse';
+
+    for (const item of items) {
+      if (isInhouse) {
+        // Inhouse Logic: Validate against Component
+        const componentId = item.component || item._id || item.material; // Allow various keys from frontend
+        if (!componentId) {
+          return res.status(400).json({ message: "Component ID is required for Inhouse request" });
+        }
+
+        const componentDoc = await Component.findById(componentId);
+        if (!componentDoc) {
+          return res.status(400).json({ message: `Component not found: ${componentId}` });
+        }
+
+        processedItems.push({
+          ...item,
+          component: componentDoc._id,
+          materialName: componentDoc.componentName,
+          materialCode: componentDoc.componentCode,
+          quantity: Number(item.quantity),
+          unit: item.unit || componentDoc.unit || "Nos"
+        });
+      } else {
+        // BO Logic (Existing Material Logic)
+        // If code is missing, try to find it
+        if (!item.materialCode) {
+          let materialDoc;
+
+          // Try by ID first if available
+          if (item.material || item.materialId) {
+            materialDoc = await Material.findById(item.material || item.materialId);
+          }
+
+          // If not found by ID, try by name
+          if (!materialDoc && item.materialName) {
+            materialDoc = await Material.findOne({ company: companyId, name: item.materialName });
+          }
+
+          if (materialDoc) {
+            processedItems.push({
+              ...item,
+              materialCode: materialDoc.code,
+              materialName: materialDoc.name, // Ensure accurate name
+              material: materialDoc._id // Save reference if schema supports it
+            });
+          } else {
+            return res.status(400).json({ message: `Material not found in master: ${item.materialName}` });
+          }
+        } else {
+          processedItems.push(item);
+        }
+      }
+    }
+
+    const materialRequest = await MaterialRequest.create({
+      company: companyId,
+      requestNumber,
+      requestedBy: req.user.id,
+      department,
+      type: type || 'bo',
+      items: processedItems,
+      priority: priority || "Medium",
+      status: "Pending",
+    });
+
+    res.status(201).json({
+      message: "Material request created successfully",
+      materialRequest,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get All Material Requests
+export const getAllMaterialRequests = async (req, res) => {
+  try {
+    const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+
+    const companyId = getCompanyId(req);
+    const { status, department } = req.query;
+
+    const query = { company: companyId };
+    if (status) query.status = status;
+    if (department) query.department = department;
+
+    const materialRequests = await MaterialRequest.find(query)
+      .populate("requestedBy", "name userId department")
+      .populate("approvedBy", "name userId")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      materialRequests,
+      count: materialRequests.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Update Material Request (Approve/Reject/Issue)
+export const updateMaterialRequest = async (req, res) => {
+  try {
+    const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+      const Material = req.getModel('Material', materialSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const { status, remarks } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ message: "Status is required" });
+    }
+
+    const materialRequest = await MaterialRequest.findOne({
+      _id: id,
+      company: companyId,
+    });
+
+    if (!materialRequest) {
+      return res.status(404).json({ message: "Material request not found" });
+    }
+
+    // If approving, set approvedBy
+    if (status === "Approved" && !materialRequest.approvedBy) {
+      materialRequest.approvedBy = req.user.id;
+    }
+
+    // Handle inventory update if status changes to "Issued"
+    if (status === "Issued" && materialRequest.status !== "Issued" && !req.body.skipInventoryUpdate) {
+      try {
+        for (const item of materialRequest.items) {
+          if (materialRequest.type === 'inhouse') {
+            // Inhouse Logic: Update Component Stock
+            if (item.component) {
+              await updateComponentStock(req, item.component, -item.quantity);
+            } else {
+              // Fallback if component ID is missing but code/name exists (should have been caught in create)
+              console.warn(`Inhouse item missing component reference: ${item.materialName}`);
+            }
+          } else {
+            // BO Logic: Update Material Inventory
+            // Use materialCode or find material by some means. 
+            const materialDoc = await Material.findOne({ company: companyId, code: item.materialCode });
+            if (materialDoc) {
+              await updateInventoryStock(
+                req,
+                materialDoc._id,
+                -item.quantity,
+                item.unit || "PCS"
+              );
+            } else {
+              console.warn(`Material not found for code: ${item.materialCode}, skipping inventory update.`);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Inventory update failed during Issue:", err);
+        return res.status(500).json({ message: "Failed to update inventory: " + err.message });
+      }
+    }
+
+    materialRequest.status = status;
+    if (remarks) materialRequest.remarks = remarks;
+
+    await materialRequest.save();
+
+    res.status(200).json({
+      message: `Material request ${status.toLowerCase()} successfully`,
+      materialRequest,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== PURCHASE ORDER (PO) ==========
+
+
+
+export const createPO = async (req, res) => {
+  try {
+    const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+
+    const companyId = getCompanyId(req);
+    const {
+      poNumber,
+      date,
+      vendor,
+      material,
+      materialName,
+      quantity,
+      unit,
+      rate,
+      amount,
+      category,
+      items,
+      totalAmount,
+      status
+    } = req.body;
+
+    // Support both single material and items array
+    if (!poNumber || !vendor) {
+      return res.status(400).json({ message: "PO number and vendor are required" });
+    }
+
+    // If single material provided, use it; otherwise use items array
+    const poData = {
+      company: companyId,
+      poNumber,
+      date: date || new Date(),
+      vendor,
+      createdBy: req.user.id,
+      status: status || "Released",
+    };
+
+    // Single material format (from our frontend)
+    if (material) {
+      poData.material = material;
+      poData.materialName = materialName;
+      poData.quantity = quantity;
+      poData.unit = unit;
+      poData.rate = rate;
+      poData.amount = amount;
+      poData.category = category;
+      poData.totalAmount = amount || (quantity * rate);
+    }
+    // Items array format (for future multi-material POs)
+    else if (items && items.length > 0) {
+      poData.items = items;
+      poData.totalAmount = totalAmount || items.reduce((sum, item) => sum + (item.amount || 0), 0);
+    } else {
+      return res.status(400).json({ message: "Either material or items are required" });
+    }
+
+    const po = await PurchaseOrder.create(poData);
+
+    // Populate vendor details for response
+    await po.populate("vendor", "name code email");
+    await po.populate("material", "name code");
+
+    res.status(201).json({ message: "Purchase Order created successfully", po });
+  } catch (error) {
+    console.error("Create PO error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllPOs = async (req, res) => {
+  try {
+    const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+
+    const companyId = getCompanyId(req);
+    const pos = await PurchaseOrder.find({ company: companyId })
+      .populate("vendor", "name code email phone")
+      .populate("material", "name code")
+      .populate("createdBy", "name userId")
+      .sort({ createdAt: -1 });
+
+    // Add vendorName for easier frontend display
+    const posWithVendorName = pos.map(po => {
+      const poObj = po.toObject();
+      if (poObj.vendor) {
+        poObj.vendorName = poObj.vendor.name;
+      }
+      return poObj;
+    });
+
+    res.status(200).json({ pos: posWithVendorName, count: pos.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updatePO = async (req, res) => {
+  try {
+    const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const po = await PurchaseOrder.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    if (!po) return res.status(404).json({ message: "PO not found" });
+    res.status(200).json({ message: "PO updated successfully", po });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== MASTERS (Vendor, Customer, Location) ==========
+
+
+
+
+// Vendor
+export const createVendor = async (req, res) => {
+  try {
+    const Vendor = req.getModel('Vendor', vendorSchema);
+
+    const companyId = getCompanyId(req);
+    let { name, code, bankDetails, ...otherData } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: "Vendor name is required" });
+    }
+
+    // Auto-generate code if not provided
+    if (!code) {
+      const PrefixSettings = req.getModel("PrefixSettings", prefixSettingsSchema);
+      const settings = await PrefixSettings.findOne() || new PrefixSettings();
+      const prefix = settings.vendorPrefix || "VEN";
+      
+      const lastVendor = await Vendor.findOne({ company: companyId, code: { $regex: new RegExp(`^${prefix}`) } }).sort({ code: -1 });
+      
+      let nextNumber = 1;
+      if (lastVendor && lastVendor.code) {
+        const match = lastVendor.code.match(/\d+$/);
+        if (match) {
+          nextNumber = parseInt(match[0], 10) + 1;
+        }
+      }
+      code = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
+    }
+
+    // Ensure robust bank details mapping
+    const formattedBankDetails = bankDetails ? {
+      accountNumber: bankDetails.accountNumber || "",
+      ifscCode: bankDetails.ifscCode || "",
+      bankName: bankDetails.bankName || "",
+      branchName: bankDetails.branchName || bankDetails.branch || "", // Handle both keys
+      accountName: bankDetails.accountName || "",
+      swiftCode: bankDetails.swiftCode || "",
+    } : {};
+
+    const vendor = await Vendor.create({
+      ...otherData,
+      name,
+      code,
+      bankDetails: formattedBankDetails,
+      company: companyId
+    });
+
+    res.status(201).json({ message: "Vendor created successfully", vendor });
+  } catch (error) {
+    console.error("Create Vendor Error:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Vendor code already exists" });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllVendors = async (req, res) => {
+  try {
+    const Vendor = req.getModel('Vendor', vendorSchema);
+
+    const companyId = getCompanyId(req);
+    const vendors = await Vendor.find({ company: companyId })
+      .sort({ name: 1 });
+    res.status(200).json({ vendors, count: vendors.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateVendor = async (req, res) => {
+  try {
+    const Vendor = req.getModel('Vendor', vendorSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    let updateData = { ...req.body };
+    if (req.body.bankDetails) {
+      updateData.bankDetails = {
+        accountNumber: req.body.bankDetails.accountNumber || "",
+        ifscCode: req.body.bankDetails.ifscCode || "",
+        bankName: req.body.bankDetails.bankName || "",
+        branchName: req.body.bankDetails.branchName || req.body.bankDetails.branch || "",
+        accountName: req.body.bankDetails.accountName || "",
+        swiftCode: req.body.bankDetails.swiftCode || "",
+      };
+    }
+
+    const vendor = await Vendor.findOneAndUpdate(
+      { _id: id, company: companyId },
+      updateData,
+      { new: true }
+    );
+    if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+    res.status(200).json({ message: "Vendor updated successfully", vendor });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteVendor = async (req, res) => {
+  try {
+    const Vendor = req.getModel('Vendor', vendorSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const vendor = await Vendor.findOneAndDelete({ _id: id, company: companyId });
+    if (!vendor) return res.status(404).json({ message: "Vendor not found" });
+    res.status(200).json({ message: "Vendor deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Customer
+// Customer
+export const createCustomer = async (req, res) => {
+  try {
+    const Customer = req.getModel('Customer', customerSchema);
+
+    const companyId = getCompanyId(req);
+    let { code, name, bankDetails, ...otherData } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: "Customer name is required" });
+    }
+
+    if (!code) {
+      const PrefixSettings = req.getModel("PrefixSettings", prefixSettingsSchema);
+      const settings = await PrefixSettings.findOne() || new PrefixSettings();
+      const prefix = settings.customerPrefix || "CUS";
+      
+      const lastCustomer = await Customer.findOne({ company: companyId, code: { $regex: new RegExp(`^${prefix}`) } }).sort({ code: -1 });
+      
+      let nextNumber = 1;
+      if (lastCustomer && lastCustomer.code) {
+        const match = lastCustomer.code.match(/\d+$/);
+        if (match) {
+          nextNumber = parseInt(match[0], 10) + 1;
+        }
+      }
+      code = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
+    }
+
+    // Ensure robust bank details mapping
+    const formattedBankDetails = bankDetails ? {
+      accountNumber: bankDetails.accountNumber || "",
+      ifscCode: bankDetails.ifscCode || "",
+      bankName: bankDetails.bankName || "",
+      branchName: bankDetails.branchName || bankDetails.branch || "", // Handle both keys
+      accountName: bankDetails.accountName || "",
+      swiftCode: bankDetails.swiftCode || "",
+    } : {};
+
+    const customer = await Customer.create({
+      ...otherData,
+      name,
+      code,
+      bankDetails: formattedBankDetails,
+      company: companyId
+    });
+    res.status(201).json({ message: "Customer created successfully", customer });
+  } catch (error) {
+    console.error("Create Customer Error:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Customer code already exists" });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteCustomer = async (req, res) => {
+  try {
+    const Customer = req.getModel('Customer', customerSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const customer = await Customer.findOneAndDelete({ _id: id, company: companyId });
+    if (!customer) return res.status(404).json({ message: "Customer not found" });
+    res.status(200).json({ message: "Customer deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllCustomers = async (req, res) => {
+  try {
+    const Customer = req.getModel('Customer', customerSchema);
+
+    const companyId = getCompanyId(req);
+    const customers = await Customer.find({ company: companyId }).sort({ name: 1 });
+    res.status(200).json({ customers, count: customers.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateCustomer = async (req, res) => {
+  try {
+    const Customer = req.getModel('Customer', customerSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    let updateData = { ...req.body };
+    if (req.body.bankDetails) {
+      updateData.bankDetails = {
+        accountNumber: req.body.bankDetails.accountNumber || "",
+        ifscCode: req.body.bankDetails.ifscCode || "",
+        bankName: req.body.bankDetails.bankName || "",
+        branchName: req.body.bankDetails.branchName || req.body.bankDetails.branch || "",
+        accountName: req.body.bankDetails.accountName || "",
+        swiftCode: req.body.bankDetails.swiftCode || "",
+      };
+    }
+
+    const customer = await Customer.findOneAndUpdate(
+      { _id: id, company: companyId },
+      updateData,
+      { new: true }
+    );
+    if (!customer) return res.status(404).json({ message: "Customer not found" });
+    res.status(200).json({ message: "Customer updated successfully", customer });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Location
+export const createLocation = async (req, res) => {
+  try {
+    const Location = req.getModel('Location', locationSchema);
+
+    const companyId = getCompanyId(req);
+    let { code, name } = req.body;
+
+    if (!code) {
+      const prefix = name.substring(0, 3).toUpperCase();
+      const random = Math.floor(1000 + Math.random() * 9000);
+      code = `LOC-${prefix}-${random}`;
+    }
+
+    const location = await Location.create({ ...req.body, code, company: companyId });
+    res.status(201).json({ message: "Location created successfully", location });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllLocations = async (req, res) => {
+  try {
+    const Location = req.getModel('Location', locationSchema);
+
+    const companyId = getCompanyId(req);
+    const locations = await Location.find({ company: companyId }).sort({ name: 1 });
+    res.status(200).json({ locations, count: locations.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateLocation = async (req, res) => {
+  try {
+    const Location = req.getModel('Location', locationSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const location = await Location.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    if (!location) return res.status(404).json({ message: "Location not found" });
+    res.status(200).json({ message: "Location updated successfully", location });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteLocation = async (req, res) => {
+  try {
+    const Location = req.getModel('Location', locationSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const location = await Location.findOneAndDelete({ _id: id, company: companyId });
+    if (!location) return res.status(404).json({ message: "Location not found" });
+    res.status(200).json({ message: "Location deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Category
+export const createCategory = async (req, res) => {
+  try {
+    const Category = req.getModel('Category', categorySchema);
+
+    const companyId = getCompanyId(req);
+    let { code, name } = req.body;
+
+    if (!code) {
+      const prefix = name.substring(0, 3).toUpperCase();
+      const random = Math.floor(1000 + Math.random() * 9000);
+      code = `CAT-${prefix}-${random}`;
+    }
+
+    const category = await Category.create({ ...req.body, code, company: companyId });
+    res.status(201).json({ message: "Category created successfully", category });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllCategories = async (req, res) => {
+  try {
+    const Category = req.getModel('Category', categorySchema);
+
+    const companyId = getCompanyId(req);
+    const categories = await Category.find({ company: companyId }).sort({ name: 1 });
+    res.status(200).json({ categories, count: categories.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateCategory = async (req, res) => {
+  try {
+    const Category = req.getModel('Category', categorySchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const category = await Category.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    if (!category) return res.status(404).json({ message: "Category not found" });
+    res.status(200).json({ message: "Category updated successfully", category });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteCategory = async (req, res) => {
+  try {
+    const Category = req.getModel('Category', categorySchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const category = await Category.findOneAndDelete({ _id: id, company: companyId });
+    if (!category) return res.status(404).json({ message: "Category not found" });
+    res.status(200).json({ message: "Category deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Material
+export const createMaterial = async (req, res) => {
+  try {
+    const Material = req.getModel('Material', materialSchema);
+
+    const companyId = getCompanyId(req);
+    let { code, name, categoryId, locationId } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: "Material name is required" });
+    }
+
+    if (!categoryId) {
+      return res.status(400).json({ message: "Category is required" });
+    }
+
+    /* 
+      Robust check for valid ObjectId format to prevent CastErrors 
+      passing straight to Mongoose
+    */
+    const isValidObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id);
+
+    if (!isValidObjectId(categoryId)) {
+      return res.status(400).json({ message: "Invalid Category ID format" });
+    }
+
+    // Optional: Check locationId too if provided
+    if (locationId && !isValidObjectId(locationId) && locationId !== "") {
+      // If it's an empty string, let's treat it as undefined/null
+      locationId = undefined;
+    }
+
+    // Auto-generate code if not provided
+    if (!code) {
+      const prefix = name.substring(0, 3).toUpperCase();
+      const random = Math.floor(1000 + Math.random() * 9000);
+      code = `MAT-${prefix}-${random}`;
+    }
+
+    const material = await Material.create({ name, code, categoryId, locationId, company: companyId });
+
+    // Populate category and location before sending response
+    await material.populate(['categoryId', 'locationId']);
+
+    res.status(201).json({ message: "Material created successfully", material });
+  } catch (error) {
+    console.error("Create Material Error:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Material code already exists" });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllMaterials = async (req, res) => {
+  try {
+    const Material = req.getModel('Material', materialSchema);
+
+    const companyId = getCompanyId(req);
+    const materials = await Material.find({ company: companyId })
+      .populate('categoryId')
+      .populate('locationId')
+      .sort({ name: 1 });
+    res.status(200).json({ materials, count: materials.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateMaterial = async (req, res) => {
+  try {
+    const Material = req.getModel('Material', materialSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const material = await Material.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    ).populate(['categoryId', 'locationId']);
+    if (!material) return res.status(404).json({ message: "Material not found" });
+    res.status(200).json({ message: "Material updated successfully", material });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteMaterial = async (req, res) => {
+  try {
+    const Material = req.getModel('Material', materialSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const material = await Material.findOneAndDelete({ _id: id, company: companyId });
+    if (!material) return res.status(404).json({ message: "Material not found" });
+    res.status(200).json({ message: "Material deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== COMPANY INFO ==========
+
+export const getCompanyInfo = async (req, res) => {
+  try {
+    const CompanyInfo = req.getModel('CompanyInfo', companyInfoSchema);
+
+    const companyId = getCompanyId(req);
+    const info = await CompanyInfo.findOne({ company: companyId });
+    if (info) {
+      const infoObj = info.toObject();
+      if (infoObj.logo) infoObj.logo = (await signPhotos([infoObj.logo]))[0];
+      return res.status(200).json(infoObj);
+    }
+    res.status(200).json({});
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateCompanyInfo = async (req, res) => {
+  try {
+    const CompanyInfo = req.getModel('CompanyInfo', companyInfoSchema);
+
+    const companyId = getCompanyId(req);
+    let updateData = { ...req.body, company: companyId };
+
+    // Parse nested objects if they come as strings (FormData)
+    if (typeof updateData.bankDetails === 'string') {
+      try { updateData.bankDetails = JSON.parse(updateData.bankDetails); } catch (e) { }
+    }
+    if (typeof updateData.printSettings === 'string') {
+      try { updateData.printSettings = JSON.parse(updateData.printSettings); } catch (e) { }
+    }
+
+    if (req.file) {
+      const logo = await uploadOnS3(req.file.path, "logos", getCompanyLoginId(req));
+      if (logo) {
+        updateData.logo = logo.secure_url;
+      }
+    }
+
+    const info = await CompanyInfo.findOneAndUpdate(
+      { company: companyId },
+      updateData,
+      { new: true, upsert: true }
+    );
+    res.status(200).json({ message: "Company info updated successfully", info });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+// ========== DELIVERY CHALLAN (DC) ==========
+
+export const createDC = async (req, res) => {
+  try {
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+
+    const companyId = getCompanyId(req);
+    const { dcNumber, date, customer, items, status } = req.body;
+
+    console.log("Creating DC:", { dcNumber, companyId });
+
+    const dc = await DeliveryChallan.create({
+      company: companyId,
+      dcNumber,
+      date,
+      customerName: req.body.customerName, // Fallback or direct
+      customer,
+      customerAddress: req.body.customerAddress,
+      items,
+      discount: req.body.discount,
+      otherDetails: req.body.otherDetails,
+      status: status || 'Draft',
+      preparedBy: req.user.id
+    });
+
+    res.status(201).json({ message: "DC created successfully", dc });
+  } catch (error) {
+    console.error("Error creating DC:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllDCs = async (req, res) => {
+  try {
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+
+    const companyId = getCompanyId(req);
+    console.log("Fetching DCs for company:", companyId);
+
+    const dcs = await DeliveryChallan.find({ company: companyId })
+      .populate('items.material')
+      .populate('customer')
+      .sort({ createdAt: -1 }); // Newest first
+
+    console.log(`Found ${dcs.length} DCs`);
+
+    // transform for frontend if needed, or just send
+    // using 'data' key to ensure useStoreData hook picks it up correctly (result.data)
+    res.status(200).json({ data: dcs, count: dcs.length });
+  } catch (error) {
+    console.error("Error fetching DCs:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateDC = async (req, res) => {
+  try {
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+
+    const dc = await DeliveryChallan.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+
+    if (!dc) return res.status(404).json({ message: "DC not found" });
+    res.status(200).json({ message: "DC updated successfully", dc });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteDC = async (req, res) => {
+  try {
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const dc = await DeliveryChallan.findOneAndDelete({ _id: id, company: companyId });
+    if (!dc) return res.status(404).json({ message: "DC not found" });
+    res.status(200).json({ message: "DC deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+// ========== INVOICE / BILLING ==========
+
+export const createInvoice = async (req, res) => {
+  try {
+    const Invoice = req.getModel('Invoice', invoiceSchema);
+
+    const companyId = getCompanyId(req);
+    console.log("Creating Invoice:", req.body.invoiceNumber);
+
+    const invoice = await Invoice.create({
+      company: companyId,
+      ...req.body,
+      preparedBy: req.user.id
+    });
+    res.status(201).json({ message: "Invoice created successfully", invoice });
+  } catch (error) {
+    console.error("Error creating Invoice:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllInvoices = async (req, res) => {
+  try {
+    const Invoice = req.getModel('Invoice', invoiceSchema);
+
+    const companyId = getCompanyId(req);
+    console.log("Fetching Invoices for company:", companyId);
+
+    const invoices = await Invoice.find({ company: companyId })
+      .populate('items.material')
+      .populate('customer')
+      .sort({ createdAt: -1 });
+
+    console.log(`Found ${invoices.length} Invoices`);
+
+    // using 'data' key to ensure useStoreData hook picks it up correctly
+    res.status(200).json({ data: invoices, count: invoices.length });
+  } catch (error) {
+    console.error("Error fetching Invoices:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateInvoice = async (req, res) => {
+  try {
+    const Invoice = req.getModel('Invoice', invoiceSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const invoice = await Invoice.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+    res.status(200).json({ message: "Invoice updated successfully", invoice });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteInvoice = async (req, res) => {
+  try {
+    const Invoice = req.getModel('Invoice', invoiceSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const invoice = await Invoice.findOneAndDelete({ _id: id, company: companyId });
+    if (!invoice) return res.status(404).json({ message: "Invoice not found" });
+    res.status(200).json({ message: "Invoice deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get GRN History for a specific Item (Material or Component)
+export const getItemGRNHistory = async (req, res) => {
+  try {
+    const GRN = req.getModel('GRN', grnSchema);
+
+    const companyId = getCompanyId(req);
+    const { type, id } = req.params;
+
+    if (!id || !type) {
+      return res.status(400).json({ message: "Item ID and Type are required" });
+    }
+
+    // Build query
+    const query = { company: companyId };
+
+    if (type === 'bo') {
+      query['items.material'] = id;
+    } else if (type === 'inhouse') {
+      query['items.component'] = id;
+    }
+
+    const grns = await GRN.find(query)
+      .populate("supplier", "name")
+      .populate("customer", "name")
+      .sort({ date: -1, createdAt: -1 })
+      .limit(5);
+
+    res.status(200).json({ grns });
+  } catch (error) {
+    console.error("Error fetching item GRN history:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+// ========== JOB WORK STORE ==========
+
+export const createJobWorkChallan = async (req, res) => {
+  try {
+    const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
+      const Material = req.getModel("Material", materialSchema);
+      const Component = req.getModel("Component", componentSchema);
+
+    const companyId = getCompanyId(req);
+    let { challanNumber, vendor, date, expectedReturnDate, items } = req.body;
+
+    // Validate Input
+    if (!vendor || !items || items.length === 0) {
+      return res.status(400).json({ message: "Vendor, and items are required" });
+    }
+
+    // Auto-generate Challan Number if missing
+    if (!challanNumber) {
+      const lastChallan = await JobWorkChallan.findOne({ company: companyId }).sort({ createdAt: -1 });
+      if (lastChallan && lastChallan.challanNumber && lastChallan.challanNumber.startsWith("JWC-")) {
+        const lastNum = parseInt(lastChallan.challanNumber.split("-")[1], 10);
+        if (!isNaN(lastNum)) {
+          challanNumber = `JWC-${String(lastNum + 1).padStart(4, '0')}`;
+        } else {
+          challanNumber = `JWC-0001`;
+        }
+      } else {
+        challanNumber = `JWC-0001`;
+      }
+    }
+
+    // Process Items and Update Source Stock
+    const processedItems = [];
+    for (const item of items) {
+      const { item: itemId, itemType, quantitySent, processType, unit, description } = item;
+
+      // 1. Validate Stock & Fetch Name
+      let itemName = "";
+      if (itemType === "bo") {
+        const materialDoc = await Material.findById(itemId);
+        if (!materialDoc) return res.status(400).json({ message: `Material not found: ${itemId}` });
+
+        itemName = materialDoc.name;
+        // Inventory update disabled as per user request
+
+      } else { // InHouse
+        const componentDoc = await Component.findById(itemId);
+        if (!componentDoc) return res.status(400).json({ message: `Component not found: ${itemId}` });
+
+        itemName = componentDoc.componentName;
+        // Inventory update disabled as per user request
+      }
+
+
+      processedItems.push({
+        item: itemId,
+        itemName,
+        itemType,
+        processType,
+        quantitySent,
+        quantityReceived: 0,
+        unit: unit || "PCS",
+        description,
+        status: "Sent",
+      });
+    }
+
+    // Create Challan
+    const jobWork = await JobWorkChallan.create({
+      company: companyId,
+      challanNumber,
+      vendor,
+      date: date || new Date(),
+      expectedReturnDate,
+      status: "Open",
+      items: processedItems,
+      createdBy: req.user.id
+    });
+
+    res.status(201).json({ message: "Job Work Challan created successfully", jobWork });
+
+  } catch (error) {
+    console.error("Create JobWork Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const receiveJobWorkItems = async (req, res) => {
+  try {
+    const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
+      const Component = req.getModel("Component", componentSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const { items: receivedItems } = req.body; // Array of { itemId, quantityReceived }
+
+    const jobWork = await JobWorkChallan.findById(id);
+    if (!jobWork) return res.status(404).json({ message: "Job Work Challan not found" });
+
+    let allCompleted = true;
+
+    for (const recItem of receivedItems) {
+      const { itemId, quantity } = recItem; // itemId here is the _id of the item inside Challan.items
+      const jwItem = jobWork.items.id(itemId); // Use subdocument ID method
+
+      if (jwItem) {
+        // Validation
+        const pending = jwItem.quantitySent - jwItem.quantityReceived;
+
+        // Update JW Item
+        jwItem.quantityReceived += Number(quantity);
+        if (jwItem.quantityReceived >= jwItem.quantitySent) {
+          jwItem.status = "Completed";
+
+
+        } else {
+          jwItem.status = "Partial";
+          allCompleted = false;
+        }
+
+        // Inventory update disabled as per user request
+        
+        // Add to history timeline
+        if (!jobWork.receiveHistory) jobWork.receiveHistory = [];
+        jobWork.receiveHistory.push({
+          date: new Date(),
+          itemId: itemId,
+          quantity: Number(quantity)
+        });
+
+      }
+    }
+
+    // Update Main Status
+    const anyPending = jobWork.items.some(i => i.status !== "Completed");
+    jobWork.status = anyPending ? "Partial" : "Closed";
+
+    await jobWork.save();
+
+    res.status(200).json({ message: "Items received successfully", jobWork });
+
+  } catch (error) {
+    console.error("Receive JobWork Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllJobWorkChallans = async (req, res) => {
+  try {
+    const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
+
+    // Ensure all referenced models are registered
+    req.getModel("JobWorkSupplier", jobWorkSupplierSchema);
+    req.getModel("Category", categorySchema);
+    req.getModel("Vendor", vendorSchema);
+    req.getModel("Location", locationSchema);
+    req.getModel("Process", processSchema);
+
+    const companyId = getCompanyId(req);
+
+    const challans = await JobWorkChallan.find({ company: companyId })
+      .populate("vendor", "name code")
+      .sort({ date: -1 });
+
+    res.status(200).json({ challans });
+  } catch (error) {
+    console.error("JobWork Fetch Error", error);
+    res.status(500).json({ message: error.message, stack: error.stack });
+  }
+};
+
+export const updateJobWorkChallan = async (req, res) => {
+  try {
+    const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+
+    const existingChallan = await JobWorkChallan.findOne({ _id: id, company: companyId });
+    if (!existingChallan) return res.status(404).json({ message: "Job Work Challan not found" });
+
+    // Block edit if already partially or fully received
+    if (existingChallan.status === "Partial" || existingChallan.status === "Closed") {
+      return res.status(400).json({ message: "Cannot edit a challan that has received items" });
+    }
+
+    const challan = await JobWorkChallan.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    res.status(200).json({ message: "Job Work Challan updated successfully", challan });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteJobWorkChallan = async (req, res) => {
+  try {
+    const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+
+    const existingChallan = await JobWorkChallan.findOne({ _id: id, company: companyId });
+    if (!existingChallan) return res.status(404).json({ message: "Job Work Challan not found" });
+
+    // Block delete if already partially or fully received
+    if (existingChallan.status === "Partial" || existingChallan.status === "Closed") {
+      return res.status(400).json({ message: "Cannot delete a challan that has received items" });
+    }
+
+    await JobWorkChallan.findOneAndDelete({ _id: id, company: companyId });
+    res.status(200).json({ message: "Job Work Challan deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Job-Work Supplier
+export const createJobWorkSupplier = async (req, res) => {
+  try {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+
+    const companyId = getCompanyId(req);
+    let { name, code, ...otherData } = req.body;
+
+    if (!name) return res.status(400).json({ message: "Name is required" });
+
+    if (!code) {
+      const PrefixSettings = req.getModel("PrefixSettings", prefixSettingsSchema);
+      const settings = await PrefixSettings.findOne() || new PrefixSettings();
+      const prefix = settings.jobWorkSupplierPrefix || "JWS";
+      
+      const lastSupplier = await JobWorkSupplier.findOne({ company: companyId, code: { $regex: new RegExp(`^${prefix}`) } }).sort({ code: -1 });
+      
+      let nextNumber = 1;
+      if (lastSupplier && lastSupplier.code) {
+        const match = lastSupplier.code.match(/\d+$/);
+        if (match) {
+          nextNumber = parseInt(match[0], 10) + 1;
+        }
+      }
+      code = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
+    }
+
+    // Ensure robust bank details mapping
+    const formattedBankDetails = otherData.bankDetails ? {
+      accountNumber: otherData.bankDetails.accountNumber || "",
+      ifscCode: otherData.bankDetails.ifscCode || "",
+      bankName: otherData.bankDetails.bankName || "",
+      branchName: otherData.bankDetails.branchName || otherData.bankDetails.branch || "", // Handle both keys
+    } : {};
+
+    const supplier = await JobWorkSupplier.create({
+      ...otherData,
+      name,
+      code,
+      bankDetails: formattedBankDetails,
+      company: companyId
+    });
+    res.status(201).json({ message: "Job-Work Supplier created successfully", supplier });
+  } catch (error) {
+    if (error.code === 11000) return res.status(400).json({ message: "Code already exists" });
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllJobWorkSuppliers = async (req, res) => {
+  try {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+
+    const companyId = getCompanyId(req);
+    const suppliers = await JobWorkSupplier.find({ company: companyId })
+
+      .populate("processList", "processName")
+      .sort({ name: 1 });
+    res.status(200).json({ jobWorkSuppliers: suppliers, count: suppliers.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateJobWorkSupplier = async (req, res) => {
+  try {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    let updateData = { ...req.body };
+    if (req.body.bankDetails) {
+      updateData.bankDetails = {
+        accountNumber: req.body.bankDetails.accountNumber || "",
+        ifscCode: req.body.bankDetails.ifscCode || "",
+        bankName: req.body.bankDetails.bankName || "",
+        branchName: req.body.bankDetails.branchName || req.body.bankDetails.branch || "",
+      };
+    }
+
+    const supplier = await JobWorkSupplier.findOneAndUpdate(
+      { _id: id, company: companyId },
+      updateData,
+      { new: true }
+    );
+    if (!supplier) return res.status(404).json({ message: "Supplier not found" });
+    res.status(200).json({ message: "Supplier updated successfully", supplier });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteJobWorkSupplier = async (req, res) => {
+  try {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const supplier = await JobWorkSupplier.findOneAndDelete({ _id: id, company: companyId });
+    if (!supplier) return res.status(404).json({ message: "Supplier not found" });
+    res.status(200).json({ message: "Supplier deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ========== QUOTATIONS ==========
+
+export const createQuotation = async (req, res) => {
+  try {
+    const Quotation = req.getModel('Quotation', quotationSchema);
+    const companyId = getCompanyId(req);
+    const quotation = await Quotation.create({
+      ...req.body,
+      company: companyId,
+      preparedBy: req.user.id,
+    });
+    res.status(201).json({ message: "Quotation created successfully", quotation });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllQuotations = async (req, res) => {
+  try {
+    const Quotation = req.getModel('Quotation', quotationSchema);
+    req.getModel('Component', componentSchema); // Ensure Component is registered for populate
+
+    const companyId = getCompanyId(req);
+    const quotations = await Quotation.find({ company: companyId })
+      .populate("preparedBy", "name userId")
+      .populate("items.component", "componentName componentCode")
+      .sort({ createdAt: -1 });
+    res.status(200).json({ quotations, count: quotations.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateQuotation = async (req, res) => {
+  try {
+    const Quotation = req.getModel('Quotation', quotationSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const quotation = await Quotation.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    );
+    if (!quotation) return res.status(404).json({ message: "Quotation not found" });
+    res.status(200).json({ message: "Quotation updated successfully", quotation });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteQuotation = async (req, res) => {
+  try {
+    const Quotation = req.getModel('Quotation', quotationSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const quotation = await Quotation.findOneAndDelete({ _id: id, company: companyId });
+    if (!quotation) return res.status(404).json({ message: "Quotation not found" });
+    res.status(200).json({ message: "Quotation deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+

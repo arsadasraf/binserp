@@ -1,0 +1,31 @@
+services:
+  python:
+    image: minsarsad/binserp-python:v2
+    container_name: erp-python-prod
+    ports:
+      - "8001:8001"
+    restart: always
+
+  backend:
+    image: minsarsad/binserp-backend:v6
+    container_name: erp-backend-prod
+    ports:
+      - "8000:8000"
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - PYTHON_SERVICE_URL=http://python:8001
+    depends_on:
+      - python
+
+  frontend:
+    image: minsarsad/binserp-frontend:v5
+    container_name: erp-frontend-prod
+    ports:
+      - "3000:3000" # Mapping host port 80 to container port 3000
+    restart: always
+    depends_on:
+      - backend
+    env_file:
+      - .env.local

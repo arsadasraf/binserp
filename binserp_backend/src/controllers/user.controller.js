@@ -1,0 +1,551 @@
+import { userSchema } from "../models/user.model.js";
+import { employeeSchema } from "../models/hr.model.js";
+import { Company } from "../models/company.model.js";
+import { getTenantConnection, getTenantModel } from "../db/tenant.js";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { sendPasswordResetEmail } from "../utils/emailService.js";
+import { uploadOnS3, deleteFromS3, signPhotos } from "../utils/s3.js";
+
+// Generate JWT token for users
+// Generate JWT token for users
+const generateUserToken = (userId, companyId) => {
+  return jwt.sign({ id: userId, type: "user", companyId }, process.env.JWT_SECRET, {
+    expiresIn: "7d",
+  });
+};
+
+const getCompanyId = (req) => {
+  return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
+};
+
+const getCompanyLoginId = (req) => {
+  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
+};
+
+// ✅ Create User (Admin only)
+export const createUser = async (req, res) => {
+  try {
+    const { name, userId, email, password, department, allowedIP, allowedLocation } = req.body;
+    // Get company ID - if company token, use req.user.id, if user token, use req.user.company._id
+    const companyId = req.userType === "company" ? req.user.id : req.user.company._id;
+
+    // Validate input
+    if (!name || !userId || !email || !password || !department) {
+      return res.status(400).json({
+        message: "All fields are required: name, userId, email, password, department"
+      });
+    }
+
+    // Check if company exists
+    const company = await Company.findById(companyId);
+    if (!company) {
+      return res.status(404).json({ message: "Company not found" });
+    }
+
+    // Check if userId or email already exists
+    const UserModel = req.getModel('User', userSchema);
+    const existingUser = await UserModel.findOne({
+      $or: [{ userId }, { email }],
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        message: "User ID or email already exists"
+      });
+    }
+
+    // Create new user
+    const newUser = await UserModel.create({
+      company: companyId,
+      name,
+      userId,
+      email,
+      password,
+      department,
+      allowedIP,
+      allowedLocation,
+      roleLevel: getRoleLevel(department),
+      isActive: true,
+      activatedAt: new Date()
+    });
+
+    res.status(201).json({
+      message: "User created successfully",
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        userId: newUser.userId,
+        email: newUser.email,
+        department: newUser.department,
+        allowedIP: newUser.allowedIP,
+        allowedLocation: newUser.allowedLocation,
+        roleLevel: newUser.roleLevel,
+        name: newUser.name,
+        userId: newUser.userId,
+        email: newUser.email,
+        department: newUser.department,
+        roleLevel: newUser.roleLevel,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Get All Users (Admin only)
+export const getAllUsers = async (req, res) => {
+  try {
+    const UserModel = req.getModel('User', userSchema);
+    const users = await UserModel.find({}) // Tenant DB is already scoped
+      .select("-password")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      users,
+      count: users.length,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Get User by ID
+export const getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const UserModel = req.getModel('User', userSchema);
+    const user = await UserModel.findOne({ _id: id })
+      .select("-password");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json(user);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Update User
+export const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, department, password, allowedIP, allowedLocation } = req.body;
+
+    const UserModel = req.getModel('User', userSchema);
+    const user = await UserModel.findOne({ _id: id });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update fields
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (department) {
+      user.department = department;
+      user.roleLevel = getRoleLevel(department);
+    }
+    if (password) user.password = password; // Will be hashed by pre-save hook
+    if (allowedIP !== undefined) user.allowedIP = allowedIP;
+    if (allowedLocation) user.allowedLocation = allowedLocation;
+
+    await user.save();
+
+    res.status(200).json({
+      message: "User updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        userId: user.userId,
+        email: user.email,
+        department: user.department,
+        roleLevel: user.roleLevel,
+        allowedIP: user.allowedIP,
+        allowedLocation: user.allowedLocation,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Delete User
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const UserModel = req.getModel('User', userSchema);
+
+    const user = await UserModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const createdTime = new Date(user.createdAt).getTime();
+    const currentTime = new Date().getTime();
+    const hoursDifference = (currentTime - createdTime) / (1000 * 60 * 60);
+
+    if (hoursDifference > 24) {
+      return res.status(400).json({ 
+        message: "Cannot delete user after 24 hours of creation. You can deactivate them instead." 
+      });
+    }
+
+    await UserModel.findByIdAndDelete(id);
+
+    res.status(200).json({ message: "User deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Toggle User Status (Activate/Deactivate)
+export const toggleUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const UserModel = req.getModel('User', userSchema);
+
+    const user = await UserModel.findById(id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Toggle status
+    user.isActive = !user.isActive;
+    
+    // Update activatedAt if it's being activated
+    if (user.isActive) {
+      user.activatedAt = new Date();
+    }
+
+    await user.save();
+
+    res.status(200).json({ 
+      message: `User ${user.isActive ? 'activated' : 'deactivated'} successfully`,
+      user 
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ User Login (Supports both Users and Employees)
+export const loginUser = async (req, res) => {
+  try {
+    const { companyId, userId, password } = req.body;
+
+    if (!companyId || !userId || !password) {
+      return res.status(400).json({ message: "CompanyID, UserId, and Password are required" });
+    }
+
+    // 1. Find Company Strategy
+    const company = await Company.findOne({ companyId });
+    if (!company) {
+      return res.status(404).json({ message: "Company not found" });
+    }
+
+    if (!company.dbName) {
+      return res.status(500).json({ message: "Company database not configured." });
+    }
+
+    // 2. Get Tenant Models
+    const UserModel = getTenantModel(company.dbName, "User", userSchema);
+    const EmployeeModel = getTenantModel(company.dbName, "Employee", employeeSchema);
+
+    // 3. Try Finding User first
+    const user = await UserModel.findOne({ userId });
+
+    if (user) {
+      // --- USER FOUND ---
+      if (user.isActive === false) {
+        return res.status(403).json({ message: "Account deactivated. Please contact an administrator." });
+      }
+
+      const isMatch = await user.comparePassword(password);
+      if (!isMatch) {
+        return res.status(401).json({ message: "Invalid credentials" });
+      }
+
+      // 🔒 Security Checks (IP/Location) for User
+      // 1. IP Check
+      if (user.allowedIP) {
+        const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress;
+        if (!clientIP || !clientIP.includes(user.allowedIP)) {
+          return res.status(403).json({ message: `Access denied from restricted IP.` });
+        }
+      }
+
+      // 2. Location Check
+      if (user.allowedLocation && user.allowedLocation.lat && user.allowedLocation.lng) {
+        const { latitude, longitude } = req.body;
+        if (!latitude || !longitude) {
+          return res.status(403).json({ message: "Location access required for this account." });
+        }
+        const distance = getDistanceFromLatLonInKm(
+          user.allowedLocation.lat,
+          user.allowedLocation.lng,
+          Number(latitude),
+          Number(longitude)
+        );
+        const maxRadiusKm = (user.allowedLocation.radius || 500) / 1000;
+        if (distance > maxRadiusKm) {
+          return res.status(403).json({ message: "Access denied from this location." });
+        }
+      }
+
+      // Pass companyId to token
+      const token = generateUserToken(user._id, company.companyId);
+
+      return res.status(200).json({
+        message: "Login successful",
+        user: {
+          id: user._id,
+          name: user.name,
+          userId: user.userId,
+          email: user.email,
+          department: user.department,
+          roleLevel: user.roleLevel,
+          photo: (await signPhotos([user.photo]))[0],
+          company: {
+            id: company._id,
+            companyId: company.companyId,
+            companyName: company.companyName,
+          },
+        },
+        token,
+      });
+    }
+
+    // 4. Try Finding Employee if User not found
+    const employee = await EmployeeModel.findOne({ employeeId: userId });
+
+    if (employee) {
+      // --- EMPLOYEE FOUND ---
+      // Password must match Joining Date (YYYY-MM-DD)
+      const joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
+
+      if (password !== joiningDate) {
+        return res.status(401).json({ message: "Invalid credentials (Password is your Joining Date: YYYY-MM-DD)" });
+      }
+
+      if (employee.status !== 'Active') {
+        return res.status(403).json({ message: "Account is not active." });
+      }
+
+      // Generate Token with 'employee' type
+      const token = jwt.sign({ id: employee._id, type: "employee", companyId: company.companyId }, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+
+      // Determine Role Level (Employee generic)
+      const roleLevel = getRoleLevel("Operator"); // Default to lowest unless we map designations
+
+      return res.status(200).json({
+        message: "Employee Login successful",
+        user: {
+          id: employee._id,
+          name: employee.name,
+          userId: employee.employeeId,
+          email: employee.email,
+          department: employee.department, // Use real department
+          designation: employee.designation,
+          roleLevel: roleLevel, // For frontend checks
+          photo: (await signPhotos([employee.photo]))[0],
+          type: 'employee',
+          company: {
+            id: company._id,
+            companyId: company.companyId,
+            companyName: company.companyName,
+          },
+        },
+        token,
+      });
+    }
+
+    // Neither User nor Employee found
+    return res.status(404).json({ message: "User/Employee ID not found" });
+
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Request Password Reset
+export const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    /* // Refactor: Password reset by email only is hard without knowing tenant
+    const user = await User.findOne({ email });
+    */
+    const user = null; // DISABLED for now
+    if (!user) {
+      // Don't reveal if email exists for security
+      return res.status(200).json({ message: "If the email exists, a password reset link has been sent" });
+    }
+
+    // Generate reset token
+    const resetToken = user.generatePasswordResetToken();
+    await user.save();
+
+    // Send password reset email
+    await sendPasswordResetEmail(user.email, resetToken, user.name, "user");
+
+    res.status(200).json({
+      message: "Password reset link sent to your email",
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Reset Password
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ message: "Token and new password are required" });
+    }
+
+    // Hash the token to compare with stored hash
+    const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+    // Find user with valid reset token
+    /* // Refactor: Global user search needed
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() },
+    });
+    */
+    const user = null; // DISABLED
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired reset token" });
+    }
+
+    // Update password
+    user.password = newPassword; // Will be hashed by pre-save hook
+    user.passwordResetToken = "";
+    user.passwordResetExpires = null;
+    await user.save();
+
+    res.status(200).json({
+      message: "Password reset successfully. You can now login with your new password.",
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Update User Profile (Self)
+export const updateUserProfile = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+    const UserModel = req.getModel('User', userSchema);
+    const user = await UserModel.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Update fields if provided
+    if (name) user.name = name;
+    if (email) user.email = email;
+
+    await user.save();
+
+    res.status(200).json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        name: user.name,
+        userId: user.userId,
+        email: user.email,
+        department: user.department,
+        photo: (await signPhotos([user.photo]))[0],
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ✅ Upload User Photo
+export const uploadUserPhoto = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    const UserModel = req.getModel('User', userSchema);
+    const user = await UserModel.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Upload to S3
+    const companyId = req.userType === "company" ? req.user.id : req.user.company._id;
+    const result = await uploadOnS3(req.file.path, "users", getCompanyLoginId(req));
+    if (!result) {
+      return res.status(500).json({ message: "Failed to upload image to S3" });
+    }
+
+    // Update user photo
+    user.photo = result.secure_url;
+    await user.save();
+
+    res.status(200).json({
+      message: "Photo uploaded successfully",
+      photo: (await signPhotos([user.photo]))[0],
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Helper function to get role level
+const getRoleLevel = (department) => {
+  const roleLevels = {
+    CEO: 10,
+    MD: 9,
+    Manager: 8,
+    Admin: 7,
+    HR: 5,
+    Store: 5,
+    Accounts: 5,
+    PPC: 5,
+    Quality: 5,
+    Maintenance: 5,
+    CRM: 5,
+    Security: 2,
+    Employee: 1,
+  };
+  return roleLevels[department] || 1;
+};
+
+// Haversine Formula for Distance Calculation
+const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Radius of the earth in km
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c; // Distance in km
+  return d;
+};
+
+const deg2rad = (deg) => {
+  return deg * (Math.PI / 180);
+};

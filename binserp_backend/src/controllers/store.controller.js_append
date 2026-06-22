@@ -1,0 +1,232 @@
+
+// ========== JOB WORK CHALLAN ==========
+
+export const createJobWorkChallan = async (req, res) => {
+  const JobWorkChallan = req.getModel('JobWorkChallan', jobWorkSchema);
+  const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+  const Material = req.getModel('Material', materialSchema);
+  const Component = req.getModel('Component', componentSchema);
+  const Vendor = req.getModel('Vendor', vendorSchema);
+
+  try {
+    const companyId = getCompanyId(req);
+    const { challanNumber, date, vendor, expectedReturnDate, items } = req.body;
+
+    if (!challanNumber || !vendor || !items || items.length === 0) {
+      return res.status(400).json({ message: "Challan number, vendor, and items are required" });
+    }
+
+    // Validate Vendor/Supplier
+    // Frontend might send 'vendor' ID which could be JobWorkSupplier or regular Vendor?
+    // JobWorkStore passes 'vendors' or 'jobWorkSuppliers'. The schema links to 'JobWorkSupplier'.
+    // We should check both or assume JobWorkSupplier based on ref.
+    // The schema says ref: "JobWorkSupplier".
+    const supplier = await JobWorkSupplier.findById(vendor);
+    if (!supplier) {
+       // Check regular vendor fallback?
+       const regularVendor = await Vendor.findById(vendor);
+       if (!regularVendor) return res.status(400).json({ message: "Job Work Vendor not found" });
+    }
+
+    const processedItems = [];
+
+    for (const item of items) {
+      const quantitySent = Number(item.quantitySent);
+      if (isNaN(quantitySent) || quantitySent <= 0) {
+        return res.status(400).json({ message: `Invalid quantity for item ${item.itemName}` });
+      }
+
+      // Decrement Stock
+      if (item.itemType === 'inhouse') {
+        const component = await Component.findById(item.item);
+        if (!component) return res.status(400).json({ message: `Component not found: ${item.itemName}` });
+        
+        await updateComponentStock(req, item.item, -quantitySent);
+        
+        processedItems.push({
+          item: item.item,
+          itemName: component.componentName || component.name, // Ensure name is saved
+          itemType: 'inhouse',
+          processType: item.processType,
+          quantitySent: quantitySent,
+          quantityReceived: 0,
+          unit: item.unit || 'PCS',
+          description: item.description,
+          status: 'Sent'
+        });
+
+      } else {
+        // BO Item
+        let materialId = item.item;
+        // Verify material
+        const material = await Material.findById(materialId);
+        if(!material) return res.status(400).json({ message: `Material not found: ${item.itemName}` });
+
+        await updateInventoryStock(req, materialId, -quantitySent, item.unit || "PCS");
+
+        processedItems.push({
+            item: item.item, // Material ID
+            itemName: material.name,
+            itemType: 'bo',
+            processType: item.processType,
+            quantitySent: quantitySent,
+            quantityReceived: 0,
+            unit: item.unit || material.unit || 'PCS',
+            description: item.description,
+            status: 'Sent'
+        });
+      }
+    }
+
+    const challan = await JobWorkChallan.create({
+      company: companyId,
+      challanNumber,
+      vendor,
+      date: date || new Date(),
+      expectedReturnDate,
+      items: processedItems,
+      createdBy: req.user.id,
+      status: "Open"
+    });
+
+    res.status(201).json({ message: "Job Work Challan created successfully", challan });
+  } catch (error) {
+    console.error("Create JW Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllJobWorkChallans = async (req, res) => {
+  const JobWorkChallan = req.getModel('JobWorkChallan', jobWorkSchema);
+  try {
+    const companyId = getCompanyId(req);
+    const challans = await JobWorkChallan.find({ company: companyId })
+      .populate("vendor", "name code")
+      .populate("createdBy", "name")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ challans, count: challans.length });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const receiveJobWorkItems = async (req, res) => {
+    const JobWorkChallan = req.getModel('JobWorkChallan', jobWorkSchema);
+    try {
+        const companyId = getCompanyId(req);
+        const { id } = req.params;
+        const { receivedItems } = req.body; // Array of { itemId (subdoc id), quantityReceived }
+
+        if (!receivedItems || !Array.isArray(receivedItems)) {
+            return res.status(400).json({ message: "Received items data is required" });
+        }
+
+        const challan = await JobWorkChallan.findOne({ _id: id, company: companyId });
+        if (!challan) return res.status(404).json({ message: "Challan not found" });
+
+        for (const update of receivedItems) {
+            const item = challan.items.id(update.itemId);
+            if (item) {
+                const newRecv = Number(update.quantityReceived);
+                const currentRecv = item.quantityReceived || 0;
+                const diff = newRecv; // Accessing the *delta* or the *total*? 
+                // Usually modal sends "quantity being received NOW".
+                // Let's assume input is "quantity to ADD to received".
+                
+                // Wait, logic depends on frontend.
+                // JobWorkReceiveModal usually sends `quantity` to receive.
+                
+                if (diff > 0) {
+                    item.quantityReceived = currentRecv + diff;
+                    
+                    // Update main stock (add back processed item)
+                    // Note: Ideally processed item might be a DIFFERENT item (new part number).
+                    // But for simple flow, we add back the SAME item code (inventory).
+                    if (item.itemType === 'inhouse') {
+                        await updateComponentStock(req, item.item, diff);
+                    } else {
+                        await updateInventoryStock(req, item.item, diff, item.unit);
+                    }
+                }
+
+                // Update Item Status
+                if (item.quantityReceived >= item.quantitySent) {
+                    item.status = 'Completed';
+                } else if (item.quantityReceived > 0) {
+                    item.status = 'Partial';
+                }
+            }
+        }
+
+        // Update Challan Status
+        const allCompleted = challan.items.every(i => i.status === 'Completed');
+        const anyReceived = challan.items.some(i => i.quantityReceived > 0);
+        
+        if (allCompleted) challan.status = 'Closed';
+        else if (anyReceived) challan.status = 'Partial';
+        else challan.status = 'Open';
+
+        await challan.save();
+
+        res.status(200).json({ message: "Items received successfully", challan });
+    } catch (error) {
+        console.error("Receive JW Error:", error);
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// ========== JOB WORK SUPPLIER ==========
+
+export const createJobWorkSupplier = async (req, res) => {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+    try {
+        const companyId = getCompanyId(req);
+        const supplier = await JobWorkSupplier.create({
+            ...req.body,
+            company: companyId
+        });
+        res.status(201).json({ message: "Supplier created successfully", supplier });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const getAllJobWorkSuppliers = async (req, res) => {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+    try {
+        const companyId = getCompanyId(req);
+        const jobWorkSuppliers = await JobWorkSupplier.find({ company: companyId }).sort({ createdAt: -1 });
+        res.status(200).json({ jobWorkSuppliers });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const updateJobWorkSupplier = async (req, res) => {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+    try {
+        const companyId = getCompanyId(req);
+        const { id } = req.params;
+        const supplier = await JobWorkSupplier.findOneAndUpdate(
+            { _id: id, company: companyId },
+            req.body,
+            { new: true }
+        );
+        res.status(200).json({ message: "Supplier updated successfully", supplier });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const deleteJobWorkSupplier = async (req, res) => {
+    const JobWorkSupplier = req.getModel('JobWorkSupplier', jobWorkSupplierSchema);
+    try {
+        const companyId = getCompanyId(req);
+        const { id } = req.params;
+        await JobWorkSupplier.findOneAndDelete({ _id: id, company: companyId });
+        res.status(200).json({ message: "Supplier deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

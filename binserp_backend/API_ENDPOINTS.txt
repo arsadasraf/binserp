@@ -1,0 +1,728 @@
+Backend API Endpoint Inventory
+=============================
+Total endpoints: 181
+Generated from binsanalytics_backend/src/routes and binsanalytics_backend/src/app.js
+
+GET    /api/accounts/stats
+      Handler: getOverviewStats
+      Source:  accounts.routes.js
+
+GET    /api/auth/google
+      Handler: (req, res, next
+      Source:  auth.routes.js
+
+GET    /api/auth/google/callback
+      Handler: (req, res, next
+      Source:  auth.routes.js
+
+POST   /api/company/register
+      Handler: registerCompany
+      Source:  company.routes.js
+
+POST   /api/company/login
+      Handler: loginCompany
+      Source:  company.routes.js
+
+POST   /api/company/forgot-password
+      Handler: requestPasswordReset
+      Source:  company.routes.js
+
+POST   /api/company/reset-password
+      Handler: resetPassword
+      Source:  company.routes.js
+
+GET    /api/company/me
+      Handler: verifyJWT, getCompanyProfile
+      Source:  company.routes.js
+
+PUT    /api/company/settings
+      Handler: verifyJWT, updateCompanySettings
+      Source:  company.routes.js
+
+POST   /api/company/upload-logo
+      Handler: verifyJWT, upload.single("logo"
+      Source:  company.routes.js
+
+GET    /api/crm/stats
+      Handler: getCRMStats
+      Source:  crm.routes.js
+
+POST   /api/crm/leads/:id/convert
+      Handler: convertLeadToCustomer
+      Source:  crm.routes.js
+
+GET    /api/hr/stats
+      Handler: getDashboardStats
+      Source:  hr.routes.js
+
+GET    /api/hr/dashboard/me
+      Handler: getEmployeeDashboardData
+      Source:  hr.routes.js
+
+POST   /api/hr/job/assign
+      Handler: assignJob
+      Source:  hr.routes.js
+
+GET    /api/hr/job/me
+      Handler: getEmployeeJobs
+      Source:  hr.routes.js
+
+PUT    /api/hr/job/:id/status
+      Handler: updateEmployeeJobStatus
+      Source:  hr.routes.js
+
+POST   /api/hr/employee
+      Handler: upload.single("photo"
+      Source:  hr.routes.js
+
+GET    /api/hr/employee
+      Handler: getAllEmployees
+      Source:  hr.routes.js
+
+GET    /api/hr/employee/:id
+      Handler: getEmployeeById
+      Source:  hr.routes.js
+
+PUT    /api/hr/employee/:id
+      Handler: upload.single("photo"
+      Source:  hr.routes.js
+
+PUT    /api/hr/employee/:id/toggle-status
+      Handler: toggleEmployeeStatus
+      Source:  hr.routes.js
+
+DELETE /api/hr/employee/:id
+      Handler: deleteEmployee
+      Source:  hr.routes.js
+
+POST   /api/hr/attendance
+      Handler: upload.single("photo"
+      Source:  hr.routes.js
+
+GET    /api/hr/attendance
+      Handler: getAllAttendance
+      Source:  hr.routes.js
+
+GET    /api/hr/attendance/employee/:employeeId
+      Handler: getAttendanceByEmployee
+      Source:  hr.routes.js
+
+POST   /api/hr/department
+      Handler: createDepartment
+      Source:  hr.routes.js
+
+GET    /api/hr/department
+      Handler: getAllDepartments
+      Source:  hr.routes.js
+
+PUT    /api/hr/department/:id
+      Handler: updateDepartment
+      Source:  hr.routes.js
+
+DELETE /api/hr/department/:id
+      Handler: deleteDepartment
+      Source:  hr.routes.js
+
+POST   /api/hr/designation
+      Handler: createDesignation
+      Source:  hr.routes.js
+
+GET    /api/hr/designation
+      Handler: getAllDesignations
+      Source:  hr.routes.js
+
+PUT    /api/hr/designation/:id
+      Handler: updateDesignation
+      Source:  hr.routes.js
+
+DELETE /api/hr/designation/:id
+      Handler: deleteDesignation
+      Source:  hr.routes.js
+
+POST   /api/hr/skill
+      Handler: createSkill
+      Source:  hr.routes.js
+
+GET    /api/hr/skill
+      Handler: getAllSkills
+      Source:  hr.routes.js
+
+PUT    /api/hr/skill/:id
+      Handler: updateSkill
+      Source:  hr.routes.js
+
+DELETE /api/hr/skill/:id
+      Handler: deleteSkill
+      Source:  hr.routes.js
+
+POST   /api/hr/employee-type
+      Handler: createEmployeeType
+      Source:  hr.routes.js
+
+GET    /api/hr/employee-type
+      Handler: getAllEmployeeTypes
+      Source:  hr.routes.js
+
+PUT    /api/hr/employee-type/:id
+      Handler: updateEmployeeType
+      Source:  hr.routes.js
+
+DELETE /api/hr/employee-type/:id
+      Handler: deleteEmployeeType
+      Source:  hr.routes.js
+
+POST   /api/hr/face-data
+      Handler: upload.array("files", 5
+      Source:  hr.routes.js
+
+POST   /api/hr/mark-attendance
+      Handler: upload.single("file"
+      Source:  hr.routes.js
+
+GET    /api/hr/python-health
+      Handler: checkPythonHealth
+      Source:  hr.routes.js
+
+POST   /api/hr/salary
+      Handler: createSalarySlip
+      Source:  hr.routes.js
+
+GET    /api/hr/salary
+      Handler: getSalaries
+      Source:  hr.routes.js
+
+GET    /api/hr/salary/stats
+      Handler: getSalaryGenerationStats
+      Source:  hr.routes.js
+
+PUT    /api/hr/salary/:id
+      Handler: updateSalary
+      Source:  hr.routes.js
+
+DELETE /api/hr/salary/:id
+      Handler: deleteSalary
+      Source:  hr.routes.js
+
+GET    /api/maintenance/stats
+      Handler: getMaintenanceStats
+      Source:  maintenance.routes.js
+
+POST   /api/maintenance/breakdown
+      Handler: createBreakdownTicket
+      Source:  maintenance.routes.js
+
+GET    /api/maintenance/breakdown
+      Handler: getBreakdownTickets
+      Source:  maintenance.routes.js
+
+PUT    /api/maintenance/breakdown/:id/status
+      Handler: updateTicketStatus
+      Source:  maintenance.routes.js
+
+POST   /api/maintenance/preventive/schedule
+      Handler: createPreventiveSchedule
+      Source:  maintenance.routes.js
+
+GET    /api/maintenance/preventive/calendar
+      Handler: getPreventiveCalendar
+      Source:  maintenance.routes.js
+
+POST   /api/maintenance/preventive/complete
+      Handler: completePreventiveMaintenance
+      Source:  maintenance.routes.js
+
+POST   /api/maintenance/spare-parts
+      Handler: addSparePart
+      Source:  maintenance.routes.js
+
+GET    /api/maintenance/spare-parts
+      Handler: getSpareParts
+      Source:  maintenance.routes.js
+
+PUT    /api/maintenance/spare-parts/:id/stock
+      Handler: updateSparePartStock
+      Source:  maintenance.routes.js
+
+POST   /api/ppc/component
+      Handler: upload.any(
+      Source:  ppc.routes.js
+
+GET    /api/ppc/component
+      Handler: getAllComponents
+      Source:  ppc.routes.js
+
+GET    /api/ppc/component/:id
+      Handler: getComponentById
+      Source:  ppc.routes.js
+
+PUT    /api/ppc/component/:id
+      Handler: upload.any(
+      Source:  ppc.routes.js
+
+DELETE /api/ppc/component/:id
+      Handler: deleteComponent
+      Source:  ppc.routes.js
+
+POST   /api/ppc/component/:id/promote
+      Handler: promoteToInventory
+      Source:  ppc.routes.js
+
+GET    /api/ppc/machine/:id/schedules
+      Handler: getMachineSchedules
+      Source:  ppc.routes.js
+
+GET    /api/ppc/employee/:id/schedules
+      Handler: getEmployeeSchedules
+      Source:  ppc.routes.js
+
+POST   /api/ppc/machine-category
+      Handler: createMachineCategory
+      Source:  ppc.routes.js
+
+GET    /api/ppc/machine-category
+      Handler: getAllMachineCategories
+      Source:  ppc.routes.js
+
+PUT    /api/ppc/machine-category/:id
+      Handler: updateMachineCategory
+      Source:  ppc.routes.js
+
+DELETE /api/ppc/machine-category/:id
+      Handler: deleteMachineCategory
+      Source:  ppc.routes.js
+
+GET    /api/quality/stats
+      Handler: getQualityStats
+      Source:  quality.routes.js
+
+GET    /api/quality/process/pending
+      Handler: getPendingProcessQCJobs
+      Source:  quality.routes.js
+
+POST   /api/saasadmin/login
+      Handler: loginSaasAdmin
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/dashboard-stats
+      Handler: verifySaasAdminJWT, getDashboardStats
+      Source:  saasadmin.routes.js
+
+POST   /api/saasadmin/companies/create
+      Handler: verifySaasAdminJWT, createCompanyBySaasAdmin
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/companies
+      Handler: verifySaasAdminJWT, getAllCompanies
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/companies/:id
+      Handler: verifySaasAdminJWT, getCompanyById
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/companies/:id/analytics
+      Handler: verifySaasAdminJWT, getCompanyAnalytics
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/companies/:id/users
+      Handler: verifySaasAdminJWT, getUsersByCompany
+      Source:  saasadmin.routes.js
+
+PUT    /api/saasadmin/companies/:id/status
+      Handler: verifySaasAdminJWT, updateCompanyStatus
+      Source:  saasadmin.routes.js
+
+PUT    /api/saasadmin/companies/:id/reset-password
+      Handler: verifySaasAdminJWT, resetCompanyPassword
+      Source:  saasadmin.routes.js
+
+PUT    /api/saasadmin/companies/:id/suspend
+      Handler: verifySaasAdminJWT, suspendCompany
+      Source:  saasadmin.routes.js
+
+PUT    /api/saasadmin/companies/:id/unsuspend
+      Handler: verifySaasAdminJWT, unsuspendCompany
+      Source:  saasadmin.routes.js
+
+DELETE /api/saasadmin/companies/:id
+      Handler: verifySaasAdminJWT, deleteCompany
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/users
+      Handler: verifySaasAdminJWT, getAllUsers
+      Source:  saasadmin.routes.js
+
+DELETE /api/saasadmin/users/:id
+      Handler: verifySaasAdminJWT, deleteUser
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/audit-logs
+      Handler: verifySaasAdminJWT, getAuditLogs
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/export/companies
+      Handler: verifySaasAdminJWT, exportCompaniesCSV
+      Source:  saasadmin.routes.js
+
+GET    /api/saasadmin/export/users
+      Handler: verifySaasAdminJWT, exportUsersCSV
+      Source:  saasadmin.routes.js
+
+POST   /api/store/dc
+      Handler: createDC
+      Source:  store.routes.js
+
+GET    /api/store/dc
+      Handler: getAllDCs
+      Source:  store.routes.js
+
+PUT    /api/store/dc/:id
+      Handler: updateDC
+      Source:  store.routes.js
+
+DELETE /api/store/dc/:id
+      Handler: deleteDC
+      Source:  store.routes.js
+
+POST   /api/store/invoice
+      Handler: createInvoice
+      Source:  store.routes.js
+
+GET    /api/store/invoice
+      Handler: getAllInvoices
+      Source:  store.routes.js
+
+PUT    /api/store/invoice/:id
+      Handler: updateInvoice
+      Source:  store.routes.js
+
+POST   /api/store/grn
+      Handler: upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 10 }]
+      Source:  store.routes.js
+
+GET    /api/store/grn
+      Handler: getAllGRNs
+      Source:  store.routes.js
+
+PUT    /api/store/grn/:id
+      Handler: upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 10 }]
+      Source:  store.routes.js
+
+GET    /api/store/grn/history/:type/:id
+      Handler: getItemGRNHistory
+      Source:  store.routes.js
+
+DELETE /api/store/grn/:id
+      Handler: deleteGRN
+      Source:  store.routes.js
+
+POST   /api/store/material-issue
+      Handler: createMaterialIssue
+      Source:  store.routes.js
+
+GET    /api/store/material-issue
+      Handler: getAllMaterialIssues
+      Source:  store.routes.js
+
+PUT    /api/store/material-issue/:id
+      Handler: updateMaterialIssue
+      Source:  store.routes.js
+
+POST   /api/store/bom
+      Handler: createBOM
+      Source:  store.routes.js
+
+GET    /api/store/bom
+      Handler: getAllBOMs
+      Source:  store.routes.js
+
+PUT    /api/store/bom/:id
+      Handler: updateBOM
+      Source:  store.routes.js
+
+POST   /api/store/inventory
+      Handler: createInventory
+      Source:  store.routes.js
+
+GET    /api/store/inventory
+      Handler: getInventory
+      Source:  store.routes.js
+
+PUT    /api/store/inventory/:id
+      Handler: updateInventory
+      Source:  store.routes.js
+
+GET    /api/store/inventory/low-stock
+      Handler: getLowStockItems
+      Source:  store.routes.js
+
+POST   /api/store/material-request
+      Handler: createMaterialRequest
+      Source:  store.routes.js
+
+GET    /api/store/material-request
+      Handler: getAllMaterialRequests
+      Source:  store.routes.js
+
+PUT    /api/store/material-request/:id
+      Handler: updateMaterialRequest
+      Source:  store.routes.js
+
+POST   /api/store/po
+      Handler: createPO
+      Source:  store.routes.js
+
+GET    /api/store/po
+      Handler: getAllPOs
+      Source:  store.routes.js
+
+PUT    /api/store/po/:id
+      Handler: updatePO
+      Source:  store.routes.js
+
+POST   /api/store/vendor
+      Handler: createVendor
+      Source:  store.routes.js
+
+GET    /api/store/vendor
+      Handler: getAllVendors
+      Source:  store.routes.js
+
+PUT    /api/store/vendor/:id
+      Handler: updateVendor
+      Source:  store.routes.js
+
+DELETE /api/store/vendor/:id
+      Handler: deleteVendor
+      Source:  store.routes.js
+
+POST   /api/store/job-work-supplier
+      Handler: createJobWorkSupplier
+      Source:  store.routes.js
+
+GET    /api/store/job-work-supplier
+      Handler: getAllJobWorkSuppliers
+      Source:  store.routes.js
+
+PUT    /api/store/job-work-supplier/:id
+      Handler: updateJobWorkSupplier
+      Source:  store.routes.js
+
+DELETE /api/store/job-work-supplier/:id
+      Handler: deleteJobWorkSupplier
+      Source:  store.routes.js
+
+POST   /api/store/customer
+      Handler: createCustomer
+      Source:  store.routes.js
+
+GET    /api/store/customer
+      Handler: getAllCustomers
+      Source:  store.routes.js
+
+PUT    /api/store/customer/:id
+      Handler: updateCustomer
+      Source:  store.routes.js
+
+DELETE /api/store/customer/:id
+      Handler: deleteCustomer
+      Source:  store.routes.js
+
+POST   /api/store/location
+      Handler: createLocation
+      Source:  store.routes.js
+
+GET    /api/store/location
+      Handler: getAllLocations
+      Source:  store.routes.js
+
+PUT    /api/store/location/:id
+      Handler: updateLocation
+      Source:  store.routes.js
+
+DELETE /api/store/location/:id
+      Handler: deleteLocation
+      Source:  store.routes.js
+
+POST   /api/store/category
+      Handler: createCategory
+      Source:  store.routes.js
+
+GET    /api/store/category
+      Handler: getAllCategories
+      Source:  store.routes.js
+
+PUT    /api/store/category/:id
+      Handler: updateCategory
+      Source:  store.routes.js
+
+DELETE /api/store/category/:id
+      Handler: deleteCategory
+      Source:  store.routes.js
+
+POST   /api/store/material
+      Handler: createMaterial
+      Source:  store.routes.js
+
+GET    /api/store/material
+      Handler: getAllMaterials
+      Source:  store.routes.js
+
+PUT    /api/store/material/:id
+      Handler: updateMaterial
+      Source:  store.routes.js
+
+DELETE /api/store/material/:id
+      Handler: deleteMaterial
+      Source:  store.routes.js
+
+GET    /api/store/company-info
+      Handler: getCompanyInfo
+      Source:  store.routes.js
+
+PUT    /api/store/company-info
+      Handler: upload.single("logo"
+      Source:  store.routes.js
+
+POST   /api/store/jobwork/create
+      Handler: createJobWorkChallan
+      Source:  store.routes.js
+
+PUT    /api/store/jobwork/receive/:id
+      Handler: receiveJobWorkItems
+      Source:  store.routes.js
+
+GET    /api/store/jobwork/all
+      Handler: getAllJobWorkChallans
+      Source:  store.routes.js
+
+PUT    /api/store/jobwork/update/:id
+      Handler: updateJobWorkChallan
+      Source:  store.routes.js
+
+DELETE /api/store/jobwork/delete/:id
+      Handler: deleteJobWorkChallan
+      Source:  store.routes.js
+
+POST   /api/store/quotation
+      Handler: createQuotation
+      Source:  store.routes.js
+
+GET    /api/store/quotation
+      Handler: getAllQuotations
+      Source:  store.routes.js
+
+PUT    /api/store/quotation/:id
+      Handler: updateQuotation
+      Source:  store.routes.js
+
+DELETE /api/store/quotation/:id
+      Handler: deleteQuotation
+      Source:  store.routes.js
+
+POST   /api/store/fg-item
+      Handler: upload.array('photos', 5
+      Source:  store.routes.js
+
+GET    /api/store/fg-item
+      Handler: getAllFGItems
+      Source:  store.routes.js
+
+PUT    /api/store/fg-item/:id
+      Handler: upload.array('photos', 5
+      Source:  store.routes.js
+
+DELETE /api/store/fg-item/:id
+      Handler: deleteFGItem
+      Source:  store.routes.js
+
+POST   /api/store/fg-grn
+      Handler: upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 10 }]
+      Source:  store.routes.js
+
+GET    /api/store/fg-grn
+      Handler: getAllFGGRNs
+      Source:  store.routes.js
+
+PUT    /api/store/fg-grn/:id
+      Handler: upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 10 }]
+      Source:  store.routes.js
+
+DELETE /api/store/fg-grn/:id
+      Handler: deleteFGGRN
+      Source:  store.routes.js
+
+POST   /api/user/login
+      Handler: loginUser
+      Source:  user.routes.js
+
+POST   /api/user/forgot-password
+      Handler: requestPasswordReset
+      Source:  user.routes.js
+
+POST   /api/user/reset-password
+      Handler: resetPassword
+      Source:  user.routes.js
+
+PUT    /api/user/profile
+      Handler: verifyJWT, updateUserProfile
+      Source:  user.routes.js
+
+POST   /api/user/upload-photo
+      Handler: verifyJWT, upload.single("photo"
+      Source:  user.routes.js
+
+POST   /api/user/create
+      Handler: verifyJWT, createUser
+      Source:  user.routes.js
+
+GET    /api/user/all
+      Handler: verifyJWT, getAllUsers
+      Source:  user.routes.js
+
+GET    /api/user/:id
+      Handler: verifyJWT, getUserById
+      Source:  user.routes.js
+
+PUT    /api/user/:id
+      Handler: verifyJWT, updateUser
+      Source:  user.routes.js
+
+PUT    /api/user/toggle-status/:id
+      Handler: verifyJWT, toggleUserStatus
+      Source:  user.routes.js
+
+DELETE /api/user/:id
+      Handler: verifyJWT, deleteUser
+      Source:  user.routes.js
+
+POST   /api/vehicle/
+      Handler: createVehicle
+      Source:  vehicle.routes.js
+
+GET    /api/vehicle/active
+      Handler: getActiveVehicles
+      Source:  vehicle.routes.js
+
+GET    /api/vehicle/
+      Handler: getAllVehicles
+      Source:  vehicle.routes.js
+
+PUT    /api/vehicle/:id/checkout
+      Handler: checkOutVehicle
+      Source:  vehicle.routes.js
+
+POST   /api/visitor/
+      Handler: createVisitor
+      Source:  visitor.routes.js
+
+GET    /api/visitor/active
+      Handler: getActiveVisitors
+      Source:  visitor.routes.js
+
+GET    /api/visitor/
+      Handler: getAllVisitors
+      Source:  visitor.routes.js
+
+PUT    /api/visitor/:id/checkout
+      Handler: checkOutVisitor
+      Source:  visitor.routes.js
