@@ -92,7 +92,7 @@ export default function DCModal({
         const newItems = [...formData.items];
 
         if (type === "MAT") {
-            const selectedMaterial = materials.find((item: any) => item._id === id);
+            const selectedMaterial = materials.find((item: any) => item._id === id) as any;
             const categoryUnit =
                 (typeof selectedMaterial?.category === "object" && selectedMaterial.category !== null && "unit" in selectedMaterial.category)
                     ? selectedMaterial.category.unit

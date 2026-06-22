@@ -543,6 +543,7 @@ export interface POModalProps {
     onSubmit: (data: POFormData) => void;
     materials: Material[];
     vendors: Vendor[];
+    inHouseItems?: any[];
     loading: boolean;
     initialData?: POFormData;
     isEditing?: boolean;
@@ -576,6 +577,7 @@ export interface QuotationModalProps {
     onClose: () => void;
     onSubmit: (data: QuotationFormData) => void;
     components: any[];
+    materials?: any[];
     loading: boolean;
     initialData?: QuotationFormData;
     isEditing?: boolean;

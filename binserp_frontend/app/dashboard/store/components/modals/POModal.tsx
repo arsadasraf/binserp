@@ -15,7 +15,8 @@ import { X, Plus, Trash2 } from 'lucide-react';
 import { POModalProps, Material } from '../../types/store.types';
 
 interface MaterialEntry {
-    material: string;
+    material?: string;
+    component?: string;
     materialName: string;
     quantity: number;
     unit: string;
