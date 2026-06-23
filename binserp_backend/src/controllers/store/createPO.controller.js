@@ -97,8 +97,13 @@ export const createPO = async (req, res) => {
       status: status || "Released",
     };
 
-    // Single material format (from our frontend)
-    if (material || component) {
+    // Items array format (preferred)
+    if (items && items.length > 0) {
+      poData.items = items;
+      poData.totalAmount = totalAmount || items.reduce((sum, item) => sum + (item.amount || 0), 0);
+    }
+    // Single material format fallback
+    else if (material || component || materialName) {
       poData.material = material;
       poData.component = component;
       poData.materialName = materialName;
@@ -108,13 +113,8 @@ export const createPO = async (req, res) => {
       poData.amount = amount;
       poData.category = category;
       poData.totalAmount = amount || (quantity * rate);
-    }
-    // Items array format (for future multi-material POs)
-    else if (items && items.length > 0) {
-      poData.items = items;
-      poData.totalAmount = totalAmount || items.reduce((sum, item) => sum + (item.amount || 0), 0);
     } else {
-      return res.status(400).json({ message: "Either material/component or items are required" });
+      return res.status(400).json({ message: "Either items array or single material details are required" });
     }
 
     const po = await PurchaseOrder.create(poData);

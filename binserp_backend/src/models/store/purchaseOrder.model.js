@@ -10,7 +10,6 @@ export const purchaseOrderSchema = new mongoose.Schema(
     poNumber: {
       type: String,
       required: true,
-      unique: true,
     },
     date: {
       type: Date,
@@ -46,6 +45,11 @@ export const purchaseOrderSchema = new mongoose.Schema(
         component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component",
+        },
+        itemType: {
+          type: String,
+          enum: ["bo", "custom"],
+          default: "bo",
         },
         materialName: { type: String, required: true },
         quantity: { type: Number, required: true },

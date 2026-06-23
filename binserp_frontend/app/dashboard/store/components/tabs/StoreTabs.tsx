@@ -36,7 +36,7 @@ export default function StoreTabs({ activeTab }: StoreTabsProps) {
                         <Link
                             key={tab.id}
                             href={tab.href}
-                            className={`relative flex items-center gap-2 px-5 py-1 rounded-xl font-medium text-sm transition-all duration-300 ${isActive ? "text-white shadow-md" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                            className={`relative flex items-center gap-2 px-8 py-2.5 rounded-xl font-medium text-sm transition-all duration-300 ${isActive ? "text-white shadow-md" : "text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
                                 }`}
                         >
                             {isActive && (

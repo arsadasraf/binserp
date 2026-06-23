@@ -28,7 +28,7 @@ export default function BillsTabs({ activeTab, onTabChange }: BillsTabsProps) {
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={`
-              px-4 py-2 rounded-lg font-medium transition-all
+              px-8 py-2.5 rounded-xl font-semibold transition-all
               ${activeTab === tab.id
                 ? "bg-indigo-600 text-white shadow-md"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -42,7 +42,7 @@ export default function BillsTabs({ activeTab, onTabChange }: BillsTabsProps) {
             key={tab.id}
             href={`/dashboard/store?tab=${tab.id}`}
             className={`
-              px-4 py-2 rounded-lg font-medium transition-all
+              px-8 py-2.5 rounded-xl font-semibold transition-all
               ${activeTab === tab.id
                 ? "bg-indigo-600 text-white shadow-md"
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
