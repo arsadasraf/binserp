@@ -6,7 +6,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
     AreaChart, Area, PieChart, Pie, Cell, ComposedChart, Line
 } from 'recharts';
-import { Package, TrendingUp, AlertOctagon, DollarSign } from 'lucide-react';
+import { Package, TrendingUp, AlertOctagon, DollarSign, IndianRupeeIcon } from 'lucide-react';
 
 const COLORS = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b'];
 
@@ -40,7 +40,7 @@ export default function InventoryReports() {
         <div className="space-y-6">
             {/* KPI Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard title="Total Inventory Value" value="$125,400" trend="+12%" icon={DollarSign} color="violet" />
+                <KPICard title="Total Inventory Value" value="₹125,400" trend="+12%" icon={IndianRupeeIcon} color="violet" />
                 <KPICard title="Stock Items" value="1,240" trend="-5%" icon={Package} color="blue" />
                 <KPICard title="Low Stock Alerts" value="8" trend="Caution" icon={AlertOctagon} color="amber" />
                 <KPICard title="Inventory Turnover" value="4.2" trend="Good" icon={TrendingUp} color="emerald" />
@@ -185,8 +185,8 @@ function KPICard({ title, value, trend, icon: Icon, color }: any) {
             </div>
             <div className="mt-4 flex items-center gap-2">
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${trend.includes('+') ? 'bg-green-100 text-green-700' :
-                        trend.includes('-') ? 'bg-red-100 text-red-700' :
-                            'bg-gray-100 text-gray-700'
+                    trend.includes('-') ? 'bg-red-100 text-red-700' :
+                        'bg-gray-100 text-gray-700'
                     }`}>
                     {trend}
                 </span>
