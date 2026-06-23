@@ -358,37 +358,39 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex justify-end gap-2 items-center">
                       {order.status === 'Pending' && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleConfirmOrder(order); }}
-                          title="Confirm Order"
-                          className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                          title="Confirm Order to Generate RM Plan"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 rounded-lg transition-colors text-xs font-bold border border-green-200"
                         >
-                          <CheckCircle size={16} />
+                          <CheckCircle size={14} /> Confirm Order
                         </button>
                       )}
                       {(order.status === 'Planning' || order.status === 'Confirmed' || order.status === 'InProgress') && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setSelectedRmOrder(order); setRmPlanOpen(true); }}
-                          title="RM Plan"
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="View Material Requirements Plan"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 rounded-lg transition-colors text-xs font-bold border border-indigo-200"
                         >
-                          <ClipboardList size={16} />
+                          <ClipboardList size={14} /> RM Plan
                         </button>
                       )}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onEditOrder(order); }}
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDelete(order._id); }}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ml-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onEditOrder(order); }}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDelete(order._id); }}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   </td>
                 </tr>

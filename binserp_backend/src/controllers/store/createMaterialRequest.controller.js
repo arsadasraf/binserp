@@ -68,11 +68,15 @@ export const createMaterialRequest = async (req, res) => {
       const FGItem = req.getModel('FGItem', fgItemSchema);
 
     const companyId = getCompanyId(req);
-    const { requestNumber, department, items, priority, type } = req.body;
+    let { requestNumber, department, items, priority, type } = req.body;
 
-    if (!requestNumber || !items || items.length === 0) {
+    if (!requestNumber) {
+      requestNumber = `PR-${Date.now()}`;
+    }
+
+    if (!items || items.length === 0) {
       return res.status(400).json({
-        message: "Request number and items are required",
+        message: "Items are required",
       });
     }
 

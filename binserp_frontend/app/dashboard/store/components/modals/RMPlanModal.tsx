@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from 'react';
-import { X, FileSpreadsheet, FileText, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, FileSpreadsheet, FileText, AlertCircle, CheckCircle, ClipboardList } from 'lucide-react';
 import { useGetMaterialPlanQuery } from '@/src/store/services/ppcService';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import * as XLSX from 'xlsx';
@@ -71,35 +71,46 @@ export default function RMPlanModal({ isOpen, onClose, orderId, orderNumber }: R
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-        <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">RM Requirements Plan</h2>
-            <p className="text-sm text-gray-500 mt-1">Order Number: <span className="font-semibold text-gray-700 dark:text-gray-300">{orderNumber}</span></p>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+      <div className="bg-white/95 backdrop-blur-xl rounded-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-white/50">
+        
+        {/* Header */}
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-white/50">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-indigo-600 to-blue-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+              <ClipboardList className="text-white" size={24} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">
+                Material Requirements Plan (MRP)
+              </h2>
+              <p className="text-gray-500 text-sm mt-1 font-medium">
+                Auto-generated for Order: <span className="text-indigo-600 font-bold">{orderNumber}</span>
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
             {items.length > 0 && (
-              <div className="flex gap-2">
+              <div className="flex gap-3">
                 <button
                   onClick={handleExportExcel}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100 transition-colors border border-green-200"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-green-50 text-green-700 rounded-xl text-sm font-bold hover:bg-green-100 transition-colors border border-green-200 shadow-sm"
                 >
-                  <FileSpreadsheet className="w-4 h-4" /> Excel
+                  <FileSpreadsheet className="w-5 h-5" /> Export Excel
                 </button>
                 <button
                   onClick={handleExportPDF}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-700 rounded-lg text-sm font-medium hover:bg-red-100 transition-colors border border-red-200"
+                  className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl text-sm font-bold hover:from-indigo-700 hover:to-blue-700 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
                 >
-                  <FileText className="w-4 h-4" /> PDF
+                  <FileText className="w-5 h-5" /> Download PDF
                 </button>
               </div>
             )}
             <button
               onClick={onClose}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+              className="p-2.5 bg-gray-50 hover:bg-red-50 hover:text-red-600 rounded-full transition-all duration-200 text-gray-400 group ml-2"
             >
-              <X size={20} />
+              <X size={20} className="group-hover:rotate-90 transition-transform duration-300" />
             </button>
           </div>
         </div>

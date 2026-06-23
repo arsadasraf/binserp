@@ -296,7 +296,7 @@ export default function InventoryTable({
                                                 {item.currentStock}
                                                 {item.qcPendingStock ? <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">({item.qcPendingStock})</span> : null}
                                             </td>
-                                            <td className="px-6 py-4" onDoubleClick={(e) => handleOpeningStockDoubleClick(e, item)}>
+                                            <td className="px-6 py-4" onDoubleClick={(e) => handleOpeningStockEditClick(e, item)}>
                                                 {editingStockId === item._id ? (
                                                     <div className="flex items-center gap-2">
                                                         <input 

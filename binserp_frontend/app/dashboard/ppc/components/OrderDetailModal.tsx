@@ -266,15 +266,17 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                     >
                         Material Plan
                     </button>
-                    <button
-                        onClick={() => setActiveTab('production')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'production'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                            }`}
-                    >
-                        Production Jobs
-                    </button>
+                    {!storeView && (
+                        <button
+                            onClick={() => setActiveTab('production')}
+                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'production'
+                                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                }`}
+                        >
+                            Production Jobs
+                        </button>
+                    )}
                 </div>
 
                 <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative">
@@ -434,7 +436,7 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                         <MaterialPlanTab orderId={order._id} />
                     )}
 
-                    {activeTab === 'production' && (
+                    {!storeView && activeTab === 'production' && (
                         <ProductionJobsTab orderId={order._id} />
                     )}
                 </div>

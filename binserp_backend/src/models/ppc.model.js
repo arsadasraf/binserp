@@ -830,6 +830,8 @@ export const ppcOrderSchema = new mongoose.Schema(
         },
         productName: String,
         productCode: String,
+        description: String,
+        unit: String,
         price: {
           type: Number,
           default: 0,

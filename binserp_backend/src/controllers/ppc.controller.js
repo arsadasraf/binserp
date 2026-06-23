@@ -17,7 +17,7 @@ import {
   machineMaintenanceSchema,
 } from "../models/ppc.model.js";
 import { employeeSchema } from "../models/hr.model.js";
-import { bomSchema, inventorySchema } from "../models/store/index.js";
+import { bomSchema, inventorySchema, fgItemSchema } from "../models/store/index.js";
 import { autoScheduleOrder } from "../services/planning.service.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../utils/s3.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -167,8 +167,9 @@ export const getAllOrders = async (req, res) => {
 export const createPPCOrder = async (req, res) => {
   try {
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
-      const Component = req.getModel('Component', componentSchema);
-      const Job = req.getModel('Job', jobSchema);
+    const Component = req.getModel('Component', componentSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const Job = req.getModel('Job', jobSchema);
 
     const companyId = getCompanyId(req);
     let {
@@ -237,16 +238,32 @@ export const createPPCOrder = async (req, res) => {
     const updatedItems = [];
 
     for (const item of items) {
-      const { product: productId, quantity, trackingType, targetDate } = item;
-      const masterProduct = await Component.findById(productId).populate('routing.process'); // Populate if needed for names
+      const { product: productId, quantity, price, trackingType, targetDate } = item;
+      let masterProduct = await Component.findById(productId).populate('routing.process'); // Populate if needed for names
+      let isFGItem = false;
+
+      if (!masterProduct) {
+        masterProduct = await FGItem.findById(productId).populate('bom.item');
+        isFGItem = true;
+      }
 
       if (!masterProduct) continue; // Skip or error?
 
-      const productCode = masterProduct.componentCode;
+      const productCode = isFGItem ? masterProduct.code : masterProduct.componentCode;
+      const productName = isFGItem ? masterProduct.name : masterProduct.componentName;
+      const description = masterProduct.description;
+      const unit = masterProduct.unit;
 
       // Prepare Snapshots
-      const bomSnapshot = masterProduct.billOfMaterials;
-      const processSnapshot = masterProduct.routing.map(r => ({
+      const bomSnapshot = isFGItem ? (masterProduct.bom || []).map(b => ({
+          item: b.item?._id || b.item,
+          itemModel: b.itemType,
+          itemName: b.itemName,
+          quantity: b.quantity,
+          unit: b.unit
+      })) : masterProduct.billOfMaterials;
+
+      const processSnapshot = isFGItem ? [] : masterProduct.routing.map(r => ({
         processName: r.processName || (r.process && r.process.processName) || 'Unnamed Process',
         standardTime: r.standardTime,
         description: r.description,
@@ -257,9 +274,12 @@ export const createPPCOrder = async (req, res) => {
 
       updatedItems.push({
         product: masterProduct._id,
-        productName: masterProduct.componentName,
-        productCode: masterProduct.componentCode,
+        productName: productName,
+        productCode: productCode,
+        description: description,
+        unit: unit,
         quantity,
+        price: price || 0,
         trackingType: trackingType || 'Individual',
         targetDate: targetDate || undefined,
         bomSnapshot,
