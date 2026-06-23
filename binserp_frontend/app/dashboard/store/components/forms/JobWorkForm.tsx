@@ -107,7 +107,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                 setLoading(false);
                 return;
             }
-            if (formData.items.some(i => !i.item || !i.processType || i.quantitySent <= 0)) {
+            if (formData.items.some(i => (i.itemType === 'custom' ? !i.itemName : !i.item) || !i.processType || i.quantitySent <= 0)) {
                 onError('Please check item details (Item, Process, Quantity)');
                 setLoading(false);
                 return;
@@ -267,13 +267,22 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                                                     onChange={e => handleItemChange(idx, 'itemType', e.target.value)}
                                                     className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors text-gray-700 font-medium cursor-pointer"
                                                 >
-                                                    <option value="bo">Raw Mat</option>
-                                                    <option value="Component">Component</option>
-                                                    <option value="SubAssembly">Sub Assembly</option>
-                                                    <option value="Assembly">Assembly</option>
+                                                    <option value="bo">RM / BO</option>
+                                                    <option value="inhouse">Fg items</option>
+                                                    <option value="custom">Custom</option>
                                                 </select>
                                             </td>
                                             <td className="p-3">
+                                                {item.itemType === 'custom' ? (
+                                                    <input
+                                                        type="text"
+                                                        value={item.itemName || ''}
+                                                        onChange={e => handleItemChange(idx, 'itemName', e.target.value)}
+                                                        className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors text-gray-900 font-medium"
+                                                        placeholder="Custom Item Name"
+                                                        required
+                                                    />
+                                                ) : (
                                                 <select
                                                     value={item.item}
                                                     onChange={e => handleItemChange(idx, 'item', e.target.value)}
@@ -284,42 +293,20 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                                                     {item.itemType === 'bo' ? (
                                                         materials.map(m => <option key={m._id} value={m._id}>{m.name}</option>)
                                                     ) : (
-                                                        inHouseItems
-                                                            .filter(i => i.type === item.itemType)
-                                                            .map(i => <option key={i._id} value={i._id}>{i.componentName}</option>)
+                                                        inHouseItems.map(i => <option key={i._id} value={i._id}>{i.componentName || i.name}</option>)
                                                     )}
                                                 </select>
+                                                )}
                                             </td>
                                             <td className="p-3">
-                                                {item.itemType !== 'bo' ? (
-                                                    <select
-                                                        value={item.processType}
-                                                        onChange={e => handleItemChange(idx, 'processType', e.target.value)}
-                                                        className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors cursor-pointer"
-                                                        required
-                                                    >
-                                                        <option value="">Select Process</option>
-                                                        {(() => {
-                                                            const selectedItem = inHouseItems.find(i => i._id === item.item);
-                                                            if (selectedItem && selectedItem.routing) {
-                                                                return selectedItem.routing.map((r: any, rIdx: number) => {
-                                                                    const pName = r.processName || (r.process?.processName) || r.process?.name || `Process ${rIdx + 1}`;
-                                                                    return <option key={rIdx} value={pName}>{pName}</option>;
-                                                                });
-                                                            }
-                                                            return null;
-                                                        })()}
-                                                    </select>
-                                                ) : (
-                                                    <input
-                                                        type="text"
-                                                        value={item.processType}
-                                                        onChange={e => handleItemChange(idx, 'processType', e.target.value)}
-                                                        placeholder="e.g. Machining"
-                                                        className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors"
-                                                        required
-                                                    />
-                                                )}
+                                                <input
+                                                    type="text"
+                                                    value={item.processType}
+                                                    onChange={e => handleItemChange(idx, 'processType', e.target.value)}
+                                                    placeholder="e.g. Machining"
+                                                    className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors"
+                                                    required
+                                                />
                                             </td>
                                             <td className="p-3">
                                                 <input

@@ -34,13 +34,12 @@ export const jobWorkSchema = new mongoose.Schema(
       {
         item: {
           type: mongoose.Schema.Types.ObjectId,
-          // Refers to Material (BO) or Component (InHouse)
-          required: true,
+          // Refers to Material (BO) or Component (InHouse). Optional for custom items.
         },
         itemName: String,
         itemType: {
           type: String,
-          enum: ["bo", "inhouse", "Component", "SubAssembly", "Assembly"],
+          enum: ["bo", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
           required: true,
         },
         processType: {

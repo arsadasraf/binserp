@@ -983,7 +983,7 @@ function StoreContent() {
                   vendors={vendors}
                   jobWorkSuppliers={jobWorkSuppliers}
                   materials={materials}
-
+                  inHouseItems={fgItems}
                   activeTab={activeTab}
                   token={token}
                   onError={(msg) => setError(msg)}

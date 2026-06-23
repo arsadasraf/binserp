@@ -16,7 +16,8 @@ import {
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
-  quotationSchema
+  quotationSchema,
+  fgItemSchema
 } from "../../models/store/index.js";
 import { prefixSettingsSchema } from "../../models/prefix.model.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc.model.js";
@@ -63,8 +64,8 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const createJobWorkChallan = async (req, res) => {
   try {
     const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
-      const Material = req.getModel("Material", materialSchema);
-      const Component = req.getModel("Component", componentSchema);
+    const Material = req.getModel("Material", materialSchema);
+    const FGItem = req.getModel("FGItem", fgItemSchema);
 
     const companyId = getCompanyId(req);
     let { challanNumber, vendor, date, expectedReturnDate, items } = req.body;
@@ -96,24 +97,24 @@ export const createJobWorkChallan = async (req, res) => {
 
       // 1. Validate Stock & Fetch Name
       let itemName = "";
+      let validItemId = itemId;
+      
       if (itemType === "bo") {
         const materialDoc = await Material.findById(itemId);
         if (!materialDoc) return res.status(400).json({ message: `Material not found: ${itemId}` });
 
         itemName = materialDoc.name;
-        // Inventory update disabled as per user request
-
+      } else if (itemType === "custom") {
+        itemName = item.itemName || "Custom Item";
+        validItemId = null; // Custom items don't have an ID
       } else { // InHouse
-        const componentDoc = await Component.findById(itemId);
-        if (!componentDoc) return res.status(400).json({ message: `Component not found: ${itemId}` });
+        const fgDoc = await FGItem.findById(itemId);
+        if (!fgDoc) return res.status(400).json({ message: `FG Item not found: ${itemId}` });
 
-        itemName = componentDoc.componentName;
-        // Inventory update disabled as per user request
+        itemName = fgDoc.name || fgDoc.componentName;
       }
 
-
-      processedItems.push({
-        item: itemId,
+      const processedItem = {
         itemName,
         itemType,
         processType,
@@ -122,7 +123,12 @@ export const createJobWorkChallan = async (req, res) => {
         unit: unit || "PCS",
         description,
         status: "Sent",
-      });
+      };
+
+      if (validItemId) {
+        processedItem.item = validItemId;
+      }
+      processedItems.push(processedItem);
     }
 
     // Create Challan

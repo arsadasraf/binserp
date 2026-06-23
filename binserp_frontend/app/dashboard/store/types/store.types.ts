@@ -415,7 +415,7 @@ export interface JobWorkItem {
     _id?: string;
     item: string; // ID of Material or Component
     itemName: string;
-    itemType: 'bo' | 'inhouse';
+    itemType: 'bo' | 'inhouse' | 'custom';
     processType: string;
     quantitySent: number;
     quantityReceived: number;
@@ -442,7 +442,8 @@ export interface JobWorkFormData {
     expectedReturnDate?: string;
     items: {
         item: string;
-        itemType: 'bo' | 'inhouse';
+        itemName?: string; // Optional name for custom items
+        itemType: 'bo' | 'inhouse' | 'custom';
         processType: string;
         quantitySent: number;
         unit: string;
