@@ -17,7 +17,9 @@ import {
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
-  quotationSchema
+  quotationSchema,
+  rmInventoryMonthlySchema,
+  fgInventoryMonthlySchema
 } from "../../models/store/index.js";
 import { prefixSettingsSchema } from "../../models/prefix.model.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc.model.js";
@@ -311,6 +313,10 @@ export const createGRN = async (req, res) => {
     // If QC Not Required -> Add to Main Stock
     if (type === 'bo' && (status === "Accepted" || status === "Received" || !status)) {
       try {
+        const currentDate = new Date();
+        const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+        const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+
         for (const item of itemsArray) {
           await updateInventoryStock(
             req,
@@ -320,6 +326,16 @@ export const createGRN = async (req, res) => {
             item.locationId,
             { isPending: !!qcRequired }
           );
+
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: item.material, month: currentMonthStr },
+              { $inc: { totalInwardQuantity: parseFloat(item.quantity) } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error updating RM monthly inward quantity:", monthlyErr);
+          }
         }
       } catch (err) {
         console.error("Error updating inventory:", err);
@@ -349,6 +365,20 @@ export const createGRN = async (req, res) => {
                 { $inc: { quantity: qty } },
                 { new: true }
               );
+
+              try {
+                const currentDate = new Date();
+                const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+                
+                await FGInventoryMonthly.findOneAndUpdate(
+                  { company: companyId, fgItem: compId, month: currentMonthStr },
+                  { $inc: { totalInwardQuantity: qty } },
+                  { new: true, upsert: true }
+                );
+              } catch (monthlyErr) {
+                console.error("Error updating FG monthly inward quantity:", monthlyErr);
+              }
 
               console.log(`[InHouseUpdate] DB Update Result for ${compId}:`, updateRes ? `New Qty: ${updateRes.quantity}` : "FAILED - Doc not found");
 

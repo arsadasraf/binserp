@@ -14,9 +14,10 @@
 
 import React, { useState, useMemo } from 'react';
 import { InventoryItem } from '../../types/store.types';
-import { Package, Factory, Download, Search } from 'lucide-react';
+import { Package, Factory, Download, Search, Edit2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
+import { apiPost } from '@/src/lib/api';
 
 interface InventoryTableProps {
     data: InventoryItem[];
@@ -27,6 +28,7 @@ interface InventoryTableProps {
     onSubTabChange: (tab: 'bo' | 'inhouse') => void;
     hideTabs?: boolean;
     onItemClick?: (item: InventoryItem) => void;
+    refetch?: () => void;
 }
 
 export default function InventoryTable({
@@ -37,10 +39,51 @@ export default function InventoryTable({
     activeSubTab,
     onSubTabChange,
     hideTabs,
-    onItemClick
+    onItemClick,
+    refetch
 }: InventoryTableProps) {
     const [filters, setFilters] = useState<Record<string, string[]>>({});
     const [searchQuery, setSearchQuery] = useState('');
+
+    const [editingStockId, setEditingStockId] = useState<string | null>(null);
+    const [editingStockValue, setEditingStockValue] = useState<number>(0);
+    const [isUpdating, setIsUpdating] = useState(false);
+
+    const handleOpeningStockEditClick = (e: React.MouseEvent, item: any) => {
+        e.stopPropagation();
+        setEditingStockId(item._id);
+        setEditingStockValue(item.monthlyData?.openingStock || 0);
+    };
+
+    const handleOpeningStockSave = async (e: React.MouseEvent | React.KeyboardEvent, item: any) => {
+        e.stopPropagation();
+        setIsUpdating(true);
+        try {
+            const token = localStorage.getItem('token');
+            const currentDate = new Date();
+            const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            
+            const endpoint = activeSubTab === 'bo' ? '/api/store/monthly-inventory/rm' : '/api/store/monthly-inventory/fg';
+            const payload = activeSubTab === 'bo' ? {
+                materialId: item.material || item._id,
+                month: currentMonthStr,
+                openingStock: editingStockValue
+            } : {
+                fgItemId: item._id,
+                month: currentMonthStr,
+                openingStock: editingStockValue
+            };
+
+            await apiPost(endpoint, payload, token);
+            
+            if (refetch) refetch();
+        } catch (error) {
+            console.error("Failed to update opening stock", error);
+        } finally {
+            setIsUpdating(false);
+            setEditingStockId(null);
+        }
+    };
 
     const handleFilterChange = (column: string, values: string[]) => {
         setFilters(prev => ({
@@ -202,6 +245,7 @@ export default function InventoryTable({
                                         />
                                     </th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Stock</th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Monthly Flow</th>
                                     <th className="px-6 py-3 text-left">
                                         <ColumnFilter
                                             column="unit"
@@ -252,6 +296,42 @@ export default function InventoryTable({
                                                 {item.currentStock}
                                                 {item.qcPendingStock ? <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">({item.qcPendingStock})</span> : null}
                                             </td>
+                                            <td className="px-6 py-4" onDoubleClick={(e) => handleOpeningStockDoubleClick(e, item)}>
+                                                {editingStockId === item._id ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <input 
+                                                            type="number" 
+                                                            value={editingStockValue} 
+                                                            onChange={(e) => setEditingStockValue(Number(e.target.value))}
+                                                            className="w-20 px-2 py-1 border rounded text-sm text-gray-900"
+                                                            onClick={e => e.stopPropagation()}
+                                                            onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
+                                                            autoFocus
+                                                        />
+                                                        <button 
+                                                            onClick={(e) => handleOpeningStockSave(e, item)}
+                                                            disabled={isUpdating}
+                                                            className="px-2 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
+                                                        >
+                                                            {isUpdating ? '...' : 'Save'}
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }}
+                                                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                                                        >
+                                                            X
+                                                        </button>
+                                                    </div>
+                                                ) : item.monthlyData ? (
+                                                    <span className="flex items-center gap-1 font-medium text-gray-700 cursor-pointer" title="Double click to edit opening stock">
+                                                        {item.monthlyData.openingStock}
+                                                        <span className="text-green-600 ml-1 text-xs" title="Inward">(+{item.monthlyData.totalInwardQuantity})</span>
+                                                        <span className="text-red-600 text-xs" title="Outward">(-{item.monthlyData.totalOutwardQuantity})</span>
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-gray-400 cursor-pointer hover:text-gray-600" title="Double click to edit opening stock">-</span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4 text-gray-600">{item.unit}</td>
                                             <td className="px-6 py-4 text-gray-600">
                                                 {getCategoryValue(item)}
@@ -286,6 +366,40 @@ export default function InventoryTable({
                                             {item.currentStock} {item.qcPendingStock ? `(${item.qcPendingStock})` : ''} {item.unit}
                                         </span>
                                     </div>
+
+                                    {item.monthlyData && (
+                                        <div className="flex items-center gap-2 text-xs mt-1 bg-gray-50 p-1.5 rounded-lg border border-gray-100 w-fit group">
+                                            {editingStockId === item._id ? (
+                                                <div className="flex items-center gap-2">
+                                                    <input 
+                                                        type="number" 
+                                                        value={editingStockValue} 
+                                                        onChange={(e) => setEditingStockValue(Number(e.target.value))}
+                                                        className="w-16 px-1 py-1 border rounded text-xs text-gray-900"
+                                                        onClick={e => e.stopPropagation()}
+                                                        onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
+                                                        autoFocus
+                                                    />
+                                                    <button onClick={(e) => handleOpeningStockSave(e, item)} disabled={isUpdating} className="px-2 py-1 bg-indigo-600 text-white rounded text-[10px]">Save</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px]">X</button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span className="text-gray-500 font-medium">Opening:</span>
+                                                    <span className="font-bold">{item.monthlyData.openingStock}</span>
+                                                    <button 
+                                                        onClick={(e) => handleOpeningStockEditClick(e, item)}
+                                                        className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors opacity-60 group-hover:opacity-100"
+                                                        title="Edit opening stock"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                    <span className="text-green-600 font-medium ml-1">(+{item.monthlyData.totalInwardQuantity})</span>
+                                                    <span className="text-red-600 font-medium">(-{item.monthlyData.totalOutwardQuantity})</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-50 text-sm">
                                         <div>
@@ -336,6 +450,7 @@ export default function InventoryTable({
                                     </th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Stock</th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Monthly Flow</th>
                                     <th className="px-6 py-3 text-left">
                                         <ColumnFilter
                                             column="unit"
@@ -377,6 +492,49 @@ export default function InventoryTable({
                                             <td className={`px-6 py-4 font-medium ${item.quantity <= (item.reorderLevel || 0) ? "text-red-600" : "text-green-600"}`}>
                                                 {item.quantity}
                                             </td>
+                                            <td className="px-6 py-4">
+                                                {editingStockId === item._id ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <input 
+                                                            type="number" 
+                                                            value={editingStockValue} 
+                                                            onChange={(e) => setEditingStockValue(Number(e.target.value))}
+                                                            className="w-20 px-2 py-1 border rounded text-sm text-gray-900"
+                                                            onClick={e => e.stopPropagation()}
+                                                            onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
+                                                            autoFocus
+                                                        />
+                                                        <button 
+                                                            onClick={(e) => handleOpeningStockSave(e, item)}
+                                                            disabled={isUpdating}
+                                                            className="px-2 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
+                                                        >
+                                                            {isUpdating ? '...' : 'Save'}
+                                                        </button>
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }}
+                                                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
+                                                        >
+                                                            X
+                                                        </button>
+                                                    </div>
+                                                ) : item.monthlyData ? (
+                                                    <div className="flex items-center gap-1 font-medium text-gray-700 group">
+                                                        <span>{item.monthlyData.openingStock}</span>
+                                                        <button 
+                                                            onClick={(e) => handleOpeningStockEditClick(e, item)}
+                                                            className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors opacity-60 group-hover:opacity-100 ml-1"
+                                                            title="Edit opening stock"
+                                                        >
+                                                            <Edit2 size={12} />
+                                                        </button>
+                                                        <span className="text-green-600 ml-1 text-xs" title="Inward">(+{item.monthlyData.totalInwardQuantity})</span>
+                                                        <span className="text-red-600 text-xs" title="Outward">(-{item.monthlyData.totalOutwardQuantity})</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-400">-</span>
+                                                )}
+                                            </td>
                                             <td className="px-6 py-4 text-gray-600">{item.unit || '-'}</td>
                                             <td className="px-6 py-4 text-gray-600">
                                                 {getLocationValue(item)}
@@ -408,6 +566,40 @@ export default function InventoryTable({
                                             {item.quantity} {item.unit || ''}
                                         </span>
                                     </div>
+
+                                    {item.monthlyData && (
+                                        <div className="flex items-center gap-2 text-xs mt-1 bg-gray-50 p-1.5 rounded-lg border border-gray-100 w-fit group">
+                                            {editingStockId === item._id ? (
+                                                <div className="flex items-center gap-2">
+                                                    <input 
+                                                        type="number" 
+                                                        value={editingStockValue} 
+                                                        onChange={(e) => setEditingStockValue(Number(e.target.value))}
+                                                        className="w-16 px-1 py-1 border rounded text-xs text-gray-900"
+                                                        onClick={e => e.stopPropagation()}
+                                                        onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
+                                                        autoFocus
+                                                    />
+                                                    <button onClick={(e) => handleOpeningStockSave(e, item)} disabled={isUpdating} className="px-2 py-1 bg-indigo-600 text-white rounded text-[10px]">Save</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px]">X</button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span className="text-gray-500 font-medium">Opening:</span>
+                                                    <span className="font-bold">{item.monthlyData.openingStock}</span>
+                                                    <button 
+                                                        onClick={(e) => handleOpeningStockEditClick(e, item)}
+                                                        className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors opacity-60 group-hover:opacity-100"
+                                                        title="Edit opening stock"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                    <span className="text-green-600 font-medium ml-1">(+{item.monthlyData.totalInwardQuantity})</span>
+                                                    <span className="text-red-600 font-medium">(-{item.monthlyData.totalOutwardQuantity})</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
 
                                     <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-50 text-sm">
                                         <div>

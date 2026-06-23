@@ -1,4 +1,4 @@
-import { fgItemSchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 
 const getCompanyId = (req) => {
@@ -78,9 +78,31 @@ export const getAllFGItems = async (req, res) => {
       .populate('location', 'name')
       .populate('customer', 'name')
       .populate('bom.item', 'name componentName code componentCode') 
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    res.status(200).json({ fgItems, count: fgItems.length });
+    // Fetch monthly tracking for the current month
+    const currentDate = new Date();
+    const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+    
+    const monthlyRecords = await FGInventoryMonthly.find({ company: companyId, month: currentMonthStr }).lean();
+    const monthlyMap = new Map();
+    for (const rec of monthlyRecords) {
+        if (rec.fgItem) {
+            monthlyMap.set(rec.fgItem.toString(), rec);
+        }
+    }
+
+    const fgItemsWithMonthly = fgItems.map(item => {
+        const itemMonthly = monthlyMap.get(item._id.toString());
+        return {
+            ...item,
+            monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }
+        };
+    });
+
+    res.status(200).json({ fgItems: fgItemsWithMonthly, count: fgItemsWithMonthly.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

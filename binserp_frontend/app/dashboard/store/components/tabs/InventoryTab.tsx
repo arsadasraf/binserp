@@ -210,6 +210,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                             setSelectedItem(item);
                             setShowDetails(true);
                         }}
+                        refetch={refetch}
                     />
                 )}
             </div>

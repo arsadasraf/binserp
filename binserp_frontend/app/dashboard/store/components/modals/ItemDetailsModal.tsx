@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, Package, Calendar, MapPin, Hash, Factory } from 'lucide-react';
-import { apiGet } from '@/src/lib/api'; // Adjust path if needed
+import { X, Download, Package, Calendar, MapPin, Hash, Factory, Edit2 } from 'lucide-react';
+import { apiGet, apiPost } from '@/src/lib/api'; // Adjust path if needed
 import LoadingSpinner from '@/src/components/LoadingSpinner'; // Adjust path
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -17,7 +17,50 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
+    const [editingStock, setEditingStock] = useState<boolean>(false);
+    const [editingStockValue, setEditingStockValue] = useState<number>(0);
+    const [displayOpeningStock, setDisplayOpeningStock] = useState<number | null>(null);
+    const [isUpdating, setIsUpdating] = useState(false);
+
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+
+    useEffect(() => {
+        setDisplayOpeningStock(item?.monthlyData?.openingStock ?? null);
+    }, [item]);
+
+    const handleOpeningStockEditClick = () => {
+        setEditingStock(true);
+        setEditingStockValue(displayOpeningStock !== null ? displayOpeningStock : (item.monthlyData?.openingStock || 0));
+    };
+
+    const handleOpeningStockSave = async () => {
+        setIsUpdating(true);
+        try {
+            const token = localStorage.getItem('token');
+            const currentDate = new Date();
+            const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+            
+            const endpoint = type === 'bo' ? '/api/store/monthly-inventory/rm' : '/api/store/monthly-inventory/fg';
+            const payload = type === 'bo' ? {
+                materialId: item.material || item.materialId || item._id,
+                month: currentMonthStr,
+                openingStock: editingStockValue
+            } : {
+                fgItemId: item._id,
+                month: currentMonthStr,
+                openingStock: editingStockValue
+            };
+
+            await apiPost(endpoint, payload, token);
+            
+            setDisplayOpeningStock(editingStockValue);
+        } catch (error) {
+            console.error("Failed to update opening stock", error);
+        } finally {
+            setIsUpdating(false);
+            setEditingStock(false);
+        }
+    };
 
     useEffect(() => {
         if (isOpen && item && token) {
@@ -166,6 +209,40 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                             <span className={`text-lg font-bold ${stock <= (item.reorderLevel || 0) ? 'text-red-600' : 'text-green-600'}`}>
                                 {stock} <span className="text-sm text-gray-500 font-normal">{item.unit}</span>
                             </span>
+                            {item.monthlyData && (
+                                <div className="mt-1 flex items-center gap-1 text-xs group">
+                                    <span className="text-gray-500 font-medium">Opening:</span>
+                                    {editingStock ? (
+                                        <div className="flex items-center gap-1">
+                                            <input 
+                                                type="number" 
+                                                value={editingStockValue} 
+                                                onChange={(e) => setEditingStockValue(Number(e.target.value))}
+                                                className="w-16 px-1 py-0.5 border rounded text-xs text-gray-900"
+                                                onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave()}
+                                                autoFocus
+                                            />
+                                            <button onClick={handleOpeningStockSave} disabled={isUpdating} className="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[10px]">Save</button>
+                                            <button onClick={() => setEditingStock(false)} className="px-1.5 py-0.5 bg-gray-200 text-gray-700 rounded text-[10px]">X</button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="font-bold text-gray-900 dark:text-gray-200">
+                                                {displayOpeningStock !== null ? displayOpeningStock : item.monthlyData.openingStock}
+                                            </span>
+                                            <button 
+                                                onClick={handleOpeningStockEditClick}
+                                                className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors opacity-60 group-hover:opacity-100"
+                                                title="Edit opening stock"
+                                            >
+                                                <Edit2 size={12} />
+                                            </button>
+                                        </>
+                                    )}
+                                    <span className="text-green-600 font-medium ml-1">(+{item.monthlyData.totalInwardQuantity})</span>
+                                    <span className="text-red-600 font-medium">(-{item.monthlyData.totalOutwardQuantity})</span>
+                                </div>
+                            )}
                         </div>
                         <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                             <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold block mb-1">

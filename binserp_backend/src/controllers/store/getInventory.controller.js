@@ -16,7 +16,8 @@ import {
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
-  quotationSchema
+  quotationSchema,
+  rmInventoryMonthlySchema
 } from "../../models/store/index.js";
 import { prefixSettingsSchema } from "../../models/prefix.model.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc.model.js";
@@ -88,11 +89,33 @@ export const getInventory = async (req, res) => {
     const inventory = await Inventory.find(query)
       .populate("locationId", "name code")
       .populate("categoryId", "name code")
-      .sort({ materialName: 1 });
+      .sort({ materialName: 1 })
+      .lean();
+
+    // Fetch monthly tracking for the current month
+    const currentDate = new Date();
+    const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+    
+    const monthlyRecords = await RMInventoryMonthly.find({ company: companyId, month: currentMonthStr }).lean();
+    const monthlyMap = new Map();
+    for (const rec of monthlyRecords) {
+        if (rec.material) {
+            monthlyMap.set(rec.material.toString(), rec);
+        }
+    }
+
+    const inventoryWithMonthly = inventory.map(inv => {
+        const itemMonthly = monthlyMap.get(inv.material?.toString() || inv._id?.toString());
+        return {
+            ...inv,
+            monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }
+        };
+    });
 
     res.status(200).json({
-      inventory,
-      count: inventory.length,
+      inventory: inventoryWithMonthly,
+      count: inventoryWithMonthly.length,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

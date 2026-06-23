@@ -15,17 +15,16 @@ export const updateRMMonthlyInventory = async (req, res) => {
 
     const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
 
+    const updateFields = {};
+    if (openingStock !== undefined) updateFields.openingStock = openingStock;
+    if (closingStock !== undefined) updateFields.closingStock = closingStock;
+    if (totalInwardQuantity !== undefined) updateFields.totalInwardQuantity = totalInwardQuantity;
+    if (totalOutwardQuantity !== undefined) updateFields.totalOutwardQuantity = totalOutwardQuantity;
+
     // Upsert the record
     const record = await RMInventoryMonthly.findOneAndUpdate(
       { company: companyId, material: materialId, month },
-      { 
-        $set: {
-          openingStock: openingStock || 0,
-          closingStock: closingStock || 0,
-          totalInwardQuantity: totalInwardQuantity || 0,
-          totalOutwardQuantity: totalOutwardQuantity || 0,
-        }
-      },
+      { $set: updateFields },
       { new: true, upsert: true }
     );
 
@@ -55,17 +54,16 @@ export const updateFGMonthlyInventory = async (req, res) => {
 
     const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
 
+    const updateFields = {};
+    if (openingStock !== undefined) updateFields.openingStock = openingStock;
+    if (closingStock !== undefined) updateFields.closingStock = closingStock;
+    if (totalInwardQuantity !== undefined) updateFields.totalInwardQuantity = totalInwardQuantity;
+    if (totalOutwardQuantity !== undefined) updateFields.totalOutwardQuantity = totalOutwardQuantity;
+
     // Upsert the record
     const record = await FGInventoryMonthly.findOneAndUpdate(
       { company: companyId, fgItem: fgItemId, month },
-      { 
-        $set: {
-          openingStock: openingStock || 0,
-          closingStock: closingStock || 0,
-          totalInwardQuantity: totalInwardQuantity || 0,
-          totalOutwardQuantity: totalOutwardQuantity || 0,
-        }
-      },
+      { $set: updateFields },
       { new: true, upsert: true }
     );
 
