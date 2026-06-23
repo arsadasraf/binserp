@@ -17,5 +17,5 @@ export { quotationSchema } from './quotation.model.js';
 export { materialSchema } from './material.model.js';
 export { fgItemSchema } from './fgItem.model.js';
 export { fgGRNSchema } from './fgGRN.model.js';
-
-
+export { rmInventoryMonthlySchema } from './rmInventoryMonthly.model.js';
+export { fgInventoryMonthlySchema } from './fgInventoryMonthly.model.js';

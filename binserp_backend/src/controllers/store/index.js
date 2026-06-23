@@ -65,3 +65,5 @@ export { updateQuotation } from './updateQuotation.controller.js';
 export { deleteQuotation } from './deleteQuotation.controller.js';
 export { createFGItem, getAllFGItems, updateFGItem, deleteFGItem } from './fgItem.controller.js';
 export { createFGGRN, getAllFGGRNs, updateFGGRN, deleteFGGRN } from './fgGRN.controller.js';
+export { getRMMonthlyInventory, getFGMonthlyInventory } from './getMonthlyInventory.controller.js';
+export { updateRMMonthlyInventory, updateFGMonthlyInventory } from './updateMonthlyInventory.controller.js';

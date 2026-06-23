@@ -176,5 +176,17 @@ router.get("/fg-grn", getAllFGGRNs);
 router.put("/fg-grn/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), updateFGGRN);
 router.delete("/fg-grn/:id", deleteFGGRN);
 
-export default router;
+// Monthly Inventory Routes
+import { 
+  getRMMonthlyInventory, 
+  getFGMonthlyInventory, 
+  updateRMMonthlyInventory, 
+  updateFGMonthlyInventory 
+} from "../controllers/store/index.js";
 
+router.get("/monthly-inventory/rm", getRMMonthlyInventory);
+router.post("/monthly-inventory/rm", updateRMMonthlyInventory);
+router.get("/monthly-inventory/fg", getFGMonthlyInventory);
+router.post("/monthly-inventory/fg", updateFGMonthlyInventory);
+
+export default router;
