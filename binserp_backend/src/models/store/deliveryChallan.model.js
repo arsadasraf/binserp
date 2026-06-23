@@ -10,7 +10,6 @@ export const deliveryChallanSchema = new mongoose.Schema(
     dcNumber: {
       type: String,
       required: true,
-      unique: true,
     },
     date: {
       type: Date,
@@ -35,6 +34,11 @@ export const deliveryChallanSchema = new mongoose.Schema(
         component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component",
+        },
+        itemType: {
+          type: String,
+          enum: ["fg", "custom"],
+          default: "fg",
         },
         materialName: { type: String, required: true },
         hsnCode: String,

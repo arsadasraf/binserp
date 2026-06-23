@@ -1033,6 +1033,7 @@ function StoreContent() {
               onSubmit={onDCSubmit}
               customers={customers}
               materials={materials}
+              inHouseItems={fgItems}
               loading={loading}
               initialData={editingDC}
               isEditing={!!editingDC}
