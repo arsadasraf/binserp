@@ -3276,6 +3276,7 @@ export const createProductionOrder = async (req, res) => {
         price: item.price || 0,
         quantity: item.quantity,
         trackingType: item.trackingType || 'Individual',
+        targetDate: item.targetDate ? new Date(item.targetDate) : undefined,
         bomSnapshot,
         processSnapshot,
         photosSnapshot,

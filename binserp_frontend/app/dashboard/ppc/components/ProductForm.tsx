@@ -344,19 +344,36 @@ export default function ProductForm({ isOpen, onClose, onSuccess, initialLinkTyp
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 relative z-10 p-1">
                                     {/* Row 1 */}
-                                    <div className="group">
-                                        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 group-focus-within:text-indigo-600 transition-colors">
-                                            Product Name <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            required
-                                            type="text"
-                                            value={formData.componentName}
-                                            onChange={(e) => setFormData({ ...formData, componentName: e.target.value })}
-                                            placeholder="e.g. Gear Box Assembly"
-                                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent focus:bg-white dark:focus:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all duration-200 text-sm font-medium text-gray-800 dark:text-white placeholder-gray-400 shadow-sm"
-                                        />
+                                    <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                                        <div className="group">
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 group-focus-within:text-indigo-600 transition-colors">
+                                                Product Name <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                required
+                                                type="text"
+                                                value={formData.componentName}
+                                                onChange={(e) => setFormData({ ...formData, componentName: e.target.value })}
+                                                placeholder="e.g. Gear Box Assembly"
+                                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent focus:bg-white dark:focus:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all duration-200 text-sm font-medium text-gray-800 dark:text-white placeholder-gray-400 shadow-sm"
+                                            />
+                                        </div>
+                                        <div className="group">
+                                            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 group-focus-within:text-indigo-600 transition-colors">
+                                                Product Code <span className="text-red-500">*</span>
+                                            </label>
+                                            <input
+                                                required
+                                                type="text"
+                                                value={formData.componentCode}
+                                                onChange={(e) => setFormData({ ...formData, componentCode: e.target.value })}
+                                                placeholder="e.g. ASM-101"
+                                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900/50 border border-transparent focus:bg-white dark:focus:bg-gray-800 border-gray-200 dark:border-gray-700 rounded-xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all duration-200 text-sm font-medium text-gray-800 dark:text-white placeholder-gray-400 shadow-sm"
+                                            />
+                                        </div>
                                     </div>
+
+                                    {/* Row 2 */}
                                     <div className="group">
                                         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 group-focus-within:text-indigo-600 transition-colors">
                                             Type
@@ -644,6 +661,11 @@ export default function ProductForm({ isOpen, onClose, onSuccess, initialLinkTyp
                                                                                     else if (item.sourceType === "Assembly") filtered = components.filter(c => c.type === "Assembly");
                                                                                     else if (item.sourceType === "SubAssembly") filtered = components.filter(c => c.type === "SubAssembly");
                                                                                     else filtered = components.filter(c => c.type === "Component");
+                                                                                    
+                                                                                    if (filtered.length === 0) {
+                                                                                        return <option value="" disabled>No {item.sourceType === "Store-Bo" ? "Materials" : item.sourceType + "s"} found!</option>;
+                                                                                    }
+                                                                                    
                                                                                     return filtered.map((m: any) => (
                                                                                         <option key={m._id} value={m._id}>
                                                                                             {m.name || m.materialName || m.componentName}

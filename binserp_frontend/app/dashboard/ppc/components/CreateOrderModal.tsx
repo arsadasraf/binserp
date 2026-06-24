@@ -21,7 +21,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
     });
 
     const [items, setItems] = useState<any[]>([
-        { productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos" }
+        { productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos", trackingType: "Individual", targetDate: "" }
     ]);
 
     const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !isOpen });
@@ -61,6 +61,8 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                         quantity: comp.quantity,
                         price: comp.price || 0,
                         unit: master?.unit || comp.unit || "Nos",
+                        trackingType: comp.trackingType || "Individual",
+                        targetDate: comp.targetDate ? new Date(comp.targetDate).toISOString().split('T')[0] : "",
                     };
                 });
                 if (mappedItems.length > 0) setItems(mappedItems);
@@ -75,12 +77,12 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                 targetMonth: new Date().toISOString().slice(0, 7),
                 remarks: ""
             });
-            setItems([{ productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
+            setItems([{ productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos", trackingType: "Individual", targetDate: "" }]);
         }
     }, [initialOrder, isOpen]);
 
     const handleAddItem = () => {
-        setItems([...items, { productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
+        setItems([...items, { productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos", trackingType: "Individual", targetDate: "" }]);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -145,7 +147,8 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                 product: item.componentId,
                 quantity: Number(item.quantity),
                 price: Number(item.price),
-                trackingType: "Individual", // Default to Individual natively
+                trackingType: item.trackingType || "Individual",
+                targetDate: item.targetDate || undefined,
             }));
 
             const payload = {
@@ -198,7 +201,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
         <>
             <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[105] transition-opacity" onClick={onClose} />
             <div className="fixed inset-0 flex items-center justify-center z-[110] p-4 sm:p-6">
-                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col border border-white/50">
+                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-[95vw] lg:max-w-7xl w-full max-h-[95vh] overflow-hidden flex flex-col border border-white/50">
 
                     {/* Header */}
                     <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white/50">
@@ -373,6 +376,9 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                                         className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
                                                     >
                                                         <option value="">Select {item.productType}...</option>
+                                                        {inhouseItems.filter((opt: any) => (opt.type || "Component") === item.productType).length === 0 && (
+                                                            <option value="" disabled>No {item.productType}s found! Please add them in PPC Master - Products tab first.</option>
+                                                        )}
                                                         {inhouseItems.filter((opt: any) => (opt.type || "Component") === item.productType).map((comp: any) => (
                                                             <option key={comp._id} value={comp._id}>
                                                                 {comp.componentName || comp.name} ({comp.componentCode || comp.code || 'N/A'})
@@ -424,6 +430,36 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                                             placeholder="0.00"
                                                         />
                                                     </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-4 pt-4 border-t border-gray-100">
+                                                {/* Tracking Type */}
+                                                <div className="lg:col-span-4 space-y-1.5">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                        Tracking Type
+                                                    </label>
+                                                    <select
+                                                        value={item.trackingType}
+                                                        onChange={(e) => updateItem(index, 'trackingType', e.target.value)}
+                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
+                                                    >
+                                                        <option value="Individual">Individual (Serial No)</option>
+                                                        <option value="Batch">Batch / Lot</option>
+                                                    </select>
+                                                </div>
+
+                                                {/* Target Date */}
+                                                <div className="lg:col-span-4 space-y-1.5">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                        Item Target Date
+                                                    </label>
+                                                    <input
+                                                        type="date"
+                                                        value={item.targetDate || ''}
+                                                        onChange={(e) => updateItem(index, 'targetDate', e.target.value)}
+                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
+                                                    />
                                                 </div>
                                             </div>
                                         </div>
