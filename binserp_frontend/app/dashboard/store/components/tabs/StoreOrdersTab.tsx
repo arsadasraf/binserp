@@ -14,8 +14,8 @@ import 'jspdf-autotable';
 import { UserOptions } from 'jspdf-autotable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 
-import CreateOrderModal from "../../../ppc/components/CreateOrderModal";
-import OrderDetailModal from "../../../ppc/components/OrderDetailModal";
+import StoreCreateOrderModal from "../modals/StoreCreateOrderModal";
+import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
 import RMPlanModal from "../modals/RMPlanModal";
 
 interface jsPDFWithPlugin extends jsPDF {
@@ -99,7 +99,7 @@ export default function StoreOrdersTab() {
         />
       </div>
 
-      <CreateOrderModal
+      <StoreCreateOrderModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={handleSuccess}
@@ -400,7 +400,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
         </table>
       </div>
 
-      <OrderDetailModal
+      <StoreOrderDetailModal
         isOpen={detailsOpen}
         order={selectedOrder}
         onClose={() => {

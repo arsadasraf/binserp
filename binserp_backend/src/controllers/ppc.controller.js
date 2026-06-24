@@ -256,11 +256,11 @@ export const createPPCOrder = async (req, res) => {
 
       // Prepare Snapshots
       const bomSnapshot = isFGItem ? (masterProduct.bom || []).map(b => ({
-          item: b.item?._id || b.item,
-          itemModel: b.itemType,
-          itemName: b.itemName,
-          quantity: b.quantity,
-          unit: b.unit
+        item: b.item?._id || b.item,
+        itemModel: b.itemType,
+        itemName: b.itemName,
+        quantity: b.quantity,
+        unit: b.unit
       })) : masterProduct.billOfMaterials;
 
       const processSnapshot = isFGItem ? [] : masterProduct.routing.map(r => ({
@@ -317,7 +317,9 @@ export const getAllPPCOrders = async (req, res) => {
 };
 
 export const confirmPPCOrder = async (req, res) => {
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
   const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
+  const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
   const Job = req.getModel('Job', jobSchema);
   const MaterialRequirement = req.getModel('MaterialRequirement', materialRequirementSchema);
   const Inventory = req.getModel('Inventory', inventorySchema); // To check stock
@@ -326,7 +328,8 @@ export const confirmPPCOrder = async (req, res) => {
     const { id } = req.params;
     const companyId = getCompanyId(req);
 
-    const order = await PPCOrder.findOne({ _id: id, company: companyId });
+    let order = await PPCOrder.findOne({ _id: id, company: companyId });
+    if (!order) order = await ProductionOrder.findOne({ _id: id, company: companyId });
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.status !== 'Pending') {
@@ -470,11 +473,19 @@ export const confirmPPCOrder = async (req, res) => {
 };
 
 export const getOrderMaterialPlan = async (req, res) => {
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
   try {
+    const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
+    const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
     const MaterialRequirement = req.getModel('MaterialRequirement', materialRequirementSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
+    
+    let order = await PPCOrder.findOne({ _id: id, company: companyId });
+    if (!order) order = await ProductionOrder.findOne({ _id: id, company: companyId });
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
     // Find requirement linked to this order
     const plan = await MaterialRequirement.findOne({ order: id, company: companyId })
       .populate('items.material');
@@ -487,11 +498,19 @@ export const getOrderMaterialPlan = async (req, res) => {
 };
 
 export const getOrderJobs = async (req, res) => {
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
   try {
+    const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
+    const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
     const Job = req.getModel('Job', jobSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
+    
+    let order = await PPCOrder.findOne({ _id: id, company: companyId });
+    if (!order) order = await ProductionOrder.findOne({ _id: id, company: companyId });
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
     const jobs = await Job.find({ order: id, company: companyId })
       .populate('masterProduct')
       .sort({ sequence: 1 }); // Sort logic?
@@ -945,9 +964,11 @@ export const getOrderById = async (req, res) => {
 };
 
 export const updateOrder = async (req, res) => {
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
   try {
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
-      const Order = req.getModel('Order', orderSchema);
+    const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
+    const Order = req.getModel('Order', orderSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
@@ -962,6 +983,7 @@ export const updateOrder = async (req, res) => {
 
     // 1. Try finding and updating PPCOrder (Smart Merge)
     let ppcOrder = await PPCOrder.findOne({ _id: id, company: companyId });
+    if (!ppcOrder) ppcOrder = await ProductionOrder.findOne({ _id: id, company: companyId });
 
     if (ppcOrder) {
       // Merge Items to preserve snapshots & jobs
@@ -1038,7 +1060,7 @@ export const updateOrder = async (req, res) => {
 const updateOrderDeprecated = async (req, res) => {
   try {
     const Order = req.getModel('Order', orderSchema);
-      const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
+    const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
@@ -1080,38 +1102,46 @@ const updateOrderDeprecated = async (req, res) => {
 };
 
 export const deleteOrder = async (req, res) => {
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
   try {
     const Order = req.getModel('Order', orderSchema);
-      const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
-      const Job = req.getModel('Job', jobSchema);
+    const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
+    const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
+    const Job = req.getModel('Job', jobSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
 
-    const legacyOrder = await Order.findOneAndDelete({ _id: id, company: companyId });
+    // 1. Try deleting from legacy Order Collection
+    const legacyOrder = await Order.findOne({ _id: id, company: companyId });
     if (legacyOrder) {
       const hourDiff = (Date.now() - new Date(legacyOrder.createdAt).getTime()) / (1000 * 60 * 60);
       if (hourDiff > 24) {
-        // Since we already deleted it, maybe we should have checked first.
-        // But the previous code was:
-        // const legacyOrder = await Order.findOne({ _id: id, company: companyId });
-        // if (legacyOrder) { ... await Order.findOneAndDelete(...) }
+        return res.status(403).json({ message: "Cannot delete order after 24 hours" });
       }
-      
+
       // Delete photos from S3
       if (legacyOrder.photos && legacyOrder.photos.length > 0) {
         for (const photo of legacyOrder.photos) {
           await deleteFromS3(photo);
         }
       }
+      await legacyOrder.deleteOne();
       return res.status(200).json({ message: "Order deleted successfully" });
     }
 
-    // 2. Try finding in New PPCOrder Collection
-    const ppcOrder = await PPCOrder.findOneAndDelete({ _id: id, company: companyId });
+    // 2. Try finding in PPCOrder or ProductionOrder Collection
+    let ppcOrder = await PPCOrder.findOne({ _id: id, company: companyId });
+    if (!ppcOrder) {
+      ppcOrder = await ProductionOrder.findOne({ _id: id, company: companyId });
+    }
+
     if (ppcOrder) {
       const hourDiff = (Date.now() - new Date(ppcOrder.createdAt).getTime()) / (1000 * 60 * 60);
-      
+      if (hourDiff > 24) {
+        return res.status(403).json({ message: "Cannot delete order after 24 hours" });
+      }
+
       // Delete photos from S3
       if (ppcOrder.photos && ppcOrder.photos.length > 0) {
         for (const photo of ppcOrder.photos) {
@@ -1136,7 +1166,7 @@ export const deleteOrder = async (req, res) => {
         }
       }
 
-      await PPCOrder.findOneAndDelete({ _id: id, company: companyId });
+      await ppcOrder.deleteOne();
       return res.status(200).json({ message: "PPC Order deleted successfully" });
     }
 
@@ -1152,7 +1182,7 @@ export const deleteOrder = async (req, res) => {
 export const createRouteCard = async (req, res) => {
   try {
     const RouteCard = req.getModel('RouteCard', routeCardSchema);
-      const Order = req.getModel('Order', orderSchema);
+    const Order = req.getModel('Order', orderSchema);
 
     const companyId = getCompanyId(req);
     const {
@@ -1850,9 +1880,9 @@ export const autoSchedule = async (req, res) => {
 export const createComponent = async (req, res) => {
   try {
     const Component = req.getModel('Component', componentSchema);
-      const Order = req.getModel('Order', orderSchema);
-      const RouteCard = req.getModel('RouteCard', routeCardSchema);
-      const Job = req.getModel('Job', jobSchema);
+    const Order = req.getModel('Order', orderSchema);
+    const RouteCard = req.getModel('RouteCard', routeCardSchema);
+    const Job = req.getModel('Job', jobSchema);
 
     console.log("createComponent Body:", req.body);
     const companyId = getCompanyId(req);
@@ -2264,7 +2294,7 @@ export const updateComponent = async (req, res) => {
 export const deleteComponent = async (req, res) => {
   try {
     const Component = req.getModel('Component', componentSchema);
-      const Order = req.getModel('Order', orderSchema);
+    const Order = req.getModel('Order', orderSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
@@ -2519,7 +2549,7 @@ export const getMachineSchedules = async (req, res) => {
 export const getEmployeeSchedules = async (req, res) => {
   try {
     const Manpower = req.getModel('Manpower', manpowerSchema);
-      const WorkOrder = req.getModel('WorkOrder', workOrderSchema);
+    const WorkOrder = req.getModel('WorkOrder', workOrderSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
@@ -2951,8 +2981,8 @@ export const createAllotment = async (req, res) => {
 export const getAllotments = async (req, res) => {
   try {
     const ManpowerAllotment = req.getModel('ManpowerAllotment', manpowerAllotmentSchema);
-      const Machine = req.getModel('Machine', machineSchema);
-      const Employee = req.getModel('Employee', employeeSchema);
+    const Machine = req.getModel('Machine', machineSchema);
+    const Employee = req.getModel('Employee', employeeSchema);
 
     const companyId = getCompanyId(req);
     const { startDate, endDate, employee } = req.query;
@@ -3189,3 +3219,106 @@ export const getProductionReports = asyncHandler(async (req, res) => {
     outsourcedJobs
   }, "Production Reports Fetched"));
 });
+
+// ==========================================
+// NEW PRODUCTION ORDER API (For PPC Tab only)
+// ==========================================
+
+export const createProductionOrder = async (req, res) => {
+  const { ppcOrderSchema, componentSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  try {
+    const companyId = getCompanyId(req);
+    const { orderNumber, customerName, customer, poReference, deliveryDate, targetMonth, remarks } = req.body;
+    let { items } = req.body;
+
+    if (typeof items === 'string') {
+      items = JSON.parse(items);
+    }
+
+    // Notice: We use productionOrderSchema here, which is essentially the new dedicated schema
+    const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
+    const Component = req.getModel('Component', componentSchema);
+
+    const photoUrls = req.files ? req.files.map((file) => `/${file.path.replace(/\\\\/g, '/')}`) : [];
+
+    const orderItems = [];
+
+    for (const item of items) {
+      const productId = item.product || item.componentId;
+      if (!productId) continue;
+
+      let masterProduct = await Component.findById(productId).populate('routing.process');
+
+      if (!masterProduct) continue;
+
+      const productCode = masterProduct.componentCode;
+      const productName = masterProduct.componentName;
+      const description = masterProduct.description;
+      const unit = masterProduct.unit;
+
+      const bomSnapshot = masterProduct.billOfMaterials || [];
+
+      const processSnapshot = (masterProduct.routing || []).map(r => ({
+        processName: r.processName || (r.process && r.process.processName) || 'Unnamed Process',
+        standardTime: r.standardTime,
+        description: r.description,
+        machine: r.machine,
+        isJobWork: r.isOutsourced || r.isJobWork || false
+      }));
+      const photosSnapshot = masterProduct.photos || [];
+
+      orderItems.push({
+        product: productId,
+        productName,
+        productCode,
+        description,
+        unit,
+        price: item.price || 0,
+        quantity: item.quantity,
+        trackingType: item.trackingType || 'Individual',
+        bomSnapshot,
+        processSnapshot,
+        photosSnapshot,
+        jobs: []
+      });
+    }
+
+    const order = await ProductionOrder.create({
+      company: companyId,
+      orderNumber,
+      poReference,
+      targetMonth,
+      customer,
+      customerName,
+      deliveryDate: new Date(deliveryDate),
+      items: orderItems,
+      createdBy: req.user.id,
+      remarks,
+      photos: photoUrls,
+      status: 'Pending'
+    });
+
+    res.status(201).json({ success: true, order });
+  } catch (error) {
+    console.error('Error creating Production Order:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllProductionOrders = async (req, res) => {
+  const { productionOrderSchema } = await import("../models/ppc.model.js");
+  try {
+    const companyId = getCompanyId(req);
+    const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
+
+    const orders = await ProductionOrder.find({ company: companyId })
+      .populate('customer', 'name')
+      .populate('items.product', 'componentName componentCode photos')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ success: true, orders });
+  } catch (error) {
+    console.error('Error getting Production Orders:', error);
+    res.status(500).json({ message: error.message });
+  }
+};

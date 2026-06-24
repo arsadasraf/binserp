@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   useGetMachinesQuery, 
   useGetManpowerQuery, 
-  useGetPpcOrdersQuery,
+  useGetProductionOrdersQuery,
   useDeleteOrderMutation,
   useUpdatePpcOrderStatusMutation
 } from "@/src/store/services/ppcService";
@@ -299,7 +299,7 @@ function HomeTab() {
 
   const { data: machines = [], isLoading: loadingMachines } = useGetMachinesQuery(undefined, { skip: subTab !== "machines" });
   const { data: manpower = [], isLoading: loadingManpower } = useGetManpowerQuery(undefined, { skip: subTab !== "employees" });
-  const { data: allOrders = [], isLoading: loadingOrders } = useGetPpcOrdersQuery();
+  const { data: allOrders = [], isLoading: loadingOrders } = useGetProductionOrdersQuery();
 
   const loading = loadingMachines || loadingManpower || (loadingOrders && subTab !== "machines" && subTab !== "employees");
 
@@ -549,7 +549,7 @@ function OrderListTab({ currentSubTab, onChangeSubTab, onEditOrder, onCreateOrde
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-  const { data: orders = [], isLoading: loading } = useGetPpcOrdersQuery();
+  const { data: orders = [], isLoading: loading } = useGetProductionOrdersQuery();
 
   const filteredOrders = useMemo(() => {
     if (!orders.length) return [];

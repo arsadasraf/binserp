@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Camera, FileText, User, Calendar, Hash, Package } from 'lucide-react';
-import { useGetCustomersQuery, useCreateProductionOrderMutation, useGetPpcComponentsQuery } from "@/src/store/services/ppcService";
+import { useGetCustomersQuery, useCreatePpcOrderMutation, useUpdatePpcOrderMutation } from "@/src/store/services/ppcService";
+import { useGetStoreDataQuery } from "@/src/store/services/storeService";
 
-interface CreateOrderModalProps {
+interface StoreCreateOrderModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: (message: string) => void;
     initialOrder?: any;
 }
 
-export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOrder }: CreateOrderModalProps) {
+export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, initialOrder }: StoreCreateOrderModalProps) {
     const [formData, setFormData] = useState({
         poReference: "",
         customerName: "",
@@ -21,13 +22,13 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
     });
 
     const [items, setItems] = useState<any[]>([
-        { productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos" }
+        { componentId: "", quantity: 1, price: 0, unit: "Nos" }
     ]);
 
     const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !isOpen });
-    const { data: inhouseItems = [] } = useGetPpcComponentsQuery({}, { skip: !isOpen });
-    const [createProductionOrder] = useCreateProductionOrderMutation();
-    // update mutation can be added later if needed.
+    const { data: inhouseItems = [] } = useGetStoreDataQuery('fg-item', { skip: !isOpen });
+    const [createPpcOrder] = useCreatePpcOrderMutation();
+    const [updatePpcOrder] = useUpdatePpcOrderMutation();
 
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
@@ -56,7 +57,6 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                     const master = inhouseItems.find((i: any) => i._id === masterId);
                     return {
                         _id: comp._id,
-                        productType: master?.type || "Assembly",
                         componentId: masterId || "",
                         quantity: comp.quantity,
                         price: comp.price || 0,
@@ -75,12 +75,12 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                 targetMonth: new Date().toISOString().slice(0, 7),
                 remarks: ""
             });
-            setItems([{ productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
+            setItems([{ componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
         }
     }, [initialOrder, isOpen]);
 
     const handleAddItem = () => {
-        setItems([...items, { productType: "Assembly", componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
+        setItems([...items, { componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -92,13 +92,6 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
     const updateItem = (index: number, field: string, value: any) => {
         const newItems = [...items];
         newItems[index] = { ...newItems[index], [field]: value };
-
-        // If productType changes, reset the componentId so user picks a new one from the filtered list
-        if (field === "productType") {
-            newItems[index].componentId = "";
-            newItems[index].componentName = "";
-            newItems[index].componentCode = "";
-        }
 
         if (field === "componentId") {
             const selectedInfo = inhouseItems.find((i: any) => i._id === value);
@@ -145,32 +138,26 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                 product: item.componentId,
                 quantity: Number(item.quantity),
                 price: Number(item.price),
-                trackingType: "Individual", // Default to Individual natively
+                trackingType: "Individual",
             }));
 
-            const payload = {
-                ...formData,
-                customer: customerId,
-                items: itemsPayload
-            };
-
             const orderFormData = new FormData();
-            Object.keys(payload).forEach(key => {
-                if (key === 'items') {
-                    orderFormData.append(key, JSON.stringify(payload[key]));
-                } else {
-                    orderFormData.append(key, payload[key] as string);
-                }
-            });
+            orderFormData.append("orderNumber", formData.orderNumber);
+            orderFormData.append("customer", customerId || "");
+            orderFormData.append("customerName", formData.customerName);
+            orderFormData.append("poReference", formData.poReference);
+            orderFormData.append("deliveryDate", formData.deadlineDate);
+            orderFormData.append("targetMonth", formData.targetMonth);
+            orderFormData.append("remarks", formData.remarks);
+            orderFormData.append("items", JSON.stringify(itemsPayload));
 
             photos.forEach(photo => orderFormData.append("photos", photo));
 
             let res;
             if (initialOrder?._id) {
-                // res = await updateProductionOrder({ id: initialOrder._id, body: orderFormData });
-                res = { error: { data: { message: "Update not implemented yet for Production Orders" } } };
+                res = await updatePpcOrder({ id: initialOrder._id, body: orderFormData });
             } else {
-                res = await createProductionOrder(orderFormData);
+                res = await createPpcOrder(orderFormData);
             }
 
             if ("error" in res) {
@@ -345,26 +332,10 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                             )}
 
                                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-2">
-                                                {/* Product Type Selection */}
-                                                <div className="lg:col-span-3 space-y-1.5">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                        Product Type <span className="text-red-500">*</span>
-                                                    </label>
-                                                    <select
-                                                        value={item.productType}
-                                                        onChange={(e) => updateItem(index, 'productType', e.target.value)}
-                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
-                                                    >
-                                                        <option value="Assembly">Assembly</option>
-                                                        <option value="SubAssembly">SubAssembly</option>
-                                                        <option value="Component">Component</option>
-                                                    </select>
-                                                </div>
-
                                                 {/* Product Selection */}
-                                                <div className="lg:col-span-4 space-y-1.5">
+                                                <div className="lg:col-span-6 space-y-1.5">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                        Product <span className="text-red-500">*</span>
+                                                        Finished Good <span className="text-red-500">*</span>
                                                     </label>
                                                     <select
                                                         required
@@ -372,8 +343,8 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                                         onChange={(e) => updateItem(index, 'componentId', e.target.value)}
                                                         className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
                                                     >
-                                                        <option value="">Select {item.productType}...</option>
-                                                        {inhouseItems.filter((opt: any) => (opt.type || "Component") === item.productType).map((comp: any) => (
+                                                        <option value="">Select FG Item...</option>
+                                                        {productOptions.map((comp: any) => (
                                                             <option key={comp._id} value={comp._id}>
                                                                 {comp.componentName || comp.name} ({comp.componentCode || comp.code || 'N/A'})
                                                             </option>
@@ -382,7 +353,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                                 </div>
 
                                                 {/* Quantity */}
-                                                <div className="lg:col-span-2 space-y-1.5">
+                                                <div className="lg:col-span-3 space-y-1.5">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Qty / Unit <span className="text-red-500">*</span>
                                                     </label>

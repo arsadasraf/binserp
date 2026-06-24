@@ -784,7 +784,7 @@ export const machineLocationSchema = new mongoose.Schema(
 machineLocationSchema.index({ company: 1, locationCode: 1 }, { unique: true });
 
 
-// Enhanced PPC Order Schema
+// Enhanced PPC Order Schema (Used by Store currently)
 export const ppcOrderSchema = new mongoose.Schema(
   {
     company: {
@@ -873,6 +873,96 @@ export const ppcOrderSchema = new mongoose.Schema(
 
 // Indexes
 ppcOrderSchema.index({ company: 1, orderNumber: 1 }, { unique: true });
+
+// New Production Order Schema (Exclusively for PPC Tab using Components)
+export const productionOrderSchema = new mongoose.Schema(
+  {
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+    },
+    orderNumber: {
+      type: String,
+      required: true,
+    },
+    poReference: {
+      type: String,
+      required: true,
+    },
+    targetMonth: {
+      type: String, // "MM-YYYY"
+    },
+    customer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+    },
+    customerName: String,
+    photos: [String],
+    date: {
+      type: Date,
+      default: Date.now,
+    },
+    deliveryDate: {
+      type: Date,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["Pending", "Confirmed", "Planning", "InProduction", "InProgress", "Completed", "Dispatched", "Cancelled"],
+      default: "Pending",
+    },
+    items: [
+      {
+        product: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Component", // Strictly Master Component
+        },
+        productName: String,
+        productCode: String,
+        description: String,
+        unit: String,
+        price: {
+          type: Number,
+          default: 0,
+        },
+        quantity: {
+          type: Number,
+          required: true,
+          min: 1,
+        },
+        trackingType: {
+          type: String,
+          enum: ["Individual", "Batch"],
+          default: "Individual",
+        },
+        targetDate: {
+          type: Date,
+        },
+        // Snapshots
+        bomSnapshot: [],
+        processSnapshot: [],
+        photosSnapshot: [String],
+        // Linked Jobs (Traceability IDs)
+        jobs: [
+          {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Job",
+          },
+        ],
+      },
+    ],
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    remarks: String,
+  },
+  { timestamps: true }
+);
+
+// Indexes
+productionOrderSchema.index({ company: 1, orderNumber: 1 }, { unique: true });
 
 // Manpower Allotment Schema (Roster)
 export const manpowerAllotmentSchema = new mongoose.Schema(

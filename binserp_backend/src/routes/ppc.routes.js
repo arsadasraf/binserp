@@ -77,7 +77,9 @@ import {
   markOrderAsDispatched,
   startJobProcess,
   completeJobProcess,
-  getProductionReports
+  getProductionReports,
+  createProductionOrder,
+  getAllProductionOrders
 } from "../controllers/ppc.controller.js";
 import {
   createMachineAssignment,
@@ -99,13 +101,18 @@ router.use(verifyJWT);
 router.route("/order").post(upload.array("photos", 5), createOrder).get(getAllOrders);
 router.route("/order/:id").get(getOrderById).put(updateOrder).delete(deleteOrder);
 
-// Enhanced Order Routes
+// Enhanced Order Routes (PPC Order used by Store Tab)
 router.route("/ppc-order").post(upload.array("photos", 5), createPPCOrder).get(getAllPPCOrders);
 router.route("/ppc-order/:id").put(upload.array("photos", 5), updateOrder).delete(deleteOrder);
 router.route("/ppc-order/:id/confirm").post(confirmPPCOrder);
 router.route("/ppc-order/:id/material-plan").get(getOrderMaterialPlan);
 router.route("/ppc-order/:id/jobs").get(getOrderJobs);
 router.route("/material-requirement/:id/item/:itemId").put(updateMaterialRequirementStatus);
+
+// NEW Production Order Routes (Exclusive for PPC Tab)
+router.route("/production-order").post(upload.array("photos", 5), createProductionOrder).get(getAllProductionOrders);
+// For update/delete/confirm, we can map to the new controllers later if required, or reuse if they are compatible.
+// For now, the user requested "new way with new backend api and schema and model" for the PPC order tab.
 
 // Planning Board Routes
 router.route("/planning/backlog").get(getPlanningBacklog);

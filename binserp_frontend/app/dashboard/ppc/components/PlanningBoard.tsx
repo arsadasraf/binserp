@@ -6,7 +6,7 @@ import {
   ChevronDown, ChevronRight, Package, AlertCircle, CheckCircle2, Clock
 } from "lucide-react";
 import {
-  useGetPpcOrdersQuery,
+  useGetProductionOrdersQuery,
   useGetProcessesQuery,
   useGetMachineCategoriesQuery,
   useGetMachinesQuery,
@@ -37,7 +37,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── ORDERS TAB ───────────────────────────────────────────
 function OrdersTab() {
-  const { data: orders = [], isLoading: loading } = useGetPpcOrdersQuery();
+  const { data: orders = [], isLoading: loading } = useGetProductionOrdersQuery();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   if (loading) return <Loader2 className="animate-spin mx-auto mt-12 text-indigo-500" />;

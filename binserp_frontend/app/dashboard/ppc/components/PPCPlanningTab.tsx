@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { 
-  useGetPpcOrdersQuery, 
+  useGetProductionOrdersQuery, 
   useAutoScheduleMutation 
 } from "@/src/store/services/ppcService";
 import { ClipboardList, Sliders, Calendar } from 'lucide-react';
@@ -13,7 +13,7 @@ export default function PPCPlanningTab() {
   const [subTab, setSubTab] = useState<PlanningSubTab>("assignments");
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
-  const { data: allOrders = [], isLoading: loading } = useGetPpcOrdersQuery();
+  const { data: allOrders = [], isLoading: loading } = useGetProductionOrdersQuery();
   const [autoSchedule] = useAutoScheduleMutation();
 
   const pendingOrders = allOrders.filter((o: any) => o.status === "Pending" || o.status === "Planning");

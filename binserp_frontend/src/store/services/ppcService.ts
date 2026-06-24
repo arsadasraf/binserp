@@ -23,13 +23,32 @@ export const ppcService = binsApi.injectEndpoints({
       transformResponse: (response: any) => response.orders || [],
       providesTags: ["PpcOrders"],
     }),
+    createOrder: builder.mutation<any, FormData>({
+      query: (body) => ({ url: "/api/ppc/order", method: "POST", body }),
+      invalidatesTags: ["Orders"],
+    }),
+    updateOrder: builder.mutation<any, { id: string; body: any }>({
+      query: ({ id, body }) => ({ url: `/api/ppc/order/${id}`, method: "PUT", body }),
+      invalidatesTags: ["Orders"],
+    }),
     createPpcOrder: builder.mutation<any, FormData>({
       query: (body) => ({ url: "/api/ppc/ppc-order", method: "POST", body }),
       invalidatesTags: ["PpcOrders"],
     }),
     updatePpcOrder: builder.mutation<any, { id: string; body: any }>({
       query: ({ id, body }) => ({ url: `/api/ppc/ppc-order/${id}`, method: "PUT", body }),
-      invalidatesTags: ["PpcOrders"],
+      invalidatesTags: ["PpcOrders", "ProductionOrders"],
+    }),
+
+    // NEW PRODUCTION ORDERS API (Exclusive for PPC Tab)
+    getProductionOrders: builder.query<any[], void>({
+      query: () => "/api/ppc/production-order",
+      transformResponse: (response: any) => response.orders || [],
+      providesTags: ["ProductionOrders"],
+    }),
+    createProductionOrder: builder.mutation<any, any>({
+      query: (body) => ({ url: "/api/ppc/production-order", method: "POST", body }),
+      invalidatesTags: ["ProductionOrders"],
     }),
     updatePpcOrderStatus: builder.mutation<any, { id: string; status: string }>({
       query: ({ id, status }) => ({
@@ -37,11 +56,11 @@ export const ppcService = binsApi.injectEndpoints({
         method: "PUT",
         body: { status },
       }),
-      invalidatesTags: ["PpcOrders"],
+      invalidatesTags: ["PpcOrders", "ProductionOrders"],
     }),
     confirmPpcOrder: builder.mutation<any, string>({
       query: (id) => ({ url: `/api/ppc/ppc-order/${id}/confirm`, method: "POST" }),
-      invalidatesTags: ["PpcOrders", "Jobs", "StoreInventory"],
+      invalidatesTags: ["PpcOrders", "ProductionOrders", "MaterialPlans", "Jobs", "Backlog"],
     }),
     getDispatchQueue: builder.query<any[], void>({
       query: () => "/api/ppc/dispatch/queue",
@@ -355,9 +374,11 @@ export const ppcService = binsApi.injectEndpoints({
 export const {
   // Orders
   useGetOrdersQuery, useGetOrderQuery, useGetPpcOrdersQuery, 
+  useCreateOrderMutation, useUpdateOrderMutation,
   useCreatePpcOrderMutation, useUpdatePpcOrderMutation, useConfirmPpcOrderMutation,
   useUpdatePpcOrderStatusMutation,
   useDeleteOrderMutation,
+  useGetProductionOrdersQuery, useCreateProductionOrderMutation,
   useGetDispatchQueueQuery, useConfirmDispatchMutation,
   useGetMaterialPlanQuery, useUpdateMaterialRequirementStatusMutation, useGetJobsByOrderQuery,
   // Jobs
