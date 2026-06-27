@@ -1,10 +1,10 @@
-import { QualityMasterSchema, IncomingQCSchema, ProcessQCSchema } from "../models/quality.model.js";
+import { QualityMasterSchema, IncomingQCSchema, ProcessQCSchema } from "../models/quality/index.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { updateInventoryStock } from "./store/index.js";
 import { grnSchema } from "../models/store/index.js";
-import { componentSchema, jobSchema } from "../models/ppc.model.js";
+import { componentSchema, jobSchema } from "../models/ppc/index.js";
 import { signPhotos } from "../utils/s3.js";
 
 // --- Master Management (Standards) ---

@@ -15,8 +15,8 @@ import {
   materialRequirementSchema,
   machineAssignmentSchema,
   machineMaintenanceSchema,
-} from "../models/ppc.model.js";
-import { employeeSchema } from "../models/hr.model.js";
+} from "../models/ppc/index.js";
+import { employeeSchema } from "../models/hr/index.js";
 import { bomSchema, inventorySchema, fgItemSchema } from "../models/store/index.js";
 import { autoScheduleOrder } from "../services/planning.service.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../utils/s3.js";
@@ -317,7 +317,7 @@ export const getAllPPCOrders = async (req, res) => {
 };
 
 export const confirmPPCOrder = async (req, res) => {
-  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
   const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
   const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
   const Job = req.getModel('Job', jobSchema);
@@ -473,7 +473,7 @@ export const confirmPPCOrder = async (req, res) => {
 };
 
 export const getOrderMaterialPlan = async (req, res) => {
-  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
   try {
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
@@ -498,7 +498,7 @@ export const getOrderMaterialPlan = async (req, res) => {
 };
 
 export const getOrderJobs = async (req, res) => {
-  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
   try {
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
@@ -964,7 +964,7 @@ export const getOrderById = async (req, res) => {
 };
 
 export const updateOrder = async (req, res) => {
-  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
   try {
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
@@ -1102,7 +1102,7 @@ const updateOrderDeprecated = async (req, res) => {
 };
 
 export const deleteOrder = async (req, res) => {
-  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
   try {
     const Order = req.getModel('Order', orderSchema);
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
@@ -1474,7 +1474,7 @@ export const createManpower = async (req, res) => {
 
     // If employeeId is provided (string), find the Employee by employeeId
     if (employeeId && !employee) {
-      const { employeeSchema } = await import("../models/hr.model.js");
+      const { employeeSchema } = await import("../models/hr/index.js");
       const Employee = req.getModel('Employee', employeeSchema);
       const employeeDoc = await Employee.findOne({
         employeeId,
@@ -1581,7 +1581,7 @@ export const deleteManpower = async (req, res) => {
 
 export const getManpowerMasterList = async (req, res) => {
   const Manpower = req.getModel('Manpower', manpowerSchema);
-  const { employeeSchema } = await import("../models/hr.model.js");
+  const { employeeSchema } = await import("../models/hr/index.js");
   try {
     const Employee = req.getModel('Employee', employeeSchema);
 
@@ -1635,7 +1635,7 @@ export const getManpowerMasterList = async (req, res) => {
 // ========== SKILL MANAGEMENT ==========
 
 export const createSkill = async (req, res) => {
-  const { skillSchema } = await import("../models/hr.model.js");
+  const { skillSchema } = await import("../models/hr/index.js");
   try {
     const Skill = req.getModel('Skill', skillSchema);
 
@@ -1660,7 +1660,7 @@ export const createSkill = async (req, res) => {
 };
 
 export const getAllSkills = async (req, res) => {
-  const { skillSchema } = await import("../models/hr.model.js");
+  const { skillSchema } = await import("../models/hr/index.js");
   try {
     const Skill = req.getModel('Skill', skillSchema);
 
@@ -1673,7 +1673,7 @@ export const getAllSkills = async (req, res) => {
 };
 
 export const updateSkill = async (req, res) => {
-  const { skillSchema } = await import("../models/hr.model.js");
+  const { skillSchema } = await import("../models/hr/index.js");
   try {
     const Skill = req.getModel('Skill', skillSchema);
 
@@ -1695,7 +1695,7 @@ export const updateSkill = async (req, res) => {
 };
 
 export const deleteSkill = async (req, res) => {
-  const { skillSchema } = await import("../models/hr.model.js");
+  const { skillSchema } = await import("../models/hr/index.js");
   try {
     const Skill = req.getModel('Skill', skillSchema);
 
@@ -3009,7 +3009,7 @@ export const getAllotments = async (req, res) => {
 };
 
 export const deleteAllotment = async (req, res) => {
-  const { manpowerAllotmentSchema } = await import("../models/ppc.model.js");
+  const { manpowerAllotmentSchema } = await import("../models/ppc/index.js");
   try {
     const ManpowerAllotment = req.getModel('ManpowerAllotment', manpowerAllotmentSchema);
 
@@ -3026,7 +3026,7 @@ export const deleteAllotment = async (req, res) => {
 // ========== MACHINE DAY PLAN ==========
 
 export const upsertMachinePlan = async (req, res) => {
-  const { machineDayPlanSchema } = await import("../models/ppc.model.js");
+  const { machineDayPlanSchema } = await import("../models/ppc/index.js");
   try {
     const MachineDayPlan = req.getModel('MachineDayPlan', machineDayPlanSchema);
 
@@ -3059,7 +3059,7 @@ export const upsertMachinePlan = async (req, res) => {
 };
 
 export const getMachinePlans = async (req, res) => {
-  const { machineDayPlanSchema } = await import("../models/ppc.model.js");
+  const { machineDayPlanSchema } = await import("../models/ppc/index.js");
   try {
     const MachineDayPlan = req.getModel('MachineDayPlan', machineDayPlanSchema);
 
@@ -3086,7 +3086,7 @@ export const getMachinePlans = async (req, res) => {
 // ========== SHIFT MANAGEMENT ==========
 
 export const createShift = async (req, res) => {
-  const { shiftSchema } = await import("../models/ppc.model.js");
+  const { shiftSchema } = await import("../models/ppc/index.js");
   try {
     const Shift = req.getModel('Shift', shiftSchema);
 
@@ -3115,7 +3115,7 @@ export const createShift = async (req, res) => {
 };
 
 export const getShifts = async (req, res) => {
-  const { shiftSchema } = await import("../models/ppc.model.js");
+  const { shiftSchema } = await import("../models/ppc/index.js");
   try {
     const Shift = req.getModel('Shift', shiftSchema);
 
@@ -3128,7 +3128,7 @@ export const getShifts = async (req, res) => {
 };
 
 export const updateShift = async (req, res) => {
-  const { shiftSchema } = await import("../models/ppc.model.js");
+  const { shiftSchema } = await import("../models/ppc/index.js");
   try {
     const Shift = req.getModel('Shift', shiftSchema);
 
@@ -3152,7 +3152,7 @@ export const updateShift = async (req, res) => {
 };
 
 export const deleteShift = async (req, res) => {
-  const { shiftSchema } = await import("../models/ppc.model.js");
+  const { shiftSchema } = await import("../models/ppc/index.js");
   try {
     const Shift = req.getModel('Shift', shiftSchema);
 
@@ -3225,7 +3225,7 @@ export const getProductionReports = asyncHandler(async (req, res) => {
 // ==========================================
 
 export const createProductionOrder = async (req, res) => {
-  const { ppcOrderSchema, componentSchema, productionOrderSchema } = await import("../models/ppc.model.js");
+  const { ppcOrderSchema, componentSchema, productionOrderSchema } = await import("../models/ppc/index.js");
   try {
     const companyId = getCompanyId(req);
     const { orderNumber, customerName, customer, poReference, deliveryDate, targetMonth, remarks } = req.body;
@@ -3307,7 +3307,7 @@ export const createProductionOrder = async (req, res) => {
 };
 
 export const getAllProductionOrders = async (req, res) => {
-  const { productionOrderSchema } = await import("../models/ppc.model.js");
+  const { productionOrderSchema } = await import("../models/ppc/index.js");
   try {
     const companyId = getCompanyId(req);
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);

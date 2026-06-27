@@ -2,7 +2,7 @@ import {
   machineSchema,
   machineAssignmentSchema,
   machineMaintenanceSchema,
-} from "../models/ppc.model.js";
+} from "../models/ppc/index.js";
 
 const getCompanyId = (req) => {
   if (req.company) return req.company._id;

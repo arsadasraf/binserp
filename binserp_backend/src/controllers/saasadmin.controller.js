@@ -1,14 +1,14 @@
 import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
-import { SaasAdmin } from "../models/saasadmin.model.js";
-import { Company } from "../models/company.model.js";
-// import { User } from "../models/user.model.js";
-import { AuditLog } from "../models/auditlog.model.js";
+import { SaasAdmin } from "../models/saasadmin/index.js";
+import { Company } from "../models/company/index.js";
+// import { User } from "../models/user/index.js";
+import { AuditLog } from "../models/auditlog/index.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { logAuditAction } from "../utils/auditLogger.js";
 import { getTenantModel } from "../db/tenant.js";
-import { userSchema } from "../models/user.model.js";
+import { userSchema } from "../models/user/index.js";
 import crypto from "crypto";
 
 // 🔑 Generate JWT for SaaS Admin

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-// import { User, userSchema } from "../models/user.model.js";
+// import { User, userSchema } from "../models/user/index.js";
 // Import other schemas as needed, or load them dynamically if possible. 
 // For now, we will import specific schemas we know we need to register on the tenant DB.
 

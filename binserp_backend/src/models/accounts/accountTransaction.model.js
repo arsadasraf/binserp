@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const accountTransactionSchema = new mongoose.Schema(
+export const accountTransactionSchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,

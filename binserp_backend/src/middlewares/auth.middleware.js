@@ -1,10 +1,10 @@
 import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
 import { ApiError } from "../utils/ApiError.js";
-import { Company } from "../models/company.model.js";
-import { userSchema } from "../models/user.model.js";
-import { employeeSchema } from "../models/hr.model.js";
-import { SaasAdmin } from "../models/saasadmin.model.js";
+import { Company } from "../models/company/index.js";
+import { userSchema } from "../models/user/index.js";
+import { employeeSchema } from "../models/hr/index.js";
+import { SaasAdmin } from "../models/saasadmin/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
 
 

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { SaasAdmin } from "../models/saasadmin.model.js";
+import { SaasAdmin } from "../models/saasadmin/index.js";
 import dotenv from "dotenv";
 
 dotenv.config();

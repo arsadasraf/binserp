@@ -1,6 +1,6 @@
-import { userSchema } from "../models/user.model.js";
-import { employeeSchema } from "../models/hr.model.js";
-import { Company } from "../models/company.model.js";
+import { userSchema } from "../models/user/index.js";
+import { employeeSchema } from "../models/hr/index.js";
+import { Company } from "../models/company/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";

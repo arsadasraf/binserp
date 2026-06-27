@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const auditLogSchema = new mongoose.Schema(
+export const auditLogSchema = new mongoose.Schema(
     {
         adminId: {
             type: mongoose.Schema.Types.ObjectId,

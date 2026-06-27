@@ -1,11 +1,11 @@
-import { Company } from "../models/company.model.js";
+import { Company } from "../models/company/index.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendVerificationCode, sendPasswordResetEmail, sendWelcomeEmail } from "../utils/emailService.js";
 import { sendWhatsAppVerificationCode } from "../utils/whatsappService.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../utils/s3.js";
 import { getTenantModel } from "../db/tenant.js";
-import { userSchema } from "../models/user.model.js";
+import { userSchema } from "../models/user/index.js";
 
 // Generate JWT token
 const generateToken = (companyId) => {

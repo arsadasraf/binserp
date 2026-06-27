@@ -1,4 +1,4 @@
-import { AccountTransaction } from "../models/accounts.model.js";
+import { AccountTransaction } from "../models/accounts/index.js";
 
 // Generate unique transaction IDs securely
 const generateTxnId = () => {

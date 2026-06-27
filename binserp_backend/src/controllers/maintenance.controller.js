@@ -3,8 +3,8 @@ import {
     preventiveScheduleSchema,
     maintenanceHistorySchema,
     sparePartSchema,
-} from "../models/maintenance.model.js";
-import { machineSchema } from "../models/ppc.model.js";
+} from "../models/maintenance/index.js";
+import { machineSchema } from "../models/ppc/index.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";

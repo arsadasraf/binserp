@@ -1,4 +1,4 @@
-import { salarySchema, employeeSchema, attendanceSchema } from "../models/hr.model.js";
+import { salarySchema, employeeSchema, attendanceSchema } from "../models/hr/index.js";
 
 // Same helper as hr.controller.js - resolves company _id from JWT user context
 const getCompanyId = (req) => {

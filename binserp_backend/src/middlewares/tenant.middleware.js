@@ -1,5 +1,5 @@
-import { Company } from "../models/company.model.js";
-import { userSchema } from "../models/user.model.js";
+import { Company } from "../models/company/index.js";
+import { userSchema } from "../models/user/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
 
 /**

@@ -1,5 +1,5 @@
 import { inventorySchema, bomSchema } from "../models/store/index.js";
-import { machineSchema, manpowerSchema, jobSchema, ppcOrderSchema } from "../models/ppc.model.js";
+import { machineSchema, manpowerSchema, jobSchema, ppcOrderSchema } from "../models/ppc/index.js";
 
 /**
  * Auto-schedule a PPCOrder with rule-based optimization algorithm

@@ -1,6 +1,6 @@
-import { employeeSchema, attendanceSchema, departmentSchema, designationSchema, skillSchema, employeeTypeSchema, salarySchema, employeeJobSchema } from "../models/hr.model.js";
-import { hrPrefixSettingsSchema } from "../models/hrPrefix.model.js";
-import { jobSchema, manpowerSchema } from "../models/ppc.model.js";
+import { employeeSchema, attendanceSchema, departmentSchema, designationSchema, skillSchema, employeeTypeSchema, salarySchema, employeeJobSchema } from "../models/hr/index.js";
+import { hrPrefixSettingsSchema } from "../models/hrPrefix/index.js";
+import { jobSchema, manpowerSchema } from "../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../utils/s3.js";
 import mongoose from "mongoose";
 

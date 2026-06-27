@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const prefixSettingsSchema = new mongoose.Schema(
+export const prefixSettingsSchema = new mongoose.Schema(
     {
         grnPrefix: { type: String, default: "GRN" },
         poPrefix: { type: String, default: "PO" },
@@ -15,4 +15,4 @@ const prefixSettingsSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-export { prefixSettingsSchema };
+

@@ -1,4 +1,4 @@
-import { vehicleSchema } from "../models/vehicle.model.js";
+import { vehicleSchema } from "../models/vehicle/index.js";
 
 // Helper to get company from request (middleware usually attaches it)
 const getCompanyId = (req) => {

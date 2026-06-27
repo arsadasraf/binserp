@@ -1,6 +1,6 @@
 import axios from "axios";
 import mongoose from "mongoose";
-import { Company } from "../models/company.model.js";
+import { Company } from "../models/company/index.js";
 import dotenv from "dotenv";
 
 dotenv.config();

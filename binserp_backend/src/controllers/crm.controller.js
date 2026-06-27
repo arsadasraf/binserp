@@ -1,4 +1,4 @@
-import { leadSchema, customerSchema, activitySchema } from "../models/crm.model.js";
+import { leadSchema, customerSchema, activitySchema } from "../models/crm/index.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";

@@ -19,8 +19,8 @@ import {
   quotationSchema,
   fgGRNSchema
 } from "../../models/store/index.js";
-import { prefixSettingsSchema } from "../../models/prefix.model.js";
-import { componentSchema, jobSchema, processSchema } from "../../models/ppc.model.js";
+import { prefixSettingsSchema } from "../../models/prefix/index.js";
+import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';

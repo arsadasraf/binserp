@@ -2,7 +2,7 @@ import axios from "axios";
 import FormData from "form-data";
 import { uploadOnS3 } from "../utils/s3.js";
 import fs from "fs";
-import { attendanceSchema, employeeSchema } from "../models/hr.model.js"; // Unified Model Import
+import { attendanceSchema, employeeSchema } from "../models/hr/index.js"; // Unified Model Import
 import mongoose from "mongoose";
 
 const getCompanyId = (req) => {

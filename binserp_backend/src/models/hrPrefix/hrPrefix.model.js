@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-const hrPrefixSettingsSchema = new mongoose.Schema(
+export const hrPrefixSettingsSchema = new mongoose.Schema(
     {
         employeePrefix: { type: String, default: "EMP" },
         offerLetterPrefix: { type: String, default: "OL" },
@@ -17,4 +17,4 @@ const hrPrefixSettingsSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
-export { hrPrefixSettingsSchema };
+

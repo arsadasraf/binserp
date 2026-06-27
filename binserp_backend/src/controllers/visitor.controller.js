@@ -1,4 +1,4 @@
-import { visitorSchema } from "../models/visitor.model.js";
+import { visitorSchema } from "../models/visitor/index.js";
 
 // Helper to get company from request (middleware usually attaches it)
 const getCompanyId = (req) => {

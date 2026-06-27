@@ -1,4 +1,4 @@
-import { hrPrefixSettingsSchema } from "../models/hrPrefix.model.js";
+import { hrPrefixSettingsSchema } from "../models/hrPrefix/index.js";
 import { uploadOnS3 } from "../utils/s3.js";
 
 export const getHRPrefixSettings = async (req, res) => {

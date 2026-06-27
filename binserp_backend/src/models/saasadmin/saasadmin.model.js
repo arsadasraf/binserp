@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
-const saasAdminSchema = new mongoose.Schema(
+export const saasAdminSchema = new mongoose.Schema(
     {
         username: {
             type: String,

@@ -1,4 +1,4 @@
-import { prefixSettingsSchema } from "../models/prefix.model.js";
+import { prefixSettingsSchema } from "../models/prefix/index.js";
 
 // Helper to get company ID (consistent with other controllers)
 const getCompanyId = (req) => {

@@ -1,9 +1,11 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { bankDetailsSchema } from "./bankDetails.model.js";
+import { printConfigSchema } from "./printConfig.model.js";
 
 // Define company schema
-const companySchema = new mongoose.Schema({
+export const companySchema = new mongoose.Schema({
   companyName: {
     type: String,
     required: [true, "Company name is required"],
@@ -131,27 +133,6 @@ companySchema.pre("save", async function (next) {
 });
 
 
-// Bank Details Schema
-const bankDetailsSchema = new mongoose.Schema({
-  accountName: { type: String, default: '' },
-  bankName: { type: String, default: '' },
-  accountNumber: { type: String, default: '' },
-  ifscCode: { type: String, default: '' },
-  branch: { type: String, default: '' }
-}, { _id: false });
-
-// Print Settings Schema for embedded use
-const printConfigSchema = new mongoose.Schema({
-  headerAlignment: {
-    type: String,
-    enum: ['left', 'center', 'right'],
-    default: 'center'
-  },
-  headerText: { type: String, default: '' },
-  showCompanyDetails: { type: Boolean, default: true },
-  footerText: { type: String, default: '' },
-  termsAndConditions: { type: String, default: '' }
-}, { _id: false });
 
 // ... existing schema methods ...
 

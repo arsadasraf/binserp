@@ -1,4 +1,4 @@
-import { AuditLog } from "../models/auditlog.model.js";
+import { AuditLog } from "../models/auditlog/index.js";
 
 /**
  * Log an admin action to the audit log
