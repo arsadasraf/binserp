@@ -1,0 +1,191 @@
+import {
+  orderSchema,
+  ppcOrderSchema,
+  routeCardSchema,
+  machineSchema,
+  manpowerSchema,
+  jobSchema,
+  componentSchema,
+  workOrderSchema,
+  processSchema,
+  machineCategorySchema,
+  machineLocationSchema,
+  manpowerAllotmentSchema,
+  machineDayPlanSchema, // Added machineDayPlanSchema
+  materialRequirementSchema,
+  machineAssignmentSchema,
+  machineMaintenanceSchema,
+} from "../../models/ppc/index.js";
+import { employeeSchema } from "../../models/hr/index.js";
+import { bomSchema, inventorySchema, fgItemSchema } from "../../models/store/index.js";
+import { autoScheduleOrder } from "../../services/planning.service.js";
+import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+
+const getCompanyId = (req) => {
+  if (req.company) return req.company._id;
+  return req.userType === "company" ? req.user.id : req.user.company?._id;
+};
+
+const getCompanyLoginId = (req) => {
+  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
+};
+
+// ========== ORDER MANAGEMENT ==========
+
+export const confirmPPCOrder = async (req, res) => {
+  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
+  const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
+  const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
+  const Job = req.getModel('Job', jobSchema);
+  const MaterialRequirement = req.getModel('MaterialRequirement', materialRequirementSchema);
+  const Inventory = req.getModel('Inventory', inventorySchema); // To check stock
+
+  try {
+    const { id } = req.params;
+    const companyId = getCompanyId(req);
+
+    let order = await PPCOrder.findOne({ _id: id, company: companyId });
+    if (!order) order = await ProductionOrder.findOne({ _id: id, company: companyId });
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.status !== 'Pending') {
+      return res.status(400).json({ message: "Only Pending orders can be confirmed" });
+    }
+
+    // 1. Generate Jobs (Moved from Create)
+    const updatedItems = []; // To update order with job IDs
+    const materialMap = new Map(); // For Material Requirements aggregation
+
+    for (const item of order.items) {
+      if (!item.product) continue; // Should have product ID
+      const productCode = item.productCode || "UNK";
+
+      // Use Snapshot logic for consistency
+      const processSnapshot = item.processSnapshot || [];
+      const quantity = item.quantity;
+      const trackingType = item.trackingType || 'Individual';
+
+      // --- Job Generation ---
+      const createdJobs = [];
+      const initialProcessHistory = processSnapshot.map((step, idx) => ({
+        operationName: step.processName,
+        sequence: idx + 1,
+        standardTime: step.standardTime,
+        status: 'Pending',
+        assignedMachine: step.machine,
+        isJobWork: step.isJobWork,
+        qcRequired: step.qcRequired
+      }));
+
+      // Generate Jobs logic
+      if (trackingType === 'Batch') {
+        const batchId = `${order.orderNumber}-${productCode}-BATCH`;
+        const job = await Job.create({
+          company: companyId,
+          jobNumber: batchId,
+          customerName: order.customerName,
+          partName: item.productName,
+          poNumber: order.orderNumber,
+          order: order._id,
+          masterProduct: item.product,
+          quantity: quantity,
+          completedQuantity: 0,
+          status: 'Scheduled',
+          processHistory: initialProcessHistory
+        });
+        createdJobs.push(job._id);
+      } else {
+        for (let i = 1; i <= quantity; i++) {
+          const uniqueId = `${order.orderNumber}-${productCode}-${String(i).padStart(3, '0')}`;
+          const job = await Job.create({
+            company: companyId,
+            jobNumber: uniqueId,
+            customerName: order.customerName,
+            partName: item.productName,
+            poNumber: order.orderNumber,
+            order: order._id,
+            masterProduct: item.product,
+            quantity: 1,
+            completedQuantity: 0,
+            status: 'Scheduled',
+            processHistory: initialProcessHistory
+          });
+          createdJobs.push(job._id);
+        }
+      }
+
+      // Update item with job references
+      item.jobs = createdJobs;
+
+      // --- Material Requirement Calculation ---
+      // Iterate BOM Snapshot
+      if (item.bomSnapshot && item.bomSnapshot.length > 0) {
+        for (const bomItem of item.bomSnapshot) {
+          // Calculate Total Required for this Order Item
+          const requiredForThisItem = bomItem.quantity * quantity;
+
+          // Only plan for 'Material' items (Store Items), not sub-components for now (unless recursive requested)
+          // Ideally both, but let's stick to 'Material' (Raw Material) for "Procurement"
+          if (bomItem.itemModel === 'Material') {
+            const matId = bomItem.item.toString();
+            if (materialMap.has(matId)) {
+              materialMap.get(matId).requiredQuantity += requiredForThisItem;
+            } else {
+              materialMap.set(matId, {
+                material: bomItem.item,
+                materialName: bomItem.itemName,
+                unit: bomItem.unit,
+                requiredQuantity: requiredForThisItem
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Save Jobs to Order Items
+    await order.save(); // Mongoose handles subdoc array update
+
+    // 3. Create Material Requirement Record
+    const requirementItems = [];
+    for (const [key, val] of materialMap.entries()) {
+      // Check current stock snapshot
+      const inventory = await Inventory.findOne({ company: companyId, materialId: key });
+      const currentStock = inventory ? inventory.currentStock : 0;
+      const shortage = Math.max(0, val.requiredQuantity - currentStock); // Simple check
+
+      requirementItems.push({
+        material: val.material,
+        materialName: val.materialName,
+        requiredQuantity: val.requiredQuantity,
+        unit: val.unit,
+        stockAvailable: currentStock,
+        shortage: shortage,
+        status: shortage > 0 ? 'Pending' : 'Fulfilled' // Auto-fulfill if stock exists? Or keep pending until Issued?
+        // Let's keep it 'Pending' for review unless shortage is 0
+      });
+    }
+
+    if (requirementItems.length > 0) {
+      await MaterialRequirement.create({
+        company: companyId,
+        order: order._id,
+        targetMonth: order.targetMonth,
+        items: requirementItems,
+        status: 'Draft'
+      });
+    }
+
+    // 4. Update Order Status
+    order.status = 'Planning'; // Or 'Confirmed' -> 'Planning'
+    await order.save();
+
+    res.status(200).json({ message: "Order Confirmed. Jobs and Material Requirements generated.", order });
+
+  } catch (error) {
+    console.error("Confirm Order Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};

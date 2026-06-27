@@ -80,7 +80,7 @@ import {
   getProductionReports,
   createProductionOrder,
   getAllProductionOrders
-} from "../controllers/ppc.controller.js";
+} from "../controllers/ppc/index.js";
 import {
   createMachineAssignment,
   getMachineAssignments,
@@ -89,7 +89,7 @@ import {
   createMaintenanceRecord,
   getMaintenanceRecords,
   updateMaintenanceRecord,
-} from "../controllers/ppc.machine.controller.js";
+} from "../controllers/ppc/index.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();

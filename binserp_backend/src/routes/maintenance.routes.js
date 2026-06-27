@@ -10,7 +10,7 @@ import {
     getSpareParts,
     updateSparePartStock,
     getMaintenanceStats
-} from "../controllers/maintenance.controller.js";
+} from "../controllers/maintenance/index.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 

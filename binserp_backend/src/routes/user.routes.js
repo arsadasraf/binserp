@@ -11,7 +11,7 @@ import {
   resetPassword,
   updateUserProfile,
   uploadUserPhoto,
-} from "../controllers/user.controller.js";
+} from "../controllers/user/index.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/upload.middleware.js";
 

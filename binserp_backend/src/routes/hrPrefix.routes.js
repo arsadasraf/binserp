@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { getHRPrefixSettings, updateHRPrefixSettings } from "../controllers/hrPrefix.controller.js";
+import { getHRPrefixSettings, updateHRPrefixSettings } from "../controllers/hr/index.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 

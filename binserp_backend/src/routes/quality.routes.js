@@ -13,7 +13,7 @@ import {
     getProcessQC,
     getQualityStats,
     getPendingProcessQCJobs
-} from "../controllers/quality.controller.js";
+} from "../controllers/quality/index.js";
 
 const router = Router();
 

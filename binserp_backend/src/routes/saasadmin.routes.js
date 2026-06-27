@@ -17,7 +17,7 @@ import {
     exportUsersCSV,
     createCompanyBySaasAdmin,
     resetCompanyPassword,
-} from "../controllers/saasadmin.controller.js";
+} from "../controllers/saasadmin/index.js";
 import { verifySaasAdminJWT } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();

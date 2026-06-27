@@ -13,7 +13,7 @@ import {
     createActivity,
     getActivities,
     getCRMStats
-} from "../controllers/crm.controller.js";
+} from "../controllers/crm/index.js";
 
 const router = Router();
 

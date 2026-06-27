@@ -1,0 +1,10 @@
+export { createBreakdownTicket } from './createBreakdownTicket.controller.js';
+export { getBreakdownTickets } from './getBreakdownTickets.controller.js';
+export { updateTicketStatus } from './updateTicketStatus.controller.js';
+export { createPreventiveSchedule } from './createPreventiveSchedule.controller.js';
+export { getPreventiveCalendar } from './getPreventiveCalendar.controller.js';
+export { completePreventiveMaintenance } from './completePreventiveMaintenance.controller.js';
+export { addSparePart } from './addSparePart.controller.js';
+export { getSpareParts } from './getSpareParts.controller.js';
+export { updateSparePartStock } from './updateSparePartStock.controller.js';
+export { getMaintenanceStats } from './getMaintenanceStats.controller.js';

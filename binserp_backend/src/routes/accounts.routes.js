@@ -5,7 +5,7 @@ import {
   getTransactions,
   createTransaction,
   updateTransactionStatus
-} from "../controllers/accounts.controller.js";
+} from "../controllers/accounts/index.js";
 
 const router = express.Router();
 

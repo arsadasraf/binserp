@@ -30,12 +30,12 @@ import {
   assignJob,
   getEmployeeJobs,
   updateEmployeeJobStatus,
-} from "../controllers/hr.controller.js";
+} from "../controllers/hr/index.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
-import { trainFace, markAttendance, checkPythonHealth } from "../controllers/attendance.controller.js";
-import { createSalarySlip, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/salary.controller.js";
+import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/index.js";
+import { createSalarySlip, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/hr/index.js";
 const router = express.Router();
 
 // All routes require authentication

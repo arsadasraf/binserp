@@ -7,7 +7,7 @@ import {
   getCompanyProfile,
   updateCompanySettings,
   uploadCompanyLogo,
-} from "../controllers/company.controller.js";
+} from "../controllers/company/index.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/upload.middleware.js";
 

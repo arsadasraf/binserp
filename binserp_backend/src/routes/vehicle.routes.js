@@ -1,6 +1,6 @@
 import express from "express";
 import { verifyJWT as protect } from "../middlewares/auth.middleware.js";
-import { createVehicle, getActiveVehicles, getAllVehicles, checkOutVehicle } from "../controllers/vehicle.controller.js";
+import { createVehicle, getActiveVehicles, getAllVehicles, checkOutVehicle } from "../controllers/gateentry/index.js";
 
 const router = express.Router();
 

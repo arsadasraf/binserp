@@ -1,0 +1,12 @@
+export { createLead } from './createLead.controller.js';
+export { getLeads } from './getLeads.controller.js';
+export { updateLead } from './updateLead.controller.js';
+export { deleteLead } from './deleteLead.controller.js';
+export { convertLeadToCustomer } from './convertLeadToCustomer.controller.js';
+export { createCustomer } from './createCustomer.controller.js';
+export { getCustomers } from './getCustomers.controller.js';
+export { updateCustomer } from './updateCustomer.controller.js';
+export { deleteCustomer } from './deleteCustomer.controller.js';
+export { createActivity } from './createActivity.controller.js';
+export { getActivities } from './getActivities.controller.js';
+export { getCRMStats } from './getCRMStats.controller.js';

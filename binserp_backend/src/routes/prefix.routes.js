@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { getPrefixSettings, updatePrefixSettings } from "../controllers/prefix.controller.js";
+import { getPrefixSettings, updatePrefixSettings } from "../controllers/prefix/index.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 
 const router = Router();
