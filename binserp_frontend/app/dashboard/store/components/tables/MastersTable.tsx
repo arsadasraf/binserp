@@ -422,7 +422,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
                             {(masterTab !== "grn-history" && masterTab !== "fg-grn-history") && masterTab !== "po-history" && (<>
-                                {masterTab === 'rm-bo-item' && <th className="px-6 py-3 text-left font-semibold text-gray-900 w-24">Photo</th>}
+                                {(masterTab === 'rm-bo-item' || masterTab === 'fg-items') && <th className="px-6 py-3 text-left font-semibold text-gray-900 w-24">Photo</th>}
                                 <th className="px-6 py-3 text-left font-semibold text-gray-900">Name</th>
                                 {masterTab !== 'fg-items' && masterTab !== 'rm-bo-item' && <th className="px-6 py-3 text-left font-semibold text-gray-900">Code</th>}
                                 {masterTab === 'fg-items' && <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>}
@@ -543,7 +543,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                 )}
                                 {(masterTab !== "grn-history" && masterTab !== "fg-grn-history") && masterTab !== "po-history" && (
                                     <>
-                                        {masterTab === 'rm-bo-item' && (
+                                        {(masterTab === 'rm-bo-item' || masterTab === 'fg-items') && (
                                             <td className="px-6 py-4">
                                                 {item.photos && item.photos.length > 0 ? (
                                                     <div 

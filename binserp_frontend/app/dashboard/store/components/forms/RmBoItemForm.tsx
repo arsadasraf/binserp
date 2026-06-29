@@ -102,14 +102,24 @@ export default function RmBoItemForm({
                                             const photoUrl = typeof photo === 'string' ? photo : URL.createObjectURL(photo);
                                             const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo.type === 'application/pdf';
                                             return (
-                                            <div key={idx} className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center">
+                                            <div 
+                                                key={idx} 
+                                                className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center cursor-pointer hover:border-indigo-400 transition-colors"
+                                                onClick={() => window.open(photoUrl, '_blank')}
+                                                title="Click to preview"
+                                            >
                                                 {isPdf ? (
                                                     <span className="text-xs font-bold text-red-500">PDF</span>
                                                 ) : (
                                                     <img src={photoUrl} alt="preview" className="w-full h-full object-cover" />
                                                 )}
-                                                <button type="button" onClick={() => removePhoto(idx)} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <X size={14} />
+                                                <button 
+                                                    type="button" 
+                                                    onClick={(e) => { e.stopPropagation(); removePhoto(idx); }} 
+                                                    className="absolute top-1 right-1 bg-red-500 text-white flex items-center justify-center p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
+                                                    title="Remove"
+                                                >
+                                                    <X size={10} />
                                                 </button>
                                             </div>
                                         )})}
