@@ -414,7 +414,7 @@ export default function POModal({
                                                             <optgroup label="Materials (RM/BO)">
                                                                 {materials.map((item) => (
                                                                     <option key={item._id} value={`MAT_${item._id}`}>
-                                                                        {item.name} ({item.code || 'N/A'})
+                                                                        {item.name} {((item as any).code) ? `(${((item as any).code)})` : ''}
                                                                     </option>
                                                                 ))}
                                                             </optgroup>

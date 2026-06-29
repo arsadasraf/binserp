@@ -586,7 +586,7 @@ export default function GRNModal({
                                                                 <option key={item._id} value={item._id}>
                                                                     {type === 'inhouse'
                                                                         ? `${(item as any).componentName || item.name} ${(item as any).description ? `(${(item as any).description})` : ''}`
-                                                                        : `${item.name || (item as any).componentName} ${(item.code || (item as any).componentCode) ? `(${item.code || (item as any).componentCode})` : ''}`
+                                                                        : `${item.name || (item as any).componentName} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
                                                                     }
                                                                 </option>
                                                             ))}
@@ -711,7 +711,7 @@ export default function GRNModal({
                                                             <option key={item._id} value={item._id}>
                                                                 {type === 'inhouse'
                                                                     ? `${(item as any).componentName || item.name} ${(item as any).description ? `(${(item as any).description})` : ''}`
-                                                                    : `${item.name || (item as any).componentName} ${(item.code || (item as any).componentCode) ? `(${item.code || (item as any).componentCode})` : ''}`
+                                                                    : `${item.name || (item as any).componentName} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
                                                                 }
                                                             </option>
                                                         ))}

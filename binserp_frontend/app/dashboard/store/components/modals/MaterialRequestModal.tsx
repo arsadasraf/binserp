@@ -207,7 +207,7 @@ export default function MaterialRequestModal({
                                                 ) : (
                                                     materials.map((m) => (
                                                         <option key={m._id} value={m._id}>
-                                                            {m.name} ({m.code})
+                                                            {m.name} {((m as any).code) ? `(${((m as any).code)})` : ''}
                                                         </option>
                                                     ))
                                                 )}

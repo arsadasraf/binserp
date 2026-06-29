@@ -37,6 +37,7 @@ import POModal from "./components/modals/POModal";
 import DCModal from "./components/modals/DCModal";
 import BillingModal from "./components/modals/BillingModal";
 import FGItemForm from "./components/forms/FGItemForm";
+import RmBoItemForm from "./components/forms/RmBoItemForm";
 import CompanyInfoForm from "./components/forms/CompanyInfoForm";
 import PrintSettingsForm from "./components/forms/PrintSettingsForm";
 import DCTable from "./components/tables/DCTable";
@@ -68,6 +69,7 @@ function StoreContent() {
 
   // State for Create Inhouse Item Modal
   const [showFGItemForm, setShowFGItemForm] = useState(false);
+  const [showRmBoItemForm, setShowRmBoItemForm] = useState(false);
 
   // State for PO modal
   const [showPOModal, setShowPOModal] = useState(false);
@@ -338,6 +340,8 @@ function StoreContent() {
     handleEdit(item);
     if (masterTab === 'fg-items') {
       setShowFGItemForm(true);
+    } else if (masterTab === 'rm-bo-item') {
+      setShowRmBoItemForm(true);
     }
   };
 
@@ -805,6 +809,8 @@ function StoreContent() {
                         onClick={() => {
                           if (masterTab === 'fg-items') {
                             setShowFGItemForm(true);
+                          } else if (masterTab === 'rm-bo-item') {
+                            setShowRmBoItemForm(true);
                           } else {
                             setFormData({ items: [] });
                             setShowForm(true);
@@ -1100,6 +1106,27 @@ function StoreContent() {
               isEditing={!!editingId}
               photos={photos}
               setPhotos={setPhotos}
+            />
+
+            {/* RM/BO Item Modal */}
+            <RmBoItemForm
+              isOpen={showRmBoItemForm}
+              onClose={() => {
+                setShowRmBoItemForm(false);
+                handleCancel();
+              }}
+              onSubmit={async (e) => {
+                const success = await handleSubmit(e);
+                if (success) {
+                  setShowRmBoItemForm(false);
+                }
+              }}
+              formData={formData}
+              setFormData={setFormData}
+              categories={categories}
+              locations={locations}
+              loading={loading}
+              isEditing={!!editingId}
             />
 
             {/* Inhouse Item Modal moved to Inventory Tab (indirectly, or needs to be removed here if unused) 
