@@ -88,7 +88,7 @@ export default function StoreForm({
                         masterTab === 'location' ? 'Location' :
                             masterTab === 'category' ? 'Category' :
                                 masterTab === 'customer' ? 'Customer' :
-                                    masterTab === 'material' ? 'Material' :
+                                    masterTab === 'rm-bo-item' ? 'RM/BO Item' :
                                         masterTab === 'inhouse-items' ? 'Inhouse Item' :
                                             masterTab.charAt(0).toUpperCase() + masterTab.slice(1);
             return `${action} ${masterName}`;

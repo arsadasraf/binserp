@@ -13,7 +13,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -67,7 +67,7 @@ export const createGRN = async (req, res) => {
   const GRN = req.getModel('GRN', grnSchema);
   const Vendor = req.getModel('Vendor', vendorSchema);
   const Customer = req.getModel('Customer', customerSchema);
-  const Material = req.getModel('Material', materialSchema);
+  const Material = req.getModel('RmBoItem', rmBoItemSchema);
   const Component = req.getModel('Component', componentSchema);
   console.log(">>> [createGRN] HIT! Request received. (ORIGINAL FUNCTION)");
   console.log(">>> [createGRN] Body Type:", typeof req.body);
@@ -179,9 +179,9 @@ export const createGRN = async (req, res) => {
 
         if (type === 'inhouse') {
           // Processing Component (InHouse)
-          if (!item.material && !item.component) { // Frontend might send 'material' key even for components, check ID logic
-            // If frontend sends component ID in 'material' field, we need to distinguish?
-            // Standardizing: Assume 'material' key might hold componentId in generic forms.
+          if (!item.material && !item.component) { // Frontend might send 'RmBoItem' key even for components, check ID logic
+            // If frontend sends component ID in 'RmBoItem' field, we need to distinguish?
+            // Standardizing: Assume 'RmBoItem' key might hold componentId in generic forms.
             // Ideally frontend sends 'component' key, but let's check.
             // Implementation Plan said: usage `component` ID.
             // Let's assume frontend logic (GRNModal) now passes component ID in `material` field of `items`?
@@ -190,7 +190,7 @@ export const createGRN = async (req, res) => {
             // Or just trust it.
           }
 
-          // For now, assume generic 'material' key in item holds the ID
+          // For now, assume generic 'RmBoItem' key in item holds the ID
           const idToUse = item.component || item.material;
 
           if (!idToUse) {

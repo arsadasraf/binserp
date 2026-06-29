@@ -23,7 +23,7 @@ export default function MasterTabs({ masterTab, setMasterTab, excludedTabs = [] 
         { value: "customer", label: "Customers" },
         { value: "location", label: "Locations" },
         { value: "category", label: "Categories" },
-        { value: "material", label: "RM/BO Items" },
+        { value: "rm-bo-item", label: "RM/BO Items" },
         { value: "fg-items", label: "FG Items" },
         { value: "ppc-products", label: "Inhouse Products" },
         { value: "grn-history", label: "BO GRN History" },

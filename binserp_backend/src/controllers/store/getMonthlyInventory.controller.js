@@ -1,4 +1,4 @@
-import { rmInventoryMonthlySchema, fgInventoryMonthlySchema, materialSchema, fgItemSchema } from "../../models/store/index.js";
+import { rmInventoryMonthlySchema, fgInventoryMonthlySchema, rmBoItemSchema, fgItemSchema } from "../../models/store/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -10,13 +10,13 @@ export const getRMMonthlyInventory = async (req, res) => {
     const { month, materialId } = req.query;
     
     const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
-    const Material = req.getModel('Material', materialSchema); // Register for population
+    const Material = req.getModel('RmBoItem', rmBoItemSchema); // Register for population
     
     let query = { company: companyId };
     if (month) query.month = month;
     if (materialId) query.material = materialId;
     
-    const data = await RMInventoryMonthly.find(query).populate('material');
+    const data = await RMInventoryMonthly.find(query).populate('RmBoItem');
     
     return res.status(200).json({
       success: true,

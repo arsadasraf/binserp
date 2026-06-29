@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Calendar, User, Package, Layers, Info, Check, AlertCircle } from 'lucide-react';
-import { Vendor, Material, JobWorkFormData, JobWorkSupplier } from '../../types/store.types';
+import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier } from '../../types/store.types';
 import { apiPost, apiPut } from '@/src/lib/api';
 
 interface JobWorkFormProps {
@@ -10,7 +10,7 @@ interface JobWorkFormProps {
     onError: (msg: string) => void;
     vendors?: Vendor[];
     jobWorkSuppliers: JobWorkSupplier[];
-    materials?: Material[]; // BO Items
+    materials?: RmBoItem[]; // BO Items
     inHouseItems?: any[]; // In-House Items
      initialData?: Partial<JobWorkFormData> & { _id?: string }; // Pre-fill data
     isModal?: boolean;

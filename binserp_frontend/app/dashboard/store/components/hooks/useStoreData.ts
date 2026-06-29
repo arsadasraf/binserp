@@ -25,7 +25,7 @@ import {
     useDeleteStoreRecordMutation 
 } from "@/src/store/services/storeService";
 import { useGetPpcComponentsQuery } from "@/src/store/services/ppcService";
-import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Category, Material, GRNFormData, POFormData, CompanyInfo, DCFormData, BillingFormData, JobWorkSupplier, Process } from "../../types/store.types";
+import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Category, RmBoItem, GRNFormData, POFormData, CompanyInfo, DCFormData, BillingFormData, JobWorkSupplier, Process } from "../../types/store.types";
 
 export function useStoreData(activeTab: TabType, masterTab: MasterType, token: string | null, queryParams?: string) {
     // --- Queries ---
@@ -217,6 +217,29 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                 } else {
                     await createRecord({ tab: "fg-item" as any, body: formDataPayload, isFormData: true }).unwrap();
                 }
+            } else if (masterTab === "rm-bo-item") {
+                const formDataPayload = new FormData();
+                if (formData.name) formDataPayload.append('name', formData.name);
+                if (formData.descriptions) formDataPayload.append('descriptions', formData.descriptions);
+                if (formData.minimumStock !== undefined) formDataPayload.append('minimumStock', formData.minimumStock.toString());
+                if (formData.categoryId) formDataPayload.append('categoryId', formData.categoryId);
+                if (formData.locationId) formDataPayload.append('locationId', formData.locationId);
+                
+                if (formData.photos && Array.isArray(formData.photos)) {
+                    formData.photos.forEach((photo) => {
+                        if (photo instanceof File) {
+                            formDataPayload.append('photos', photo);
+                        } else if (typeof photo === 'string') {
+                            formDataPayload.append('photos', photo);
+                        }
+                    });
+                }
+                
+                if (editingId) {
+                    await updateRecord({ tab: "rm-bo-item" as any, id: editingId, body: formDataPayload, isFormData: true }).unwrap();
+                } else {
+                    await createRecord({ tab: "rm-bo-item" as any, body: formDataPayload, isFormData: true }).unwrap();
+                }
             } else {
                 if (editingId) {
                     await updateRecord({ tab: tab as any, id: editingId, body: payload }).unwrap();
@@ -244,19 +267,19 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         // For materials, handle populated categoryId
         const editData = { ...item };
         // For materials and fg-items, handle populated categoryId
-        if ((masterTab === "material" || masterTab === "fg-items") && item.category && typeof item.category === 'object') {
+        if ((masterTab === "rm-bo-item" || masterTab === "fg-items") && item.category && typeof item.category === 'object') {
             editData.categoryId = item.category._id;
             editData.unit = item.category.unit || item.unit; // Fallback to item unit
-        } else if ((masterTab === "material" || masterTab === "fg-items") && item.categoryId && typeof item.categoryId === 'object') {
+        } else if ((masterTab === "rm-bo-item" || masterTab === "fg-items") && item.categoryId && typeof item.categoryId === 'object') {
             // Handle case where it might be populated as categoryId (for material)
             editData.categoryId = item.categoryId._id;
             editData.unit = item.categoryId.unit;
         }
 
-        // For location
-        if ((masterTab === "material" || masterTab === "fg-items") && item.location && typeof item.location === 'object') {
+        // Handle populated locationId for material and fg-items
+        if ((masterTab === "rm-bo-item" || masterTab === "fg-items") && item.location && typeof item.location === 'object') {
             editData.locationId = item.location._id;
-        } else if ((masterTab === "material" || masterTab === "fg-items") && item.locationId && typeof item.locationId === 'object') {
+        } else if ((masterTab === "rm-bo-item" || masterTab === "fg-items") && item.locationId && typeof item.locationId === 'object') {
             editData.locationId = item.locationId._id;
         }
 

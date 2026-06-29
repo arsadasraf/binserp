@@ -32,9 +32,9 @@ export default function PPCMasterTab({ subTab }: PPCMasterTabProps) {
 
     // Determine Store Master Tab mapping
     const storeMasterTab: MasterType =
-        subTab === "material" ? "material" :
+        subTab === "material" ? "rm-bo-item" :
             subTab === "customer" ? "customer" :
-                subTab === "supplier" ? "vendor" : "material"; // fallback
+                subTab === "supplier" ? "vendor" : "rm-bo-item"; // fallback
 
     // Use Store Data Hook
     // We always call it, but its effects depend on the props passed

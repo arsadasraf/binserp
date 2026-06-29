@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
-// Material Master Schema
-export const materialSchema = new mongoose.Schema(
+// RM/BO Item Schema
+export const rmBoItemSchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
@@ -9,7 +9,8 @@ export const materialSchema = new mongoose.Schema(
       required: true,
     },
     name: { type: String, required: true },
-    code: { type: String },
+    descriptions: { type: String },
+    minimumStock: { type: Number },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
@@ -19,9 +20,16 @@ export const materialSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Location",
     },
+    photos: {
+      type: [String],
+      validate: [
+        (val) => val.length <= 2,
+        '{PATH} exceeds the limit of 2'
+      ]
+    }
   },
   { timestamps: true }
 );
 
 // Indexes
-materialSchema.index({ company: 1, code: 1 }, { unique: true });
+rmBoItemSchema.index({ company: 1, name: 1 }, { unique: true });

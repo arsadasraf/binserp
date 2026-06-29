@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -64,7 +64,7 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const createMaterialRequest = async (req, res) => {
   try {
     const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
-      const Material = req.getModel('Material', materialSchema);
+      const Material = req.getModel('RmBoItem', rmBoItemSchema);
       const FGItem = req.getModel('FGItem', fgItemSchema);
 
     const companyId = getCompanyId(req);

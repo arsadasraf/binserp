@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -65,7 +65,7 @@ export const getAllGRNs = async (req, res) => {
   // Ensure referenced models are registered for population
   req.getModel('Vendor', vendorSchema);
   req.getModel('Customer', customerSchema);
-  req.getModel('Material', materialSchema);
+  req.getModel('RmBoItem', rmBoItemSchema);
   req.getModel('Component', componentSchema);
 
   try {

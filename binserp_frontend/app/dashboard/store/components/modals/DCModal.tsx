@@ -9,10 +9,10 @@
 
 import { useState, useEffect } from "react";
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from "lucide-react";
-import { DCModalProps, DCFormData, Material } from "../../types/store.types";
+import { DCModalProps, DCFormData, RmBoItem } from "../../types/store.types";
 
 interface ExtendedDCModalProps extends DCModalProps {
-    materials?: Material[]; // For backward compatibility if passed
+    materials?: RmBoItem[]; // For backward compatibility if passed
     inHouseItems?: any[]; // FG items
 }
 

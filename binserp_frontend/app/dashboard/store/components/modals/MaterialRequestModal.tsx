@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Material } from "../../types/store.types";
+import { RmBoItem } from "../../types/store.types";
 import { X, Plus, Trash2, Package } from "lucide-react";
 
 interface MaterialRequestModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSubmit: (data: any) => void;
-    materials: Material[];
+    materials: RmBoItem[];
     inventoryList?: any[]; // Optional to avoid strict type breaking if not passed immediately
     inHouseComponents?: any[];
     loading?: boolean;

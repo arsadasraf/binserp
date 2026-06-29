@@ -6,7 +6,7 @@ const storeEndpoints = [
   { key: "customer", url: "/api/store/customer", tag: "StoreMasters", dataKey: "customers" },
   { key: "location", url: "/api/store/location", tag: "StoreMasters", dataKey: "locations" },
   { key: "category", url: "/api/store/category", tag: "StoreMasters", dataKey: "categories" },
-  { key: "material", url: "/api/store/material", tag: "StoreInventory", dataKey: "materials" },
+  { key: "rm-bo-item", url: "/api/store/rm-bo-item", tag: "StoreInventory", dataKey: "rmBoItems" },
   { key: "job-work-supplier", url: "/api/store/job-work-supplier", tag: "StoreMasters", dataKey: "jobWorkSuppliers" },
   { key: "process", url: "/api/store/process", tag: "StoreMasters", dataKey: "processes" },
   { key: "dc", url: "/api/store/dc", tag: "StoreDc", dataKey: "dcs" },

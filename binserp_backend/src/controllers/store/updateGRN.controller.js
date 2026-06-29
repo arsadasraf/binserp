@@ -13,7 +13,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -65,7 +65,7 @@ export const updateGRN = async (req, res) => {
   try {
     const GRN = req.getModel('GRN', grnSchema);
       const Component = req.getModel('Component', componentSchema);
-      const Material = req.getModel('Material', materialSchema);
+      const Material = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;

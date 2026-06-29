@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -60,18 +60,19 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const getAllMaterials = async (req, res) => {
+export const deleteRmBoItem = async (req, res) => {
   try {
-    const Material = req.getModel('Material', materialSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
-    const materials = await Material.find({ company: companyId })
-      .populate('categoryId')
-      .populate('locationId')
-      .sort({ name: 1 });
-    res.status(200).json({ materials, count: materials.length });
+    const { id } = req.params;
+    const rmBoItem = await RmBoItem.findOneAndDelete({ _id: id, company: companyId });
+    if (!rmBoItem) return res.status(404).json({ message: "RM/BO Item not found" });
+    res.status(200).json({ message: "RM/BO Item deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
+// ========== COMPANY INFO ==========
 

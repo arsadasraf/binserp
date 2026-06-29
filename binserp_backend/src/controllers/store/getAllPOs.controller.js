@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -67,7 +67,7 @@ export const getAllPOs = async (req, res) => {
     const companyId = getCompanyId(req);
     const pos = await PurchaseOrder.find({ company: companyId })
       .populate("vendor", "name code email phone")
-      .populate("material", "name code")
+      .populate("RmBoItem", "name code")
       .populate("createdBy", "name userId")
       .sort({ createdAt: -1 });
 

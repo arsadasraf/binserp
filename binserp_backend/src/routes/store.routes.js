@@ -44,10 +44,10 @@ import {
   getAllCategories,
   updateCategory,
   deleteCategory,
-  createMaterial,
-  getAllMaterials,
-  updateMaterial,
-  deleteMaterial,
+  createRmBoItem,
+  getAllRmBoItems,
+  updateRmBoItem,
+  deleteRmBoItem,
   getCompanyInfo,
   updateCompanyInfo,
   createJobWorkChallan,
@@ -142,10 +142,10 @@ router.get("/category", getAllCategories);
 router.put("/category/:id", updateCategory);
 router.delete("/category/:id", deleteCategory);
 
-router.post("/material", createMaterial);
-router.get("/material", getAllMaterials);
-router.put("/material/:id", updateMaterial);
-router.delete("/material/:id", deleteMaterial);
+router.post("/rm-bo-item", upload.array('photos', 2), createRmBoItem);
+router.get("/rm-bo-item", getAllRmBoItems);
+router.put("/rm-bo-item/:id", upload.array('photos', 2), updateRmBoItem);
+router.delete("/rm-bo-item/:id", deleteRmBoItem);
 
 // Company Info routes
 router.get("/company-info", getCompanyInfo);

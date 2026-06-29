@@ -234,7 +234,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                     )}
 
                     {/* Material/Inhouse Specific: Category & Loction */}
-                    {(masterTab === "material" || masterTab === "inhouse-items") && (
+                    {(masterTab === "rm-bo-item" || masterTab === "inhouse-items") && (
                         <>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Category <span className="text-red-500">*</span></label>
@@ -276,6 +276,59 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     className="w-full px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed"
                                     placeholder="Auto-filled"
                                 />
+                            </div>
+                        </>
+                    )}
+
+                    {/* RM/BO Item Specific Fields */}
+                    {masterTab === "rm-bo-item" && (
+                        <>
+                            <div className="md:col-span-2 lg:col-span-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Descriptions</label>
+                                <textarea
+                                    value={formData.descriptions || ""}
+                                    onChange={(e) => setFormData({ ...formData, descriptions: e.target.value })}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="Enter Descriptions"
+                                    rows={2}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Minimum Stock</label>
+                                <input
+                                    type="number"
+                                    value={formData.minimumStock || ""}
+                                    onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) })}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="Enter Minimum Stock"
+                                />
+                            </div>
+                            <div className="md:col-span-2 lg:col-span-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Photos (Max 2)</label>
+                                <input
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    onChange={(e) => {
+                                        if (e.target.files && e.target.files.length > 2) {
+                                            alert("You can only upload up to 2 photos.");
+                                            e.target.value = "";
+                                            return;
+                                        }
+                                        const filesArray = Array.from(e.target.files || []);
+                                        setFormData({ ...formData, photos: filesArray });
+                                    }}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                                {formData.photos && typeof formData.photos[0] === 'string' && (
+                                    <div className="flex gap-2 mt-2">
+                                        {(formData.photos as any[]).map((photo, i) => (
+                                            typeof photo === 'string' ? (
+                                                <img key={i} src={photo} alt={`Photo ${i+1}`} className="w-20 h-20 object-cover rounded border" />
+                                            ) : null
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}

@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -60,19 +60,16 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const updateMaterial = async (req, res) => {
+export const getAllRmBoItems = async (req, res) => {
   try {
-    const Material = req.getModel('Material', materialSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
-    const { id } = req.params;
-    const material = await Material.findOneAndUpdate(
-      { _id: id, company: companyId },
-      req.body,
-      { new: true }
-    ).populate(['categoryId', 'locationId']);
-    if (!material) return res.status(404).json({ message: "Material not found" });
-    res.status(200).json({ message: "Material updated successfully", material });
+    const rmBoItems = await RmBoItem.find({ company: companyId })
+      .populate('categoryId')
+      .populate('locationId')
+      .sort({ name: 1 });
+    res.status(200).json({ rmBoItems, count: rmBoItems.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

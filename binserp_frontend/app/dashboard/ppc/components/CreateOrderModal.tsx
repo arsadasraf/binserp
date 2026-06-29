@@ -162,7 +162,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                 if (key === 'items') {
                     orderFormData.append(key, JSON.stringify(payload[key]));
                 } else {
-                    orderFormData.append(key, payload[key] as string);
+                    orderFormData.append(key, (payload as any)[key] as string);
                 }
             });
 

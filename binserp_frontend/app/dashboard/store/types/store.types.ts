@@ -7,7 +7,7 @@
 export type TabType = "home" | "material-issue" | "grn" | "dc" | "billing" | "po" | "masters" | "bills-dc" | "bills-billing" | "bills-po" | "job-work" | "order-entry" | "quotation";
 
 // Master data type for master tab navigation
-export type MasterType = "vendor" | "customer" | "location" | "category" | "material" | "inhouse-items" | "fg-items" | "pending-products" | "ppc-products" | "grn-history" | "fg-grn-history" | "po-history" | "company-info" | "prefix-settings" | "job-work-supplier" | "print-settings";
+export type MasterType = "vendor" | "customer" | "location" | "category" | "rm-bo-item" | "inhouse-items" | "fg-items" | "pending-products" | "ppc-products" | "grn-history" | "fg-grn-history" | "po-history" | "company-info" | "prefix-settings" | "job-work-supplier" | "print-settings";
 
 // Bank Details interface for vendors and customers
 export interface BankDetails {
@@ -61,6 +61,9 @@ export interface StoreFormData {
     shippingDistrict?: string;
     shippingCountry?: string;
     description?: string;
+    descriptions?: string; // For RM/BO item
+    minimumStock?: number; // For RM/BO item
+    photos?: any[]; // For RM/BO item and FG item
     unit?: string;
     hsnCode?: string;
     categoryId?: string;  // For material master
@@ -200,10 +203,12 @@ export interface Category {
     hsnCode?: string;
 }
 
-export interface Material {
+export interface RmBoItem {
     _id: string;
     name: string;
-    code?: string;
+    descriptions?: string;
+    minimumStock?: number;
+    photos?: string[];
     categoryId: string | Category;  // Can be ID or populated Category object
     locationId?: string | Location; // Can be ID or populated Location object
     category?: Category;  // Populated category data (alternative field)
@@ -530,7 +535,7 @@ export interface GRNModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSubmit: (data: GRNFormData) => void;
-    materials?: Material[];
+    materials?: RmBoItem[];
     vendors?: Vendor[];
     locations?: Location[];
     categories?: Category[];
@@ -546,7 +551,7 @@ export interface POModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSubmit: (data: POFormData) => void;
-    materials: Material[];
+    materials: RmBoItem[];
     vendors: Vendor[];
     inHouseItems?: any[];
     loading: boolean;

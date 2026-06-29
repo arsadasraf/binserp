@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -60,19 +60,61 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const deleteMaterial = async (req, res) => {
+export const createRmBoItem = async (req, res) => {
   try {
-    const Material = req.getModel('Material', materialSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
-    const { id } = req.params;
-    const material = await Material.findOneAndDelete({ _id: id, company: companyId });
-    if (!material) return res.status(404).json({ message: "Material not found" });
-    res.status(200).json({ message: "Material deleted successfully" });
+    let { name, descriptions, minimumStock, categoryId, locationId, photos } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: "Name is required" });
+    }
+
+    if (!categoryId) {
+      return res.status(400).json({ message: "Category is required" });
+    }
+
+    if (photos && photos.length > 2) {
+      return res.status(400).json({ message: "Maximum 2 photos allowed" });
+    }
+
+    /* 
+      Robust check for valid ObjectId format to prevent CastErrors 
+      passing straight to Mongoose
+    */
+    const isValidObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id);
+
+    if (!isValidObjectId(categoryId)) {
+      return res.status(400).json({ message: "Invalid Category ID format" });
+    }
+
+    // Optional: Check locationId too if provided
+    if (locationId && !isValidObjectId(locationId) && locationId !== "") {
+      // If it's an empty string, let's treat it as undefined/null
+      locationId = undefined;
+    }
+
+    const rmBoItem = await RmBoItem.create({ 
+      name, 
+      descriptions, 
+      minimumStock, 
+      categoryId, 
+      locationId, 
+      photos, 
+      company: companyId 
+    });
+
+    // Populate category and location before sending response
+    await rmBoItem.populate(['categoryId', 'locationId']);
+
+    res.status(201).json({ message: "RM/BO Item created successfully", rmBoItem });
   } catch (error) {
+    console.error("Create RM/BO Item Error:", error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Item name already exists" });
+    }
     res.status(500).json({ message: error.message });
   }
 };
-
-// ========== COMPANY INFO ==========
 

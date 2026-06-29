@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -121,7 +121,7 @@ export const createPO = async (req, res) => {
 
     // Populate vendor details for response
     await po.populate("vendor", "name code email");
-    await po.populate("material", "name code");
+    await po.populate("RmBoItem", "name code");
 
     res.status(201).json({ message: "Purchase Order created successfully", po });
   } catch (error) {

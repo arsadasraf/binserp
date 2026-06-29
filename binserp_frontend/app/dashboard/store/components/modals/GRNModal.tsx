@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, FileText, Camera } from 'lucide-react';
-import { GRNModalProps, Material } from '../../types/store.types';
+import { GRNModalProps, RmBoItem } from '../../types/store.types';
 
 interface MaterialEntry {
     material: string;
@@ -171,7 +171,7 @@ export default function GRNModal({
     /**
      * Helper function to get category unit from material
      */
-    const getCategoryUnit = (material: Material | undefined): string => {
+    const getCategoryUnit = (material: RmBoItem | undefined): string => {
         if (!material) return '';
         if (typeof material.categoryId === 'object' && material.categoryId?.unit) {
             return material.categoryId.unit;
@@ -182,7 +182,7 @@ export default function GRNModal({
     /**
      * Helper function to get category name from material
      */
-    const getCategoryName = (material: Material | undefined): string => {
+    const getCategoryName = (material: RmBoItem | undefined): string => {
         if (!material) return '';
         if (typeof material.categoryId === 'object' && material.categoryId?.name) {
             return material.categoryId.name;
@@ -193,7 +193,7 @@ export default function GRNModal({
     /**
      * Helper function to get location ID from material
      */
-    const getLocationId = (material: Material | undefined): string => {
+    const getLocationId = (material: RmBoItem | undefined): string => {
         if (!material) return '';
         // Handle InHouse component location if needed, otherwise standard logic
         if (typeof material.locationId === 'object' && material.locationId?._id) {

@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -66,7 +66,7 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
 
   try {
     const companyId = getCompanyId(req);
-    const Material = req.getModel('Material', materialSchema);
+    const Material = req.getModel('RmBoItem', rmBoItemSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
     const Location = req.getModel('Location', locationSchema);
 

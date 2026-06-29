@@ -379,7 +379,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     <span className="text-sm text-gray-500 font-medium whitespace-nowrap">
                         Showing {filteredData.length} records
                     </span>
-                    {["vendor", "customer", "job-work-supplier", "material", "fg-items", "category", "location"].includes(masterTab) && (
+                    {["vendor", "customer", "job-work-supplier", "rm-bo-item", "fg-items", "category", "location"].includes(masterTab) && (
                         <div className="relative w-full sm:max-w-md">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                             <input
@@ -479,7 +479,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                             )}
                             {masterTab === "location" && <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>}
                             {masterTab === "category" && <><th className="px-6 py-3 text-left font-semibold text-gray-900">HSN Code</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th></>}
-                            {masterTab === "material" && (<><th className="px-6 py-3 text-left font-semibold text-gray-900">Category</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Location</th></>)}
+                            {masterTab === "rm-bo-item" && (<><th className="px-6 py-3 text-left font-semibold text-gray-900">Category</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Location</th></>)}
                             {masterTab === "fg-items" && (
                                 <>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">
@@ -550,7 +550,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
 
                                         {(masterTab === "vendor" || masterTab === "customer") && (<><td className="px-6 py-4 text-gray-600">{item.contactPerson}</td><td className="px-6 py-4 text-gray-600">{item.email}</td></>)}
                                         {(masterTab === "customer" || masterTab === "vendor") && <td className="px-6 py-4 text-gray-600">{masterTab === "customer" ? (item.customerType || '-') : (item.vendorType || '-')}</td>}
-                                        {masterTab === "material" && (<><td className="px-6 py-4 text-gray-600">{item.categoryId?.name || item.category?.name || '-'}</td><td className="px-6 py-4 text-gray-600">{item.categoryId?.unit || item.category?.unit || '-'}</td><td className="px-6 py-4 text-gray-600">{item.locationId?.name || item.location?.name || '-'}</td></>)}
+                                        {masterTab === "rm-bo-item" && (<><td className="px-6 py-4 text-gray-600">{item.categoryId?.name || item.category?.name || '-'}</td><td className="px-6 py-4 text-gray-600">{item.categoryId?.unit || item.category?.unit || '-'}</td><td className="px-6 py-4 text-gray-600">{item.locationId?.name || item.location?.name || '-'}</td></>)}
                                         {masterTab === "fg-items" && (
                                             <>
                                                 <td className="px-6 py-4 text-gray-600">
@@ -684,7 +684,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                 </>
                             )}
 
-                            {masterTab === "material" && (
+                            {masterTab === "rm-bo-item" && (
                                 <>
                                     <div className="flex justify-between"><span className="text-gray-500">Category:</span> <span className="font-medium">{item.categoryId?.name || item.category?.name || '-'}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">Location:</span> <span className="font-medium">{item.locationId?.name || item.location?.name || '-'}</span></div>

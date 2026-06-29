@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from 'lucide-react';
-import { POModalProps, Material } from '../../types/store.types';
+import { POModalProps, RmBoItem } from '../../types/store.types';
 
 interface MaterialEntry {
     itemType: 'bo' | 'custom';
@@ -153,7 +153,7 @@ export default function POModal({
         setMaterialEntries(newEntries);
     };
 
-    const getCategoryUnit = (material: Material | undefined): string => {
+    const getCategoryUnit = (material: RmBoItem | undefined): string => {
         if (!material) return 'PCS';
         if (typeof material.categoryId === 'object' && material.categoryId.unit) {
             return material.categoryId.unit;
@@ -161,7 +161,7 @@ export default function POModal({
         return material.category?.unit || 'PCS';
     };
 
-    const getCategoryName = (material: Material | undefined): string => {
+    const getCategoryName = (material: RmBoItem | undefined): string => {
         if (!material) return '';
         if (typeof material.categoryId === 'object' && material.categoryId.name) {
             return material.categoryId.name;

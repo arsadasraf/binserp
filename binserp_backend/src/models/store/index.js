@@ -14,7 +14,7 @@ export { categorySchema } from './category.model.js';
 export { companyInfoSchema } from './companyInfo.model.js';
 export { jobWorkSchema } from './jobWork.model.js';
 export { quotationSchema } from './quotation.model.js';
-export { materialSchema } from './material.model.js';
+export { rmBoItemSchema } from './rmBoItem.model.js';
 export { fgItemSchema } from './fgItem.model.js';
 export { fgGRNSchema } from './fgGRN.model.js';
 export { rmInventoryMonthlySchema } from './rmInventoryMonthly.model.js';

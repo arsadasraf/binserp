@@ -12,7 +12,7 @@ import {
   customerSchema,
   locationSchema,
   categorySchema,
-  materialSchema,
+  rmBoItemSchema,
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
@@ -60,54 +60,27 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const createMaterial = async (req, res) => {
+export const updateRmBoItem = async (req, res) => {
   try {
-    const Material = req.getModel('Material', materialSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
-    let { code, name, categoryId, locationId } = req.body;
-
-    if (!name) {
-      return res.status(400).json({ message: "Material name is required" });
+    const { id } = req.params;
+    
+    if (req.body.photos && req.body.photos.length > 2) {
+      return res.status(400).json({ message: "Maximum 2 photos allowed" });
     }
 
-    if (!categoryId) {
-      return res.status(400).json({ message: "Category is required" });
-    }
-
-    /* 
-      Robust check for valid ObjectId format to prevent CastErrors 
-      passing straight to Mongoose
-    */
-    const isValidObjectId = (id) => /^[0-9a-fA-F]{24}$/.test(id);
-
-    if (!isValidObjectId(categoryId)) {
-      return res.status(400).json({ message: "Invalid Category ID format" });
-    }
-
-    // Optional: Check locationId too if provided
-    if (locationId && !isValidObjectId(locationId) && locationId !== "") {
-      // If it's an empty string, let's treat it as undefined/null
-      locationId = undefined;
-    }
-
-    // Auto-generate code if not provided
-    if (!code) {
-      const prefix = name.substring(0, 3).toUpperCase();
-      const random = Math.floor(1000 + Math.random() * 9000);
-      code = `MAT-${prefix}-${random}`;
-    }
-
-    const material = await Material.create({ name, code, categoryId, locationId, company: companyId });
-
-    // Populate category and location before sending response
-    await material.populate(['categoryId', 'locationId']);
-
-    res.status(201).json({ message: "Material created successfully", material });
+    const rmBoItem = await RmBoItem.findOneAndUpdate(
+      { _id: id, company: companyId },
+      req.body,
+      { new: true }
+    ).populate(['categoryId', 'locationId']);
+    if (!rmBoItem) return res.status(404).json({ message: "RM/BO Item not found" });
+    res.status(200).json({ message: "RM/BO Item updated successfully", rmBoItem });
   } catch (error) {
-    console.error("Create Material Error:", error);
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Material code already exists" });
+      return res.status(400).json({ message: "Item name already exists" });
     }
     res.status(500).json({ message: error.message });
   }

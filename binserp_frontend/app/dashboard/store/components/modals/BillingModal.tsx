@@ -7,10 +7,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BillingModalProps, BillingFormData, Material } from "../../types/store.types";
+import { BillingModalProps, BillingFormData, RmBoItem } from "../../types/store.types";
 
 interface ExtendedBillingModalProps extends BillingModalProps {
-    materials?: Material[];
+    materials?: RmBoItem[];
 }
 
 export default function BillingModal({
