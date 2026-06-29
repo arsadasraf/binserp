@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { Edit2, Trash2, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Search, Image as ImageIcon } from 'lucide-react';
 import { MasterType } from '../../types/store.types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -422,8 +422,9 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
                             {(masterTab !== "grn-history" && masterTab !== "fg-grn-history") && masterTab !== "po-history" && (<>
+                                {masterTab === 'rm-bo-item' && <th className="px-6 py-3 text-left font-semibold text-gray-900 w-24">Photo</th>}
                                 <th className="px-6 py-3 text-left font-semibold text-gray-900">Name</th>
-                                {masterTab !== 'fg-items' && <th className="px-6 py-3 text-left font-semibold text-gray-900">Code</th>}
+                                {masterTab !== 'fg-items' && masterTab !== 'rm-bo-item' && <th className="px-6 py-3 text-left font-semibold text-gray-900">Code</th>}
                                 {masterTab === 'fg-items' && <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>}
                             </>)}
                             {(masterTab === "grn-history" || masterTab === "fg-grn-history") && (
@@ -479,7 +480,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                             )}
                             {masterTab === "location" && <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>}
                             {masterTab === "category" && <><th className="px-6 py-3 text-left font-semibold text-gray-900">HSN Code</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th></>}
-                            {masterTab === "rm-bo-item" && (<><th className="px-6 py-3 text-left font-semibold text-gray-900">Category</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Location</th></>)}
+                            {masterTab === "rm-bo-item" && (<><th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Min Stock</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Category</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Location</th></>)}
                             {masterTab === "fg-items" && (
                                 <>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">
@@ -542,15 +543,40 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                 )}
                                 {(masterTab !== "grn-history" && masterTab !== "fg-grn-history") && masterTab !== "po-history" && (
                                     <>
+                                        {masterTab === 'rm-bo-item' && (
+                                            <td className="px-6 py-4">
+                                                {item.photos && item.photos.length > 0 ? (
+                                                    <div 
+                                                        className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center cursor-pointer hover:bg-indigo-100 transition-colors relative shadow-sm border border-indigo-100" 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setViewingPhotos(item.photos);
+                                                        }}
+                                                        title="View Photos"
+                                                    >
+                                                        <ImageIcon size={16} />
+                                                        {item.photos.length > 1 && (
+                                                            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold h-4 w-4 flex items-center justify-center rounded-full shadow-sm">
+                                                                {item.photos.length}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center">
+                                                        <Camera size={14} className="text-gray-400" />
+                                                    </div>
+                                                )}
+                                            </td>
+                                        )}
                                         <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
-                                        {masterTab !== "fg-items" && <td className="px-6 py-4 text-gray-600">{item.code}</td>}
+                                        {masterTab !== "fg-items" && masterTab !== "rm-bo-item" && <td className="px-6 py-4 text-gray-600">{item.code}</td>}
                                         {masterTab === "fg-items" && <td className="px-6 py-4 text-gray-600">{item.description || '-'}</td>}
                                         {masterTab === "location" && <td className="px-6 py-4 text-gray-600">{item.description || '-'}</td>}
                                         {masterTab === "category" && <><td className="px-6 py-4 text-gray-600">{item.hsnCode || '-'}</td><td className="px-6 py-4 text-gray-600">{item.unit || '-'}</td></>}
 
                                         {(masterTab === "vendor" || masterTab === "customer") && (<><td className="px-6 py-4 text-gray-600">{item.contactPerson}</td><td className="px-6 py-4 text-gray-600">{item.email}</td></>)}
                                         {(masterTab === "customer" || masterTab === "vendor") && <td className="px-6 py-4 text-gray-600">{masterTab === "customer" ? (item.customerType || '-') : (item.vendorType || '-')}</td>}
-                                        {masterTab === "rm-bo-item" && (<><td className="px-6 py-4 text-gray-600">{item.categoryId?.name || item.category?.name || '-'}</td><td className="px-6 py-4 text-gray-600">{item.categoryId?.unit || item.category?.unit || '-'}</td><td className="px-6 py-4 text-gray-600">{item.locationId?.name || item.location?.name || '-'}</td></>)}
+                                        {masterTab === "rm-bo-item" && (<><td className="px-6 py-4 text-gray-600">{item.descriptions || '-'}</td><td className="px-6 py-4 text-gray-600">{item.minimumStock ?? '-'}</td><td className="px-6 py-4 text-gray-600">{item.categoryId?.unit || item.category?.unit || item.unit || '-'}</td><td className="px-6 py-4 text-gray-600">{item.categoryId?.name || item.category?.name || '-'}</td><td className="px-6 py-4 text-gray-600">{item.locationId?.name || item.location?.name || '-'}</td></>)}
                                         {masterTab === "fg-items" && (
                                             <>
                                                 <td className="px-6 py-4 text-gray-600">
@@ -645,8 +671,25 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                     </>
                                 ) : (
                                     <>
+                                        {masterTab === 'rm-bo-item' && item.photos && item.photos.length > 0 && (
+                                            <div 
+                                                className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center cursor-pointer hover:bg-indigo-100 transition-colors relative shadow-sm border border-indigo-100 mb-2" 
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setViewingPhotos(item.photos);
+                                                }}
+                                                title="View Photos"
+                                            >
+                                                <ImageIcon size={16} />
+                                                {item.photos.length > 1 && (
+                                                    <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold h-4 w-4 flex items-center justify-center rounded-full shadow-sm">
+                                                        {item.photos.length}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                         <h4 className="font-bold text-gray-900">{item.name}</h4>
-                                        {masterTab !== "fg-items" && <span className="text-xs text-gray-500">{item.code}</span>}
+                                        {masterTab !== "fg-items" && masterTab !== "rm-bo-item" && <span className="text-xs text-gray-500">{item.code}</span>}
                                     </>
                                 )}
                             </div>
@@ -686,6 +729,9 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
 
                             {masterTab === "rm-bo-item" && (
                                 <>
+                                    <div className="flex justify-between"><span className="text-gray-500">Description:</span> <span className="font-medium">{item.descriptions || '-'}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Min Stock:</span> <span className="font-medium">{item.minimumStock ?? '-'}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Unit:</span> <span className="font-medium">{item.categoryId?.unit || item.category?.unit || item.unit || '-'}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">Category:</span> <span className="font-medium">{item.categoryId?.name || item.category?.name || '-'}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">Location:</span> <span className="font-medium">{item.locationId?.name || item.location?.name || '-'}</span></div>
                                 </>

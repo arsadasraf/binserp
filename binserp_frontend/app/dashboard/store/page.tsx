@@ -562,8 +562,8 @@ function StoreContent() {
                   RM/BO Items Categories
                 </button>
                 <button
-                  onClick={() => setMasterTab("material")}
-                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${masterTab === "material"
+                  onClick={() => setMasterTab("rm-bo-item")}
+                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${masterTab === "rm-bo-item"
                     ? "bg-indigo-600 text-white shadow-md"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
                 >

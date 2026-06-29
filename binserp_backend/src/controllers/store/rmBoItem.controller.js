@@ -65,7 +65,7 @@ export const createRmBoItem = async (req, res) => {
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
-    let { name, descriptions, minimumStock, categoryId, locationId, photos } = req.body;
+    let { name, descriptions, minimumStock, categoryId, locationId } = req.body;
 
     if (!name) {
       return res.status(400).json({ message: "Name is required" });
@@ -75,8 +75,22 @@ export const createRmBoItem = async (req, res) => {
       return res.status(400).json({ message: "Category is required" });
     }
 
-    if (photos && photos.length > 2) {
-      return res.status(400).json({ message: "Maximum 2 photos allowed" });
+    // Handle photo uploads if provided
+    const photoUrls = [];
+    if (req.files && req.files.length > 0) {
+      if (req.files.length > 2) {
+        return res.status(400).json({ message: "Maximum 2 photos allowed" });
+      }
+      try {
+        for (const file of req.files) {
+          const uploadResult = await uploadOnS3(file.path, "rm-bo-items/photos", companyId);
+          if (uploadResult) {
+            photoUrls.push(uploadResult.secure_url);
+          }
+        }
+      } catch (uploadError) {
+        console.error("Photo upload error:", uploadError);
+      }
     }
 
     /* 
@@ -101,7 +115,7 @@ export const createRmBoItem = async (req, res) => {
       minimumStock, 
       categoryId, 
       locationId, 
-      photos, 
+      photos: photoUrls, 
       company: companyId 
     });
 

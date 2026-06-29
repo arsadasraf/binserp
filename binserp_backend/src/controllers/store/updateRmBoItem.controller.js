@@ -66,10 +66,36 @@ export const updateRmBoItem = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
-    
-    if (req.body.photos && req.body.photos.length > 2) {
+    let existingPhotos = [];
+    if (req.body.photos) {
+      if (Array.isArray(req.body.photos)) {
+        existingPhotos = req.body.photos;
+      } else {
+        existingPhotos = [req.body.photos];
+      }
+    }
+
+    const newPhotoUrls = [];
+    if (req.files && req.files.length > 0) {
+      try {
+        for (const file of req.files) {
+          const uploadResult = await uploadOnS3(file.path, "rm-bo-items/photos", companyId);
+          if (uploadResult) {
+            newPhotoUrls.push(uploadResult.secure_url);
+          }
+        }
+      } catch (uploadError) {
+        console.error("Photo upload error:", uploadError);
+      }
+    }
+
+    const finalPhotos = [...existingPhotos, ...newPhotoUrls];
+
+    if (finalPhotos.length > 2) {
       return res.status(400).json({ message: "Maximum 2 photos allowed" });
     }
+    
+    req.body.photos = finalPhotos;
 
     const rmBoItem = await RmBoItem.findOneAndUpdate(
       { _id: id, company: companyId },
