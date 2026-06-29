@@ -35,7 +35,7 @@ const getCompanyLoginId = (req) => {
 // ========== ORDER MANAGEMENT ==========
 
 export const upsertMachinePlan = async (req, res) => {
-  const { machineDayPlanSchema } = await import("../models/ppc/index.js");
+  const { machineDayPlanSchema } = await import("../../models/ppc/index.js");
   try {
     const MachineDayPlan = req.getModel('MachineDayPlan', machineDayPlanSchema);
 

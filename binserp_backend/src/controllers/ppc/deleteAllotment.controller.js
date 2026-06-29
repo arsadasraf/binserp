@@ -35,7 +35,7 @@ const getCompanyLoginId = (req) => {
 // ========== ORDER MANAGEMENT ==========
 
 export const deleteAllotment = async (req, res) => {
-  const { manpowerAllotmentSchema } = await import("../models/ppc/index.js");
+  const { manpowerAllotmentSchema } = await import("../../models/ppc/index.js");
   try {
     const ManpowerAllotment = req.getModel('ManpowerAllotment', manpowerAllotmentSchema);
 

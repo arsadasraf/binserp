@@ -35,7 +35,7 @@ const getCompanyLoginId = (req) => {
 // ========== ORDER MANAGEMENT ==========
 
 export const deleteOrder = async (req, res) => {
-  const { ppcOrderSchema, productionOrderSchema } = await import("../models/ppc/index.js");
+  const { ppcOrderSchema, productionOrderSchema } = await import("../../models/ppc/index.js");
   try {
     const Order = req.getModel('Order', orderSchema);
     const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);

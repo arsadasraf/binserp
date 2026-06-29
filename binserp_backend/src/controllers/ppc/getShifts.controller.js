@@ -35,7 +35,7 @@ const getCompanyLoginId = (req) => {
 // ========== ORDER MANAGEMENT ==========
 
 export const getShifts = async (req, res) => {
-  const { shiftSchema } = await import("../models/ppc/index.js");
+  const { shiftSchema } = await import("../../models/ppc/index.js");
   try {
     const Shift = req.getModel('Shift', shiftSchema);
 

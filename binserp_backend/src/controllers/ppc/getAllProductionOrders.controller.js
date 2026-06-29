@@ -35,7 +35,7 @@ const getCompanyLoginId = (req) => {
 // ========== ORDER MANAGEMENT ==========
 
 export const getAllProductionOrders = async (req, res) => {
-  const { productionOrderSchema } = await import("../models/ppc/index.js");
+  const { productionOrderSchema } = await import("../../models/ppc/index.js");
   try {
     const companyId = getCompanyId(req);
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
