@@ -51,6 +51,7 @@ import PPCProductsTab from "../ppc/components/PPCProductsTab";
 import PrefixSettingsForm from "./components/forms/PrefixSettingsForm";
 import JobWorkStore from "./components/tabs/JobWorkStore";
 import InventoryTab from "./components/tabs/InventoryTab";
+import MRPTab from "./components/tabs/MRPTab";
 
 
 /**
@@ -619,9 +620,17 @@ function StoreContent() {
             </div>
           )}
 
-          {/* Bills tabs - shown when po, dc, or billing tabs are active */}
-          {(activeTab === "po" || activeTab === "dc" || activeTab === "billing" || activeTab === "order-entry" || activeTab === "quotation") && (
+          {/* Bills tabs - shown when po, dc, billing, order-entry, quotation, or mrp tabs are active */}
+          {(activeTab === "po" || activeTab === "dc" || activeTab === "billing" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "mrp") && (
             <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+              <Link
+                href="/dashboard/store?tab=mrp"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "mrp"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                MRP
+              </Link>
               <Link
                 href="/dashboard/store?tab=po"
                 className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "po"
@@ -917,6 +926,8 @@ function StoreContent() {
                   onEdit={handleBillingEdit}
                   onDelete={handleDelete}
                 />
+              ) : activeTab === "mrp" ? (
+                <MRPTab />
               ) : activeTab === "quotation" ? (
                 <QuotationTable
                   data={filteredBillsData}

@@ -83,3 +83,5 @@ export { deleteMachineAssignment } from './deleteMachineAssignment.controller.js
 export { createMaintenanceRecord } from './createMaintenanceRecord.controller.js';
 export { getMaintenanceRecords } from './getMaintenanceRecords.controller.js';
 export { updateMaintenanceRecord } from './updateMaintenanceRecord.controller.js';
+export { getGlobalMRP } from './getGlobalMRP.controller.js';
+export { updateMRPItem } from './updateMRPItem.controller.js';

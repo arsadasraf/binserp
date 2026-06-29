@@ -28,6 +28,7 @@ export const materialRequirementSchema = new mongoose.Schema(
         unit: String,
         stockAvailable: { type: Number, default: 0 }, // Snapshot at time of calculation
         shortage: { type: Number, default: 0 },
+        prQuantity: { type: Number, default: 0 },
         status: {
           type: String,
           enum: ["Pending", "PR Raised", "Fulfilled"],

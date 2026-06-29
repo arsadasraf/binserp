@@ -88,6 +88,19 @@ export const ppcService = binsApi.injectEndpoints({
       transformResponse: (response: any) => response.jobs || [],
       providesTags: (_r, _e, id) => [{ type: "PpcOrders", id: `jobs-${id}` }],
     }),
+    getGlobalMRP: builder.query<any[], void>({
+      query: () => "/api/ppc/mrp",
+      transformResponse: (response: any) => response.items || [],
+      providesTags: ["MaterialPlans"],
+    }),
+    updateMRPItem: builder.mutation<any, { itemId: string; prQuantity?: number; status?: string }>({
+      query: ({ itemId, prQuantity, status }) => ({
+        url: `/api/ppc/mrp/item/${itemId}`,
+        method: "PUT",
+        body: { prQuantity, status },
+      }),
+      invalidatesTags: ["MaterialPlans"],
+    }),
 
     // ─── Jobs ─────────────────────────────────────────────────────────
     getJobs: builder.query<any[], string | void>({
@@ -380,6 +393,7 @@ export const {
   useDeleteOrderMutation,
   useGetProductionOrdersQuery, useCreateProductionOrderMutation,
   useGetDispatchQueueQuery, useConfirmDispatchMutation,
+  useGetGlobalMRPQuery, useUpdateMRPItemMutation,
   useGetMaterialPlanQuery, useUpdateMaterialRequirementStatusMutation, useGetJobsByOrderQuery,
   // Jobs
   useGetJobsQuery, useLazyGetJobsQuery, useUpdateJobMutation, useStartJobProcessMutation, useCompleteJobProcessMutation,

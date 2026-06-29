@@ -57,6 +57,35 @@ export const confirmPPCOrder = async (req, res) => {
     // 1. Generate Jobs (Moved from Create)
     const updatedItems = []; // To update order with job IDs
     const materialMap = new Map(); // For Material Requirements aggregation
+    const FGItemModel = req.getModel('FGItem', fgItemSchema);
+
+    async function resolveBOM(bomArray, multiplierQuantity, materialMap) {
+      if (!bomArray || bomArray.length === 0) return;
+      for (const bomItem of bomArray) {
+        const requiredQty = bomItem.quantity * multiplierQuantity;
+        const matId = bomItem.item.toString();
+        
+        if (materialMap.has(matId)) {
+          materialMap.get(matId).requiredQuantity += requiredQty;
+        } else {
+          materialMap.set(matId, {
+            material: bomItem.item,
+            materialName: bomItem.itemName,
+            unit: bomItem.unit,
+            requiredQuantity: requiredQty,
+            itemModel: bomItem.itemModel || bomItem.itemType || 'Material'
+          });
+        }
+
+        const itemModel = bomItem.itemModel || bomItem.itemType;
+        if (itemModel === 'FGItem') {
+          const fgItem = await FGItemModel.findById(bomItem.item).lean();
+          if (fgItem && fgItem.bom && fgItem.bom.length > 0) {
+            await resolveBOM(fgItem.bom, requiredQty, materialMap);
+          }
+        }
+      }
+    }
 
     for (const item of order.items) {
       if (!item.product) continue; // Should have product ID
@@ -120,28 +149,9 @@ export const confirmPPCOrder = async (req, res) => {
       item.jobs = createdJobs;
 
       // --- Material Requirement Calculation ---
-      // Iterate BOM Snapshot
+      // Recursively traverse BOM Snapshot to plan for all sub-components and RM/BO
       if (item.bomSnapshot && item.bomSnapshot.length > 0) {
-        for (const bomItem of item.bomSnapshot) {
-          // Calculate Total Required for this Order Item
-          const requiredForThisItem = bomItem.quantity * quantity;
-
-          // Only plan for 'Material' items (Store Items), not sub-components for now (unless recursive requested)
-          // Ideally both, but let's stick to 'Material' (Raw Material) for "Procurement"
-          if (bomItem.itemModel === 'Material') {
-            const matId = bomItem.item.toString();
-            if (materialMap.has(matId)) {
-              materialMap.get(matId).requiredQuantity += requiredForThisItem;
-            } else {
-              materialMap.set(matId, {
-                material: bomItem.item,
-                materialName: bomItem.itemName,
-                unit: bomItem.unit,
-                requiredQuantity: requiredForThisItem
-              });
-            }
-          }
-        }
+        await resolveBOM(item.bomSnapshot, quantity, materialMap);
       }
     }
 
