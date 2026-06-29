@@ -203,10 +203,10 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
                     {/* Key Details Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                         <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                             <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold block mb-1">Stock</span>
-                            <span className={`text-lg font-bold ${stock <= (item.reorderLevel || 0) ? 'text-red-600' : 'text-green-600'}`}>
+                            <span className={`text-lg font-bold ${stock < (item.reorderLevel || item.minimumStock || 0) ? 'text-red-600' : 'text-green-600'}`}>
                                 {stock} <span className="text-sm text-gray-500 font-normal">{item.unit}</span>
                             </span>
                             {item.monthlyData && (
@@ -252,6 +252,14 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                 {type === 'bo' ? categoryName : (item.type || '-')}
                             </span>
                         </div>
+                        {type === 'bo' && (
+                            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold block mb-1">Min Stock</span>
+                                <span className="text-sm font-medium text-gray-900 dark:text-gray-200">
+                                    {item.minimumStock || item.reorderLevel || 0} {item.unit}
+                                </span>
+                            </div>
+                        )}
                         <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                             <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold block mb-1">Location</span>
                             <span className="text-sm font-medium text-gray-900 dark:text-gray-200 flex items-center gap-1 truncate" title={locationName}>

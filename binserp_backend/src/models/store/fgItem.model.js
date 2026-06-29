@@ -34,14 +34,7 @@ export const fgItemSchema = new mongoose.Schema(
       required: true,
     },
     description: String,
-    customer: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
-    },
-    category: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Category",
-    },
+
     location: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Location",
@@ -50,10 +43,7 @@ export const fgItemSchema = new mongoose.Schema(
       type: String,
       default: "Nos",
     },
-    quantity: {
-      type: Number,
-      default: 0,
-    },
+
     revisionNumber: {
       type: String,
     },

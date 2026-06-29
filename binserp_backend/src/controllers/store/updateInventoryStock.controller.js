@@ -81,7 +81,7 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     }
 
     const materialName = material.name;
-    const materialCode = material.code;
+    const materialCode = material.code || materialId.toString();
     const categoryId = material.categoryId?._id || material.categoryId;
 
     // Find inventory item - Try by materialId first (more robust), then code (backward compatibility)
@@ -110,8 +110,8 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
         unit: unit || material.unit || "PCS",
         currentStock: (!isPending) ? Math.max(0, quantity) : 0,
         qcPendingStock: (isPending) ? Math.max(0, quantity) : 0,
-        locationId,
-        categoryId,
+        locationId: locationId || undefined,
+        categoryId: categoryId || undefined,
         materialId, // Save materialId
         location: locationName
       });

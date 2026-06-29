@@ -343,16 +343,38 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                             ref={scrollContainerRef}
                             className="flex-1 overflow-x-auto overflow-y-hidden flex snap-x snap-mandatory scrollbar-hide touch-pan-x bg-black items-center h-full"
                         >
-                            {viewingPhotos.map((url, i) => (
-                                <div key={i} className="flex-none w-full h-full flex items-center justify-center snap-center p-2 relative">
-                                    <img
-                                        src={url}
-                                        alt={`Photo ${i + 1}`}
-                                        className="max-w-full max-h-full object-contain shadow-2xl rounded-lg"
-                                        loading="lazy"
-                                    />
+                            {viewingPhotos.map((url, i) => {
+                                const isPdf = url.toLowerCase().includes('.pdf');
+                                return (
+                                <div key={i} className="flex-none w-full h-full flex flex-col items-center justify-center snap-center p-6 relative">
+                                    {isPdf ? (
+                                        <div className="w-full flex-1 max-h-full max-w-5xl flex flex-col items-center justify-center bg-white rounded-lg shadow-2xl overflow-hidden relative">
+                                            <object
+                                                data={url}
+                                                type="application/pdf"
+                                                className="w-full h-full"
+                                            >
+                                                <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-gray-50">
+                                                    <p className="text-gray-600 mb-4">Your browser does not support inline PDF viewing.</p>
+                                                    <a href={url} target="_blank" rel="noopener noreferrer" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm font-medium">
+                                                        Open PDF in New Tab
+                                                    </a>
+                                                </div>
+                                            </object>
+                                            <a href={url} target="_blank" rel="noopener noreferrer" className="absolute top-4 right-4 px-4 py-2 bg-gray-900/80 backdrop-blur text-white text-sm rounded-lg hover:bg-black transition-colors shadow-lg font-medium flex items-center gap-2 z-10">
+                                                Open in New Tab
+                                            </a>
+                                        </div>
+                                    ) : (
+                                        <img
+                                            src={url}
+                                            alt={`Photo ${i + 1}`}
+                                            className="max-w-full max-h-full object-contain shadow-2xl rounded-lg"
+                                            loading="lazy"
+                                        />
+                                    )}
                                 </div>
-                            ))}
+                            )})}
                         </div>
 
                         <button

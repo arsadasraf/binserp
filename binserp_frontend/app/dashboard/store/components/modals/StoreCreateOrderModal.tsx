@@ -433,7 +433,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                 ref={galleryInputRef}
                                                 type="file"
                                                 className="hidden"
-                                                accept="image/*"
+                                                accept="image/*,application/pdf"
                                                 multiple
                                                 onChange={handlePhotoChange}
                                             />
@@ -441,7 +441,13 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                 <div className="flex gap-2 flex-wrap">
                                                     {photos.map((file, index) => (
                                                         <div key={index} className="relative w-10 h-10 rounded-lg overflow-hidden border border-gray-200 group">
-                                                            <img src={URL.createObjectURL(file)} alt="Preview" className="w-full h-full object-cover" />
+                                                            {file.type === 'application/pdf' ? (
+                                                                <div className="w-full h-full bg-gray-50 flex items-center justify-center">
+                                                                    <span className="text-[10px] font-bold text-red-500">PDF</span>
+                                                                </div>
+                                                            ) : (
+                                                                <img src={URL.createObjectURL(file)} alt="Preview" className="w-full h-full object-cover" />
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => setPhotos(prev => prev.filter((_, i) => i !== index))}

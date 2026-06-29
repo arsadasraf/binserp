@@ -292,7 +292,7 @@ export default function InventoryTable({
                                             className="hover:bg-gray-50 transition-colors cursor-pointer"
                                         >
                                             <td className="px-6 py-4 font-medium text-gray-900">{item.materialName}</td>
-                                            <td className={`px-6 py-4 font-medium ${item.currentStock <= item.reorderLevel ? "text-red-600" : "text-green-600"}`}>
+                                            <td className={`px-6 py-4 font-medium ${item.currentStock < item.reorderLevel ? "text-red-600" : "text-green-600"}`}>
                                                 {item.currentStock}
                                                 {item.qcPendingStock ? <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">({item.qcPendingStock})</span> : null}
                                             </td>

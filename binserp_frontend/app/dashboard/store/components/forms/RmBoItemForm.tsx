@@ -94,15 +94,20 @@ export default function RmBoItemForm({
                                 <input type="number" name="minimumStock" value={formData.minimumStock || ''} onChange={handleChange} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" placeholder="0" />
                             </div>
                              <div className="col-span-12 md:col-span-4">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Photos (Upload S3, Max 2)</label>
-                                <input type="file" multiple accept="image/*" onChange={handlePhotoChange} className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg outline-none file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Photos & PDFs (Upload S3, Max 2)</label>
+                                <input type="file" multiple accept="image/*,application/pdf" onChange={handlePhotoChange} className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg outline-none file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
                                 {formData.photos && formData.photos.length > 0 && (
                                     <div className="flex flex-wrap gap-2 mt-2">
                                         {formData.photos.map((photo: any, idx: number) => {
                                             const photoUrl = typeof photo === 'string' ? photo : URL.createObjectURL(photo);
+                                            const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo.type === 'application/pdf';
                                             return (
-                                            <div key={idx} className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden">
-                                                <img src={photoUrl} alt="preview" className="w-full h-full object-cover" />
+                                            <div key={idx} className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center">
+                                                {isPdf ? (
+                                                    <span className="text-xs font-bold text-red-500">PDF</span>
+                                                ) : (
+                                                    <img src={photoUrl} alt="preview" className="w-full h-full object-cover" />
+                                                )}
                                                 <button type="button" onClick={() => removePhoto(idx)} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <X size={14} />
                                                 </button>

@@ -320,11 +320,11 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 />
                             </div>
                             <div className="md:col-span-2 lg:col-span-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Photos (Max 2)</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Photos & PDFs (Max 2)</label>
                                 <input
                                     type="file"
                                     multiple
-                                    accept="image/*"
+                                    accept="image/*,application/pdf"
                                     onChange={(e) => {
                                         if (e.target.files && e.target.files.length > 2) {
                                             alert("You can only upload up to 2 photos.");
@@ -338,11 +338,19 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 />
                                 {formData.photos && typeof formData.photos[0] === 'string' && (
                                     <div className="flex gap-2 mt-2">
-                                        {(formData.photos as any[]).map((photo, i) => (
-                                            typeof photo === 'string' ? (
-                                                <img key={i} src={photo} alt={`Photo ${i+1}`} className="w-20 h-20 object-cover rounded border" />
-                                            ) : null
-                                        ))}
+                                        {(formData.photos as any[]).map((photo, i) => {
+                                            if (typeof photo === 'string') {
+                                                const isPdf = photo.toLowerCase().includes('.pdf');
+                                                return isPdf ? (
+                                                    <div key={i} className="w-20 h-20 rounded border bg-gray-50 flex items-center justify-center">
+                                                        <span className="text-xs font-bold text-red-500">PDF</span>
+                                                    </div>
+                                                ) : (
+                                                    <img key={i} src={photo} alt={`Photo ${i+1}`} className="w-20 h-20 object-cover rounded border" />
+                                                );
+                                            }
+                                            return null;
+                                        })}
                                     </div>
                                 )}
                             </div>

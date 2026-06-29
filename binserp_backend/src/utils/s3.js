@@ -70,9 +70,12 @@ const uploadOnS3 = async (localFilePath, folder = "uploads", companyId = "") => 
  */
 const getSignedUrlForGet = async (key, expiresIn = 3600) => {
     try {
+        const isPdf = key.toLowerCase().endsWith('.pdf');
         const command = new GetObjectCommand({
             Bucket: process.env.S3_BUCKET_NAME,
             Key: key,
+            ResponseContentDisposition: "inline",
+            ResponseContentType: isPdf ? "application/pdf" : undefined,
         });
         return await getSignedUrl(s3Client, command, { expiresIn });
     } catch (error) {

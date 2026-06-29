@@ -479,7 +479,7 @@ export default function GRNModal({
                                                     ref={galleryInputRef}
                                                     type="file"
                                                     className="hidden"
-                                                    accept="image/*"
+                                                    accept="image/*,application/pdf"
                                                     multiple
                                                     onChange={(e) => {
                                                         if (e.target.files && e.target.files.length > 0) {
@@ -496,12 +496,16 @@ export default function GRNModal({
                                         <div className="flex flex-wrap gap-3">
                                             {/* New Photo Previews */}
                                             {photoFiles.map((file, index) => (
-                                                <div key={`new-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-lg overflow-hidden group shadow-sm bg-white">
-                                                    <img
-                                                        src={URL.createObjectURL(file)}
-                                                        alt={`New ${index}`}
-                                                        className="w-full h-full object-cover"
-                                                    />
+                                                <div key={`new-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-lg overflow-hidden group shadow-sm bg-white flex items-center justify-center">
+                                                    {file.type === 'application/pdf' ? (
+                                                        <span className="text-xs font-bold text-red-500">PDF</span>
+                                                    ) : (
+                                                        <img
+                                                            src={URL.createObjectURL(file)}
+                                                            alt={`New ${index}`}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    )}
                                                     <button
                                                         type="button"
                                                         onClick={() => setPhotoFiles(files => files.filter((_, i) => i !== index))}
@@ -515,12 +519,16 @@ export default function GRNModal({
 
                                             {/* Existing Server Photos */}
                                             {existingPhotos.map((url, index) => (
-                                                <div key={`server-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-lg overflow-hidden shrink-0 shadow-sm bg-gray-50 group">
-                                                    <img
-                                                        src={url}
-                                                        alt={`Server Photo ${index}`}
-                                                        className="w-full h-full object-cover opacity-90"
-                                                    />
+                                                <div key={`server-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-lg overflow-hidden shrink-0 shadow-sm bg-gray-50 group flex items-center justify-center">
+                                                    {url.toLowerCase().includes('.pdf') ? (
+                                                        <span className="text-xs font-bold text-red-500">PDF</span>
+                                                    ) : (
+                                                        <img
+                                                            src={url}
+                                                            alt={`Server Photo ${index}`}
+                                                            className="w-full h-full object-cover opacity-90"
+                                                        />
+                                                    )}
                                                     <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] py-0.5 text-center">
                                                         Saved
                                                     </div>

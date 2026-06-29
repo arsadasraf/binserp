@@ -1,4 +1,4 @@
-import { fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 
 const getCompanyId = (req) => {
@@ -9,7 +9,7 @@ export const createFGItem = async (req, res) => {
   try {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
-    let { name, type, description, customer, category, location, unit, bom, revisionNumber } = req.body;
+    let { name, type, description, location, unit, bom, revisionNumber } = req.body;
 
     if (!name || !type) {
       return res.status(400).json({ message: "Name and Type are required" });
@@ -50,8 +50,6 @@ export const createFGItem = async (req, res) => {
       name,
       type,
       description,
-      customer,
-      category,
       location,
       unit: unit || "Nos",
       bom: bom || [],
@@ -71,12 +69,12 @@ export const createFGItem = async (req, res) => {
 export const getAllFGItems = async (req, res) => {
   try {
     const FGItem = req.getModel('FGItem', fgItemSchema);
+    req.getModel('Location', locationSchema);
+    req.getModel('Material', rmBoItemSchema);
     const companyId = getCompanyId(req);
 
     const fgItems = await FGItem.find({ company: companyId })
-      .populate('category', 'name code')
       .populate('location', 'name')
-      .populate('customer', 'name')
       .populate('bom.item', 'name componentName code componentCode') 
       .sort({ createdAt: -1 })
       .lean();
@@ -114,14 +112,14 @@ export const updateFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     
-    let { name, type, description, customer, category, location, unit, bom, revisionNumber } = req.body;
+    let { name, type, description, location, unit, bom, revisionNumber } = req.body;
 
     // Parse bom if it's a string
     if (typeof bom === 'string') {
       try { bom = JSON.parse(bom); } catch(e) { console.error("Failed to parse bom", e); }
     }
 
-    let updateData = { name, type, description, customer, category, location, unit, bom, revisionNumber };
+    let updateData = { name, type, description, location, unit, bom, revisionNumber };
     
     // Handle photo uploads
     let filesToUpload = [];

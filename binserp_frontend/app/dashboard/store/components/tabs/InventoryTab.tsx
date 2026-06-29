@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'; // Added useEffect
+import React, { useState, useEffect, useMemo } from 'react';
 import { Package, Factory, History, FileText } from 'lucide-react';
 import InventoryTable from '../tables/InventoryTable';
 import GRNModal from '../modals/GRNModal';
 import ItemDetailsModal from '../modals/ItemDetailsModal';
 import MastersTable from '../tables/MastersTable'; // For GRN History
+import Swal from 'sweetalert2';
 
 interface InventoryTabProps {
     storeData: any;
@@ -58,6 +59,39 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         }
     }, [subTab, setMasterTab, masterTab]);
 
+    // Map RM/BO master data to inventory format so it always shows the master list
+    const mappedBoInventory = useMemo(() => {
+        if (!materials) return [];
+        console.log("Mapping BO Inventory. Materials:", materials.length, "Data:", data?.length);
+        return materials.map((m: any) => {
+            // Find inventory matching this material
+            const invItem = data?.find((d: any) => {
+                const match = d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
+                if (match) console.log("Matched!", m.name, "with stock", d.currentStock);
+                return match;
+            });
+            return {
+                ...m,
+                _id: invItem?._id || m._id, // Prefer inventory ID for updates, fallback to material ID
+                materialId: m,
+                materialName: m.name,
+                materialCode: m.code || 'N/A', // RM/BO doesn't have code anymore, but we can put N/A
+                currentStock: invItem ? invItem.currentStock : 0,
+                qcPendingStock: invItem ? invItem.qcPendingStock : 0,
+                reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
+                unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || '',
+                category: m.categoryId, 
+                location: m.locationId, 
+                monthlyData: invItem?.monthlyData || {
+                    openingStock: 0,
+                    received: 0,
+                    issued: 0,
+                    closingStock: 0
+                }
+            };
+        });
+    }, [materials, data]);
+
 
     // Helper to handle GRN Submit
     const onGRNSubmit = async (grnData: any) => {
@@ -78,8 +112,10 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             setShowGRNModal(false);
             setEditingGRN(undefined);
             refetch();
-        } catch (err) {
+            Swal.fire('Success', 'GRN submitted successfully!', 'success');
+        } catch (err: any) {
             console.error(err);
+            Swal.fire('Error', 'Failed to submit GRN: ' + (err.message || "Unknown error"), 'error');
         }
     };
 
@@ -199,7 +235,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     />
                 ) : (
                     <InventoryTable
-                        data={subTab === 'bo' ? data : []}
+                        data={subTab === 'bo' ? mappedBoInventory : []}
                         inHouseData={subTab === 'inhouse' ? inHouseComponents : []}
                         onEdit={handleMasterEdit}
                         onDelete={handleDelete}

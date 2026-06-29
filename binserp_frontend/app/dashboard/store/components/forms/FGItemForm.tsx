@@ -142,18 +142,24 @@ export default function FGItemForm({
                                 <input type="text" name="revisionNumber" value={formData.revisionNumber || ''} onChange={handleChange} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 transition-all outline-none" placeholder="e.g. Rev 1.0" />
                             </div>
                              <div className="col-span-12 md:col-span-4">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Photos (Upload to S3)</label>
-                                <input type="file" multiple accept="image/*" onChange={handlePhotoChange} className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg outline-none file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100" />
+                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Photos & PDFs (Upload to S3)</label>
+                                <input type="file" multiple accept="image/*,application/pdf" onChange={handlePhotoChange} className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg outline-none file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100" />
                                 {photos && photos.length > 0 && (
                                     <div className="flex flex-wrap gap-2 mt-2">
-                                        {photos.map((photo, idx) => (
-                                            <div key={idx} className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden">
-                                                <img src={URL.createObjectURL(photo)} alt="preview" className="w-full h-full object-cover" />
+                                        {photos.map((photo, idx) => {
+                                            const isPdf = photo.type === 'application/pdf';
+                                            return (
+                                            <div key={idx} className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center">
+                                                {isPdf ? (
+                                                    <span className="text-xs font-bold text-red-500">PDF</span>
+                                                ) : (
+                                                    <img src={URL.createObjectURL(photo)} alt="preview" className="w-full h-full object-cover" />
+                                                )}
                                                 <button type="button" onClick={() => removePhoto(idx)} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <X size={14} />
                                                 </button>
                                             </div>
-                                        ))}
+                                        )})}
                                     </div>
                                 )}
                             </div>
@@ -203,11 +209,11 @@ export default function FGItemForm({
                             <div className="space-y-3">
                                 {(formData.bom || []).map((item: any, idx: number) => (
                                     <div key={idx} className="flex gap-3 items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
-                                        <select value={item.itemType} onChange={e => updateBOMItem(idx, 'itemType', e.target.value)} className="w-1/4 px-2 py-1.5 text-xs bg-white border border-gray-200 rounded outline-none">
+                                        <select value={item.itemType || ''} onChange={e => updateBOMItem(idx, 'itemType', e.target.value)} className="w-1/4 px-2 py-1.5 text-xs bg-white border border-gray-200 rounded outline-none">
                                             <option value="Material">RM / BO (Material)</option>
                                             <option value="FGItem">FG Item</option>
                                         </select>
-                                        <select value={item.item} onChange={e => updateBOMItem(idx, 'item', e.target.value)} className="w-2/4 px-2 py-1.5 text-xs bg-white border border-gray-200 rounded outline-none" required>
+                                        <select value={item.item || ''} onChange={e => updateBOMItem(idx, 'item', e.target.value)} className="w-2/4 px-2 py-1.5 text-xs bg-white border border-gray-200 rounded outline-none" required>
                                             <option value="">Select Item...</option>
                                             {item.itemType === 'Material' ? (
                                                 materials.map(m => <option key={m._id} value={m._id}>{m.name} {m.code ? `(${m.code})` : ''}</option>)

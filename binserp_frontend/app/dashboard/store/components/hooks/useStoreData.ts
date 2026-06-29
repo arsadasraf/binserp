@@ -39,7 +39,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: customersData = [] } = useGetStoreDataQuery("customer", { skip: !token });
     const { data: locationsData = [] } = useGetStoreDataQuery("location", { skip: !token });
     const { data: categoriesData = [] } = useGetStoreDataQuery("category", { skip: !token });
-    const { data: materialsData = [] } = useGetStoreDataQuery("material", { skip: !token });
+    const { data: materialsData = [] } = useGetStoreDataQuery("rm-bo-item", { skip: !token });
     const { data: jobWorkSuppliersData = [] } = useGetStoreDataQuery("job-work-supplier", { skip: !token });
     const { data: processesData = [] } = useGetStoreDataQuery("process", { skip: !token });
     const { data: companyInfoData } = useGetStoreDataQuery("company-info", { skip: !token });
@@ -202,7 +202,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                 if (formData.name) formDataPayload.append('name', formData.name);
                 if (formData.type) formDataPayload.append('type', formData.type);
                 if (formData.description) formDataPayload.append('description', formData.description);
-                if (formData.categoryId) formDataPayload.append('category', formData.categoryId);
+
                 if (formData.locationId) formDataPayload.append('location', formData.locationId);
                 if (formData.unit) formDataPayload.append('unit', formData.unit);
                 if (formData.revisionNumber) formDataPayload.append('revisionNumber', formData.revisionNumber);
@@ -267,10 +267,10 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         // For materials, handle populated categoryId
         const editData = { ...item };
         // For materials and fg-items, handle populated categoryId
-        if ((masterTab === "rm-bo-item" || masterTab === "fg-items") && item.category && typeof item.category === 'object') {
+        if (masterTab === "rm-bo-item" && item.category && typeof item.category === 'object') {
             editData.categoryId = item.category._id;
             editData.unit = item.category.unit || item.unit; // Fallback to item unit
-        } else if ((masterTab === "rm-bo-item" || masterTab === "fg-items") && item.categoryId && typeof item.categoryId === 'object') {
+        } else if (masterTab === "rm-bo-item" && item.categoryId && typeof item.categoryId === 'object') {
             // Handle case where it might be populated as categoryId (for material)
             editData.categoryId = item.categoryId._id;
             editData.unit = item.categoryId.unit;
