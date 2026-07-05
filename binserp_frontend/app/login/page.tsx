@@ -56,8 +56,11 @@ export default function LoginPage() {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude
           };
-        } catch (locErr) {
+        } catch (locErr: any) {
           console.warn("Location access denied or failed:", locErr);
+          if (locErr.code === 1) { // PERMISSION_DENIED
+             setError("Location access denied. Please allow location access in your browser if your account has location restrictions.");
+          }
           // Continue without location - backend will enforce strictly if configured
         }
       }

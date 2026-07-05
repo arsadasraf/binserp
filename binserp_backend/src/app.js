@@ -10,7 +10,7 @@ import { configurePassport } from "./config/passport.js";
 
 const app = express();
 
-
+app.set('trust proxy', true); // Trust proxy for correct IP resolution
 
 const origin = process.env.FRONTEND_URL || "http://localhost:3000";
 // ✅ Fixed CORS configuration for credentials support
