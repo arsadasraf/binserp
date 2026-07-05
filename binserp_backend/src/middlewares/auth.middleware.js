@@ -171,11 +171,11 @@ export const verifySaasAdminJWT = asyncHandler(async (req, res, next) => {
 
 // ✅ Restrict Access to Masters for Executives
 export const restrictExecutive = asyncHandler(async (req, res, next) => {
-  if (req.userType === "user" || req.userType === "employee") {
+  if (req.method !== 'GET' && (req.userType === "user" || req.userType === "employee")) {
     // Check if the department explicitly marks them as an executive
     const department = req.user.department || "";
     if (department.includes("Executive")) {
-      throw new ApiError(403, "Access denied. Executives cannot access master data.");
+      throw new ApiError(403, "Access denied. Executives cannot modify master data.");
     }
   }
   next();
