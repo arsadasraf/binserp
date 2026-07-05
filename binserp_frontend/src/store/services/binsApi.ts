@@ -24,8 +24,8 @@ const baseQuery = fetchBaseQuery({
 const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (args, api, extraOptions) => {
   let result = await baseQuery(args, api, extraOptions);
 
-  if (result.error && (result.error.status === 401 || result.error.status === 403)) {
-    // Ignore 401/403 if it's a login request (let the component handle it)
+  if (result.error && result.error.status === 401) {
+    // Ignore 401 if it's a login request (let the component handle it)
     const isLoginRoute = typeof args === 'string' ? args.includes('/login') : args.url.includes('/login');
     
     if (!isLoginRoute) {

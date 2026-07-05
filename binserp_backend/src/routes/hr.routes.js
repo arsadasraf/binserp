@@ -31,7 +31,7 @@ import {
   getEmployeeJobs,
   updateEmployeeJobStatus,
 } from "../controllers/hr/index.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 import { resolveTenant } from "../middlewares/tenant.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/index.js";
@@ -41,6 +41,9 @@ const router = express.Router();
 // All routes require authentication
 router.use(verifyJWT);
 router.use(resolveTenant);
+
+// Restrict Master routes for Executives
+router.use(["/department", "/designation", "/skill", "/employee-type"], restrictExecutive);
 
 // Employee routes
 router.get("/stats", getDashboardStats);

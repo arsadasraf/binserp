@@ -11,9 +11,9 @@ const protectedRoutes = [
 ];
 
 const departmentAccess: Record<string, string[]> = {
-  "/dashboard/hr": ["HR"],
-  "/dashboard/store": ["Store"],
-  "/dashboard/ppc": ["PPC"],
+  "/dashboard/hr": ["HR", "HR Executive"],
+  "/dashboard/store": ["Store", "Store Executive"],
+  "/dashboard/ppc": ["PPC", "PPC Executive"],
   "/dashboard/accounts": ["Accounts"],
   "/dashboard/reports": ["Reports"],
 };

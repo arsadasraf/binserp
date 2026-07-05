@@ -28,7 +28,7 @@ const getCompanyLoginId = (req) => {
 export const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, department, password, allowedIP, allowedLocation } = req.body;
+    const { name, email, department, password, roleLevel, allowedIP, allowedLocation } = req.body;
 
     const UserModel = req.getModel('User', userSchema);
     const user = await UserModel.findOne({ _id: id });
@@ -40,10 +40,8 @@ export const updateUser = async (req, res) => {
     // Update fields
     if (name) user.name = name;
     if (email) user.email = email;
-    if (department) {
-      user.department = department;
-      user.roleLevel = getRoleLevel(department);
-    }
+    if (department) user.department = department;
+    if (roleLevel !== undefined) user.roleLevel = roleLevel;
     if (password) user.password = password; // Will be hashed by pre-save hook
     if (allowedIP !== undefined) user.allowedIP = allowedIP;
     if (allowedLocation) user.allowedLocation = allowedLocation;

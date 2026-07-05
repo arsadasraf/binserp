@@ -56,7 +56,7 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
     };
 
     const departments = [
-        "CEO", "MD", "Admin", "Store", "PPC", "HR", "Accounts", 
+        "CEO", "MD", "Admin", "Store", "Store Executive", "PPC", "PPC Executive", "HR", "HR Executive", "Accounts", 
         "Quality", "Maintenance", "CRM", "Security"
     ];
 

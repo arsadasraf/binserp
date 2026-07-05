@@ -64,13 +64,16 @@ import {
   updateQuotation,
   deleteQuotation,
 } from "../controllers/store/index.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(verifyJWT);
+
+// Restrict Master routes for Executives
+router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/company-info", "/fg-item"], restrictExecutive);
 
 // Delivery Challan routes
 router.post("/dc", createDC);

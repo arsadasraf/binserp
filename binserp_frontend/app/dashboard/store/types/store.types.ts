@@ -4,7 +4,7 @@
  */
 
 // Tab type for main navigation
-export type TabType = "home" | "material-issue" | "grn" | "dc" | "billing" | "po" | "masters" | "bills-dc" | "bills-billing" | "bills-po" | "job-work" | "order-entry" | "quotation";
+export type TabType = "home" | "material-issue" | "grn" | "dc" | "billing" | "po" | "masters" | "bills-dc" | "bills-billing" | "bills-po" | "job-work" | "order-entry" | "quotation" | "mrp";
 
 // Master data type for master tab navigation
 export type MasterType = "vendor" | "customer" | "location" | "category" | "rm-bo-item" | "inhouse-items" | "fg-items" | "pending-products" | "ppc-products" | "grn-history" | "fg-grn-history" | "po-history" | "company-info" | "prefix-settings" | "job-work-supplier" | "print-settings";

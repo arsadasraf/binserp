@@ -92,12 +92,15 @@ import {
   getMaintenanceRecords,
   updateMaintenanceRecord,
 } from "../controllers/ppc/index.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(verifyJWT);
+
+// Restrict Master routes for Executives
+router.use(["/machine", "/process", "/machine-category", "/machine-location", "/manpower-master", "/skill", "/shift"], restrictExecutive);
 
 // Order Routes
 router.route("/order").post(upload.array("photos", 5), createOrder).get(getAllOrders);

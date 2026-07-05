@@ -1,3 +1,5 @@
+"use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
 
@@ -13,13 +15,31 @@ export default function HRTabs({ activeTab }: HRTabsProps) {
     const isHomeActive = activeTab === "home";
     const isMasterActive = activeTab === "master";
 
+    const [department, setDepartment] = useState<string>("");
+
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            const userStr = localStorage.getItem("userInfo");
+            if (userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    setDepartment(user.department || "");
+                } catch (e) {
+                    console.error("Failed to parse userInfo", e);
+                }
+            }
+        }
+    }, []);
+
+    const isExecutive = department === "HR Executive";
+
     const tabs = [
         { id: "home", label: "Overview", icon: Home, href: "/dashboard/hr?tab=home" },
         { id: "attendance", label: "Kiosk", icon: ScanFace, href: "/dashboard/hr?tab=attendance" },
         { id: "present", label: "Present", icon: ClipboardList, href: "/dashboard/hr?tab=present" },
         { id: "salaries", label: "Salaries", icon: Banknote, href: "/dashboard/hr?tab=salaries" },
         { id: "master", label: "Masters", icon: Database, href: "/dashboard/hr?tab=master" },
-    ];
+    ].filter(tab => !(tab.id === "master" && isExecutive));
 
     return (
         <>

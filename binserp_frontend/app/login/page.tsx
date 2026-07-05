@@ -82,18 +82,18 @@ export default function LoginPage() {
 
         const redirect = () => {
           // Check for Employee Type first (priority)
-          if (response.user && (response.user.type === 'employee' || response.user.roleLevel === 1)) { // Assuming roleLevel 1 is operator/employee
+          if (response.user && response.user.type === 'employee') {
             router.push("/dashboard/employee");
             return;
           }
 
           if (loginType === "user" && response.user) {
             const department = response.user.department;
-            if (department === "HR") {
+            if (department.includes("HR")) {
               router.push("/dashboard/hr");
-            } else if (department === "Store") {
+            } else if (department.includes("Store")) {
               router.push("/dashboard/store");
-            } else if (department === "PPC") {
+            } else if (department.includes("PPC")) {
               router.push("/dashboard/ppc");
             } else if (department === "Accounts") {
               router.push("/dashboard/accounts");

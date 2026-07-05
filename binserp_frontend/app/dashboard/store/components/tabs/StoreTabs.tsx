@@ -1,3 +1,5 @@
+"use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
 
@@ -17,13 +19,31 @@ export default function StoreTabs({ activeTab }: StoreTabsProps) {
     const isMaterialIssueActive = activeTab === "material-issue";
     const isJobWorkActive = activeTab === "job-work";
 
+    const [department, setDepartment] = useState<string>("");
+
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            const userStr = localStorage.getItem("userInfo");
+            if (userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    setDepartment(user.department || "");
+                } catch (e) {
+                    console.error("Failed to parse userInfo", e);
+                }
+            }
+        }
+    }, []);
+
+    const isExecutive = department.includes("Executive");
+
     const tabs = [
         { id: "home", label: "Inventory", icon: Package, href: "/dashboard/store?tab=home", isActive: isHomeActive },
         { id: "material-issue", label: "Issue", icon: Layers, href: "/dashboard/store?tab=material-issue", isActive: isMaterialIssueActive },
         { id: "job-work", label: "Job Work", icon: Factory, href: "/dashboard/store?tab=job-work", isActive: isJobWorkActive },
         { id: "bills", label: "Bills", icon: IndianRupee, href: "/dashboard/store?tab=dc", isActive: isBillsActive }, // Defaulting to DC for bills tab link
         { id: "masters", label: "Masters", icon: Settings, href: "/dashboard/store?tab=masters", isActive: isMastersActive },
-    ];
+    ].filter(tab => !(tab.id === "masters" && isExecutive));
 
     return (
         <>

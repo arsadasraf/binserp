@@ -1,3 +1,5 @@
+"use client";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
 
@@ -12,12 +14,31 @@ interface PPCTabsProps {
 
 export default function PPCTabs({ activeTab }: PPCTabsProps) {
     const { showBottomNav } = useHeader();
+    
+    const [department, setDepartment] = useState<string>("");
+
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            const userStr = localStorage.getItem("userInfo");
+            if (userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    setDepartment(user.department || "");
+                } catch (e) {
+                    console.error("Failed to parse userInfo", e);
+                }
+            }
+        }
+    }, []);
+
+    const isExecutive = department === "PPC Executive";
+    
     const tabs = [
         { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/ppc?tab=overview" },
         { id: "orders", label: "Orders", icon: FileText, href: "/dashboard/ppc?tab=orders&subTab=new-order" },
         { id: "planning", label: "Planning", icon: Calendar, href: "/dashboard/ppc?tab=planning" },
         { id: "master", label: "Master", icon: Database, href: "/dashboard/ppc?tab=master&subTab=machine-list" },
-    ];
+    ].filter(tab => !(tab.id === "master" && isExecutive));
 
     return (
         <>

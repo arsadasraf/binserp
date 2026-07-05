@@ -144,8 +144,8 @@ export const loginUser = async (req, res) => {
         expiresIn: "7d",
       });
 
-      // Determine Role Level (Employee generic)
-      const roleLevel = getRoleLevel("Operator"); // Default to lowest unless we map designations
+      // Determine Role Level
+      const roleLevel = employee.roleLevel || 1;
 
       return res.status(200).json({
         message: "Employee Login successful",
