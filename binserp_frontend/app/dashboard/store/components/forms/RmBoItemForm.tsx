@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Customer, Category, Location } from '../../types/store.types';
 import { Package, X } from 'lucide-react';
+import SearchableSelect from '../SearchableSelect';
 
 interface RmBoItemFormProps {
     isOpen: boolean;
@@ -49,8 +50,7 @@ export default function RmBoItemForm({
         setFormData((prev: any) => ({ ...prev, [name]: value }));
     };
 
-    const handleCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const categoryId = e.target.value;
+    const handleCategoryChange = (categoryId: string) => {
         const selectedCategory = categories.find(cat => cat._id === categoryId);
         setFormData((prev: any) => ({
             ...prev,
@@ -61,7 +61,7 @@ export default function RmBoItemForm({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] md:max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[95vw] md:max-w-4xl overflow-hidden flex flex-col max-h-[90vh] h-[90vh]">
                 <div className="bg-gradient-to-r from-blue-600 to-indigo-600 p-5 flex justify-between items-center text-white shrink-0">
                     <div>
                         <h2 className="text-xl font-bold flex items-center gap-2">
@@ -78,7 +78,7 @@ export default function RmBoItemForm({
                 </div>
 
                 <div className="p-5 overflow-y-auto custom-scrollbar flex-1">
-                    <form id="rm-bo-item-form" onSubmit={onSubmit} className="flex flex-col gap-5">
+                    <form id="rm-bo-item-form" onSubmit={onSubmit} className="flex flex-col gap-5 pb-32">
                         <div className="grid grid-cols-12 gap-4">
                             <div className="col-span-12 md:col-span-4">
                                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">Item Name <span className="text-red-500">*</span></label>
@@ -139,17 +139,21 @@ export default function RmBoItemForm({
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 mb-1.5">Category</label>
-                                    <select name="categoryId" value={formData.categoryId || ''} onChange={handleCategoryChange} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
-                                        <option value="">Select Category</option>
-                                        {categories.map(c => <option key={c._id} value={c._id}>{c.name}</option>)}
-                                    </select>
+                                    <SearchableSelect
+                                        options={(categories || []).map(c => ({ value: c._id, label: c.name || '' }))}
+                                        value={typeof formData.categoryId === 'object' ? formData.categoryId?._id : formData.categoryId || ''}
+                                        onChange={handleCategoryChange}
+                                        placeholder="Select Category"
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 mb-1.5">Location</label>
-                                    <select name="locationId" value={formData.locationId || ''} onChange={handleChange} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
-                                        <option value="">Select Location</option>
-                                        {locations.map(l => <option key={l._id} value={l._id}>{l.name}</option>)}
-                                    </select>
+                                    <SearchableSelect
+                                        options={(locations || []).map(l => ({ value: l._id, label: l.name || '' }))}
+                                        value={typeof formData.locationId === 'object' ? formData.locationId?._id : formData.locationId || ''}
+                                        onChange={(val: any) => setFormData((prev: any) => ({ ...prev, locationId: val }))}
+                                        placeholder="Select Location"
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 mb-1.5">Unit</label>

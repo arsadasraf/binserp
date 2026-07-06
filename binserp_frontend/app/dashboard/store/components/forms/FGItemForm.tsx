@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Customer, Category, Location } from '../../types/store.types';
 import { Package, X, Plus, Trash2 } from 'lucide-react';
+import SearchableSelect from '../SearchableSelect';
 
 interface FGItemFormProps {
     isOpen: boolean;
@@ -19,68 +20,7 @@ interface FGItemFormProps {
     setPhotos: (photos: File[]) => void;
 }
 
-const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full" }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [searchTerm, setSearchTerm] = useState("");
-    const wrapperRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        function handleClickOutside(event: MouseEvent) {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-                setIsOpen(false);
-            }
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
-
-    const selectedOption = options.find((o: any) => o.value === value);
-    const filteredOptions = options.filter((o: any) => o.label.toLowerCase().includes(searchTerm.toLowerCase()));
-
-    return (
-        <div ref={wrapperRef} className={`relative ${className}`}>
-            <div 
-                className={`w-full px-2 py-1.5 text-xs bg-white border rounded outline-none cursor-pointer flex justify-between items-center ${!selectedOption && !value ? 'border-red-300' : 'border-gray-200'}`}
-                onClick={() => setIsOpen(!isOpen)}
-            >
-                <span className={`truncate ${!selectedOption ? 'text-gray-500' : 'text-gray-800'}`}>
-                    {selectedOption ? selectedOption.label : placeholder}
-                </span>
-                <span className="text-gray-400 text-[10px]">▼</span>
-            </div>
-            {isOpen && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto custom-scrollbar">
-                    <div className="sticky top-0 bg-white p-1.5 border-b border-gray-100">
-                        <input
-                            type="text"
-                            className="w-full px-2 py-1 text-xs border border-gray-200 rounded outline-none focus:border-violet-400"
-                            placeholder="Search..."
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                            onClick={e => e.stopPropagation()}
-                            autoFocus
-                        />
-                    </div>
-                    {filteredOptions.length > 0 ? filteredOptions.map((o: any) => (
-                        <div
-                            key={o.value}
-                            className={`px-2 py-1.5 text-xs cursor-pointer hover:bg-violet-50 truncate ${value === o.value ? 'bg-violet-100 text-violet-700' : ''}`}
-                            onClick={() => {
-                                onChange(o.value);
-                                setIsOpen(false);
-                                setSearchTerm("");
-                            }}
-                        >
-                            {o.label}
-                        </div>
-                    )) : (
-                        <div className="px-2 py-1.5 text-xs text-gray-500 text-center">No results</div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
 
 export default function FGItemForm({
     isOpen,
@@ -254,8 +194,8 @@ export default function FGItemForm({
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 mb-1.5">Location</label>
                                     <SearchableSelect
-                                        options={locations.map(l => ({ value: l._id, label: l.name }))}
-                                        value={formData.location || ''}
+                                        options={(locations || []).map(l => ({ value: l._id, label: l.name || '' }))}
+                                        value={typeof formData.location === 'object' ? formData.location?._id : formData.location || ''}
                                         onChange={(val: any) => setFormData((prev: any) => ({ ...prev, location: val }))}
                                         placeholder="Select Location"
                                     />
@@ -290,10 +230,10 @@ export default function FGItemForm({
                                         </select>
                                         <SearchableSelect 
                                             options={item.itemType === 'Material' ? 
-                                                materials.map(m => ({ value: m._id, label: `${m.name} ${m.code ? `(${m.code})` : ''}` })) : 
-                                                fgItems.filter(f => f._id !== formData._id).map(f => ({ value: f._id, label: `${f.name} (${f.type})` }))
+                                                (materials || []).map(m => ({ value: m._id, label: `${m.name || ''} ${m.code ? `(${m.code})` : ''}` })) : 
+                                                (fgItems || []).filter(f => f._id !== formData._id).map(f => ({ value: f._id, label: `${f.name || ''} (${f.type || ''})` }))
                                             }
-                                            value={item.item || ''}
+                                            value={typeof item.item === 'object' ? item.item?._id : item.item || ''}
                                             onChange={(val: any) => updateBOMItem(idx, 'item', val)}
                                             placeholder="Select Item..."
                                             className="w-2/4"
