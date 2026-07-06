@@ -33,6 +33,8 @@ export const getGlobalMRP = asyncHandler(async (req, res) => {
           targetMonth: reqDoc.order ? reqDoc.order.targetMonth : 'N/A',
           orderDate: reqDoc.order ? reqDoc.order.createdAt : reqDoc.createdAt,
           material: item.material,
+          component: item.component,
+          itemType: item.component ? 'fg' : 'bo',
           materialName: item.materialName,
           requiredQuantity: item.requiredQuantity,
           unit: item.unit,

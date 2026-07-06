@@ -8,13 +8,16 @@ export default function MRPTab() {
   const { data: mrpItems = [], isLoading, isFetching } = useGetGlobalMRPQuery();
   const [updateMRPItem, { isLoading: isUpdating }] = useUpdateMRPItemMutation();
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentSubTab, setCurrentSubTab] = useState<'bo' | 'fg'>('bo');
   const [editQuantities, setEditQuantities] = useState<Record<string, number>>({});
   const [editStatuses, setEditStatuses] = useState<Record<string, string>>({});
 
-  const filteredItems = mrpItems.filter(item => 
-    item.materialName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredItems = mrpItems.filter((item: any) => {
+    const matchesSearch = item.materialName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          item.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesTab = item.itemType === currentSubTab;
+    return matchesSearch && matchesTab;
+  });
 
   const handleQuantityChange = (id: string, val: string) => {
     setEditQuantities(prev => ({ ...prev, [id]: Number(val) }));
@@ -68,6 +71,28 @@ export default function MRPTab() {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
+      {/* Sub-Tabs */}
+      <div className="flex gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+        <button
+          onClick={() => setCurrentSubTab("bo")}
+          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "bo"
+            ? "bg-indigo-600 text-white shadow-md"
+            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            }`}
+        >
+          RM / BO
+        </button>
+        <button
+          onClick={() => setCurrentSubTab("fg")}
+          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "fg"
+            ? "bg-indigo-600 text-white shadow-md"
+            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            }`}
+        >
+          Finished Goods (FG)
+        </button>
+      </div>
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
