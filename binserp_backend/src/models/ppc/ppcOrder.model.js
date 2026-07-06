@@ -65,8 +65,16 @@ export const ppcOrderSchema = new mongoose.Schema(
           type: Date,
         },
         // Snapshots
-        bomSnapshot: [],
-        processSnapshot: [],
+        bomSnapshot: [
+          {
+            item: { type: mongoose.Schema.Types.ObjectId },
+            itemModel: String,
+            itemName: String,
+            quantity: Number,
+            unit: String
+          }
+        ],
+        processSnapshot: [mongoose.Schema.Types.Mixed],
         photosSnapshot: [String],
         // Linked Jobs (Traceability IDs)
         jobs: [
