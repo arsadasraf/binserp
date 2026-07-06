@@ -18,7 +18,9 @@ import {
   jobWorkSchema,
   jobWorkSupplierSchema,
   quotationSchema,
-  fgItemSchema
+  fgItemSchema,
+  rmInventoryMonthlySchema,
+  fgInventoryMonthlySchema
 } from "../../models/store/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -148,9 +150,25 @@ export const createMaterialIssue = async (req, res) => {
     // Auto-update inventory when material is issued
     if (status === "Issued") {
       console.log(`>>> [createMaterialIssue] Status is Issued. Updating Stock...`);
+      const currentDate = new Date();
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+      const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+
       for (const item of processedItems) {
         if (isInhouse) {
           await updateFGItemStock(req, item.component, -item.quantity);
+          
+          try {
+            await FGInventoryMonthly.findOneAndUpdate(
+              { company: companyId, fgItem: item.component, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: item.quantity } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error updating FG monthly outward quantity:", monthlyErr);
+          }
         } else {
           await updateInventoryStock(
             req,
@@ -158,6 +176,16 @@ export const createMaterialIssue = async (req, res) => {
             -item.quantity, // Negative to decrement
             item.unit || "PCS"
           );
+          
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: item.material, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: item.quantity } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error updating RM monthly outward quantity:", monthlyErr);
+          }
         }
       }
     }

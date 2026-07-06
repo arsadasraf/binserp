@@ -106,7 +106,7 @@ export const getInventory = async (req, res) => {
     }
 
     const inventoryWithMonthly = inventory.map(inv => {
-        const itemMonthly = monthlyMap.get(inv.material?.toString() || inv._id?.toString());
+        const itemMonthly = monthlyMap.get(inv.materialId?.toString() || inv._id?.toString());
         return {
             ...inv,
             monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }

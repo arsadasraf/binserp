@@ -43,7 +43,14 @@ export const fgItemSchema = new mongoose.Schema(
       type: String,
       default: "Nos",
     },
-
+    quantity: {
+      type: Number,
+      default: 0,
+    },
+    reorderLevel: {
+      type: Number,
+      default: 0,
+    },
     revisionNumber: {
       type: String,
     },

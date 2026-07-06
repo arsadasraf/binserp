@@ -1,4 +1,4 @@
-import { fgGRNSchema, fgItemSchema } from "../../models/store/index.js";
+import { fgGRNSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { uploadOnS3, signPhotos } from "../../utils/s3.js";
 
 const getCompanyId = (req) => {
@@ -80,8 +80,22 @@ export const createFGGRN = async (req, res) => {
 
     // Auto-update FG Item stock if Accepted/Received
     if (!qcRequired && (newGRN.status === "Received" || newGRN.status === "Accepted")) {
+      const currentDate = new Date();
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+      const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+      
       for (const item of itemsArray) {
          await FGItem.findByIdAndUpdate(item.fgItem, { $inc: { quantity: item.quantity } });
+         
+         try {
+           await FGInventoryMonthly.findOneAndUpdate(
+             { company: companyId, fgItem: item.fgItem, month: currentMonthStr },
+             { $inc: { totalInwardQuantity: item.quantity } },
+             { new: true, upsert: true }
+           );
+         } catch (monthlyErr) {
+           console.error("Error updating FG monthly inward quantity:", monthlyErr);
+         }
       }
     }
 

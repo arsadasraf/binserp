@@ -62,12 +62,15 @@ export default function MaterialPlanTab({ orderId }: { orderId: string }) {
                                                 onClick={async () => {
                                                     if (!confirm(`Raise Purchase Request for ${item.shortage} ${item.unit} of ${item.materialName}?`)) return;
                                                     try {
+                                                        const extractId = (val: any) => (typeof val === 'object' && val !== null) ? (val._id || val.id) : val;
+                                                        
                                                         const prRes = await createMaterialRequest({
                                                             tab: 'material-request',
                                                             body: {
-                                                                type: 'bo',
+                                                                type: item.component ? 'inhouse' : 'bo',
                                                                 items: [{
-                                                                    material: item.material,
+                                                                    material: extractId(item.material),
+                                                                    component: extractId(item.component),
                                                                     materialName: item.materialName,
                                                                     quantity: item.shortage,
                                                                     unit: item.unit,
@@ -85,8 +88,10 @@ export default function MaterialPlanTab({ orderId }: { orderId: string }) {
 
                                                         alert("PR Raised Successfully");
                                                     } catch (e: any) {
-                                                        console.error(e);
-                                                        alert(e?.data?.message || "Error raising PR");
+                                                        const errStr = JSON.stringify(e, Object.getOwnPropertyNames(e));
+                                                        console.error("PR creation error:", errStr);
+                                                        const errMsg = e?.data?.message || e?.message || e?.error || errStr;
+                                                        alert(`PR Failed: ${errMsg}`);
                                                     }
                                                 }}
                                                 className="text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-2 py-1.5 rounded border border-indigo-200 transition-colors"

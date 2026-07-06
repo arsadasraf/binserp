@@ -17,7 +17,10 @@ import {
   companyInfoSchema,
   jobWorkSchema,
   jobWorkSupplierSchema,
-  quotationSchema
+  quotationSchema,
+  rmInventoryMonthlySchema,
+  fgInventoryMonthlySchema,
+  fgItemSchema
 } from "../../models/store/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -82,10 +85,26 @@ export const updateMaterialIssue = async (req, res) => {
     // Update inventory only if status changes to/from "Issued"
     if (oldStatus !== "Issued" && newStatus === "Issued") {
       const itemsToProcess = items || materialIssue.items; // Use new items if available
+      const currentDate = new Date();
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+      const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+      
       for (const item of itemsToProcess) {
         if (materialIssue.type === 'inhouse') {
           const compId = item.component?._id || item.component || item.material; // Handle object/ID
           await updateComponentStock(req, compId, -Number(item.quantity));
+          
+          try {
+            await FGInventoryMonthly.findOneAndUpdate(
+              { company: companyId, fgItem: compId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: Number(item.quantity) } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error updating FG monthly outward quantity:", monthlyErr);
+          }
         } else {
           const materialId = item.material?._id || item.material; // Handle object/ID
           await updateInventoryStock(
@@ -94,15 +113,41 @@ export const updateMaterialIssue = async (req, res) => {
             -Number(item.quantity),
             item.unit || "PCS"
           );
+          
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: materialId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: Number(item.quantity) } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error updating RM monthly outward quantity:", monthlyErr);
+          }
         }
       }
     } else if (oldStatus === "Issued" && newStatus !== "Issued") {
       // Reverse the inventory if status changed from Issued
       // Use OLD items to reverse what was done
+      const currentDate = new Date();
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+      const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+      
       for (const item of materialIssue.items) {
         if (materialIssue.type === 'inhouse') {
           const compId = item.component?._id || item.component || item.material;
           await updateComponentStock(req, compId, Number(item.quantity)); // Add back
+          
+          try {
+            await FGInventoryMonthly.findOneAndUpdate(
+              { company: companyId, fgItem: compId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: -Number(item.quantity) } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error reversing FG monthly outward quantity:", monthlyErr);
+          }
         } else {
           const materialId = item.material?._id || item.material;
           await updateInventoryStock(
@@ -111,6 +156,16 @@ export const updateMaterialIssue = async (req, res) => {
             Number(item.quantity), // Positive to increment back
             item.unit || "PCS"
           );
+          
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: materialId, month: currentMonthStr },
+              { $inc: { totalOutwardQuantity: -Number(item.quantity) } },
+              { new: true, upsert: true }
+            );
+          } catch (monthlyErr) {
+            console.error("Error reversing RM monthly outward quantity:", monthlyErr);
+          }
         }
       }
     }
