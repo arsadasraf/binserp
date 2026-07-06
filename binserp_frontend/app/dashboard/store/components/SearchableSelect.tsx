@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full" }: any) => {
+const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full", dropdownPosition = "bottom" }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -30,7 +30,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className = "
                 <span className="text-gray-400 text-[10px]">▼</span>
             </div>
             {isOpen && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto custom-scrollbar">
+                <div className={`absolute z-50 w-full ${dropdownPosition === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white border border-gray-200 rounded shadow-lg max-h-48 overflow-y-auto custom-scrollbar`}>
                     <div className="sticky top-0 bg-white p-1.5 border-b border-gray-100">
                         <input
                             type="text"

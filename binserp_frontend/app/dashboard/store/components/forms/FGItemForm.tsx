@@ -237,6 +237,7 @@ export default function FGItemForm({
                                             onChange={(val: any) => updateBOMItem(idx, 'item', val)}
                                             placeholder="Select Item..."
                                             className="w-2/4"
+                                            dropdownPosition="top"
                                         />
                                         <input type="number" min="0.001" step="any" placeholder="Qty" value={item.quantity || ''} onChange={e => updateBOMItem(idx, 'quantity', parseFloat(e.target.value))} className="w-1/4 px-2 py-1.5 text-xs bg-white border border-gray-200 rounded outline-none" required />
                                         <span className="text-xs text-gray-500 w-16 truncate">{item.unit || 'Nos'}</span>
