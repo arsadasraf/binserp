@@ -17,8 +17,10 @@ import {
   jobWorkSchema,
   jobWorkSupplierSchema,
   quotationSchema,
-  fgItemSchema
+  fgItemSchema,
+  rmInventoryMonthlySchema
 } from "../../models/store/index.js";
+import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -142,6 +144,34 @@ export const createJobWorkChallan = async (req, res) => {
       items: processedItems,
       createdBy: req.user.id
     });
+
+    // Update inventory for RM/BO items (outward transition)
+    const currentDate = new Date();
+    const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+
+    for (const item of processedItems) {
+      if (item.itemType === "bo" && item.item) {
+        // Decrease current stock
+        await updateInventoryStock(
+          req,
+          item.item, // material ID
+          -Number(item.quantitySent), // Negative to decrement stock
+          item.unit || "PCS"
+        );
+        
+        // Update Monthly Outward Flow
+        try {
+          await RMInventoryMonthly.findOneAndUpdate(
+            { company: companyId, material: item.item, month: currentMonthStr },
+            { $inc: { totalOutwardQuantity: Number(item.quantitySent) } },
+            { new: true, upsert: true }
+          );
+        } catch (monthlyErr) {
+          console.error("Error updating RM monthly outward quantity for Job Work:", monthlyErr);
+        }
+      }
+    }
 
     res.status(201).json({ message: "Job Work Challan created successfully", jobWork });
 
