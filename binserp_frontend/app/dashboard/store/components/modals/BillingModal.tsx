@@ -8,6 +8,7 @@
 
 import { useState, useEffect } from "react";
 import { BillingModalProps, BillingFormData, RmBoItem } from "../../types/store.types";
+import SearchableSelect from "../SearchableSelect";
 
 interface ExtendedBillingModalProps extends BillingModalProps {
     materials?: RmBoItem[];
@@ -205,7 +206,7 @@ export default function BillingModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 bg-opacity-50">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col m-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full h-[95vh] flex flex-col m-4">
                 <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-indigo-600 to-purple-600">
                     <div>
                         <h2 className="text-2xl font-bold text-white">
@@ -223,9 +224,9 @@ export default function BillingModal({
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-6 pb-32">
                     <form id="invoice-form" onSubmit={handleSubmit} className="space-y-6">
-                        <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                        <div className="bg-gray-50 rounded-xl p-5 border border-gray-200 relative overflow-visible">
                             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
                                 <div className="w-1 h-5 bg-indigo-600 rounded"></div>
                                 Invoice Details
@@ -251,25 +252,19 @@ export default function BillingModal({
                                         className="input-field"
                                     />
                                 </div>
-                                <div className="md:col-span-2">
+                                <div className="md:col-span-2 overflow-visible">
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Customer *</label>
-                                    <select
+                                    <SearchableSelect
+                                        options={customers.map((customer) => ({ value: customer._id, label: customer.name || '' }))}
                                         value={formData.customer || ""}
-                                        onChange={(e) => setFormData({ ...formData, customer: e.target.value })}
-                                        className="input-field"
-                                    >
-                                        <option value="">Select Customer</option>
-                                        {customers.map((customer) => (
-                                            <option key={customer._id} value={customer._id}>
-                                                {customer.name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        onChange={(val: any) => setFormData({ ...formData, customer: val })}
+                                        placeholder="Select Customer"
+                                    />
                                 </div>
                             </div>
                         </div>
 
-                        <div className="bg-white rounded-xl border-2 border-indigo-100 p-5">
+                        <div className="bg-white rounded-xl border-2 border-indigo-100 p-5 relative overflow-visible">
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-4">
                                     <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -298,22 +293,16 @@ export default function BillingModal({
                                 </button>
                             </div>
 
-                            <div className="space-y-4">
+                            <div className="space-y-4 relative overflow-visible">
                                 {formData.items.map((item, index) => (
-                                    <div key={index} className="grid grid-cols-12 gap-2 items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                        <div className="col-span-3">
-                                            <select
+                                    <div key={index} className="grid grid-cols-12 gap-2 items-center p-3 bg-gray-50 rounded-lg border border-gray-100 relative overflow-visible">
+                                        <div className="col-span-3 overflow-visible">
+                                            <SearchableSelect
+                                                options={materials.map((m) => ({ value: `MAT_${m._id}`, label: m.name || '' }))}
                                                 value={item.material ? `MAT_${item.material}` : ""}
-                                                onChange={(e) => handleMaterialChange(index, e.target.value)}
-                                                className="input-field text-sm py-1 px-2"
-                                            >
-                                                <option value="">Select Material</option>
-                                                {materials.map((m) => (
-                                                    <option key={m._id} value={`MAT_${m._id}`}>
-                                                        {m.name}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                                onChange={(val: any) => handleMaterialChange(index, val)}
+                                                placeholder="Select Material"
+                                            />
                                         </div>
                                         <div className="col-span-1">
                                             <input
