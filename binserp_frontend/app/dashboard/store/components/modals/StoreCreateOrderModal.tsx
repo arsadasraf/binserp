@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Camera, FileText, User, Calendar, Hash, Package } from 'lucide-react';
 import { useGetCustomersQuery, useCreatePpcOrderMutation, useUpdatePpcOrderMutation } from "@/src/store/services/ppcService";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
+import SearchableSelect from '../SearchableSelect';
 
 interface StoreCreateOrderModalProps {
     isOpen: boolean;
@@ -185,7 +186,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
         <>
             <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[105] transition-opacity" onClick={onClose} />
             <div className="fixed inset-0 flex items-center justify-center z-[110] p-4 sm:p-6">
-                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col border border-white/50">
+                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-7xl w-full h-[95vh] flex flex-col border border-white/50">
 
                     {/* Header */}
                     <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white/50">
@@ -208,7 +209,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                     </div>
 
                     {/* Body */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 pb-32">
                         {error && (
                             <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg text-sm border border-red-100 font-medium">
                                 {error}
@@ -218,7 +219,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                         <form id="order-form" onSubmit={handleSubmit} className="space-y-6">
 
                             {/* General Details */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-visible">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-fuchsia-500 to-pink-500"></div>
                                 <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">General Details</h3>
 
@@ -249,22 +250,17 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                             placeholder="Enter PO Ref"
                                         />
                                     </div>
-                                    <div className="space-y-1.5">
+                                    <div className="space-y-1.5 overflow-visible">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                                             <User size={14} className="text-rose-500" />
                                             Customer <span className="text-red-500">*</span>
                                         </label>
-                                        <select
-                                            required
+                                        <SearchableSelect
+                                            options={customers.map((c: any) => ({ value: c.name, label: c.name || '' }))}
                                             value={formData.customerName}
-                                            onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                                            className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 text-gray-700"
-                                        >
-                                            <option value="">Select Customer</option>
-                                            {customers.map((c: any) => (
-                                                <option key={c._id} value={c.name}>{c.name}</option>
-                                            ))}
-                                        </select>
+                                            onChange={(val: any) => setFormData({ ...formData, customerName: val })}
+                                            placeholder="Select Customer"
+                                        />
                                     </div>
                                     <div className="space-y-1.5">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -296,7 +292,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                             </div>
 
                             {/* Order Parts Section */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-hidden">
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-visible">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-pink-500 to-rose-500"></div>
 
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between p-6 border-b border-gray-50 gap-4">
@@ -333,23 +329,19 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
 
                                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-2">
                                                 {/* Product Selection */}
-                                                <div className="lg:col-span-6 space-y-1.5">
+                                                <div className="lg:col-span-6 space-y-1.5 overflow-visible">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Finished Good <span className="text-red-500">*</span>
                                                     </label>
-                                                    <select
-                                                        required
-                                                        value={item.componentId}
-                                                        onChange={(e) => updateItem(index, 'componentId', e.target.value)}
-                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
-                                                    >
-                                                        <option value="">Select FG Item...</option>
-                                                        {productOptions.map((comp: any) => (
-                                                            <option key={comp._id} value={comp._id}>
-                                                                {comp.componentName || comp.name} ({comp.componentCode || comp.code || 'N/A'})
-                                                            </option>
-                                                        ))}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={productOptions.map((comp: any) => ({ 
+                                                            value: comp._id, 
+                                                            label: `${comp.componentName || comp.name || ''} (${comp.componentCode || comp.code || 'N/A'})` 
+                                                        }))}
+                                                        value={typeof item.componentId === 'object' ? (item.componentId as any)._id : item.componentId || ''}
+                                                        onChange={(val: any) => updateItem(index, 'componentId', val)}
+                                                        placeholder="Select FG Item..."
+                                                    />
                                                 </div>
 
                                                 {/* Quantity */}

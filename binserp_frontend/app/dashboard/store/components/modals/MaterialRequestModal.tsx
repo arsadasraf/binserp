@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { RmBoItem } from "../../types/store.types";
 import { X, Plus, Trash2, Package } from "lucide-react";
+import SearchableSelect from "../SearchableSelect";
 
 interface MaterialRequestModalProps {
     isOpen: boolean;
@@ -168,7 +169,7 @@ export default function MaterialRequestModal({
                     </button>
                 </div>
 
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-6 pb-32">
                     {/* Items Section */}
                     <div>
                         <div className="flex justify-between items-center mb-4">
@@ -191,27 +192,22 @@ export default function MaterialRequestModal({
                                     <div key={index} className="flex flex-col xl:flex-row gap-3 p-4 bg-gray-50 rounded-xl border border-gray-100 group hover:border-blue-200 transition-colors">
                                         <div className="flex-[2] min-w-[200px]">
                                             <label className="block text-xs font-medium text-gray-500 mb-1">Material</label>
-                                            <select
-                                                value={item.material}
-                                                onChange={(e) => handleMaterialChange(index, e.target.value)}
-                                                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
-                                                required
-                                            >
-                                                <option value="">Select {formData.type === 'inhouse' ? 'Component' : 'Material'}</option>
-                                                {formData.type === 'inhouse' ? (
-                                                    inHouseComponents?.map((c: any) => (
-                                                        <option key={c._id} value={c._id}>
-                                                            {c.name || c.componentName} {c.code ? `(${c.code})` : ''} {c.description ? `- ${c.description}` : ''}
-                                                        </option>
-                                                    ))
+                                            <SearchableSelect
+                                                options={formData.type === 'inhouse' ? (
+                                                    (inHouseComponents || []).map((c: any) => ({
+                                                        value: c._id,
+                                                        label: `${c.name || c.componentName || ''} ${c.code ? `(${c.code})` : ''} ${c.description ? `- ${c.description}` : ''}`
+                                                    }))
                                                 ) : (
-                                                    materials.map((m) => (
-                                                        <option key={m._id} value={m._id}>
-                                                            {m.name} {((m as any).code) ? `(${((m as any).code)})` : ''}
-                                                        </option>
-                                                    ))
+                                                    (materials || []).map((m) => ({
+                                                        value: m._id,
+                                                        label: `${m.name || ''} ${((m as any).code) ? `(${((m as any).code)})` : ''}`
+                                                    }))
                                                 )}
-                                            </select>
+                                                value={typeof item.material === 'object' ? (item.material as any)._id : item.material || ''}
+                                                onChange={(val: any) => handleMaterialChange(index, val)}
+                                                placeholder={`Select ${formData.type === 'inhouse' ? 'Component' : 'Material'}`}
+                                            />
                                         </div>
 
                                         {/* Current Stock Field */}

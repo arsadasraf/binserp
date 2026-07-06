@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Calendar, User, Package, Layers, Info, Check, AlertCircle } from 'lucide-react';
 import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier } from '../../types/store.types';
 import { apiPost, apiPut } from '@/src/lib/api';
+import SearchableSelect from '../SearchableSelect';
 
 interface JobWorkFormProps {
     isOpen: boolean;
@@ -164,7 +165,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
 
             <form onSubmit={handleSubmit} className="flex-1 flex flex-col overflow-hidden">
                 {/* Scrollable Content */}
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar pb-32">
                     {/* Header Fields Section */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                         <div className="group">
@@ -182,21 +183,12 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
 
                         <div className="group">
                             <label className={labelClass}>Vendor / Supplier <span className="text-red-500">*</span></label>
-                            <div className={inputWrapperClass}>
-                                <div className={iconClass}><User size={16} /></div>
-                                <select
-                                    required
-                                    value={formData.vendor}
-                                    onChange={e => setFormData({ ...formData, vendor: e.target.value })}
-                                    className={`${inputClass} appearance-none cursor-pointer`}
-                                >
-                                    <option value="">Select Supplier</option>
-                                    {vendors.filter(v => v.vendorType === 'Manufacturing Vendor').map(v => <option key={v._id} value={v._id}>{v.name}</option>)}
-                                </select>
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-                                </div>
-                            </div>
+                            <SearchableSelect
+                                options={vendors.filter(v => v.vendorType === 'Manufacturing Vendor').map(v => ({ value: v._id, label: v.name || '' }))}
+                                value={typeof formData.vendor === 'object' ? (formData.vendor as any)._id : formData.vendor || ''}
+                                onChange={(val: any) => setFormData({ ...formData, vendor: val })}
+                                placeholder="Select Supplier"
+                            />
                         </div>
 
                         <div className="group">
@@ -228,7 +220,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                     </div>
 
                     {/* Items Section */}
-                    <div className="bg-gray-50/50 rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+                    <div className="bg-gray-50/50 rounded-2xl border border-gray-100 overflow-visible shadow-sm">
                         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white">
                             <div className="flex items-center gap-2">
                                 <span className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
@@ -245,17 +237,17 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                             </button>
                         </div>
 
-                        <div className="overflow-x-auto">
+                        <div className="overflow-visible">
                             <table className="w-full text-sm">
                                 <thead className="bg-gray-50/80 backdrop-blur">
                                     <tr>
-                                        <th className="px-4 py-3 text-left w-32 font-semibold text-gray-500 uppercase tracking-wider text-xs">Type</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider text-xs">Item Name</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider text-xs">Process</th>
-                                        <th className="px-4 py-3 text-left w-28 font-semibold text-gray-500 uppercase tracking-wider text-xs">Qty</th>
-                                        <th className="px-4 py-3 text-left w-24 font-semibold text-gray-500 uppercase tracking-wider text-xs">Unit</th>
+                                        <th className="px-4 py-3 text-left w-28 font-semibold text-gray-500 uppercase tracking-wider text-xs">Type</th>
+                                        <th className="px-4 py-3 text-left w-[35%] font-semibold text-gray-500 uppercase tracking-wider text-xs">Item Name</th>
+                                        <th className="px-4 py-3 text-left w-[20%] font-semibold text-gray-500 uppercase tracking-wider text-xs">Process</th>
+                                        <th className="px-4 py-3 text-left w-24 font-semibold text-gray-500 uppercase tracking-wider text-xs">Qty</th>
+                                        <th className="px-4 py-3 text-left w-20 font-semibold text-gray-500 uppercase tracking-wider text-xs">Unit</th>
                                         <th className="px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wider text-xs">Description</th>
-                                        <th className="px-4 py-3 w-16"></th>
+                                        <th className="px-4 py-3 w-12"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 bg-white">
@@ -283,19 +275,15 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                                                         required
                                                     />
                                                 ) : (
-                                                <select
-                                                    value={item.item}
-                                                    onChange={e => handleItemChange(idx, 'item', e.target.value)}
-                                                    className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors text-gray-900 font-medium cursor-pointer"
-                                                    required
-                                                >
-                                                    <option value="" className='text-gray-400'>Select Item</option>
-                                                    {item.itemType === 'bo' ? (
-                                                        materials.map(m => <option key={m._id} value={m._id}>{m.name}</option>)
-                                                    ) : (
-                                                        inHouseItems.map(i => <option key={i._id} value={i._id}>{i.componentName || i.name}</option>)
-                                                    )}
-                                                </select>
+                                                <SearchableSelect
+                                                    options={item.itemType === 'bo' 
+                                                        ? (materials || []).map(m => ({ value: m._id, label: m.name || '' })) 
+                                                        : (inHouseItems || []).map(i => ({ value: i._id, label: i.componentName || i.name || '' }))
+                                                    }
+                                                    value={typeof item.item === 'object' ? (item.item as any)._id : item.item || ''}
+                                                    onChange={(val: any) => handleItemChange(idx, 'item', val)}
+                                                    placeholder="Select Item"
+                                                />
                                                 )}
                                             </td>
                                             <td className="p-3">
@@ -401,7 +389,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
     if (isModal) {
         return (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-gray-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="w-full max-w-5xl h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-black/5">
+                <div className="w-full max-w-7xl h-[95vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ring-1 ring-black/5">
                     {content}
                 </div>
             </div>
