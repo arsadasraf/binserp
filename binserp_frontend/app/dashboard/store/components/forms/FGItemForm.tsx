@@ -19,7 +19,7 @@ interface FGItemFormProps {
     setPhotos: (photos: File[]) => void;
 }
 
-const SearchableSelect = ({ options, value, onChange, placeholder }: any) => {
+const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full" }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -38,7 +38,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder }: any) => {
     const filteredOptions = options.filter((o: any) => o.label.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
-        <div ref={wrapperRef} className="relative w-2/4">
+        <div ref={wrapperRef} className={`relative ${className}`}>
             <div 
                 className={`w-full px-2 py-1.5 text-xs bg-white border rounded outline-none cursor-pointer flex justify-between items-center ${!selectedOption && !value ? 'border-red-300' : 'border-gray-200'}`}
                 onClick={() => setIsOpen(!isOpen)}
@@ -253,10 +253,12 @@ export default function FGItemForm({
                                 
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-700 mb-1.5">Location</label>
-                                    <select name="location" value={formData.location || ''} onChange={handleChange} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-500 outline-none">
-                                        <option value="">Select Location</option>
-                                        {locations.map(l => <option key={l._id} value={l._id}>{l.name}</option>)}
-                                    </select>
+                                    <SearchableSelect
+                                        options={locations.map(l => ({ value: l._id, label: l.name }))}
+                                        value={formData.location || ''}
+                                        onChange={(val: any) => setFormData((prev: any) => ({ ...prev, location: val }))}
+                                        placeholder="Select Location"
+                                    />
                                 </div>
                                 
                                 <div>
@@ -294,6 +296,7 @@ export default function FGItemForm({
                                             value={item.item || ''}
                                             onChange={(val: any) => updateBOMItem(idx, 'item', val)}
                                             placeholder="Select Item..."
+                                            className="w-2/4"
                                         />
                                         <input type="number" min="0.001" step="any" placeholder="Qty" value={item.quantity || ''} onChange={e => updateBOMItem(idx, 'quantity', parseFloat(e.target.value))} className="w-1/4 px-2 py-1.5 text-xs bg-white border border-gray-200 rounded outline-none" required />
                                         <span className="text-xs text-gray-500 w-16 truncate">{item.unit || 'Nos'}</span>
