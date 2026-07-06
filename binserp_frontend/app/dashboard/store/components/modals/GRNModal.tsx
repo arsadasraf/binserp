@@ -14,6 +14,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, FileText, Camera } from 'lucide-react';
 import { GRNModalProps, RmBoItem } from '../../types/store.types';
+import SearchableSelect from '../SearchableSelect';
 
 interface MaterialEntry {
     material: string;
@@ -333,7 +334,7 @@ export default function GRNModal({
 
                     {/* Modal body - Scrollable */}
                     <div className="flex-1 overflow-y-auto p-4">
-                        <form id="grn-form" onSubmit={handleSubmit} className="space-y-4">
+                        <form id="grn-form" onSubmit={handleSubmit} className="space-y-4 pb-32">
                             {/* GRN Details Section - Compact */}
                             <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 shadow-sm">
                                 <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
@@ -395,19 +396,12 @@ export default function GRNModal({
                                             <label className="block text-xs font-medium text-gray-700 mb-1">
                                                 Supplier <span className="text-red-500">*</span>
                                             </label>
-                                            <select
-                                                required
-                                                value={supplier}
-                                                onChange={(e) => setSupplier(e.target.value)}
-                                                className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                            >
-                                                <option value="">Select Supplier</option>
-                                                {safeVendors.map((vendor) => (
-                                                    <option key={vendor._id} value={vendor._id}>
-                                                        {vendor.name} {vendor.code ? `(${vendor.code})` : ''}
-                                                    </option>
-                                                ))}
-                                            </select>
+                                            <SearchableSelect
+                                                options={safeVendors.map(vendor => ({ value: vendor._id, label: `${vendor.name || ''} ${vendor.code ? `(${vendor.code})` : ''}` }))}
+                                                value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
+                                                onChange={(val: any) => setSupplier(val)}
+                                                placeholder="Select Supplier"
+                                            />
                                         </div>
                                     )}
 
@@ -566,7 +560,7 @@ export default function GRNModal({
                                 </div>
 
                                 {/* Desktop View: Table Layout */}
-                                <div className="hidden md:block overflow-x-auto p-2">
+                                <div className="hidden md:block overflow-visible p-2">
                                     <table className="w-full text-left text-xs">
                                         <thead>
                                             <tr className="border-b border-gray-100 text-gray-500">
@@ -583,22 +577,17 @@ export default function GRNModal({
                                                 <tr key={`desktop-${index}`} className="group hover:bg-gray-50 transition-colors">
                                                     <td className="px-2 py-2 text-gray-400 font-medium">{index + 1}</td>
                                                     <td className="px-2 py-2">
-                                                        <select
-                                                            required
-                                                            value={entry.material}
-                                                            onChange={(e) => handleMaterialChange(index, e.target.value)}
-                                                            className="w-full px-2 py-1.5 border border-gray-200 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs"
-                                                        >
-                                                            <option value="">Select {type === 'inhouse' ? 'Item' : 'Material'}</option>
-                                                            {safeMaterials.map((item) => (
-                                                                <option key={item._id} value={item._id}>
-                                                                    {type === 'inhouse'
-                                                                        ? `${(item as any).componentName || item.name} ${(item as any).description ? `(${(item as any).description})` : ''}`
-                                                                        : `${item.name || (item as any).componentName} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
-                                                                    }
-                                                                </option>
-                                                            ))}
-                                                        </select>
+                                                        <SearchableSelect
+                                                            options={safeMaterials.map((item) => ({
+                                                                value: item._id,
+                                                                label: type === 'inhouse'
+                                                                    ? `${(item as any).componentName || item.name || ''} ${(item as any).description ? `(${(item as any).description})` : ''}`
+                                                                    : `${item.name || (item as any).componentName || ''} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
+                                                            }))}
+                                                            value={typeof entry.material === 'object' ? (entry.material as any)._id : entry.material || ''}
+                                                            onChange={(val: any) => handleMaterialChange(index, val)}
+                                                            placeholder={`Select ${type === 'inhouse' ? 'Item' : 'Material'}`}
+                                                        />
                                                     </td>
                                                     <td className="px-2 py-2">
                                                         <input
@@ -708,22 +697,17 @@ export default function GRNModal({
                                                     <label className="block text-xs font-medium text-gray-700 mb-1">
                                                         {type === 'inhouse' ? 'Component/Item' : 'Material'} <span className="text-red-500">*</span>
                                                     </label>
-                                                    <select
-                                                        required
-                                                        value={entry.material}
-                                                        onChange={(e) => handleMaterialChange(index, e.target.value)}
-                                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                                    >
-                                                        <option value="">Select {type === 'inhouse' ? 'Item' : 'Material'}</option>
-                                                        {safeMaterials.map((item) => (
-                                                            <option key={item._id} value={item._id}>
-                                                                {type === 'inhouse'
-                                                                    ? `${(item as any).componentName || item.name} ${(item as any).description ? `(${(item as any).description})` : ''}`
-                                                                    : `${item.name || (item as any).componentName} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
-                                                                }
-                                                            </option>
-                                                        ))}
-                                                    </select>
+                                                    <SearchableSelect
+                                                        options={safeMaterials.map((item) => ({
+                                                            value: item._id,
+                                                            label: type === 'inhouse'
+                                                                ? `${(item as any).componentName || item.name || ''} ${(item as any).description ? `(${(item as any).description})` : ''}`
+                                                                : `${item.name || (item as any).componentName || ''} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
+                                                        }))}
+                                                        value={typeof entry.material === 'object' ? (entry.material as any)._id : entry.material || ''}
+                                                        onChange={(val: any) => handleMaterialChange(index, val)}
+                                                        placeholder={`Select ${type === 'inhouse' ? 'Item' : 'Material'}`}
+                                                    />
                                                 </div>
 
                                                 <div className="grid grid-cols-2 gap-3">
