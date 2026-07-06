@@ -13,6 +13,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from 'lucide-react';
 import { POModalProps, RmBoItem } from '../../types/store.types';
+import SearchableSelect from '../SearchableSelect';
 
 interface MaterialEntry {
     itemType: 'bo' | 'custom';
@@ -248,7 +249,7 @@ export default function POModal({
 
             {/* Modal content */}
             <div className="fixed inset-0 flex items-center justify-center z-[110] p-4 sm:p-6">
-                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col border border-white/50">
+                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-7xl w-full h-[95vh] flex flex-col border border-white/50">
                     
                     {/* Modal header */}
                     <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white/50">
@@ -275,11 +276,11 @@ export default function POModal({
                     </div>
 
                     {/* Modal body - Scrollable */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 pb-32">
                         <form id="po-form" onSubmit={handleSubmit} className="space-y-6">
                             
                             {/* General Details Section */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-visible">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-purple-500 to-indigo-500"></div>
                                 <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">General Details</h3>
                                 
@@ -314,30 +315,23 @@ export default function POModal({
                                     </div>
 
                                     {/* Vendor */}
-                                    <div className="space-y-1.5">
+                                    <div className="space-y-1.5 overflow-visible">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                                             <User size={14} className="text-pink-500" />
                                             Vendor <span className="text-red-500">*</span>
                                         </label>
-                                        <select
-                                            required
+                                        <SearchableSelect
+                                            options={vendors.map((v) => ({ value: v._id, label: `${v.name} ${v.code ? `(${v.code})` : ''}` }))}
                                             value={vendor}
-                                            onChange={(e) => setVendor(e.target.value)}
-                                            className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 transition-all text-gray-700"
-                                        >
-                                            <option value="">Select Vendor</option>
-                                            {vendors.map((v) => (
-                                                <option key={v._id} value={v._id}>
-                                                    {v.name} {v.code ? `(${v.code})` : ''}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            onChange={(val: any) => setVendor(val)}
+                                            placeholder="Select Vendor"
+                                        />
                                     </div>
                                 </div>
                             </div>
 
                             {/* Materials Section */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-hidden">
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-visible">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 to-cyan-500"></div>
                                 
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between p-6 border-b border-gray-50 gap-4">
@@ -390,7 +384,7 @@ export default function POModal({
                                                 </div>
 
                                                 {/* Item Name / Selection */}
-                                                <div className="lg:col-span-3 space-y-1.5">
+                                                <div className="lg:col-span-3 space-y-1.5 overflow-visible">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Item Details <span className="text-red-500">*</span>
                                                     </label>
@@ -404,30 +398,21 @@ export default function POModal({
                                                             className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium text-gray-800"
                                                         />
                                                     ) : (
-                                                        <select
-                                                            required
+                                                        <SearchableSelect
+                                                            options={[
+                                                                ...materials.map((item) => ({
+                                                                    value: `MAT_${item._id}`,
+                                                                    label: `${item.name} ${((item as any).code) ? `(${((item as any).code)})` : ''}`
+                                                                })),
+                                                                ...(inHouseItems || []).map((item: any) => ({
+                                                                    value: `FG_${item._id}`,
+                                                                    label: `${item.partName || item.name || item.componentName} (${item.partNumber || item.code || 'N/A'})`
+                                                                }))
+                                                            ]}
                                                             value={entry.component ? `FG_${entry.component}` : entry.material ? `MAT_${entry.material}` : ''}
-                                                            onChange={(e) => handleMaterialChange(index, e.target.value)}
-                                                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-sm font-medium text-gray-800"
-                                                        >
-                                                            <option value="" className="text-gray-400">Select Item</option>
-                                                            <optgroup label="Materials (RM/BO)">
-                                                                {materials.map((item) => (
-                                                                    <option key={item._id} value={`MAT_${item._id}`}>
-                                                                        {item.name} {((item as any).code) ? `(${((item as any).code)})` : ''}
-                                                                    </option>
-                                                                ))}
-                                                            </optgroup>
-                                                            {inHouseItems && inHouseItems.length > 0 && (
-                                                                <optgroup label="Finished Goods (FG)">
-                                                                    {inHouseItems.map((item: any) => (
-                                                                        <option key={item._id} value={`FG_${item._id}`}>
-                                                                            {item.partName || item.name || item.componentName} ({item.partNumber || item.code || 'N/A'})
-                                                                        </option>
-                                                                    ))}
-                                                                </optgroup>
-                                                            )}
-                                                        </select>
+                                                            onChange={(val: any) => handleMaterialChange(index, val)}
+                                                            placeholder="Select Item"
+                                                        />
                                                     )}
                                                 </div>
 

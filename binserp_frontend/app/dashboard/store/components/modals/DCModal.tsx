@@ -10,6 +10,7 @@
 import { useState, useEffect } from "react";
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from "lucide-react";
 import { DCModalProps, DCFormData, RmBoItem } from "../../types/store.types";
+import SearchableSelect from "../SearchableSelect";
 
 interface ExtendedDCModalProps extends DCModalProps {
     materials?: RmBoItem[]; // For backward compatibility if passed
@@ -234,7 +235,7 @@ export default function DCModal({
 
             {/* Modal content */}
             <div className="fixed inset-0 flex items-center justify-center z-[110] p-4 sm:p-6">
-                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-5xl w-full max-h-[95vh] overflow-hidden flex flex-col border border-white/50">
+                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-7xl w-full h-[95vh] flex flex-col border border-white/50">
                     
                     {/* Modal header */}
                     <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white/50">
@@ -261,11 +262,11 @@ export default function DCModal({
                     </div>
 
                     {/* Modal body - Scrollable */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 pb-32">
                         <form id="dc-form" onSubmit={handleSubmit} className="space-y-6">
                             
                             {/* General Details Section */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
+                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-visible">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-cyan-500"></div>
                                 <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">DC Details</h3>
                                 
@@ -300,30 +301,23 @@ export default function DCModal({
                                     </div>
 
                                     {/* Customer */}
-                                    <div className="space-y-1.5">
+                                    <div className="space-y-1.5 overflow-visible">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                                             <User size={14} className="text-indigo-500" />
                                             Customer <span className="text-red-500">*</span>
                                         </label>
-                                        <select
-                                            required
+                                        <SearchableSelect
+                                            options={customers.map((c) => ({ value: c._id, label: c.name || '' }))}
                                             value={customer || ""}
-                                            onChange={(e) => handleCustomerChange(e.target.value)}
-                                            className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                        >
-                                            <option value="">Select Customer</option>
-                                            {customers.map((c) => (
-                                                <option key={c._id} value={c._id}>
-                                                    {c.name}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            onChange={(val: any) => handleCustomerChange(val)}
+                                            placeholder="Select Customer"
+                                        />
                                     </div>
                                 </div>
                             </div>
 
                             {/* Items Section */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-hidden">
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-visible">
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-cyan-500 to-teal-500"></div>
                                 
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between p-6 border-b border-gray-50 gap-4">
@@ -376,7 +370,7 @@ export default function DCModal({
                                                 </div>
 
                                                 {/* Item Name / Selection */}
-                                                <div className="lg:col-span-3 space-y-1.5">
+                                                <div className="lg:col-span-3 space-y-1.5 overflow-visible">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Item Details <span className="text-red-500">*</span>
                                                     </label>
@@ -390,21 +384,15 @@ export default function DCModal({
                                                             className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm font-medium text-gray-800"
                                                         />
                                                     ) : (
-                                                        <select
-                                                            required
-                                                            value={entry.component || ""}
-                                                            onChange={(e) => handleMaterialChange(index, e.target.value)}
-                                                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm font-medium text-gray-800"
-                                                        >
-                                                            <option value="" className="text-gray-400">Select Item</option>
-                                                            <optgroup label="Finished Goods (FG)">
-                                                                {inHouseItems.map((item: any) => (
-                                                                    <option key={item._id} value={item._id}>
-                                                                        {item.partName || item.name || item.componentName} ({item.partNumber || item.code || 'N/A'})
-                                                                    </option>
-                                                                ))}
-                                                            </optgroup>
-                                                        </select>
+                                                        <SearchableSelect
+                                                            options={inHouseItems.map((item: any) => ({
+                                                                value: item._id,
+                                                                label: `${item.partName || item.name || item.componentName || ''} (${item.partNumber || item.code || 'N/A'})`
+                                                            }))}
+                                                            value={typeof entry.component === 'object' ? (entry.component as any)._id : entry.component || ''}
+                                                            onChange={(val: any) => handleMaterialChange(index, val)}
+                                                            placeholder="Select Item"
+                                                        />
                                                     )}
                                                 </div>
 
