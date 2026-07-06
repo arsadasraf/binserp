@@ -211,8 +211,8 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     try {
       await deleteOrder(id).unwrap();
     } catch (error: any) {
-      console.error("Delete error full details:", error);
-      const errorMessage = error?.data?.message || error?.message || "An unexpected error occurred while deleting the order.";
+      console.log("Delete error details:", error);
+      const errorMessage = error?.data?.message || error?.error || error?.message || "An unexpected error occurred while deleting the order.";
       alert(errorMessage);
     }
   };
@@ -224,8 +224,8 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
         setSelectedOrder({ ...selectedOrder, status: newStatus });
       }
     } catch (error: any) {
-      console.error("Failed to update status full details:", error);
-      const errorMessage = error?.data?.message || error?.message || "Failed to update order status.";
+      console.log("Status update error details:", error);
+      const errorMessage = error?.data?.message || error?.error || error?.message || "Failed to update order status.";
       alert(errorMessage);
     }
   };
