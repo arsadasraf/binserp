@@ -15,6 +15,7 @@ import {
   materialRequirementSchema,
   machineAssignmentSchema,
   machineMaintenanceSchema,
+  productionOrderSchema,
 } from "../../models/ppc/index.js";
 import { employeeSchema } from "../../models/hr/index.js";
 import { bomSchema, inventorySchema, fgItemSchema } from "../../models/store/index.js";
@@ -35,10 +36,9 @@ const getCompanyLoginId = (req) => {
 // ========== ORDER MANAGEMENT ==========
 
 export const createProductionOrder = async (req, res) => {
-  const { ppcOrderSchema, componentSchema, productionOrderSchema } = await import("../../models/ppc/index.js");
   try {
     const companyId = getCompanyId(req);
-    const { orderNumber, customerName, customer, poReference, deliveryDate, targetMonth, remarks } = req.body;
+    const { orderNumber, customerName, customer, poReference, deliveryDate, deadlineDate, targetMonth, remarks } = req.body;
     let { items } = req.body;
 
     if (typeof items === 'string') {
@@ -101,7 +101,7 @@ export const createProductionOrder = async (req, res) => {
       targetMonth,
       customer,
       customerName,
-      deliveryDate: new Date(deliveryDate),
+      deliveryDate: (deliveryDate || deadlineDate) ? new Date(deliveryDate || deadlineDate) : undefined,
       items: orderItems,
       createdBy: req.user.id,
       remarks,

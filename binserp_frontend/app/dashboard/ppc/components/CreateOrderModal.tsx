@@ -25,7 +25,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
     ]);
 
     const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !isOpen });
-    const { data: inhouseItems = [] } = useGetPpcComponentsQuery({}, { skip: !isOpen });
+    const { data: inhouseItems = [] } = useGetPpcComponentsQuery({ isMaster: true }, { skip: !isOpen });
     const [createProductionOrder] = useCreateProductionOrderMutation();
     // update mutation can be added later if needed.
 

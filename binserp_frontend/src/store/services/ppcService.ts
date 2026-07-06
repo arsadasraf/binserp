@@ -315,10 +315,13 @@ export const ppcService = binsApi.injectEndpoints({
       transformResponse: (response: any) => response.components || [],
       providesTags: ["Components"],
     }),
-    getPpcComponents: builder.query<any[], { isInventoryItem?: boolean }>({
+    getPpcComponents: builder.query<any[], { isInventoryItem?: boolean; isMaster?: boolean }>({
       query: (params) => {
         let url = "/api/ppc/component";
-        if (params?.isInventoryItem !== undefined) url += `?isInventoryItem=${params.isInventoryItem}`;
+        const queryParams = [];
+        if (params?.isInventoryItem !== undefined) queryParams.push(`isInventoryItem=${params.isInventoryItem}`);
+        if (params?.isMaster !== undefined) queryParams.push(`isMaster=${params.isMaster}`);
+        if (queryParams.length > 0) url += `?${queryParams.join("&")}`;
         return url;
       },
       transformResponse: (response: any) => response.components || [],
