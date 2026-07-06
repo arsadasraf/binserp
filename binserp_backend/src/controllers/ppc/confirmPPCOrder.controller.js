@@ -54,7 +54,10 @@ export const confirmPPCOrder = async (req, res) => {
       return res.status(400).json({ message: "Only Pending orders can be confirmed" });
     }
 
-    // 1. Generate Jobs (Moved from Create)
+    // 1. Clean up any orphaned jobs from previous failed confirmation attempts
+    await Job.deleteMany({ order: order._id });
+
+    // 2. Generate Jobs (Moved from Create)
     const updatedItems = []; // To update order with job IDs
     const materialMap = new Map(); // For Material Requirements aggregation
     const FGItemModel = req.getModel('FGItem', fgItemSchema);
@@ -62,6 +65,7 @@ export const confirmPPCOrder = async (req, res) => {
     async function resolveBOM(bomArray, multiplierQuantity, materialMap) {
       if (!bomArray || bomArray.length === 0) return;
       for (const bomItem of bomArray) {
+        if (!bomItem || !bomItem.item) continue;
         const requiredQty = bomItem.quantity * multiplierQuantity;
         const matId = bomItem.item.toString();
         
@@ -87,7 +91,8 @@ export const confirmPPCOrder = async (req, res) => {
       }
     }
 
-    for (const item of order.items) {
+    for (let itemIndex = 0; itemIndex < order.items.length; itemIndex++) {
+      const item = order.items[itemIndex];
       if (!item.product) continue; // Should have product ID
       const productCode = item.productCode || "UNK";
 
@@ -110,7 +115,8 @@ export const confirmPPCOrder = async (req, res) => {
 
       // Generate Jobs logic
       if (trackingType === 'Batch') {
-        const batchId = `${order.orderNumber}-${productCode}-BATCH`;
+        const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const batchId = `${order.orderNumber}-${productCode}-${itemIndex}-B-${randomSuffix}`;
         const job = await Job.create({
           company: companyId,
           jobNumber: batchId,
@@ -127,7 +133,8 @@ export const confirmPPCOrder = async (req, res) => {
         createdJobs.push(job._id);
       } else {
         for (let i = 1; i <= quantity; i++) {
-          const uniqueId = `${order.orderNumber}-${productCode}-${String(i).padStart(3, '0')}`;
+          const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+          const uniqueId = `${order.orderNumber}-${productCode}-${itemIndex}-${String(i).padStart(3, '0')}-${randomSuffix}`;
           const job = await Job.create({
             company: companyId,
             jobNumber: uniqueId,

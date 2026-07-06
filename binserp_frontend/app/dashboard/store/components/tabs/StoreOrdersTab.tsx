@@ -237,8 +237,8 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
       refetch(); // Ensure latest data
       alert("Order confirmed and Material Plan generated!");
     } catch (error: any) {
-      console.error("Confirm error full details:", error);
-      alert(error?.data?.message || "An unexpected error occurred while confirming the order.");
+      console.log("Confirm error details:", error);
+      alert(error?.data?.message || error?.error || error?.message || "An unexpected error occurred while confirming the order.");
     }
   };
 
