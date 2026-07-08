@@ -18,6 +18,7 @@ export default function StoreTabs({ activeTab }: StoreTabsProps) {
     const isHomeActive = activeTab === "home";
     const isMaterialIssueActive = activeTab === "material-issue";
     const isJobWorkActive = activeTab === "job-work";
+    const isMRPActive = activeTab === "mrp";
 
     const [department, setDepartment] = useState<string>("");
 
@@ -40,6 +41,7 @@ export default function StoreTabs({ activeTab }: StoreTabsProps) {
     const tabs = [
         { id: "home", label: "Inventory", icon: Package, href: "/dashboard/store?tab=home", isActive: isHomeActive },
         { id: "material-issue", label: "Issue", icon: Layers, href: "/dashboard/store?tab=material-issue", isActive: isMaterialIssueActive },
+        { id: "mrp", label: "MRP", icon: FileText, href: "/dashboard/store?tab=mrp", isActive: isMRPActive },
         { id: "job-work", label: "Job Work", icon: Factory, href: "/dashboard/store?tab=job-work", isActive: isJobWorkActive },
         { id: "bills", label: "Bills", icon: IndianRupee, href: "/dashboard/store?tab=dc", isActive: isBillsActive }, // Defaulting to DC for bills tab link
         { id: "masters", label: "Masters", icon: Settings, href: "/dashboard/store?tab=masters", isActive: isMastersActive },

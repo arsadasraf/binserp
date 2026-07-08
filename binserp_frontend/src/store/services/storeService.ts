@@ -134,6 +134,33 @@ export const storeService = binsApi.injectEndpoints({
       transformResponse: (res: any) => res.data,
       providesTags: ["StoreOrder" as any],
     }),
+    planRMRequirement: builder.mutation<any, string>({
+      query: (id) => ({
+        url: `/api/store/mrp/${id}/plan-rm`,
+        method: "POST"
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
+    planProductionRequirement: builder.mutation<any, string>({
+      query: (id) => ({
+        url: `/api/store/mrp/${id}/plan-production`,
+        method: "POST"
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
+    getRMPlans: builder.query<any, void>({
+      query: () => `/api/store/rm-plan`,
+      transformResponse: (res: any) => res.data,
+      providesTags: ["StoreOrder" as any],
+    }),
+    updateRMPlanPO: builder.mutation<any, { id: string; vendor?: string; poQuantity?: number; poReference?: string }>({
+      query: ({ id, ...body }) => ({
+        url: `/api/store/rm-plan/${id}/po`,
+        method: "PUT",
+        body
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
   }),
   overrideExisting: false,
 });
@@ -149,7 +176,11 @@ export const {
   useGetStoreFulfillmentsQuery,
   useReserveFulfillmentQuantityMutation,
   useMoveFulfillmentToMRPMutation,
-  useGetStoreMRPsQuery
+  useGetStoreMRPsQuery,
+  usePlanRMRequirementMutation,
+  usePlanProductionRequirementMutation,
+  useGetRMPlansQuery,
+  useUpdateRMPlanPOMutation
 } = storeService;
 
 

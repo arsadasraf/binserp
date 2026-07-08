@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema, storeRMPlanSchema, fgItemSchema } from "../../models/store/index.js";
 
 const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
@@ -21,8 +22,8 @@ const getCurrentMonthString = () => {
 export const getFulfillments = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment");
-    const FGInventoryMonthly = req.getModel("FGInventoryMonthly");
+    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
     
     // Find all pending/partial fulfillments
     const fulfillments = await StoreOrderFulfillment.find({ company: companyId })
@@ -66,8 +67,8 @@ export const reserveQuantity = async (req, res) => {
     const { quantity } = req.body;
     const companyId = getCompanyId(req);
     
-    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment");
-    const FGInventoryMonthly = req.getModel("FGInventoryMonthly");
+    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
 
     const fulfillment = await StoreOrderFulfillment.findOne({ _id: id, company: companyId });
     if (!fulfillment) return res.status(404).json({ success: false, message: "Fulfillment not found" });
@@ -120,8 +121,8 @@ export const moveToMRP = async (req, res) => {
     const { quantity } = req.body;
     const companyId = getCompanyId(req);
     
-    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment");
-    const StoreMRP = req.getModel("StoreMRP");
+    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
 
     const fulfillment = await StoreOrderFulfillment.findOne({ _id: id, company: companyId });
     if (!fulfillment) return res.status(404).json({ success: false, message: "Fulfillment not found" });
@@ -161,14 +162,139 @@ export const moveToMRP = async (req, res) => {
 export const getStoreMRPs = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const StoreMRP = req.getModel("StoreMRP");
+    const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
 
     const mrps = await StoreMRP.find({ company: companyId })
       .populate('storeOrder', 'orderNumber customerName')
-      .populate('fgItem', 'name code')
+      .populate({
+        path: 'fgItem',
+        select: 'name code bom',
+        populate: {
+          path: 'bom.item',
+          select: 'name code unit'
+        }
+      })
       .sort({ createdAt: -1 });
 
     res.status(200).json({ success: true, data: mrps });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const planRMRequirement = async (req, res) => {
+  try {
+    const { id } = req.params; // StoreMRP ID
+    const companyId = getCompanyId(req);
+    
+    const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
+    const FGItem = req.getModel("FGItem", fgItemSchema);
+    const StoreRMPlan = req.getModel("StoreRMPlan", storeRMPlanSchema);
+
+    const mrp = await StoreMRP.findOne({ _id: id, company: companyId }).populate('fgItem');
+    if (!mrp) return res.status(404).json({ success: false, message: "Requirement not found" });
+
+    if (mrp.status !== "Pending") {
+       return res.status(400).json({ success: false, message: "Requirement already planned." });
+    }
+
+    const fgItem = mrp.fgItem;
+    if (!fgItem || !fgItem.bom || fgItem.bom.length === 0) {
+       return res.status(400).json({ success: false, message: "FG Item has no BOM configured for explosion." });
+    }
+
+    // Explode BOM for RM/BO Items (Materials)
+    const rmRequirements = [];
+    for (const bomItem of fgItem.bom) {
+       if (bomItem.itemType === "Material") {
+          rmRequirements.push({
+             company: companyId,
+             sourceMRP: mrp._id,
+             rmBoItem: bomItem.item,
+             requiredQuantity: bomItem.quantity * mrp.requiredQuantity,
+             dueDate: mrp.dueDate,
+             status: "Pending"
+          });
+       }
+    }
+
+    if (rmRequirements.length > 0) {
+       await StoreRMPlan.insertMany(rmRequirements);
+    }
+
+    mrp.status = "RM Planned";
+    await mrp.save();
+
+    res.status(200).json({ success: true, message: `BOM exploded into ${rmRequirements.length} RM/BO requirements.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const planProductionRequirement = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const companyId = getCompanyId(req);
+    
+    const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
+    
+    const mrp = await StoreMRP.findOne({ _id: id, company: companyId });
+    if (!mrp) return res.status(404).json({ success: false, message: "Requirement not found" });
+
+    if (mrp.status !== "Pending") {
+       return res.status(400).json({ success: false, message: "Requirement already planned." });
+    }
+
+    mrp.status = "Production Planned";
+    await mrp.save();
+
+    res.status(200).json({ success: true, message: "Requirement moved to Production Planning." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getRMPlans = async (req, res) => {
+  try {
+    const companyId = getCompanyId(req);
+    // Needed to register references if not already done
+    const Vendor = req.getModel("Vendor"); // Assume already registered by master routes
+    const RmBoItem = req.getModel("RmBoItem"); // Or Material
+
+    const StoreRMPlan = req.getModel("StoreRMPlan", storeRMPlanSchema);
+
+    const plans = await StoreRMPlan.find({ company: companyId })
+      .populate('sourceMRP')
+      .populate({ path: 'rmBoItem', select: 'name code' })
+      .populate('vendor', 'vendorName vendorCode')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({ success: true, data: plans });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateRMPlanPO = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { vendor, poQuantity, poReference } = req.body;
+    const companyId = getCompanyId(req);
+    
+    const StoreRMPlan = req.getModel("StoreRMPlan", storeRMPlanSchema);
+
+    const plan = await StoreRMPlan.findOne({ _id: id, company: companyId });
+    if (!plan) return res.status(404).json({ success: false, message: "RM Plan not found" });
+
+    if (vendor) plan.vendor = vendor;
+    if (poQuantity !== undefined) plan.poQuantity = poQuantity;
+    if (poReference) plan.poReference = poReference;
+    
+    plan.status = "PO Created";
+    
+    await plan.save();
+
+    res.status(200).json({ success: true, message: "PO details updated.", data: plan });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

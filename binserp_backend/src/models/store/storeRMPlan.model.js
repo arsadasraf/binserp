@@ -1,19 +1,20 @@
 import mongoose from "mongoose";
 
-export const storeMRPSchema = new mongoose.Schema(
+export const storeRMPlanSchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Company",
       required: true,
     },
-    storeOrder: {
+    sourceMRP: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "StoreOrder",
+      ref: "StoreMRP",
+      required: true,
     },
-    fgItem: {
+    rmBoItem: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "FGItem",
+      ref: "Material", // Assuming RM/BO items are in Material schema
       required: true,
     },
     requiredQuantity: {
@@ -25,13 +26,22 @@ export const storeMRPSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    vendor: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Vendor",
+    },
+    poQuantity: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    poReference: {
+      type: String,
+    },
     status: {
       type: String,
-      enum: ["Pending", "RM Planned", "Production Planned"],
+      enum: ["Pending", "PO Created"],
       default: "Pending",
-    },
-    remarks: {
-      type: String,
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -42,5 +52,5 @@ export const storeMRPSchema = new mongoose.Schema(
 );
 
 // Indexes
-storeMRPSchema.index({ company: 1, status: 1 });
-storeMRPSchema.index({ company: 1, fgItem: 1 });
+storeRMPlanSchema.index({ company: 1, status: 1 });
+storeRMPlanSchema.index({ company: 1, rmBoItem: 1 });

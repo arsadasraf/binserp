@@ -77,7 +77,11 @@ import {
   getFulfillments,
   reserveQuantity,
   moveToMRP,
-  getStoreMRPs
+  getStoreMRPs,
+  planRMRequirement,
+  planProductionRequirement,
+  getRMPlans,
+  updateRMPlanPO
 } from "../controllers/store/storeFulfillment.controller.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
@@ -197,6 +201,12 @@ router.get("/fulfillment", getFulfillments);
 router.post("/fulfillment/:id/reserve", reserveQuantity);
 router.post("/fulfillment/:id/move-to-mrp", moveToMRP);
 router.get("/mrp", getStoreMRPs);
+router.post("/mrp/:id/plan-rm", planRMRequirement);
+router.post("/mrp/:id/plan-production", planProductionRequirement);
+
+// RM Planning routes
+router.get("/rm-plan", getRMPlans);
+router.put("/rm-plan/:id/po", updateRMPlanPO);
 
 // FG Item routes
 import { createFGItem, getAllFGItems, updateFGItem, deleteFGItem, createFGGRN, getAllFGGRNs, updateFGGRN, deleteFGGRN } from "../controllers/store/index.js";

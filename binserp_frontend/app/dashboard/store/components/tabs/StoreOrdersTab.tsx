@@ -18,7 +18,6 @@ import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
 import RMPlanModal from "../modals/RMPlanModal";
 import StoreCreateDispatchModal from "../modals/StoreCreateDispatchModal";
 import StoreFulfillmentTab from "./StoreFulfillmentTab";
-import StoreMRPTab from "./StoreMRPTab";
 
 interface jsPDFWithPlugin extends jsPDF {
   autoTable: (options: UserOptions) => jsPDF;
@@ -41,7 +40,7 @@ interface Order {
   items?: { fgItem: any; name?: string; quantity: number; }[];
 }
 
-type OrderSubTab = "new-order" | "history" | "fulfillment" | "mrp";
+type OrderSubTab = "new-order" | "history" | "fulfillment";
 
 export default function StoreOrdersTab() {
   const [currentSubTab, setCurrentSubTab] = useState<OrderSubTab>("new-order");
@@ -95,22 +94,11 @@ export default function StoreOrdersTab() {
         >
           Fulfillment
         </button>
-        <button
-          onClick={() => setCurrentSubTab("mrp")}
-          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "mrp"
-            ? "bg-indigo-600 text-white shadow-md"
-            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            }`}
-        >
-          Store MRP Queue
-        </button>
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
         {currentSubTab === "fulfillment" ? (
           <StoreFulfillmentTab />
-        ) : currentSubTab === "mrp" ? (
-          <StoreMRPTab />
         ) : (
           <OrderListTab
             key={refreshKey}
