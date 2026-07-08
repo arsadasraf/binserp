@@ -6,7 +6,7 @@ import {
   useDeleteStoreRecordMutation,
   useUpdateStoreRecordMutation
 } from "@/src/store/services/storeService";
-import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, Filter, X } from 'lucide-react';
+import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, Filter, X, Truck } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -16,6 +16,7 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 import StoreCreateOrderModal from "../modals/StoreCreateOrderModal";
 import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
 import RMPlanModal from "../modals/RMPlanModal";
+import StoreCreateDispatchModal from "../modals/StoreCreateDispatchModal";
 
 interface jsPDFWithPlugin extends jsPDF {
   autoTable: (options: UserOptions) => jsPDF;
@@ -114,6 +115,8 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   const [rmPlanOpen, setRmPlanOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedRmOrder, setSelectedRmOrder] = useState<Order | null>(null);
+  const [dispatchingOrder, setDispatchingOrder] = useState<Order | null>(null);
+  const [showDispatchModal, setShowDispatchModal] = useState(false);
 
   const { data: orders = [], isLoading: loading, refetch } = useGetStoreDataQuery('order');
 
@@ -373,10 +376,12 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <div className={`w-fit px-2.5 py-1 rounded-full text-xs font-semibold border ${order.status === 'Dispatched' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                    <div className={`w-fit px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                      order.status === 'Dispatched' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                      order.status === 'Partially Dispatched' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
                       order.status === 'Completed' ? 'bg-green-50 text-green-700 border-green-200' :
-                        order.status === 'InProgress' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-                          'bg-amber-50 text-amber-700 border-amber-200'
+                      order.status === 'InProgress' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                      'bg-amber-50 text-amber-700 border-amber-200'
                       }`}>
                       {order.status}
                     </div>
@@ -384,9 +389,19 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 items-center">
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ml-2">
+                        {order.status !== 'Completed' && order.status !== 'Dispatched' && order.status !== 'Cancelled' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDispatchingOrder(order); setShowDispatchModal(true); }}
+                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="Dispatch Order"
+                          >
+                            <Truck size={16} />
+                          </button>
+                        )}
                         <button
                           onClick={(e) => { e.stopPropagation(); onEditOrder(order); }}
                           className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Edit Order"
                         >
                           <Edit2 size={16} />
                         </button>
@@ -426,6 +441,18 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
         orderId={selectedRmOrder?._id || null}
         orderNumber={selectedRmOrder?.orderNumber || ""}
       />
+
+      {showDispatchModal && dispatchingOrder && (
+        <StoreCreateDispatchModal
+          isOpen={showDispatchModal}
+          onClose={() => setShowDispatchModal(false)}
+          order={dispatchingOrder}
+          onSuccess={(msg) => {
+            alert(msg);
+            refetch();
+          }}
+        />
+      )}
     </div>
   );
 }

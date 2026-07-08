@@ -95,6 +95,19 @@ export const storeService = binsApi.injectEndpoints({
         return endpoint ? [endpoint.tag as any] : [];
       },
     }),
+    createStoreDispatch: builder.mutation<any, { orderId: string; body: any }>({
+      query: ({ orderId, body }) => ({
+        url: `/api/store/order/${orderId}/dispatch`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
+    getStoreDispatches: builder.query<any, string>({
+      query: (orderId) => `/api/store/order/${orderId}/dispatches`,
+      transformResponse: (res: any) => res.dispatches,
+      providesTags: ["StoreOrder" as any],
+    }),
   }),
   overrideExisting: false,
 });
@@ -104,7 +117,9 @@ export const {
   useLazyGetStoreDataQuery, 
   useCreateStoreRecordMutation,
   useUpdateStoreRecordMutation,
-  useDeleteStoreRecordMutation
+  useDeleteStoreRecordMutation,
+  useCreateStoreDispatchMutation,
+  useGetStoreDispatchesQuery
 } = storeService;
 
 

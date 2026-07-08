@@ -20,3 +20,4 @@ export { fgGRNSchema } from './fgGRN.model.js';
 export { rmInventoryMonthlySchema } from './rmInventoryMonthly.model.js';
 export { fgInventoryMonthlySchema } from './fgInventoryMonthly.model.js';
 export { storeOrderSchema } from './storeOrder.model.js';
+export { storeDispatchHistorySchema } from './storeDispatchHistory.model.js';

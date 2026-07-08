@@ -43,6 +43,7 @@ export const storeOrderSchema = new mongoose.Schema(
         totalPrice: { type: Number, required: true, min: 0 },
         targetDate: { type: Date },
         dispatchDate: { type: Date },
+        dispatchedQuantity: { type: Number, default: 0 },
       },
     ],
     totalAmount: {
@@ -52,7 +53,7 @@ export const storeOrderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "In-Progress", "Completed", "Cancelled"],
+      enum: ["Pending", "In-Progress", "Partially Dispatched", "Dispatched", "Completed", "Cancelled"],
       default: "Pending",
     },
     createdBy: {

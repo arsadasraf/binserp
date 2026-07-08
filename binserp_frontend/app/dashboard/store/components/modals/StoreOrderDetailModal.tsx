@@ -3,6 +3,8 @@ import { X, Download, Package, Calendar, User, FileText, ChevronRight, Clock, Ch
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { API_BASE_URL } from "@/src/utils/config";
+import { useGetStoreDispatchesQuery } from "@/src/store/services/storeService";
+import StoreCreateDispatchModal from './StoreCreateDispatchModal';
 
 interface OrderDetailModalProps {
     order: any;
@@ -14,8 +16,11 @@ interface OrderDetailModalProps {
 
 export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatus, storeView }: OrderDetailModalProps) {
     const [optimisticStatus, setOptimisticStatus] = useState(order?.status);
-    const [activeTab, setActiveTab] = useState<'details'>('details');
+    const [activeTab, setActiveTab] = useState<'details' | 'timeline'>('details');
     const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+    const [showDispatchModal, setShowDispatchModal] = useState(false);
+
+    const { data: dispatches = [], refetch: refetchDispatches } = useGetStoreDispatchesQuery(order?._id, { skip: !isOpen || !order?._id });
 
     React.useEffect(() => {
         setOptimisticStatus(order?.status);
@@ -227,6 +232,15 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                     >
                         Order Details
                     </button>
+                    <button
+                        onClick={() => setActiveTab('timeline')}
+                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'timeline'
+                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            }`}
+                    >
+                        Timeline & Dispatches
+                    </button>
                 </div>
 
                 <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative">
@@ -404,7 +418,130 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                         </>
                     )}
 
+                    {activeTab === 'timeline' && (
+                        <div className="flex-1 overflow-y-auto p-8 bg-gray-50 dark:bg-gray-900/50">
+                            <div className="max-w-3xl mx-auto">
+                                <div className="relative border-l-2 border-indigo-200 dark:border-indigo-900/50 ml-4 space-y-8 pb-8">
+                                    
+                                    {/* Order Created Node */}
+                                    <div className="relative">
+                                        <div className="absolute -left-[25px] w-12 h-12 rounded-full bg-white dark:bg-gray-900 border-4 border-indigo-100 flex items-center justify-center shadow-sm">
+                                            <Package size={20} className="text-indigo-500" />
+                                        </div>
+                                        <div className="pl-10">
+                                            <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+                                                <h4 className="font-bold text-gray-900 dark:text-white flex items-center justify-between">
+                                                    Order Created
+                                                    <span className="text-xs font-normal text-gray-500">{new Date(order.createdAt).toLocaleDateString()}</span>
+                                                </h4>
+                                                <p className="text-sm text-gray-600 mt-1">
+                                                    Order #{order.orderNumber} placed by {order.customerName || order.customer?.name}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
 
+                                    {/* Dispatch Nodes */}
+                                    {dispatches.map((dispatch: any, idx: number) => (
+                                        <div key={dispatch._id} className="relative">
+                                            <div className="absolute -left-[21px] w-10 h-10 rounded-full bg-white dark:bg-gray-900 border-2 border-blue-200 flex items-center justify-center shadow-sm z-10">
+                                                <Truck size={16} className="text-blue-500" />
+                                            </div>
+                                            <div className="pl-10">
+                                                <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 relative overflow-hidden">
+                                                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                                                    
+                                                    <div className="flex justify-between items-start mb-3">
+                                                        <div>
+                                                            <h4 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                                                Partial Dispatch: {dispatch.dispatchNumber}
+                                                            </h4>
+                                                            <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
+                                                                <Calendar size={12}/> {new Date(dispatch.dispatchDate).toLocaleDateString()}
+                                                                {dispatch.createdBy && (
+                                                                    <>
+                                                                        <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                                                                        <User size={12}/> {dispatch.createdBy.name}
+                                                                    </>
+                                                                )}
+                                                            </p>
+                                                        </div>
+                                                        {dispatch.pdf && (
+                                                            <a href={dispatch.pdf} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-100 transition-colors">
+                                                                <FileText size={14}/>
+                                                                Dispatch Slip
+                                                            </a>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="mb-4">
+                                                        <h5 className="text-xs font-semibold text-gray-400 uppercase mb-2">Dispatched Items</h5>
+                                                        <ul className="space-y-1.5">
+                                                            {dispatch.items.map((di: any, i: number) => (
+                                                                <li key={i} className="flex justify-between text-sm items-center bg-gray-50/50 dark:bg-gray-800/50 px-3 py-1.5 rounded-lg border border-gray-100 dark:border-gray-700">
+                                                                    <span className="font-medium text-gray-700 dark:text-gray-300">{di.fgItem?.name || 'Item'}</span>
+                                                                    <span className="font-bold text-gray-900 dark:text-white bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-600">
+                                                                        {di.dispatchedQuantity} <span className="text-gray-400 text-xs font-normal">qty</span>
+                                                                    </span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                    
+                                                    {dispatch.vehicleNumber && (
+                                                        <div className="flex items-center gap-3 text-xs text-gray-500 bg-gray-50 dark:bg-gray-800/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-700 mb-3">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <Truck size={14} className="text-gray-400"/>
+                                                                <span className="font-medium uppercase tracking-wider">{dispatch.vehicleNumber}</span>
+                                                            </div>
+                                                            {dispatch.driverName && (
+                                                                <>
+                                                                    <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <User size={14} className="text-gray-400"/>
+                                                                        <span>{dispatch.driverName}</span>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    {dispatch.photos && dispatch.photos.length > 0 && (
+                                                        <div className="flex gap-2 mt-2">
+                                                            {dispatch.photos.map((photo: string, pIdx: number) => (
+                                                                <div 
+                                                                    key={pIdx} 
+                                                                    onClick={() => setPreviewPhoto(photo)}
+                                                                    className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 overflow-hidden cursor-pointer hover:ring-2 ring-indigo-500 ring-offset-1 transition-all"
+                                                                >
+                                                                    <img src={photo} alt="Dispatch proof" className="w-full h-full object-cover" />
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* Order Completed Node */}
+                                    {order.status === 'Completed' || order.status === 'Dispatched' ? (
+                                        <div className="relative">
+                                            <div className="absolute -left-[21px] w-10 h-10 rounded-full bg-green-100 border-2 border-green-500 flex items-center justify-center shadow-sm z-10">
+                                                <CheckCircle size={16} className="text-green-600" />
+                                            </div>
+                                            <div className="pl-10">
+                                                <div className="bg-green-50/50 p-4 rounded-xl border border-green-100 text-green-800 font-medium">
+                                                    Order Fully Dispatched
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -422,6 +559,20 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                     </div>
                 )
             }
+            
+            {showDispatchModal && (
+                <StoreCreateDispatchModal
+                    isOpen={showDispatchModal}
+                    onClose={() => setShowDispatchModal(false)}
+                    order={order}
+                    onSuccess={() => {
+                        refetchDispatches();
+                        if (onUpdateStatus) {
+                            // trigger a list refetch if needed, handled by RTK tags usually
+                        }
+                    }}
+                />
+            )}
         </div >
     );
 }

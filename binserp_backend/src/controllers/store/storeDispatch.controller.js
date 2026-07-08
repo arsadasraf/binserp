@@ -1,0 +1,138 @@
+import { storeDispatchHistorySchema, storeOrderSchema, fgItemSchema, customerSchema } from "../../models/store/index.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+import { prefixSettingsSchema } from "../../models/prefix/index.js";
+import { uploadOnS3 } from "../../utils/s3.js";
+import mongoose from "mongoose";
+
+const getCompanyLoginId = (req) => {
+  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
+};
+
+const getCompanyId = (req) => {
+  return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
+};
+
+const generateDispatchNumber = async (req) => {
+  const PrefixSettings = req.getModel("PrefixSettings", prefixSettingsSchema);
+  const companyId = getCompanyId(req);
+  
+  const settings = await PrefixSettings.findOne({ company: companyId });
+  const prefix = settings?.dispatchPrefix || "DSP-";
+  
+  const StoreDispatch = req.getModel("StoreDispatchHistory", storeDispatchHistorySchema);
+  const count = await StoreDispatch.countDocuments({ company: companyId });
+  
+  return `${prefix}${String(count + 1).padStart(4, "0")}`;
+};
+
+export const createStoreDispatch = asyncHandler(async (req, res) => {
+  const StoreDispatch = req.getModel("StoreDispatchHistory", storeDispatchHistorySchema);
+  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
+  const companyId = getCompanyId(req);
+
+  const { storeOrderId } = req.params;
+  let { items, dispatchDate, remarks, vehicleNumber, driverName, dispatchNumber } = req.body;
+
+  if (typeof items === 'string') {
+    items = JSON.parse(items);
+  }
+
+  const order = await StoreOrder.findOne({ _id: storeOrderId, company: companyId });
+  if (!order) {
+    return res.status(404).json({ success: false, message: "Order not found" });
+  }
+
+  // Validate items and quantities
+  for (const dispatchItem of items) {
+    const orderItem = order.items.find(i => i.fgItem.toString() === dispatchItem.fgItem);
+    if (!orderItem) {
+      return res.status(400).json({ success: false, message: `Item ${dispatchItem.fgItem} not found in order` });
+    }
+    const remaining = orderItem.quantity - (orderItem.dispatchedQuantity || 0);
+    if (dispatchItem.dispatchedQuantity > remaining) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Cannot dispatch ${dispatchItem.dispatchedQuantity} of ${orderItem.name}. Only ${remaining} remaining.` 
+      });
+    }
+  }
+
+  if (!dispatchNumber) {
+    dispatchNumber = await generateDispatchNumber(req);
+  }
+
+  // Handle files
+  let photoUrls = [];
+  let pdfUrl = null;
+  if (req.files) {
+    if (req.files['photos'] && req.files['photos'].length > 0) {
+      for (const file of req.files['photos']) {
+        const result = await uploadOnS3(file.path, "storeDispatches", getCompanyLoginId(req));
+        if (result?.url) photoUrls.push(result.url);
+      }
+    }
+    if (req.files['pdf'] && req.files['pdf'].length > 0) {
+      const file = req.files['pdf'][0];
+      const result = await uploadOnS3(file.path, "storeDispatches", getCompanyLoginId(req));
+      if (result?.url) pdfUrl = result.url;
+    }
+  }
+
+  // Create dispatch record
+  const dispatchData = {
+    company: companyId,
+    storeOrder: storeOrderId,
+    dispatchNumber,
+    dispatchDate: dispatchDate || new Date(),
+    items,
+    remarks,
+    vehicleNumber,
+    driverName,
+    pdf: pdfUrl,
+    photos: photoUrls,
+    createdBy: req.user._id,
+  };
+
+  try {
+    const newDispatch = await StoreDispatch.create(dispatchData);
+
+    // Update Order quantities
+    let allFulfilled = true;
+    for (const dispatchItem of items) {
+      const orderItem = order.items.find(i => i.fgItem.toString() === dispatchItem.fgItem);
+      orderItem.dispatchedQuantity = (orderItem.dispatchedQuantity || 0) + Number(dispatchItem.dispatchedQuantity);
+    }
+
+    // Check if fully dispatched
+    for (const orderItem of order.items) {
+      if ((orderItem.dispatchedQuantity || 0) < orderItem.quantity) {
+        allFulfilled = false;
+        break;
+      }
+    }
+
+    order.status = allFulfilled ? "Dispatched" : "Partially Dispatched";
+    await order.save();
+
+    res.status(201).json({ success: true, dispatch: newDispatch, order });
+  } catch (error) {
+    throw error;
+  }
+});
+
+export const getDispatchHistory = asyncHandler(async (req, res) => {
+  req.getModel('Customer', customerSchema);
+  req.getModel('FGItem', fgItemSchema);
+  req.getModel('StoreOrder', storeOrderSchema);
+  
+  const StoreDispatch = req.getModel("StoreDispatchHistory", storeDispatchHistorySchema);
+  const companyId = getCompanyId(req);
+  const { storeOrderId } = req.params;
+
+  const dispatches = await StoreDispatch.find({ company: companyId, storeOrder: storeOrderId })
+    .populate("items.fgItem", "name type description")
+    .populate("createdBy", "name")
+    .sort({ dispatchDate: -1, createdAt: -1 });
+
+  res.status(200).json({ success: true, dispatches, count: dispatches.length });
+});
