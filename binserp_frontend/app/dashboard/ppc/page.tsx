@@ -70,8 +70,8 @@ import PPCTabs from "./components/PPCTabs";
 import PPCStoreTab from "./components/PPCStoreTab";
 import PPCMachinesTab from "./components/PPCMachinesTab"; // Import the new component
 import PPCManpowerTab from "./components/PPCManpowerTab";
-import PPCProductsTab from "./components/PPCProductsTab";
-import PPCShiftTab from "./components/PPCShiftTab"; // Import PPCShiftTab
+import PPCShiftTab from "./components/PPCShiftTab";
+import FGProductsTab from "./components/FGProductsTab";
 import PPCTraceTab from "./components/PPCTraceTab";
 import OrderDetailModal from "./components/OrderDetailModal";
 import CreateOrderModal from "./components/CreateOrderModal";
@@ -197,7 +197,7 @@ export default function PPCPage() {
               <div className="flex flex-wrap gap-2 mb-2 items-center bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 w-fit">
                 {[
                   { id: "shopfloor", label: "Shopfloor", icon: Hammer },
-                  { id: "products", label: "Products", icon: Package },
+                  { id: "products", label: "FG Products", icon: Package },
                   { id: "store", label: "Store", icon: Store },
                 ].map((primaryTab) => {
                   let isActive = false;
@@ -259,7 +259,7 @@ export default function PPCPage() {
 
               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
                 {subTab === "products" ? (
-                  <PPCProductsTab />
+                  <FGProductsTab />
                 ) : subTab === "manpower" ? (
                   <PPCManpowerTab />
                 ) : subTab === "store" ? (

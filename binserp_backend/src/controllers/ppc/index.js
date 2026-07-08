@@ -17,6 +17,7 @@ export { getDispatchQueue } from './getDispatchQueue.controller.js';
 export { markOrderAsDispatched } from './markOrderAsDispatched.controller.js';
 export { getOrderById } from './getOrderById.controller.js';
 export { updateOrder } from './updateOrder.controller.js';
+export * from './ppcProduct.controller.js';
 export { deleteOrder } from './deleteOrder.controller.js';
 export { createRouteCard } from './createRouteCard.controller.js';
 export { getAllRouteCards } from './getAllRouteCards.controller.js';

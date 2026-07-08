@@ -252,6 +252,18 @@ export const ppcService = binsApi.injectEndpoints({
       transformResponse: (response: any) => response.processes || [],
       providesTags: ["Processes"],
     }),
+    getPPCProductsStatus: builder.query<any, void>({
+      query: () => "/api/ppc/products/status",
+      providesTags: ["PPCProduct"],
+    }),
+    savePPCProduct: builder.mutation<any, any>({
+      query: (data) => ({
+        url: "/api/ppc/products",
+        method: "POST",
+        body: data,
+      }),
+      invalidatesTags: ["PPCProduct", "FGItem" as any],
+    }),
     createProcess: builder.mutation<any, any>({
       query: (body) => ({ url: "/api/ppc/process", method: "POST", body }),
       invalidatesTags: ["Processes"],
@@ -417,7 +429,7 @@ export const {
   // Machine Schedule
   useGetMachineScheduleQuery,
   // Processes
-  useGetProcessesQuery, useCreateProcessMutation, useUpdateProcessMutation, useDeleteProcessMutation,
+  useGetProcessesQuery, useGetPPCProductsStatusQuery, useSavePPCProductMutation, useCreateProcessMutation, useUpdateProcessMutation, useDeleteProcessMutation,
   // Shifts
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   // Manpower

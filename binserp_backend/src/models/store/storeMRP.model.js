@@ -27,7 +27,7 @@ export const storeMRPSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "RM Planned", "Production Planned"],
+      enum: ["Pending", "Partially RM Planned", "RM Planned", "Production Planned"],
       default: "Pending",
     },
     remarks: {

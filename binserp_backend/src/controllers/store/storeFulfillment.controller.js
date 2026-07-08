@@ -194,8 +194,8 @@ export const planRMRequirement = async (req, res) => {
     const mrp = await StoreMRP.findOne({ _id: id, company: companyId }).populate('fgItem');
     if (!mrp) return res.status(404).json({ success: false, message: "Requirement not found" });
 
-    if (mrp.status !== "Pending") {
-       return res.status(400).json({ success: false, message: "Requirement already planned." });
+    if (mrp.status !== "Pending" && mrp.status !== "Partially RM Planned") {
+       return res.status(400).json({ success: false, message: "Requirement already fully planned." });
     }
 
     const fgItem = mrp.fgItem;
@@ -205,8 +205,13 @@ export const planRMRequirement = async (req, res) => {
 
     // Explode BOM for RM/BO Items (Materials)
     const rmRequirements = [];
+    
+    // Check existing RM Plans for this MRP to avoid duplicates
+    const existingPlans = await StoreRMPlan.find({ sourceMRP: mrp._id }).select('rmBoItem');
+    const existingItemIds = existingPlans.map(p => p.rmBoItem.toString());
+
     for (const bomItem of fgItem.bom) {
-       if (bomItem.itemType === "Material") {
+       if (bomItem.itemType === "Material" && !existingItemIds.includes(bomItem.item.toString())) {
           rmRequirements.push({
              company: companyId,
              sourceMRP: mrp._id,
@@ -226,6 +231,39 @@ export const planRMRequirement = async (req, res) => {
     await mrp.save();
 
     res.status(200).json({ success: true, message: `BOM exploded into ${rmRequirements.length} RM/BO requirements.` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const planSingleRMRequirement = async (req, res) => {
+  try {
+    const { id } = req.params; // StoreMRP ID
+    const { itemId, requiredQuantity } = req.body;
+    const companyId = getCompanyId(req);
+    
+    const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
+    const StoreRMPlan = req.getModel("StoreRMPlan", storeRMPlanSchema);
+
+    const mrp = await StoreMRP.findOne({ _id: id, company: companyId });
+    if (!mrp) return res.status(404).json({ success: false, message: "Requirement not found" });
+
+    // Insert the single requirement
+    await StoreRMPlan.create({
+       company: companyId,
+       sourceMRP: mrp._id,
+       rmBoItem: itemId,
+       requiredQuantity,
+       dueDate: mrp.dueDate,
+       status: "Pending"
+    });
+
+    if (mrp.status === "Pending") {
+       mrp.status = "Partially RM Planned";
+       await mrp.save();
+    }
+
+    res.status(200).json({ success: true, message: `Added item to RM/BO Plan.` });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

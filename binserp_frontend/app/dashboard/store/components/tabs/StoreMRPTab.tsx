@@ -7,6 +7,7 @@ import {
   usePlanRMRequirementMutation,
   usePlanProductionRequirementMutation,
   useUpdateRMPlanPOMutation,
+  usePlanSingleRMRequirementMutation,
   useGetStoreDataQuery
 } from "@/src/store/services/storeService";
 import { Search, Calendar, User, Factory, Clock, Package, ShoppingCart, Loader2, Eye, X } from 'lucide-react';
@@ -19,8 +20,12 @@ export default function StoreMRPTab() {
   const { data: rmPlans = [], isLoading: loadingRMPlans, refetch: refetchRMPlans } = useGetRMPlansQuery();
   const { data: storeData } = useGetStoreDataQuery({ tab: 'vendor' });
   const vendors = storeData?.data || [];
+  
+  const { data: inventoryData } = useGetStoreDataQuery({ tab: 'inventory' });
+  const inventories = inventoryData?.data || [];
 
   const [planRM] = usePlanRMRequirementMutation();
+  const [planSingleRM] = usePlanSingleRMRequirementMutation();
   const [planProduction] = usePlanProductionRequirementMutation();
   const [updatePO] = useUpdateRMPlanPOMutation();
 
@@ -85,10 +90,23 @@ export default function StoreMRPTab() {
     }
   };
 
+  const handlePlanSingleRM = async (mrpId: string, itemId: string, requiredQuantity: number) => {
+    setIsSubmitting(itemId);
+    try {
+      await planSingleRM({ id: mrpId, itemId, requiredQuantity }).unwrap();
+      refetchMRPs();
+      refetchRMPlans();
+    } catch (err: any) {
+      alert(err.data?.message || "Failed to push item to RM Plan");
+    } finally {
+      setIsSubmitting(null);
+    }
+  };
+
   if (loadingMRPs || loadingRMPlans) return <LoadingSpinner />;
 
   // Filter logic based on tabs
-  const pendingMRPs = mrps.filter((m: any) => m.status === "Pending");
+  // MRP Queue shows ALL requirements now, Production Planning shows only Production Planned
   const productionMRPs = mrps.filter((m: any) => m.status === "Production Planned");
 
   const filterBySearch = (arr: any[]) => arr.filter((item: any) => 
@@ -161,15 +179,19 @@ export default function StoreMRPTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {filterBySearch(currentTab === "mrp-queue" ? pendingMRPs : productionMRPs).length === 0 ? (
+                {filterBySearch(currentTab === "mrp-queue" ? mrps : productionMRPs).length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                       No requirements found in this queue.
                     </td>
                   </tr>
                 ) : (
-                  filterBySearch(currentTab === "mrp-queue" ? pendingMRPs : productionMRPs).map((m: any) => (
-                    <tr key={m._id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
+                  filterBySearch(currentTab === "mrp-queue" ? mrps : productionMRPs).map((m: any) => (
+                    <tr 
+                      key={m._id} 
+                      className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
+                      onClick={() => setPreviewItem(m)}
+                    >
                       <td className="px-6 py-4">
                         <div className="font-semibold text-gray-900 dark:text-white">
                           {m.storeOrder?.orderNumber || "Manual Requirement"}
@@ -183,15 +205,6 @@ export default function StoreMRPTab() {
                       <td className="px-6 py-4">
                         <div className="font-medium text-gray-800 dark:text-gray-200 flex items-center gap-2">
                           {m.fgItem?.name}
-                          {m.fgItem?.bom?.length > 0 && (
-                            <button
-                              onClick={() => setPreviewItem(m)}
-                              className="text-gray-400 hover:text-indigo-600 transition-colors"
-                              title="Preview BOM"
-                            >
-                              <Eye size={16} />
-                            </button>
-                          )}
                         </div>
                         <div className="text-xs text-gray-500">{m.fgItem?.code}</div>
                       </td>
@@ -209,25 +222,33 @@ export default function StoreMRPTab() {
                         </div>
                       </td>
                       {currentTab === "mrp-queue" && (
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              onClick={() => handlePlanRM(m._id)}
-                              disabled={isSubmitting === m._id}
-                              className="px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
-                            >
-                              {isSubmitting === m._id ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />}
-                              RM Planning
-                            </button>
-                            <button
-                              onClick={() => handlePlanProduction(m._id)}
-                              disabled={isSubmitting === m._id}
-                              className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
-                            >
-                              {isSubmitting === m._id ? <Loader2 size={14} className="animate-spin" /> : <Factory size={14} />}
-                              Production Planning
-                            </button>
-                          </div>
+                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          {m.status === "RM Planned" || m.status === "Production Planned" ? (
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                              m.status === "RM Planned" ? "bg-amber-100 text-amber-700 border-amber-200" : "bg-indigo-100 text-indigo-700 border-indigo-200"
+                            }`}>
+                              {m.status}
+                            </span>
+                          ) : (
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handlePlanRM(m._id); }}
+                                disabled={isSubmitting === m._id}
+                                className="px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                              >
+                                {isSubmitting === m._id ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />}
+                                Plan All RM
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handlePlanProduction(m._id); }}
+                                disabled={isSubmitting === m._id}
+                                className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                              >
+                                {isSubmitting === m._id ? <Loader2 size={14} className="animate-spin" /> : <Factory size={14} />}
+                                Production Planning
+                              </button>
+                            </div>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -404,12 +425,25 @@ export default function StoreMRPTab() {
                         <th className="px-4 py-3">Type</th>
                         <th className="px-4 py-3 text-right">BOM Qty</th>
                         <th className="px-4 py-3 text-right">Total Req Qty</th>
+                        <th className="px-4 py-3 text-right">Avail Stock</th>
+                        <th className="px-4 py-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                       {previewItem.fgItem?.bom?.map((b: any, idx: number) => {
                         const totalQty = b.quantity * previewItem.requiredQuantity;
                         const isMaterial = b.itemType === "Material";
+                        
+                        // Find closing stock if material
+                        let availableStock = 0;
+                        if (isMaterial) {
+                          const invItem = inventories.find((inv: any) => inv.material?._id === (b.item?._id || b.item) || inv.material === (b.item?._id || b.item));
+                          if (invItem) availableStock = invItem.closingStock;
+                        }
+
+                        // Check if already planned
+                        const isPlanned = rmPlans.some((p: any) => p.sourceMRP?._id === previewItem._id && (p.rmBoItem?._id === (b.item?._id || b.item) || p.rmBoItem === (b.item?._id || b.item)));
+
                         return (
                           <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
                             <td className="px-4 py-3">
@@ -429,6 +463,24 @@ export default function StoreMRPTab() {
                             </td>
                             <td className="px-4 py-3 text-right font-bold text-indigo-600">
                               {totalQty}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-green-600">
+                              {isMaterial ? availableStock : "-"}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {isMaterial ? (
+                                isPlanned ? (
+                                  <span className="px-2 py-1 bg-green-100 text-green-700 rounded-md text-xs font-semibold">Planned</span>
+                                ) : (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handlePlanSingleRM(previewItem._id, b.item?._id || b.item, totalQty); }}
+                                    disabled={isSubmitting === (b.item?._id || b.item)}
+                                    className="px-2 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 rounded-md text-xs font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-1 ml-auto"
+                                  >
+                                    {isSubmitting === (b.item?._id || b.item) ? <Loader2 size={12} className="animate-spin" /> : "Move to RM Plan"}
+                                  </button>
+                                )
+                              ) : "-"}
                             </td>
                           </tr>
                         );

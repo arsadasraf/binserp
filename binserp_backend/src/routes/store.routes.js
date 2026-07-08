@@ -79,6 +79,7 @@ import {
   moveToMRP,
   getStoreMRPs,
   planRMRequirement,
+  planSingleRMRequirement,
   planProductionRequirement,
   getRMPlans,
   updateRMPlanPO
@@ -202,6 +203,7 @@ router.post("/fulfillment/:id/reserve", reserveQuantity);
 router.post("/fulfillment/:id/move-to-mrp", moveToMRP);
 router.get("/mrp", getStoreMRPs);
 router.post("/mrp/:id/plan-rm", planRMRequirement);
+router.post("/mrp/:id/plan-single-rm", planSingleRMRequirement);
 router.post("/mrp/:id/plan-production", planProductionRequirement);
 
 // RM Planning routes

@@ -91,6 +91,8 @@ import {
   createMaintenanceRecord,
   getMaintenanceRecords,
   updateMaintenanceRecord,
+  getPPCProductsStatus,
+  savePPCProduct
 } from "../controllers/ppc/index.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 
@@ -153,6 +155,10 @@ router.route("/route-card/:id").get(getRouteCardById).put(updateRouteCard);
 // Machine Routes
 router.route("/machine").post(upload.array("photos", 5), createMachine).get(getAllMachines);
 router.route("/machine/:id").put(upload.array("photos", 5), updateMachine).delete(deleteMachine);
+
+// PPC Product Routes
+router.get("/products/status", getPPCProductsStatus);
+router.post("/products", savePPCProduct);
 
 // Process Routes
 router.route("/process").post(createProcess).get(getAllProcesses);

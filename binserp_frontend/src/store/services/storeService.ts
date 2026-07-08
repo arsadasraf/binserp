@@ -141,6 +141,14 @@ export const storeService = binsApi.injectEndpoints({
       }),
       invalidatesTags: ["StoreOrder" as any],
     }),
+    planSingleRMRequirement: builder.mutation<any, { id: string; itemId: string; requiredQuantity: number }>({
+      query: ({ id, itemId, requiredQuantity }) => ({
+        url: `/api/store/mrp/${id}/plan-single-rm`,
+        method: "POST",
+        body: { itemId, requiredQuantity }
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
     planProductionRequirement: builder.mutation<any, string>({
       query: (id) => ({
         url: `/api/store/mrp/${id}/plan-production`,
@@ -178,6 +186,7 @@ export const {
   useMoveFulfillmentToMRPMutation,
   useGetStoreMRPsQuery,
   usePlanRMRequirementMutation,
+  usePlanSingleRMRequirementMutation,
   usePlanProductionRequirementMutation,
   useGetRMPlansQuery,
   useUpdateRMPlanPOMutation
