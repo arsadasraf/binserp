@@ -1,4 +1,4 @@
-import { storeOrderSchema, customerSchema, fgItemSchema } from "../../models/store/index.js";
+import { storeOrderSchema, customerSchema, fgItemSchema, storeOrderFulfillmentSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
@@ -84,6 +84,20 @@ export const createStoreOrder = asyncHandler(async (req, res) => {
   };
 
   const newOrder = await StoreOrder.create(orderData);
+
+  // Spawn fulfillment records for each item in the order
+  const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+  if (items && items.length > 0) {
+    const fulfillments = items.map(item => ({
+      company: companyId,
+      storeOrder: newOrder._id,
+      fgItem: item.fgItem,
+      orderedQuantity: item.quantity,
+      targetDate: targetDate || new Date(),
+    }));
+    await StoreOrderFulfillment.insertMany(fulfillments);
+  }
+
   res.status(201).json({ success: true, order: newOrder });
 });
 

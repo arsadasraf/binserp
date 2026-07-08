@@ -108,6 +108,32 @@ export const storeService = binsApi.injectEndpoints({
       transformResponse: (res: any) => res.dispatches,
       providesTags: ["StoreOrder" as any],
     }),
+    getStoreFulfillments: builder.query<any, void>({
+      query: () => `/api/store/fulfillment`,
+      transformResponse: (res: any) => res.data,
+      providesTags: ["StoreOrder" as any, "StoreInventory" as any],
+    }),
+    reserveFulfillmentQuantity: builder.mutation<any, { id: string; quantity: number }>({
+      query: ({ id, quantity }) => ({
+        url: `/api/store/fulfillment/${id}/reserve`,
+        method: "POST",
+        body: { quantity },
+      }),
+      invalidatesTags: ["StoreOrder" as any, "StoreInventory" as any],
+    }),
+    moveFulfillmentToMRP: builder.mutation<any, { id: string; quantity: number }>({
+      query: ({ id, quantity }) => ({
+        url: `/api/store/fulfillment/${id}/move-to-mrp`,
+        method: "POST",
+        body: { quantity },
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
+    getStoreMRPs: builder.query<any, void>({
+      query: () => `/api/store/mrp`,
+      transformResponse: (res: any) => res.data,
+      providesTags: ["StoreOrder" as any],
+    }),
   }),
   overrideExisting: false,
 });
@@ -119,7 +145,11 @@ export const {
   useUpdateStoreRecordMutation,
   useDeleteStoreRecordMutation,
   useCreateStoreDispatchMutation,
-  useGetStoreDispatchesQuery
+  useGetStoreDispatchesQuery,
+  useGetStoreFulfillmentsQuery,
+  useReserveFulfillmentQuantityMutation,
+  useMoveFulfillmentToMRPMutation,
+  useGetStoreMRPsQuery
 } = storeService;
 
 

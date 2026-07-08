@@ -1,4 +1,4 @@
-import { storeDispatchHistorySchema, storeOrderSchema, fgItemSchema, customerSchema } from "../../models/store/index.js";
+import { storeOrderSchema, customerSchema, fgItemSchema, storeDispatchHistorySchema, storeOrderFulfillmentSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
@@ -96,11 +96,40 @@ export const createStoreDispatch = asyncHandler(async (req, res) => {
   try {
     const newDispatch = await StoreDispatch.create(dispatchData);
 
+    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+    const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+
     // Update Order quantities
     let allFulfilled = true;
     for (const dispatchItem of items) {
+      const qty = Number(dispatchItem.dispatchedQuantity);
       const orderItem = order.items.find(i => i.fgItem.toString() === dispatchItem.fgItem);
-      orderItem.dispatchedQuantity = (orderItem.dispatchedQuantity || 0) + Number(dispatchItem.dispatchedQuantity);
+      orderItem.dispatchedQuantity = (orderItem.dispatchedQuantity || 0) + qty;
+      
+      // Update fulfillment record
+      const fulfillment = await StoreOrderFulfillment.findOne({
+        company: companyId,
+        storeOrder: storeOrderId,
+        fgItem: dispatchItem.fgItem
+      });
+      
+      if (fulfillment) {
+        fulfillment.dispatchedQuantity = (fulfillment.dispatchedQuantity || 0) + qty;
+        
+        // Consume reserved stock if available
+        if (fulfillment.reservedQuantity > 0) {
+           const consumeReserved = Math.min(fulfillment.reservedQuantity, qty);
+           fulfillment.reservedQuantity -= consumeReserved;
+           
+           const inventory = await FGInventoryMonthly.findOne({ company: companyId, fgItem: dispatchItem.fgItem, month: currentMonth });
+           if (inventory) {
+             inventory.totalReservedQuantity = Math.max(0, (inventory.totalReservedQuantity || 0) - consumeReserved);
+             await inventory.save();
+           }
+        }
+        await fulfillment.save();
+      }
     }
 
     // Check if fully dispatched

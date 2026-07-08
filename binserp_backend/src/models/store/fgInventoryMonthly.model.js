@@ -24,6 +24,10 @@ export const fgInventoryMonthlySchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    totalReservedQuantity: {
+      type: Number,
+      default: 0,
+    },
     totalInwardQuantity: {
       type: Number,
       default: 0,
