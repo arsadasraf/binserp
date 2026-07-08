@@ -952,6 +952,7 @@ function StoreContent() {
                   inHouseItems={fgItems}
                   activeTab={activeTab}
                   token={token}
+                  companyInfo={companyInfo}
                   onError={(msg) => setError(msg)}
                   onSuccess={(msg) => {
                     setSuccess(msg);

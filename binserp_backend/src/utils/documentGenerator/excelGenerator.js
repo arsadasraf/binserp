@@ -69,6 +69,31 @@ export const generateExcel = async (data, type) => {
                 category: item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : 'N/A')
             });
         });
+    } else if (type === 'Returnable DC') {
+        const challan = data[0];
+        sheet.columns = [
+            { header: 'Challan Number', key: 'challanNumber', width: 20 },
+            { header: 'Date', key: 'date', width: 15 },
+            { header: 'Supplier', key: 'supplier', width: 30 },
+            { header: 'Item Name', key: 'itemName', width: 30 },
+            { header: 'Process Type', key: 'processType', width: 20 },
+            { header: 'Qty Sent', key: 'qtySent', width: 15 },
+            { header: 'Unit', key: 'unit', width: 15 }
+        ];
+
+        if (challan && challan.items) {
+            challan.items.forEach(item => {
+                sheet.addRow({
+                    challanNumber: challan.challanNumber,
+                    date: new Date(challan.date).toLocaleDateString(),
+                    supplier: challan.vendorName || challan.vendor?.name || 'N/A',
+                    itemName: item.itemName || '-',
+                    processType: item.processType || '-',
+                    qtySent: item.quantitySent,
+                    unit: item.unit || 'PCS'
+                });
+            });
+        }
     }
 
     // Style headers

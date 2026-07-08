@@ -5,9 +5,7 @@ import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
 
 import { apiGet, apiDelete } from '@/src/lib/api';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
+import { generateDocument } from '@/src/utils/documentHelper';
 
 interface JobWorkStoreProps {
     vendors: Vendor[];
@@ -16,16 +14,17 @@ interface JobWorkStoreProps {
     inHouseItems?: any[];
     activeTab: string;
     token: string | null;
+    companyInfo?: any;
     onError: (msg: string) => void;
     onSuccess: (msg: string) => void;
 }
 
-export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials = [], inHouseItems = [], activeTab, token, onError, onSuccess }: JobWorkStoreProps) {
+export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials = [], inHouseItems = [], activeTab, token, companyInfo, onError, onSuccess }: JobWorkStoreProps) {
     const [challans, setChallans] = useState<JobWorkChallan[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     // User requested "Challan" tab. Replacing 'sent'/'create' with 'challan'.
-    const [subTab, setSubTab] = useState<'challan' | 'pending' | 'received' | 'overdue'>('challan');
+    const [subTab, setSubTab] = useState<'challan' | 'received' | 'overdue'>('challan');
 
     // Filter States
     const [filterMonth, setFilterMonth] = useState('');
@@ -93,63 +92,20 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
         }
     };
 
-    const exportChallanToPDF = (challan: JobWorkChallan) => {
-        const doc = new jsPDF();
-        const vendorName = challan.vendor?.name || 'Unknown Vendor';
-        
-        doc.setFontSize(20);
-        doc.text("Job Work Challan", 14, 22);
-        
-        doc.setFontSize(12);
-        doc.text(`Challan Number: ${challan.challanNumber}`, 14, 32);
-        doc.text(`Date: ${new Date(challan.date).toLocaleDateString()}`, 14, 40);
-        doc.text(`Supplier: ${vendorName}`, 14, 48);
-        if (challan.expectedReturnDate) {
-            doc.text(`Expected Return: ${new Date(challan.expectedReturnDate).toLocaleDateString()}`, 14, 56);
+    const exportChallanToPDF = async (challan: JobWorkChallan) => {
+        try {
+            await generateDocument('pdf', 'returnable_dc', { doc: challan, companyInfo });
+        } catch (error) {
+            onError('Failed to generate PDF');
         }
-        
-        const tableColumn = ["Item Name", "Process Type", "Quantity Sent", "Unit", "Received"];
-        const tableRows: any[] = [];
-        
-        challan.items.forEach(item => {
-            tableRows.push([
-                item.itemName || '-',
-                item.processType || '-',
-                item.quantitySent,
-                item.unit || 'PCS',
-                item.quantityReceived
-            ]);
-        });
-        
-        autoTable(doc, {
-            head: [tableColumn],
-            body: tableRows,
-            startY: 65,
-        });
-        
-        doc.save(`JobWork_Challan_${challan.challanNumber}.pdf`);
     };
 
-    const exportChallanToExcel = (challan: JobWorkChallan) => {
-        const vendorName = challan.vendor?.name || 'Unknown Vendor';
-        
-        const exportData = challan.items.map(item => ({
-            "Challan Number": challan.challanNumber,
-            "Date": new Date(challan.date).toLocaleDateString(),
-            "Supplier": vendorName,
-            "Item Name": item.itemName || '-',
-            "Process Type": item.processType || '-',
-            "Quantity Sent": item.quantitySent,
-            "Quantity Received": item.quantityReceived,
-            "Pending": item.quantitySent - (item.quantityReceived || 0),
-            "Unit": item.unit || 'PCS',
-            "Status": item.status
-        }));
-        
-        const worksheet = XLSX.utils.json_to_sheet(exportData);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, "Challan");
-        XLSX.writeFile(workbook, `JobWork_Challan_${challan.challanNumber}.xlsx`);
+    const exportChallanToExcel = async (challan: JobWorkChallan) => {
+        try {
+            await generateDocument('excel', 'Returnable DC', [challan]);
+        } catch (error) {
+            onError('Failed to generate Excel');
+        }
     };
 
     // Filter Logic
@@ -172,8 +128,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
 
         // "Challan" tab shows Active (Sent) challans, similar to old "sent".
         if (subTab === 'challan') return c.status !== 'Closed';
-
-        if (subTab === 'pending') return c.status === 'Open' || c.status === 'Partial';
+        
         if (subTab === 'received') return c.status === 'Closed' || c.status === 'Partial'; // Show history
         if (subTab === 'overdue') {
             if (c.status === 'Closed') return false;
@@ -198,15 +153,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                     >
                         Challans
                     </button>
-                    <button
-                        onClick={() => setSubTab('pending')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${subTab === 'pending'
-                            ? 'bg-white text-amber-600 shadow-sm ring-1 ring-black/5'
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
-                            }`}
-                    >
-                        Pending Return
-                    </button>
+
                     <button
                         onClick={() => setSubTab('received')}
                         className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${subTab === 'received'
@@ -415,6 +362,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                 inHouseItems={inHouseItems}
                 initialData={prefillData}
                 token={token}
+                companyInfo={companyInfo}
             />
 
             {/* Modals */}

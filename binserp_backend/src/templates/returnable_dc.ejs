@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    </style>
+</head>
+<body class="bg-white p-8">
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <div class="flex justify-between items-start mb-8">
+            <div>
+                <% if (companyInfo?.logo) { %>
+                    <img src="<%= companyInfo.logo %>" class="h-16 mb-4" />
+                <% } %>
+                <h1 class="text-xl font-bold text-slate-800"><%= companyInfo?.companyName || 'Company Name' %></h1>
+                <p class="text-sm text-slate-500 mt-1 max-w-xs"><%= companyInfo?.billingAddress || '' %></p>
+                <% if (companyInfo?.contactNumber) { %><p class="text-sm text-slate-500">Phone: <%= companyInfo.contactNumber %></p><% } %>
+                <% if (companyInfo?.email) { %><p class="text-sm text-slate-500">Email: <%= companyInfo.email %></p><% } %>
+            </div>
+            <div class="text-right">
+                <h2 class="text-2xl font-bold text-indigo-600 mb-2 uppercase">Returnable DC</h2>
+                <p class="text-sm text-slate-600"><span class="font-semibold">Challan No:</span> <%= doc.challanNumber %></p>
+                <p class="text-sm text-slate-600"><span class="font-semibold">Date:</span> <%= new Date(doc.date).toLocaleDateString() %></p>
+                <% if (doc.expectedReturnDate) { %>
+                <p class="text-sm text-slate-600"><span class="font-semibold">Expected Return:</span> <%= new Date(doc.expectedReturnDate).toLocaleDateString() %></p>
+                <% } %>
+            </div>
+        </div>
+
+        <!-- Ship To / Vendor -->
+        <div class="mb-8 p-4 bg-slate-50 rounded-lg border border-slate-100">
+            <h3 class="text-sm font-bold text-slate-800 mb-2">SUPPLIER (JOB WORK):</h3>
+            <p class="text-sm font-semibold text-slate-700"><%= doc.vendorName || doc.vendor?.name || 'Unknown Vendor' %></p>
+        </div>
+
+        <!-- Items Table -->
+        <table class="w-full text-sm text-left mb-8">
+            <thead class="text-xs text-white uppercase bg-indigo-600 rounded-t-lg">
+                <tr>
+                    <th class="px-4 py-3 rounded-tl-lg">Item Name</th>
+                    <th class="px-4 py-3">Process Type</th>
+                    <th class="px-4 py-3 text-right">Qty Sent</th>
+                    <th class="px-4 py-3 rounded-tr-lg">Unit</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% doc.items.forEach(function(item, index) { %>
+                <tr class="border-b border-slate-200 <%= index % 2 === 0 ? 'bg-white' : 'bg-slate-50' %>">
+                    <td class="px-4 py-3 font-medium text-slate-800"><%= item.itemName || '-' %></td>
+                    <td class="px-4 py-3 text-slate-500"><%= item.processType || '-' %></td>
+                    <td class="px-4 py-3 text-right font-semibold text-slate-600"><%= item.quantitySent %></td>
+                    <td class="px-4 py-3 text-slate-500"><%= item.unit || 'PCS' %></td>
+                </tr>
+                <% }); %>
+            </tbody>
+        </table>
+
+        <!-- Footer -->
+        <div class="flex justify-between items-end mt-16 pt-8 border-t border-slate-200">
+            <div class="text-left w-1/3">
+                <p class="text-sm font-bold text-slate-800 mb-8 mt-12 border-t-2 border-slate-300 pt-2 inline-block">Receiver's Signature</p>
+            </div>
+            
+            <div class="text-right w-1/3">
+                <p class="text-sm font-bold text-slate-800 mb-8 mt-12 border-t-2 border-slate-300 pt-2 inline-block">Authorized Signatory</p>
+                <p class="text-xs text-slate-500 block">For <%= companyInfo?.companyName || 'Company' %></p>
+            </div>
+        </div>
+        
+        <div class="mt-8 text-center text-[10px] text-slate-400">
+            Generated on: <%= new Date().toLocaleString() %>
+        </div>
+    </div>
+</body>
+</html>

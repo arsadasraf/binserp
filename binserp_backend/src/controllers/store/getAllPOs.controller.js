@@ -62,13 +62,15 @@ const updateComponentStock = async (req, componentId, quantity) => {
 
 export const getAllPOs = async (req, res) => {
   try {
+    req.getModel('Material', rmBoItemSchema);
+    req.getModel('Vendor', vendorSchema);
     const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
 
     const companyId = getCompanyId(req);
     const pos = await PurchaseOrder.find({ company: companyId })
       .populate("vendor", "name code email phone")
-      .populate("RmBoItem", "name code")
-      .populate("createdBy", "name userId")
+      .populate("material", "name code")
+      .populate("items.material", "name code")
       .sort({ createdAt: -1 });
 
     // Add vendorName for easier frontend display

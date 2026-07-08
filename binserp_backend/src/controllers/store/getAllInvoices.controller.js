@@ -62,6 +62,8 @@ const updateComponentStock = async (req, componentId, quantity) => {
 
 export const getAllInvoices = async (req, res) => {
   try {
+    req.getModel('Material', rmBoItemSchema);
+    req.getModel('Customer', customerSchema);
     const Invoice = req.getModel('Invoice', invoiceSchema);
 
     const companyId = getCompanyId(req);

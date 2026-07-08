@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Calendar, User, Package, Layers, Info, Check, AlertCircle } from 'lucide-react';
 import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier } from '../../types/store.types';
 import { apiPost, apiPut } from '@/src/lib/api';
+import { generateDocument } from '@/src/utils/documentHelper';
 import SearchableSelect from '../SearchableSelect';
 
 interface JobWorkFormProps {
@@ -16,10 +17,12 @@ interface JobWorkFormProps {
      initialData?: Partial<JobWorkFormData> & { _id?: string }; // Pre-fill data
     isModal?: boolean;
     token: string | null;
+    companyInfo?: any;
 }
 
-export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendors = [], jobWorkSuppliers = [], materials = [], inHouseItems = [], initialData, isModal = true, token }: JobWorkFormProps) {
+export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendors = [], jobWorkSuppliers = [], materials = [], inHouseItems = [], initialData, isModal = true, token, companyInfo }: JobWorkFormProps) {
     const [loading, setLoading] = useState(false);
+    const [successData, setSuccessData] = useState<any>(null);
 
     const [formData, setFormData] = useState<JobWorkFormData>({
         challanNumber: '',
@@ -40,8 +43,10 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                 ...rest,
                 items: items || prev.items
             }));
+            setSuccessData(null);
         } else if (isOpen && !initialData) {
             // Reset if opening empty
+            setSuccessData(null);
             setFormData({
                 challanNumber: '',
                 vendor: '',
@@ -125,15 +130,31 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
 
             if (initialData && initialData._id) {
                 await apiPut(`/api/store/jobwork/update/${initialData._id}`, payload, token);
+                onSuccess();
             } else {
-                await apiPost('/api/store/jobwork/create', payload, token);
+                const response = await apiPost('/api/store/jobwork/create', payload, token);
+                setSuccessData(response.jobWork);
             }
-
-            onSuccess();
         } catch (error: any) {
             onError(error.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDownloadPDF = async () => {
+        try {
+            await generateDocument('pdf', 'returnable_dc', { doc: successData, companyInfo });
+        } catch (error) {
+            onError('Failed to generate PDF');
+        }
+    };
+
+    const handleDownloadExcel = async () => {
+        try {
+            await generateDocument('excel', 'Returnable DC', [successData]);
+        } catch (error) {
+            onError('Failed to generate Excel');
         }
     };
 
@@ -145,7 +166,41 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
     const labelClass = "block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 ml-1";
     const iconClass = "absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-indigo-500 transition-colors";
 
-    const content = (
+    const content = successData ? (
+        <div className="flex flex-col h-full bg-white p-8 items-center justify-center">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-6">
+                <Check className="text-green-600 w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Challan Created Successfully!</h2>
+            <p className="text-gray-500 mb-8 text-center">
+                Job Work Challan <strong>{successData.challanNumber}</strong> has been created. <br />
+                You can now download the Returnable DC in PDF or Excel format.
+            </p>
+            <div className="flex gap-4 mb-8">
+                <button
+                    onClick={handleDownloadPDF}
+                    className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 font-medium transition-all shadow-lg shadow-indigo-200 flex items-center gap-2"
+                >
+                    <Layers size={20} /> Download PDF
+                </button>
+                <button
+                    onClick={handleDownloadExcel}
+                    className="px-6 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 font-medium transition-all shadow-lg shadow-emerald-200 flex items-center gap-2"
+                >
+                    <Package size={20} /> Download Excel
+                </button>
+            </div>
+            <button
+                onClick={() => {
+                    setSuccessData(null);
+                    onSuccess();
+                }}
+                className="text-gray-500 hover:text-gray-900 font-medium underline"
+            >
+                Close and return to list
+            </button>
+        </div>
+    ) : (
         <div className="flex flex-col h-full bg-white">
             {/* Header */}
             <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white sticky top-0 z-10 shrink-0">

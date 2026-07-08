@@ -10,7 +10,7 @@ router.post('/pdf/:type', async (req, res) => {
         const { doc, companyInfo } = req.body;
 
         // Ensure template type is valid to avoid directory traversal
-        const validTypes = ['invoice', 'po', 'dc', 'quotation'];
+        const validTypes = ['invoice', 'po', 'dc', 'quotation', 'returnable_dc'];
         if (!validTypes.includes(type)) {
             return res.status(400).json({ message: 'Invalid document type' });
         }
