@@ -19,7 +19,7 @@ import LoadingSpinner from "@/src/components/LoadingSpinner";
 import ErrorAlert from "@/src/components/ErrorAlert";
 import SuccessAlert from "@/src/components/SuccessAlert";
 import { API_BASE_URL } from "@/src/utils/config";
-import * as XLSX from 'xlsx';
+import { generateDocument } from '@/src/utils/documentHelper';
 import { Calendar, Filter, XCircle, FileText } from 'lucide-react';
 import Link from "next/link";
 
@@ -415,86 +415,35 @@ function StoreContent() {
   /**
    * Downloads DC data as Excel file
    */
-  const downloadDCExcel = () => {
-    // Filter data for DCs only (should be done by useStoreData but safe to rely on `data` prop passed if activeTab is DC)
+  const downloadDCExcel = async () => {
     if (!data || data.length === 0) {
       setError("No Delivery Challan data to export");
       return;
     }
-
-    const excelData = data.map((item: any) => ({
-      'DC Number': item.dcNumber,
-      'Date': new Date(item.date).toLocaleDateString(),
-      'Customer': item.customerName,
-      'Status': item.status,
-      'Items Count': item.items?.length || 0,
-      'Remarks': item.otherDetails || ''
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Delivery Challans');
-    XLSX.writeFile(workbook, `DC_History_${new Date().toISOString().split('T')[0]}.xlsx`);
+    await generateDocument('excel', 'Delivery Challans', data);
   };
 
   /**
    * Downloads Billing data as Excel file
    */
-  const downloadBillingExcel = () => {
+  const downloadBillingExcel = async () => {
     if (!data || data.length === 0) {
       setError("No Invoice data to export");
       return;
     }
-
-    const excelData = data.map((item: any) => ({
-      'Invoice Number': item.invoiceNumber,
-      'Date': new Date(item.date).toLocaleDateString(),
-      'Customer': item.customerName,
-      'Subtotal': item.subtotal,
-      'Tax': item.taxAmount,
-      'Total Amount': item.totalAmount,
-      'Status': item.status,
-      'Items Count': item.items?.length || 0
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Invoices');
-    XLSX.writeFile(workbook, `Invoices_${new Date().toISOString().split('T')[0]}.xlsx`);
+    await generateDocument('excel', 'Invoices', data);
   };
 
   /**
    * Downloads InHouse Masters/Inventory as Excel
    * specifically for the Masters > Inhouse Items tab
    */
-  const downloadInHouseMastersExcel = () => {
+  const downloadInHouseMastersExcel = async () => {
     if (!fgItems || fgItems.length === 0) {
       setError("No InHouse items to export");
       return;
     }
-
-    const excelData = fgItems.map((item: any) => ({
-      'Item Name': item.componentName || item.name || '',
-      'Description': item.description || '',
-      'Stock Quantity': item.quantity || 0,
-      'Location': item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : 'N/A'),
-      'Category': item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : 'N/A'),
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-    // Set column widths
-    worksheet['!cols'] = [
-      { wch: 30 }, // Name
-      { wch: 40 }, // Description
-      { wch: 15 }, // Stock
-      { wch: 20 }, // Location
-      { wch: 20 }  // Category
-    ];
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'InHouse Inventory');
-    XLSX.writeFile(workbook, `InHouse_Inventory_${new Date().toISOString().split('T')[0]}.xlsx`);
+    await generateDocument('excel', 'InHouse Inventory', fgItems);
     setSuccess("InHouse inventory exported successfully");
   };
 

@@ -53,6 +53,7 @@ import qualityRoutes from "./routes/quality.routes.js";
 import crmRoutes from "./routes/crm.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import accountsRoutes from "./routes/accounts.routes.js";
+import documentRoutes from "./routes/document.routes.js";
 
 //routes declaration
 app.use("/api/company", companyRoutes);
@@ -68,8 +69,9 @@ app.use("/api/hr-prefix", hrPrefixRoutes);
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/crm", crmRoutes);
-app.use("/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
+app.use("/api/documents", documentRoutes);
 
 app.use(globalErrorHandler);
 // http://localhost:8000/api/v1/users/register

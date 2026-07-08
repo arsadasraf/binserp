@@ -6,7 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { Edit2, Trash2, Download } from 'lucide-react';
 import { CompanyInfo } from '../../types/store.types';
-import { generateQuotationPDF } from '@/src/utils/quotationPdfGenerator';
+import { generateDocument } from '@/src/utils/documentHelper';
 
 interface QuotationTableProps {
     data: any[];
@@ -28,8 +28,8 @@ export default function QuotationTable({ data, companyInfo, onEdit, onDelete }: 
         });
     }, [data, selectedMonth]);
 
-    const handleDownloadPDF = (quotation: any) => {
-        generateQuotationPDF(quotation, companyInfo);
+    const handleDownloadPDF = async (quotation: any) => {
+        await generateDocument('pdf', 'quotation', { doc: quotation, companyInfo });
     };
 
     if (!data || data.length === 0) {

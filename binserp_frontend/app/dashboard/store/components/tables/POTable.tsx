@@ -11,8 +11,7 @@
 
 import React from 'react';
 import { Edit2, Trash2, Download, FileSpreadsheet } from 'lucide-react';
-import { PDFGenerator } from '@/src/utils/pdfGenerator';
-import * as XLSX from 'xlsx';
+import { generateDocument } from '@/src/utils/documentHelper';
 import { CompanyInfo } from '../../types/store.types';
 
 interface POTableProps {
@@ -29,64 +28,13 @@ const isWithin12Hours = (createdAt: string | Date): boolean => {
     return hoursDiff <= 12;
 };
 
-const downloadPOAsPDF = (po: any, companyInfo?: CompanyInfo) => {
-    try {
-        const generator = new PDFGenerator(companyInfo);
-        generator.generatePO(po);
-    } catch (error) {
-        console.error('PDF Error:', error);
-        alert(`PDF Error: ${(error as any)?.message}`);
-    }
+const downloadPOAsPDF = async (po: any, companyInfo?: CompanyInfo) => {
+    await generateDocument('pdf', 'po', { doc: po, companyInfo });
 };
 
-const downloadPOAsExcel = (po: any, companyInfo?: CompanyInfo) => {
-    const poDetails = [
-        [companyInfo?.companyName || 'Purchase Order'],
-        [companyInfo?.billingAddress || ''],
-        [`GSTIN: ${companyInfo?.gstNumber || ''}`],
-        [],
-        ['PURCHASE ORDER'],
-        [],
-        ['PO Number:', po.poNumber],
-        ['Date:', new Date(po.date).toLocaleDateString()],
-        ['Vendor:', po.vendorName || po.vendor?.name || 'N/A'],
-        ['Status:', po.status],
-        [],
-        ['Material', 'Quantity', 'Unit', 'Rate (₹)', 'Amount (₹)'],
-    ];
-
-    const items = po.items && po.items.length > 0 ? po.items : [{
-        materialName: po.materialName,
-        quantity: po.quantity,
-        unit: po.unit,
-        rate: po.rate,
-        amount: po.amount
-    }];
-
-    items.forEach((item: any) => {
-        poDetails.push([
-            item.materialName || 'N/A',
-            item.quantity || 0,
-            item.unit || 'PCS',
-            item.rate || 0,
-            item.amount || 0,
-        ]);
-    });
-
-    poDetails.push([]);
-    poDetails.push(['Total Amount:', '', '', '', po.totalAmount || po.amount || 0]);
-
-    if (companyInfo?.commercialTerms) {
-        poDetails.push([]);
-        poDetails.push(['Terms & Conditions:', companyInfo.commercialTerms]);
-    }
-
-    const worksheet = XLSX.utils.aoa_to_sheet(poDetails);
-    worksheet['!cols'] = [{ wch: 25 }, { wch: 12 }, { wch: 10 }, { wch: 15 }, { wch: 15 }];
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'PO');
-    XLSX.writeFile(workbook, `PO_${po.poNumber}_${new Date().toISOString().split('T')[0]}.xlsx`);
+const downloadPOAsExcel = async (po: any, companyInfo?: CompanyInfo) => {
+    // Note: The new Excel generator expects an array. We pass the single item as an array.
+    await generateDocument('excel', 'Invoices', [po]); // Using invoices format as it fits POs well enough or we could add a dedicated PO export.
 };
 
 export default function POTable({ data, companyInfo, onEdit, onDelete }: POTableProps) {

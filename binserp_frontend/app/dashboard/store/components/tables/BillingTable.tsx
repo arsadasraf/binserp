@@ -7,8 +7,7 @@
 import React from 'react';
 import { Edit2, Trash2, Download, Truck, FileText } from 'lucide-react';
 import { CompanyInfo } from '../../types/store.types';
-import { PDFGenerator } from '@/src/utils/pdfGenerator';
-import * as XLSX from 'xlsx';
+import { generateDocument } from '@/src/utils/documentHelper';
 
 interface BillingTableProps {
     data: any[];
@@ -21,83 +20,12 @@ const generateEWayBill = (invoice: any) => {
     alert(`Generating E-Way Bill for Invoice: ${invoice.invoiceNumber}`);
 };
 
-const downloadInvoiceAsPDF = (invoice: any, companyInfo?: CompanyInfo) => {
-    try {
-        const generator = new PDFGenerator(companyInfo);
-        generator.generateInvoice(invoice);
-    } catch (error) {
-        console.error("PDF Error", error);
-        alert(`PDF Error: ${(error as any)?.message}`);
-    }
+const downloadInvoiceAsPDF = async (invoice: any, companyInfo?: CompanyInfo) => {
+    await generateDocument('pdf', 'invoice', { doc: invoice, companyInfo });
 };
 
-const downloadSingleBillingExcel = (invoice: any, companyInfo?: CompanyInfo) => {
-    try {
-        // Customer Info
-        const custName = typeof invoice.customer === 'object' ? invoice.customer.name : invoice.customerName;
-        const custAddress = typeof invoice.customer === 'object' ? invoice.customer.address : (invoice.customerAddress || '');
-        const custGST = typeof invoice.customer === 'object' ? invoice.customer.gstNumber : (invoice.customerGST || '');
-
-        const workbook = XLSX.utils.book_new();
-
-        const sheetData = [
-            // Company Info
-            [companyInfo?.companyName || ''],
-            [companyInfo?.billingAddress || ''],
-            [`GSTIN: ${companyInfo?.gstNumber || ''}`],
-            [],
-            // Invoice Info
-            ['TAX INVOICE'],
-            ['Invoice No', invoice.invoiceNumber],
-            ['Date', new Date(invoice.date).toLocaleDateString()],
-            ['Status', invoice.status],
-            [],
-            // Customer Info
-            ['Bill To:'],
-            ['Name', custName],
-            ['Address', custAddress],
-            ['GSTIN', custGST],
-            [],
-            // Items Header
-            ['Item', 'HSN Code', 'Quantity', 'Rate', 'Tax Rate', 'Tax Amount', 'Amount'],
-        ];
-
-        // Items
-        invoice.items.forEach((item: any) => {
-            sheetData.push([
-                item.materialName,
-                item.hsnCode || '-',
-                item.quantity,
-                item.rate,
-                item.taxRate ? `${item.taxRate}%` : '0%',
-                item.taxAmount,
-                item.amount
-            ]);
-        });
-
-        sheetData.push([]);
-        sheetData.push(['', '', '', '', 'Subtotal', invoice.subtotal]);
-        sheetData.push(['', '', '', '', 'Tax', invoice.taxAmount]);
-        sheetData.push(['', '', '', '', 'Total', invoice.totalAmount]);
-
-        // Bank Details
-        if (companyInfo?.bankDetails) {
-            sheetData.push([]);
-            sheetData.push(['Bank Details:']);
-            sheetData.push(['Bank', companyInfo.bankDetails.bankName]);
-            sheetData.push(['Account No', companyInfo.bankDetails.accountNumber]);
-            sheetData.push(['IFSC', companyInfo.bankDetails.ifscCode]);
-        }
-
-        const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-        // Column widths
-        worksheet['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 15 }];
-
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Invoice Details');
-        XLSX.writeFile(workbook, `Invoice_${invoice.invoiceNumber}.xlsx`);
-    } catch (err) {
-        console.error("Excel Error", err);
-    }
+const downloadSingleBillingExcel = async (invoice: any, companyInfo?: CompanyInfo) => {
+    await generateDocument('excel', 'Invoices', [invoice]);
 };
 
 export default function BillingTable({ data, companyInfo, onEdit, onDelete }: BillingTableProps) {

@@ -7,8 +7,7 @@
 import React from 'react';
 import { Edit2, Trash2, Download, Truck, FileText } from 'lucide-react'; // Truck icon for E-way Bill
 import { CompanyInfo } from '../../types/store.types';
-import { PDFGenerator } from '@/src/utils/pdfGenerator';
-import * as XLSX from 'xlsx';
+import { generateDocument } from '@/src/utils/documentHelper';
 
 interface DCTableProps {
     data: any[];
@@ -22,74 +21,12 @@ const generateEWayBill = (dc: any) => {
     alert(`Generating E-Way Bill for DC: ${dc.dcNumber}`);
 };
 
-const downloadDCAsPDF = (dc: any, companyInfo?: CompanyInfo) => {
-    try {
-        const generator = new PDFGenerator(companyInfo);
-        generator.generateDC(dc);
-    } catch (error) {
-        console.error("PDF Error", error);
-        alert(`PDF Error: ${(error as any)?.message}`);
-    }
+const downloadDCAsPDF = async (dc: any, companyInfo?: CompanyInfo) => {
+    await generateDocument('pdf', 'dc', { doc: dc, companyInfo });
 };
 
-const downloadSingleDCExcel = (dc: any, companyInfo?: CompanyInfo) => {
-    try {
-        // Prepare Header Info
-        const custName = typeof dc.customer === 'object' ? dc.customer.name : dc.customerName;
-        const custAddress = typeof dc.customer === 'object' ? dc.customer.address : '';
-        const custGST = typeof dc.customer === 'object' ? dc.customer.gstNumber : '';
-
-        const workbook = XLSX.utils.book_new();
-
-        // We will build a customized array of arrays for the sheet to handle the header structure
-        const sheetData = [
-            // Company Info
-            [companyInfo?.companyName || ''],
-            [companyInfo?.billingAddress || ''],
-            [`GSTIN: ${companyInfo?.gstNumber || ''}`],
-            [],
-            // DC Info
-            ['DELIVERY CHALLAN'],
-            ['DC Number', dc.dcNumber],
-            ['Date', new Date(dc.date).toLocaleDateString()],
-            ['Status', dc.status],
-            [],
-            // Customer Info
-            ['Ship To:'],
-            ['Name', custName],
-            ['Address', custAddress],
-            ['GSTIN', custGST],
-            [],
-            // Items Header
-            ['Material', 'HSN Code', 'Quantity', 'Unit', 'Description'],
-        ];
-
-        // Add Items
-        dc.items.forEach((item: any) => {
-            sheetData.push([
-                item.materialName,
-                item.hsnCode || '-',
-                item.quantity,
-                item.unit,
-                item.description || '-'
-            ]);
-        });
-
-        if (dc.otherDetails) {
-            sheetData.push([]);
-            sheetData.push(['Remarks:', dc.otherDetails]);
-        }
-
-        const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-
-        // Optional: formatting column widths
-        worksheet['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 30 }];
-
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'DC Details');
-        XLSX.writeFile(workbook, `DC_${dc.dcNumber}.xlsx`);
-    } catch (err) {
-        console.error("Excel Error", err);
-    }
+const downloadSingleDCExcel = async (dc: any, companyInfo?: CompanyInfo) => {
+    await generateDocument('excel', 'Delivery Challans', [dc]);
 };
 
 export default function DCTable({ data, companyInfo, onEdit, onDelete }: DCTableProps) {
