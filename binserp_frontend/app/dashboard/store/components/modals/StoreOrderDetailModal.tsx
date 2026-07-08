@@ -3,9 +3,6 @@ import { X, Download, Package, Calendar, User, FileText, ChevronRight, Clock, Ch
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { API_BASE_URL } from "@/src/utils/config";
-import { useConfirmPpcOrderMutation } from "@/src/store/services/ppcService";
-import MaterialPlanTab from '../../../ppc/components/MaterialPlanTab';
-import ProductionJobsTab from '../../../ppc/components/ProductionJobsTab';
 
 interface OrderDetailModalProps {
     order: any;
@@ -16,10 +13,9 @@ interface OrderDetailModalProps {
 }
 
 export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatus, storeView }: OrderDetailModalProps) {
-    const [confirmPpcOrder] = useConfirmPpcOrderMutation();
-    const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
     const [optimisticStatus, setOptimisticStatus] = useState(order?.status);
-    const [activeTab, setActiveTab] = useState<'details' | 'material' | 'production'>('details');
+    const [activeTab, setActiveTab] = useState<'details'>('details');
+    const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
     React.useEffect(() => {
         setOptimisticStatus(order?.status);
@@ -27,8 +23,8 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
 
     if (!isOpen || !order) return null;
 
-    const items = order.items || order.components || [];
-    const totalAmount = items.reduce((sum: number, item: any) => sum + ((item.price || 0) * (item.quantity || 0)), 0);
+    const items = order.items || [];
+    const totalAmount = order.totalAmount || items.reduce((sum: number, item: any) => sum + (item.totalPrice || 0), 0);
 
     const handleDownloadPDF = () => {
         const doc = new jsPDF();
@@ -48,7 +44,7 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
         const orderDetails = [
             ['PO Reference:', String(order.poReference || 'N/A')],
             ['Customer:', String(order.customerName || 'N/A')],
-            ['Delivery Date:', order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : 'N/A'],
+            ['Target Date:', order.targetDate ? new Date(order.targetDate).toLocaleDateString() : 'N/A'],
             ['Status:', String(optimisticStatus || order.status || 'N/A')],
             ['Created:', order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A']
         ];
@@ -68,12 +64,12 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
         doc.text('Order Items', 14, yPos + 10);
 
         const tableData = items.map((item: any) => [
-            String(item.productName || item.product?.componentName || 'Unknown'),
-            String(item.description || item.product?.description || 'N/A'),
-            String(item.trackingType || 'Individual'),
+            String(item.name || item.fgItem?.name || 'Unknown'),
+            String(item.description || item.fgItem?.description || 'N/A'),
+            String(item.type || 'FGItem'),
             String(item.quantity || 0),
-            `Rs. ${(item.price || 0).toLocaleString()}`,
-            `Rs. ${((item.price || 0) * (item.quantity || 0)).toLocaleString()}`
+            `Rs. ${(item.pricePerQuantity || 0).toLocaleString()}`,
+            `Rs. ${(item.totalPrice || 0).toLocaleString()}`
         ]);
 
         autoTable(doc, {
@@ -173,7 +169,7 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                             <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                             <span className="flex items-center gap-1.5">
                                 <Calendar size={14} />
-                                Target: {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : 'N/A'}
+                                Target: {order.targetDate ? new Date(order.targetDate).toLocaleDateString() : 'N/A'}
                             </span>
                         </p>
                     </div>
@@ -218,32 +214,6 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                     </div>
                 </div>
 
-                {/* Confirm Action Banner */}
-                {order.status === 'Pending' && (
-                    <div className="bg-indigo-50 dark:bg-indigo-900/20 px-6 py-3 border-b border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
-                        <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
-                            <Activity size={18} />
-                            <span className="text-sm font-medium">This order is pending confirmation.</span>
-                        </div>
-                        <button
-                            onClick={async () => {
-                                if (!confirm("Are you sure you want to confirm this order? This will generate production jobs and material plans.")) return;
-                                try {
-                                    const res = await confirmPpcOrder(order._id).unwrap();
-                                    alert("Order Confirmed Successfully");
-                                    onClose(); // Close to refresh
-                                    if (onUpdateStatus) onUpdateStatus(order._id, 'Planning'); // Optimistic update / trigger refresh
-                                } catch (e: any) {
-                                    console.error(e);
-                                    alert(e?.data?.message || "Error confirming order");
-                                }
-                            }}
-                            className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg font-medium transition-colors shadow-sm"
-                        >
-                            Confirm Order
-                        </button>
-                    </div>
-                )}
 
 
                 {/* Tabs Header */}
@@ -257,26 +227,6 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                     >
                         Order Details
                     </button>
-                    <button
-                        onClick={() => setActiveTab('material')}
-                        className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'material'
-                            ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                            }`}
-                    >
-                        Material Plan
-                    </button>
-                    {!storeView && (
-                        <button
-                            onClick={() => setActiveTab('production')}
-                            className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === 'production'
-                                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                                }`}
-                        >
-                            Production Jobs
-                        </button>
-                    )}
                 </div>
 
                 <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative">
@@ -313,31 +263,28 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                                                         </div>
                                                         <div>
                                                             <div className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                                                                {item.productName || item.product?.componentName || 'Unknown Product'}
+                                                                {item.name || item.fgItem?.name || 'Unknown Product'}
                                                                 <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 text-gray-400 transition-opacity" />
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </td>
                                                 <td className="px-6 py-4 text-gray-500 text-xs max-w-xs truncate">
-                                                    {item.description || item.product?.description || '-'}
+                                                    {item.description || item.fgItem?.description || '-'}
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${item.trackingType === 'Batch'
-                                                        ? 'bg-purple-50 text-purple-700 border border-purple-100'
-                                                        : 'bg-blue-50 text-blue-700 border border-blue-100'
-                                                        }`}>
-                                                        {item.trackingType || 'Individual'}
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-100">
+                                                        {item.type || 'FGItem'}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 text-right font-medium text-gray-900 dark:text-white">
                                                     {item.quantity}
                                                 </td>
                                                 <td className="px-6 py-4 text-right text-gray-600 dark:text-gray-400">
-                                                    ₹{(item.price || 0).toLocaleString()}
+                                                    ₹{(item.pricePerQuantity || 0).toLocaleString()}
                                                 </td>
                                                 <td className="px-6 py-4 text-right font-bold text-gray-900 dark:text-white">
-                                                    ₹{((item.price || 0) * (item.quantity || 0)).toLocaleString()}
+                                                    ₹{(item.totalPrice || 0).toLocaleString()}
                                                 </td>
                                             </tr>
                                         ))}
@@ -387,6 +334,31 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                                     )}
                                 </div>
 
+                                {/* Attached Document Section */}
+                                {order.pdf && (
+                                    <div>
+                                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                            <FileText size={14} />
+                                            Attached Document
+                                        </h3>
+                                        <a
+                                            href={order.pdf}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex items-center gap-3 p-3 bg-red-50 hover:bg-red-100 rounded-xl border border-red-100 transition-colors group"
+                                        >
+                                            <div className="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+                                                <span className="text-red-600 font-bold text-xs">PDF</span>
+                                            </div>
+                                            <div className="flex-1 overflow-hidden">
+                                                <p className="text-sm font-semibold text-gray-900 truncate">PO Document</p>
+                                                <p className="text-xs text-gray-500">Click to view/download</p>
+                                            </div>
+                                            <Download size={16} className="text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        </a>
+                                    </div>
+                                )}
+
                                 {/* Recent Activity / Tracking Summary (Placeholder) */}
                                 <div>
                                     <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -432,13 +404,7 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                         </>
                     )}
 
-                    {activeTab === 'material' && (
-                        <MaterialPlanTab orderId={order._id} />
-                    )}
 
-                    {!storeView && activeTab === 'production' && (
-                        <ProductionJobsTab orderId={order._id} />
-                    )}
                 </div>
             </div>
 

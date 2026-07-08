@@ -68,7 +68,7 @@ export const TAG_TYPES = [
   "Machines", "MachineCategories", "MachineLocations", "MachineMaintenance", "MachineAssignments", "MachinePlans",
   "Processes", "Shifts", "Manpower", "ManpowerMaster", "Skills", "Components",
   "ProcurementDashboard", "Allotments", "Boms",
-  "StoreDc", "StoreInvoice", "StoreGrn", "StoreMaterialIssue", "StoreBom", "StoreInventory", "StoreMaterialRequest", "StoreMasters", "StorePo", "StoreQuotation",
+  "StoreDc", "StoreInvoice", "StoreGrn", "StoreMaterialIssue", "StoreBom", "StoreInventory", "StoreMaterialRequest", "StoreMasters", "StorePo", "StoreQuotation", "StoreOrder",
   "Employees", "Attendance", "Auth",
 ];
 

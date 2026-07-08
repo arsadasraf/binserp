@@ -59,6 +59,7 @@ export { createJobWorkSupplier } from './createJobWorkSupplier.controller.js';
 export { getAllJobWorkSuppliers } from './getAllJobWorkSuppliers.controller.js';
 export { updateJobWorkSupplier } from './updateJobWorkSupplier.controller.js';
 export { deleteJobWorkSupplier } from './deleteJobWorkSupplier.controller.js';
+export * from './storeOrder.controller.js';
 export { createQuotation } from './createQuotation.controller.js';
 export { getAllQuotations } from './getAllQuotations.controller.js';
 export { updateQuotation } from './updateQuotation.controller.js';

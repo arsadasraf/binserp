@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Camera, FileText, User, Calendar, Hash, Package } from 'lucide-react';
-import { useGetCustomersQuery, useCreatePpcOrderMutation, useUpdatePpcOrderMutation } from "@/src/store/services/ppcService";
-import { useGetStoreDataQuery } from "@/src/store/services/storeService";
+import { useGetStoreDataQuery, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from "@/src/store/services/storeService";
 import SearchableSelect from '../SearchableSelect';
 
 interface StoreCreateOrderModalProps {
@@ -18,7 +17,6 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
         deadlineDate: "",
         presentDate: new Date().toISOString().split('T')[0],
         orderNumber: `ORD-${Math.floor(Date.now() / 1000)}`,
-        targetMonth: new Date().toISOString().slice(0, 7),
         remarks: ""
     });
 
@@ -26,10 +24,10 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
         { componentId: "", quantity: 1, price: 0, unit: "Nos" }
     ]);
 
-    const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !isOpen });
+    const { data: customers = [] } = useGetStoreDataQuery('customer', { skip: !isOpen });
     const { data: inhouseItems = [] } = useGetStoreDataQuery('fg-item', { skip: !isOpen });
-    const [createPpcOrder] = useCreatePpcOrderMutation();
-    const [updatePpcOrder] = useUpdatePpcOrderMutation();
+    const [createStoreOrder] = useCreateStoreRecordMutation();
+    const [updateStoreOrder] = useUpdateStoreRecordMutation();
 
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
@@ -44,7 +42,6 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                 customerName: initialOrder.customerName,
                 deadlineDate: (initialOrder.deliveryDate || initialOrder.dispatchDate) ? new Date(initialOrder.deliveryDate || initialOrder.dispatchDate).toISOString().split('T')[0] : "",
                 presentDate: new Date().toISOString().split('T')[0],
-                targetMonth: initialOrder.targetMonth || new Date().toISOString().slice(0, 7),
                 remarks: initialOrder.remarks || "",
             });
 
@@ -73,7 +70,6 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                 deadlineDate: "",
                 presentDate: new Date().toISOString().split('T')[0],
                 orderNumber: `ORD-${Math.floor(Date.now() / 1000)}`,
-                targetMonth: new Date().toISOString().slice(0, 7),
                 remarks: ""
             });
             setItems([{ componentId: "", quantity: 1, price: 0, unit: "Nos" }]);
@@ -136,29 +132,36 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
             const customerId = selectedCustomer ? selectedCustomer._id : undefined;
 
             const itemsPayload = items.map(item => ({
-                product: item.componentId,
+                fgItem: item.componentId,
+                name: item.componentName,
                 quantity: Number(item.quantity),
-                price: Number(item.price),
-                trackingType: "Individual",
+                pricePerQuantity: Number(item.price),
+                totalPrice: Number(item.quantity) * Number(item.price),
+                targetDate: item.targetDate,
             }));
 
-            const orderFormData = new FormData();
-            orderFormData.append("orderNumber", formData.orderNumber);
-            orderFormData.append("customer", customerId || "");
-            orderFormData.append("customerName", formData.customerName);
-            orderFormData.append("poReference", formData.poReference);
-            orderFormData.append("deliveryDate", formData.deadlineDate);
-            orderFormData.append("targetMonth", formData.targetMonth);
-            orderFormData.append("remarks", formData.remarks);
-            orderFormData.append("items", JSON.stringify(itemsPayload));
+            const payload = new FormData();
+            payload.append("orderNumber", formData.orderNumber);
+            payload.append("customer", customerId || "");
+            payload.append("customerName", formData.customerName);
+            payload.append("poReference", formData.poReference);
+            payload.append("targetDate", formData.deadlineDate);
+            payload.append("remarks", formData.remarks);
+            payload.append("items", JSON.stringify(itemsPayload));
 
-            photos.forEach(photo => orderFormData.append("photos", photo));
+            photos.forEach(photo => {
+                if (photo.type === 'application/pdf') {
+                    payload.append("pdf", photo);
+                } else {
+                    payload.append("photos", photo);
+                }
+            });
 
             let res;
             if (initialOrder?._id) {
-                res = await updatePpcOrder({ id: initialOrder._id, body: orderFormData });
+                res = await updateStoreOrder({ tab: 'order', id: initialOrder._id, body: payload, isFormData: true });
             } else {
-                res = await createPpcOrder(orderFormData);
+                res = await createStoreOrder({ tab: 'order', body: payload, isFormData: true });
             }
 
             if ("error" in res) {
@@ -186,7 +189,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
         <>
             <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[105] transition-opacity" onClick={onClose} />
             <div className="fixed inset-0 flex items-center justify-center z-[110] p-4 sm:p-6">
-                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-7xl w-full h-[95vh] flex flex-col border border-white/50">
+                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-[95vw] w-full h-[95vh] flex flex-col border border-white/50">
 
                     {/* Header */}
                     <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white/50">
@@ -223,7 +226,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-fuchsia-500 to-pink-500"></div>
                                 <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">General Details</h3>
 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                                     <div className="space-y-1.5">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                                             <Hash size={14} className="text-fuchsia-500" />
@@ -275,18 +278,61 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                             className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 text-gray-700"
                                         />
                                     </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 pt-6 border-t border-gray-100">
                                     <div className="space-y-1.5">
-                                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                                            <Calendar size={14} className="text-indigo-500" />
-                                            Target Month <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="month"
-                                            required
-                                            value={formData.targetMonth}
-                                            onChange={(e) => setFormData({ ...formData, targetMonth: e.target.value })}
-                                            className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 text-gray-700"
+                                        <label className="block text-sm font-semibold text-gray-700">Remarks</label>
+                                        <textarea
+                                            value={formData.remarks}
+                                            onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                                            className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 transition-all text-gray-700 resize-none"
+                                            rows={2}
+                                            placeholder="Enter any additional instructions..."
                                         />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="block text-sm font-semibold text-gray-700">Attachments</label>
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => galleryInputRef.current?.click()}
+                                                className="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700 h-[60px]"
+                                            >
+                                                <Camera size={16} className="text-fuchsia-500" />
+                                                Upload PDF & Photos
+                                            </button>
+                                            <input
+                                                ref={galleryInputRef}
+                                                type="file"
+                                                className="hidden"
+                                                accept="image/*,application/pdf"
+                                                multiple
+                                                onChange={handlePhotoChange}
+                                            />
+                                            {photos.length > 0 && (
+                                                <div className="flex gap-2 flex-wrap">
+                                                    {photos.map((file, index) => (
+                                                        <div key={index} className="relative w-14 h-14 rounded-lg overflow-hidden border border-gray-200 group">
+                                                            {file.type === 'application/pdf' ? (
+                                                                <div className="w-full h-full bg-gray-50 flex items-center justify-center">
+                                                                    <span className="text-[10px] font-bold text-red-500">PDF</span>
+                                                                </div>
+                                                            ) : (
+                                                                <img src={URL.createObjectURL(file)} alt="Preview" className="w-full h-full object-cover" />
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPhotos(prev => prev.filter((_, i) => i !== index))}
+                                                                className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                                            >
+                                                                <X size={12} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -317,26 +363,37 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                 {index + 1}
                                             </div>
 
-                                            {items.length > 1 && (
+                                            <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleRemoveItem(index)}
-                                                    className="absolute top-4 right-4 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                    onClick={handleAddItem}
+                                                    className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all"
+                                                    title="Add Item"
                                                 >
-                                                    <Trash2 size={16} />
+                                                    <Plus size={16} />
                                                 </button>
-                                            )}
+                                                {items.length > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveItem(index)}
+                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        title="Remove Item"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
 
                                             <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-2">
                                                 {/* Product Selection */}
-                                                <div className="lg:col-span-6 space-y-1.5 overflow-visible">
+                                                <div className="lg:col-span-4 space-y-1.5 overflow-visible">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Finished Good <span className="text-red-500">*</span>
                                                     </label>
                                                     <SearchableSelect
                                                         options={productOptions.map((comp: any) => ({ 
                                                             value: comp._id, 
-                                                            label: `${comp.componentName || comp.name || ''} (${comp.componentCode || comp.code || 'N/A'})` 
+                                                            label: `${comp.componentName || comp.name || ''} - ${comp.description || 'N/A'}` 
                                                         }))}
                                                         value={typeof item.componentId === 'object' ? (item.componentId as any)._id : item.componentId || ''}
                                                         onChange={(val: any) => updateItem(index, 'componentId', val)}
@@ -345,7 +402,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                 </div>
 
                                                 {/* Quantity */}
-                                                <div className="lg:col-span-3 space-y-1.5">
+                                                <div className="lg:col-span-2 space-y-1.5">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Qty / Unit <span className="text-red-500">*</span>
                                                     </label>
@@ -363,18 +420,18 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                             type="text"
                                                             readOnly
                                                             value={item.unit}
-                                                            className="w-16 px-2 py-2.5 border-none focus:ring-0 text-sm font-medium uppercase text-center border-l border-gray-200 bg-gray-50 text-gray-500"
+                                                            className="w-16 px-2 py-2.5 border-none focus:ring-0 text-sm font-medium uppercase text-center border-l border-gray-200 bg-gray-50 text-gray-500 hidden sm:block"
                                                         />
                                                     </div>
                                                 </div>
 
                                                 {/* Price */}
-                                                <div className="lg:col-span-3 space-y-1.5">
+                                                <div className="lg:col-span-2 space-y-1.5">
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Price <span className="text-red-500">*</span>
                                                     </label>
                                                     <div className="flex border border-gray-200 rounded-lg overflow-hidden bg-white focus-within:ring-2 focus-within:ring-pink-500/20 focus-within:border-pink-500">
-                                                        <span className="flex items-center justify-center bg-gray-50 px-3 text-gray-500 text-sm font-medium border-r border-gray-200">
+                                                        <span className="flex items-center justify-center bg-gray-50 px-2 text-gray-500 text-sm font-medium border-r border-gray-200">
                                                             ₹
                                                         </span>
                                                         <input
@@ -388,73 +445,53 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                         />
                                                     </div>
                                                 </div>
+                                                
+                                                {/* Target Date */}
+                                                <div className="lg:col-span-2 space-y-1.5">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                        Target Date
+                                                    </label>
+                                                    <input
+                                                        type="date"
+                                                        value={item.targetDate || ''}
+                                                        onChange={(e) => updateItem(index, 'targetDate', e.target.value)}
+                                                        className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-700"
+                                                    />
+                                                </div>
+
+                                                {/* Total Price */}
+                                                <div className="lg:col-span-2 space-y-1.5">
+                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                        Total Amount
+                                                    </label>
+                                                    <div className="flex border border-gray-200 rounded-lg overflow-hidden bg-gray-100">
+                                                        <span className="flex items-center justify-center px-3 text-gray-500 text-sm font-medium border-r border-gray-200">
+                                                            ₹
+                                                        </span>
+                                                        <input
+                                                            type="text"
+                                                            readOnly
+                                                            value={((Number(item.quantity) || 0) * (Number(item.price) || 0)).toLocaleString()}
+                                                            className="w-full px-4 py-2.5 bg-transparent border-none focus:ring-0 text-sm font-bold text-gray-900"
+                                                        />
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     ))}
-                                </div>
-                            </div>
 
-                            {/* Attachments & Remarks */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-rose-500 to-orange-500"></div>
-                                <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">Additional Details</h3>
-
-                                <div className="space-y-4">
-                                    <div className="space-y-1.5">
-                                        <label className="block text-sm font-semibold text-gray-700">Remarks</label>
-                                        <textarea
-                                            value={formData.remarks}
-                                            onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                                            className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all text-gray-700 resize-none"
-                                            rows={2}
-                                            placeholder="Enter any additional instructions..."
-                                        />
-                                    </div>
-                                    <div className="space-y-1.5">
-                                        <label className="block text-sm font-semibold text-gray-700">Attachments</label>
-                                        <div className="flex items-center gap-3">
-                                            <button
-                                                type="button"
-                                                onClick={() => galleryInputRef.current?.click()}
-                                                className="flex items-center gap-2 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
-                                            >
-                                                <Camera size={16} className="text-orange-500" />
-                                                Upload Photos
-                                            </button>
-                                            <input
-                                                ref={galleryInputRef}
-                                                type="file"
-                                                className="hidden"
-                                                accept="image/*,application/pdf"
-                                                multiple
-                                                onChange={handlePhotoChange}
-                                            />
-                                            {photos.length > 0 && (
-                                                <div className="flex gap-2 flex-wrap">
-                                                    {photos.map((file, index) => (
-                                                        <div key={index} className="relative w-10 h-10 rounded-lg overflow-hidden border border-gray-200 group">
-                                                            {file.type === 'application/pdf' ? (
-                                                                <div className="w-full h-full bg-gray-50 flex items-center justify-center">
-                                                                    <span className="text-[10px] font-bold text-red-500">PDF</span>
-                                                                </div>
-                                                            ) : (
-                                                                <img src={URL.createObjectURL(file)} alt="Preview" className="w-full h-full object-cover" />
-                                                            )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setPhotos(prev => prev.filter((_, i) => i !== index))}
-                                                                className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                                            >
-                                                                <X size={12} />
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
+                                    <div className="flex justify-end pt-4 border-t border-gray-100">
+                                        <div className="bg-pink-50 text-pink-800 rounded-xl px-6 py-4 flex items-center gap-4">
+                                            <span className="text-sm font-semibold uppercase tracking-wider">Total Order Price</span>
+                                            <span className="text-2xl font-bold">
+                                                ₹{items.reduce((sum, item) => sum + ((Number(item.quantity) || 0) * (Number(item.price) || 0)), 0).toLocaleString()}
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
                             </div>
+
+
                         </form>
                     </div>
 
@@ -474,7 +511,7 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                 disabled={submitting}
                                 className="px-10 py-3 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-bold hover:from-fuchsia-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:-translate-y-0.5"
                             >
-                                {submitting ? "Saving..." : (initialOrder ? "Update Order" : "Confirm & Plan Materials")}
+                                {submitting ? "Saving..." : (initialOrder ? "Update Order" : "Save Order")}
                             </button>
                         </div>
                     </div>

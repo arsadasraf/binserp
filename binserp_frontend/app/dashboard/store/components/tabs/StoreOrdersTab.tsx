@@ -2,12 +2,11 @@
 
 import React, { useState, useMemo } from 'react';
 import { 
-  useGetPpcOrdersQuery,
-  useDeleteOrderMutation,
-  useUpdatePpcOrderStatusMutation,
-  useConfirmPpcOrderMutation
-} from "@/src/store/services/ppcService";
-import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, CheckCircle, ClipboardList, Filter } from 'lucide-react';
+  useGetStoreDataQuery,
+  useDeleteStoreRecordMutation,
+  useUpdateStoreRecordMutation
+} from "@/src/store/services/storeService";
+import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, Filter, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -35,12 +34,8 @@ interface Order {
   deliveryDate?: string;
   createdAt: string;
   poReference?: string;
-  priority?: string;
   remarks?: string;
-  photos?: string[];
-  components?: any[];
-  items?: { product: any; productName?: string; quantity: number; trackingType?: string }[];
-  jobs?: any[];
+  items?: { fgItem: any; name?: string; quantity: number; }[];
 }
 
 type OrderSubTab = "new-order" | "history";
@@ -114,13 +109,13 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
+  const [filterCustomer, setFilterCustomer] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [rmPlanOpen, setRmPlanOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [selectedRmOrder, setSelectedRmOrder] = useState<Order | null>(null);
-  const [confirmOrder] = useConfirmPpcOrderMutation();
 
-  const { data: orders = [], isLoading: loading, refetch } = useGetPpcOrdersQuery();
+  const { data: orders = [], isLoading: loading, refetch } = useGetStoreDataQuery('order');
 
   const filteredOrders = useMemo(() => {
     if (!orders.length) return [];
@@ -129,7 +124,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     let result = orders.filter(
       (o: any) =>
         o.orderNumber.toLowerCase().includes(lowerTerm) ||
-        o.customerName.toLowerCase().includes(lowerTerm)
+        (o.customer?.name || "").toLowerCase().includes(lowerTerm)
     );
 
     if (currentSubTab === "history") {
@@ -139,22 +134,24 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     }
 
     if (filterMonth) {
-      result = result.filter((o: any) => o.targetMonth === filterMonth || (o.deliveryDate && o.deliveryDate.startsWith(filterMonth)) || (o.dispatchDate && o.dispatchDate.startsWith(filterMonth)));
+      result = result.filter((o: any) => (o.targetDate && o.targetDate.startsWith(filterMonth)));
     }
     
     if (filterStatus) {
       result = result.filter((o: any) => o.status === filterStatus);
     }
+    
+    if (filterCustomer) {
+      result = result.filter((o: any) => (o.customer?.name || "") === filterCustomer);
+    }
 
     return result;
-  }, [searchTerm, filterMonth, filterStatus, orders, currentSubTab]);
+  }, [searchTerm, filterMonth, filterStatus, filterCustomer, orders, currentSubTab]);
 
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
     orders.forEach((o: any) => {
-      if (o.targetMonth) months.add(o.targetMonth);
-      else if (o.deliveryDate) months.add(o.deliveryDate.substring(0, 7)); // YYYY-MM
-      else if (o.dispatchDate) months.add(o.dispatchDate.substring(0, 7)); // YYYY-MM
+      if (o.targetDate) months.add(o.targetDate.substring(0, 7)); // YYYY-MM
     });
     return Array.from(months).sort().reverse();
   }, [orders]);
@@ -163,14 +160,22 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     return Array.from(new Set(orders.map((o: any) => o.status))).sort();
   }, [orders]);
 
+  const uniqueCustomers = useMemo(() => {
+    const customers = new Set<string>();
+    orders.forEach((o: any) => {
+      if (o.customer?.name) customers.add(o.customer.name);
+    });
+    return Array.from(customers).sort();
+  }, [orders]);
+
   const handleExportExcel = () => {
     const dataToExport = filteredOrders.map(o => ({
       "Order Number": o.orderNumber,
-      "Customer": o.customerName,
-      "Product": o.items && o.items.length > 0 ? (o.items[0].productName || "Multiple Items") : (o.productName || ""),
+      "Customer": o.customer?.name || "",
+      "Product": o.items && o.items.length > 0 ? (o.items[0].name || "Multiple Items") : (o.productName || ""),
       "Quantity": o.items ? o.items.reduce((sum: number, i: any) => sum + i.quantity, 0) : (o.quantity || 0),
       "Status": o.status,
-      "Dispatch Date": o.dispatchDate ? new Date(o.dispatchDate).toLocaleDateString() : (o.deliveryDate ? new Date(o.deliveryDate).toLocaleDateString() : ""),
+      "Target Date": o.targetDate ? new Date(o.targetDate).toLocaleDateString() : "",
       "PO Reference": o.poReference || ""
     }));
 
@@ -187,11 +192,11 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     const tableColumn = ["Order #", "Customer", "Product", "Qty", "Status", "Date"];
     const tableRows = filteredOrders.map(o => [
       o.orderNumber,
-      o.customerName,
-      o.items && o.items.length > 0 ? (o.items[0].productName || "Multiple Items") : (o.productName || ""),
+      o.customer?.name || "",
+      o.items && o.items.length > 0 ? (o.items[0].name || "Multiple Items") : (o.productName || ""),
       o.items ? o.items.reduce((sum: number, i: any) => sum + i.quantity, 0) : (o.quantity || 0),
       o.status,
-      o.dispatchDate ? new Date(o.dispatchDate).toLocaleDateString() : (o.deliveryDate ? new Date(o.deliveryDate).toLocaleDateString() : "")
+      o.targetDate ? new Date(o.targetDate).toLocaleDateString() : ""
     ]);
 
     doc.autoTable({
@@ -203,13 +208,13 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     doc.save("Store_Orders.pdf");
   };
 
-  const [deleteOrder] = useDeleteOrderMutation();
-  const [updateStatus] = useUpdatePpcOrderStatusMutation();
+  const [deleteOrder] = useDeleteStoreRecordMutation();
+  const [updateStatus] = useUpdateStoreRecordMutation();
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this order?")) return;
     try {
-      await deleteOrder(id).unwrap();
+      await deleteOrder({ tab: 'order', id }).unwrap();
     } catch (error: any) {
       console.log("Delete error details:", error);
       const errorMessage = error?.data?.message || error?.error || error?.message || "An unexpected error occurred while deleting the order.";
@@ -219,7 +224,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
     try {
-      await updateStatus({ id: orderId, status: newStatus }).unwrap();
+      await updateStatus({ tab: 'order', id: orderId, body: { status: newStatus } }).unwrap();
       if (selectedOrder && selectedOrder._id === orderId) {
         setSelectedOrder({ ...selectedOrder, status: newStatus });
       }
@@ -230,17 +235,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     }
   };
 
-  const handleConfirmOrder = async (order: Order) => {
-    if (!confirm(`Are you sure you want to confirm Order #${order.orderNumber}? This will generate the Material Plan and Jobs.`)) return;
-    try {
-      await confirmOrder(order._id).unwrap();
-      refetch(); // Ensure latest data
-      alert("Order confirmed and Material Plan generated!");
-    } catch (error: any) {
-      console.log("Confirm error details:", error);
-      alert(error?.data?.message || error?.error || error?.message || "An unexpected error occurred while confirming the order.");
-    }
-  };
+
 
   if (loading) {
     return (
@@ -266,16 +261,28 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
           </div>
           <div className="flex items-center gap-2 w-full md:w-auto">
             <Filter className="w-4 h-4 text-gray-400 hidden md:block" />
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 w-full md:w-auto"
-            >
-              <option value="">All Months</option>
-              {uniqueMonths.map(m => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
+            <div className="relative flex items-center bg-gray-50 border border-gray-200 rounded-lg group hover:border-indigo-300 transition-colors w-full md:w-auto h-[38px] overflow-hidden">
+              <div className="pl-3 pr-2 text-gray-400 group-focus-within:text-indigo-500 transition-colors">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <input
+                type="month"
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="bg-transparent py-2 pr-3 text-sm focus:outline-none text-gray-700 w-full cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:cursor-pointer relative"
+                title="Filter by Month & Year"
+              />
+              {filterMonth && (
+                <button
+                  type="button"
+                  onClick={() => setFilterMonth("")}
+                  className="pr-3 text-gray-400 hover:text-red-500 transition-colors z-10 bg-gray-50"
+                  title="Clear Month Filter"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -284,6 +291,16 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
               <option value="">All Statuses</option>
               {uniqueStatuses.map((s: any) => (
                 <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <select
+              value={filterCustomer}
+              onChange={(e) => setFilterCustomer(e.target.value)}
+              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 w-full md:w-auto"
+            >
+              <option value="">All Customers</option>
+              {uniqueCustomers.map((c: any) => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -310,6 +327,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
               <th className="px-6 py-3">Order #</th>
               <th className="px-6 py-3">Customer</th>
               <th className="px-6 py-3">Product</th>
+              <th className="px-6 py-3">Entry Date</th>
               <th className="px-6 py-3">Target Date</th>
               <th className="px-6 py-3">Status</th>
               <th className="px-6 py-3 text-right">Action</th>
@@ -329,11 +347,11 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                   className="hover:bg-gray-50 transition-colors group cursor-pointer"
                 >
                   <td className="px-6 py-4 font-medium text-gray-900">{order.orderNumber}</td>
-                  <td className="px-6 py-4">{order.customerName}</td>
+                  <td className="px-6 py-4">{order.customer?.name || ""}</td>
                   <td className="px-6 py-4">
                     {order.items && order.items.length > 0 ? (
                       <div>
-                        <div className="font-medium text-gray-800">{order.items[0].productName || (order.items[0].product && order.items[0].product.componentName) || "Product"}</div>
+                        <div className="font-medium text-gray-800">{order.items[0].name || (order.items[0].fgItem && order.items[0].fgItem.name) || "Product"}</div>
                         {order.items.length > 1 && <div className="text-xs text-gray-500 italic">+{order.items.length - 1} more items</div>}
                         <div className="text-xs text-gray-500">Qty: {order.items.reduce((sum: number, i: any) => sum + i.quantity, 0)}</div>
                       </div>
@@ -346,7 +364,13 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                   </td>
                   <td className="px-6 py-4 text-gray-600 flex items-center gap-2">
                     <Calendar className="w-3 h-3 text-gray-400" />
-                    {order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : (order.dispatchDate ? new Date(order.dispatchDate).toLocaleDateString() : "N/A")}
+                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : "N/A"}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-3 h-3 text-gray-400" />
+                      {order.targetDate ? new Date(order.targetDate).toLocaleDateString() : "N/A"}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className={`w-fit px-2.5 py-1 rounded-full text-xs font-semibold border ${order.status === 'Dispatched' ? 'bg-purple-50 text-purple-700 border-purple-200' :
@@ -359,24 +383,6 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 items-center">
-                      {order.status === 'Pending' && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleConfirmOrder(order); }}
-                          title="Confirm Order to Generate RM Plan"
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 rounded-lg transition-colors text-xs font-bold border border-green-200"
-                        >
-                          <CheckCircle size={14} /> Confirm Order
-                        </button>
-                      )}
-                      {(order.status === 'Planning' || order.status === 'Confirmed' || order.status === 'InProgress') && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedRmOrder(order); setRmPlanOpen(true); }}
-                          title="View Material Requirements Plan"
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:text-indigo-800 rounded-lg transition-colors text-xs font-bold border border-indigo-200"
-                        >
-                          <ClipboardList size={14} /> RM Plan
-                        </button>
-                      )}
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ml-2">
                         <button
                           onClick={(e) => { e.stopPropagation(); onEditOrder(order); }}

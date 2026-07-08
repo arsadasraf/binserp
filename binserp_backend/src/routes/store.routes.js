@@ -63,6 +63,11 @@ import {
   getAllQuotations,
   updateQuotation,
   deleteQuotation,
+  createStoreOrder,
+  getAllStoreOrders,
+  getStoreOrderById,
+  updateStoreOrder,
+  deleteStoreOrder
 } from "../controllers/store/index.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
@@ -165,6 +170,13 @@ router.post("/quotation", createQuotation);
 router.get("/quotation", getAllQuotations);
 router.put("/quotation/:id", updateQuotation);
 router.delete("/quotation/:id", deleteQuotation);
+
+// Store Order routes
+router.post("/order", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createStoreOrder);
+router.get("/order", getAllStoreOrders);
+router.get("/order/:id", getStoreOrderById);
+router.put("/order/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), updateStoreOrder);
+router.delete("/order/:id", deleteStoreOrder);
 
 // FG Item routes
 import { createFGItem, getAllFGItems, updateFGItem, deleteFGItem, createFGGRN, getAllFGGRNs, updateFGGRN, deleteFGGRN } from "../controllers/store/index.js";

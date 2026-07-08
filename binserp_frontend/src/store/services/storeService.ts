@@ -21,6 +21,7 @@ const storeEndpoints = [
   { key: "quotation", url: "/api/store/quotation", tag: "StoreQuotation", dataKey: "quotations" },
   { key: "fg-item", url: "/api/store/fg-item", tag: "StoreMasters", dataKey: "fgItems" },
   { key: "fg-grn", url: "/api/store/fg-grn", tag: "StoreGrn", dataKey: "grns" },
+  { key: "order", url: "/api/store/order", tag: "StoreOrder", dataKey: "orders" },
 ];
 
 export type StoreTab = (typeof storeEndpoints)[number]["key"];
