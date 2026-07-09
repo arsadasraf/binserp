@@ -186,7 +186,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   }, [orders]);
 
   const handleExportExcel = () => {
-    const dataToExport = filteredOrders.map(o => ({
+    const dataToExport = filteredOrders.map((o: any) => ({
       "Order Number": o.orderNumber,
       "Customer": o.customer?.name || "",
       "Product": o.items && o.items.length > 0 ? (o.items[0].name || "Multiple Items") : (o.productName || ""),
@@ -207,7 +207,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     doc.text("Store Orders List", 14, 15);
 
     const tableColumn = ["Order #", "Customer", "Product", "Qty", "Status", "Date"];
-    const tableRows = filteredOrders.map(o => [
+    const tableRows = filteredOrders.map((o: any) => [
       o.orderNumber,
       o.customer?.name || "",
       o.items && o.items.length > 0 ? (o.items[0].name || "Multiple Items") : (o.productName || ""),
@@ -354,7 +354,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
             {filteredOrders.length === 0 ? (
               <tr><td colSpan={6} className="text-center py-8 text-gray-500">No orders found.</td></tr>
             ) : (
-              filteredOrders.map((order) => (
+              filteredOrders.map((order: any) => (
                 <tr
                   key={order._id}
                   onClick={() => {

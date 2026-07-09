@@ -18,10 +18,10 @@ type SubTab = "mrp-queue" | "rm-plan" | "production-plan";
 export default function StoreMRPTab() {
   const { data: mrps = [], isLoading: loadingMRPs, refetch: refetchMRPs } = useGetStoreMRPsQuery();
   const { data: rmPlans = [], isLoading: loadingRMPlans, refetch: refetchRMPlans } = useGetRMPlansQuery();
-  const { data: storeData } = useGetStoreDataQuery({ tab: 'vendor' });
+  const { data: storeData } = useGetStoreDataQuery('vendor');
   const vendors = storeData?.data || [];
   
-  const { data: inventoryData } = useGetStoreDataQuery({ tab: 'inventory' });
+  const { data: inventoryData } = useGetStoreDataQuery('inventory');
   const inventories = inventoryData?.data || [];
 
   const [planRM] = usePlanRMRequirementMutation();
