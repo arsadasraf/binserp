@@ -6,11 +6,14 @@ import {
 import { ClipboardList, Sliders, Calendar } from 'lucide-react';
 import MachineAssignmentBoard from './MachineAssignmentBoard';
 import PlanningBoard from './PlanningBoard';
+import PPCDailyAssignmentTab from './PPCDailyAssignmentTab';
+import { Cpu, Users } from 'lucide-react';
 
 type PlanningSubTab = "auto" | "board" | "assignments";
 
 export default function PPCPlanningTab() {
   const [subTab, setSubTab] = useState<PlanningSubTab>("assignments");
+  const [assignmentType, setAssignmentType] = useState<"machines" | "employees">("machines");
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
 
   const { data: allOrders = [], isLoading: loading } = useGetProductionOrdersQuery();
@@ -62,7 +65,36 @@ export default function PPCPlanningTab() {
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-4 sm:p-6">
 
         {/* ASSIGNMENTS TAB */}
-        {subTab === "assignments" && <MachineAssignmentBoard />}
+        {subTab === "assignments" && (
+          <div className="space-y-4">
+            <div className="flex gap-2 mb-4 bg-gray-50 dark:bg-gray-800/50 p-1 rounded-xl w-fit">
+              <button
+                onClick={() => setAssignmentType("machines")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+                  assignmentType === "machines"
+                    ? "bg-white text-indigo-600 shadow-sm border border-gray-200"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                <Cpu size={16} />
+                Machine Jobs
+              </button>
+              <button
+                onClick={() => setAssignmentType("employees")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
+                  assignmentType === "employees"
+                    ? "bg-white text-indigo-600 shadow-sm border border-gray-200"
+                    : "text-gray-500 hover:text-gray-900"
+                }`}
+              >
+                <Users size={16} />
+                Employee Shifts
+              </button>
+            </div>
+
+            {assignmentType === "machines" ? <MachineAssignmentBoard /> : <PPCDailyAssignmentTab />}
+          </div>
+        )}
 
         {/* AUTO-PLANNING TAB */}
         {subTab === "auto" && (

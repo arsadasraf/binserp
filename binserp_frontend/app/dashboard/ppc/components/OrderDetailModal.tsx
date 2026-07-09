@@ -68,7 +68,7 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
         doc.text('Order Items', 14, yPos + 10);
 
         const tableData = items.map((item: any) => [
-            String(item.productName || item.product?.componentName || 'Unknown'),
+            String(item.productName || item.product?.name || item.product?.componentName || 'Unknown'),
             String(item.description || item.product?.description || 'N/A'),
             String(item.trackingType || 'Individual'),
             String(item.quantity || 0),
@@ -313,7 +313,7 @@ export default function OrderDetailModal({ order, isOpen, onClose, onUpdateStatu
                                                         </div>
                                                         <div>
                                                             <div className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                                                                {item.productName || item.product?.componentName || 'Unknown Product'}
+                                                                {item.productName || item.product?.name || item.product?.componentName || 'Unknown Product'}
                                                                 <ChevronRight size={14} className="opacity-0 group-hover:opacity-100 text-gray-400 transition-opacity" />
                                                             </div>
                                                         </div>

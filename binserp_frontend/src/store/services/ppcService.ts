@@ -50,6 +50,10 @@ export const ppcService = binsApi.injectEndpoints({
       query: (body) => ({ url: "/api/ppc/production-order", method: "POST", body }),
       invalidatesTags: ["ProductionOrders"],
     }),
+    updateProductionOrder: builder.mutation<any, { id: string; body: any }>({
+      query: ({ id, body }) => ({ url: `/api/ppc/production-order/${id}`, method: "PUT", body }),
+      invalidatesTags: ["ProductionOrders"],
+    }),
     updatePpcOrderStatus: builder.mutation<any, { id: string; status: string }>({
       query: ({ id, status }) => ({
         url: `/api/ppc/ppc-order/${id}`,
@@ -427,7 +431,7 @@ export const {
   useCreatePpcOrderMutation, useUpdatePpcOrderMutation, useConfirmPpcOrderMutation,
   useUpdatePpcOrderStatusMutation,
   useDeleteOrderMutation,
-  useGetProductionOrdersQuery, useCreateProductionOrderMutation,
+  useGetProductionOrdersQuery, useCreateProductionOrderMutation, useUpdateProductionOrderMutation,
   useGetDispatchQueueQuery, useConfirmDispatchMutation,
   useGetGlobalMRPQuery, useUpdateMRPItemMutation,
   useGetMaterialPlanQuery, useUpdateMaterialRequirementStatusMutation, useGetJobsByOrderQuery,
@@ -467,6 +471,9 @@ export const {
   useAutoScheduleMutation,
   // Allotments
   useGetAllotmentsQuery,
+  useGetManpowerAllotmentsQuery,
+  useCreateManpowerAllotmentMutation,
+  useDeleteManpowerAllotmentMutation,
   // BOM
   useGetBomsQuery,
 } = ppcService;

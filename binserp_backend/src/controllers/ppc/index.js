@@ -86,3 +86,4 @@ export { getMaintenanceRecords } from './getMaintenanceRecords.controller.js';
 export { updateMaintenanceRecord } from './updateMaintenanceRecord.controller.js';
 export { getGlobalMRP } from './getGlobalMRP.controller.js';
 export { updateMRPItem } from './updateMRPItem.controller.js';
+export { updateProductionOrder } from './updateProductionOrder.controller.js';

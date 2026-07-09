@@ -1,12 +1,77 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Trash2, Camera, FileText, User, Calendar, Hash, Package } from 'lucide-react';
-import { useGetCustomersQuery, useCreateProductionOrderMutation, useGetPpcComponentsQuery } from "@/src/store/services/ppcService";
+import { useGetCustomersQuery, useCreateProductionOrderMutation, useUpdateProductionOrderMutation } from "@/src/store/services/ppcService";
+import { useGetStoreDataQuery } from "@/src/store/services/storeService";
 
 interface CreateOrderModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSuccess: (message: string) => void;
     initialOrder?: any;
+}
+
+const SearchableSelect = ({ options, value, onChange, placeholder, className = "" }: any) => {
+    const [search, setSearch] = useState("");
+    const [isOpen, setIsOpen] = useState(false);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const selected = options.find((o: any) => o.value === value);
+        if (selected && !isOpen) setSearch(selected.label);
+        if (!selected && !isOpen) setSearch("");
+    }, [value, options, isOpen]);
+
+    useEffect(() => {
+        function handleClickOutside(event: any) {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+                setIsOpen(false);
+                const selected = options.find((o: any) => o.value === value);
+                setSearch(selected ? selected.label : "");
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [value, options]);
+
+    const filtered = options.filter((o: any) => o.label.toLowerCase().includes(search.toLowerCase()));
+
+    return (
+        <div ref={wrapperRef} className="relative w-full">
+            <input
+                type="text"
+                value={isOpen ? search : (options.find((o:any)=>o.value === value)?.label || "")}
+                onChange={(e) => {
+                    setSearch(e.target.value);
+                    if (!isOpen) setIsOpen(true);
+                }}
+                onFocus={() => {
+                    setIsOpen(true);
+                    setSearch("");
+                }}
+                placeholder={placeholder}
+                className={`w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800 ${className}`}
+            />
+            {isOpen && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filtered.map((o: any) => (
+                        <div
+                            key={o.value}
+                            className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-700"
+                            onClick={() => {
+                                onChange(o.value);
+                                setIsOpen(false);
+                            }}
+                        >
+                            {o.label}
+                        </div>
+                    ))}
+                    {filtered.length === 0 && (
+                        <div className="px-4 py-2 text-sm text-gray-500">No results found</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
 }
 
 export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOrder }: CreateOrderModalProps) {
@@ -25,9 +90,9 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
     ]);
 
     const { data: customers = [] } = useGetCustomersQuery(undefined, { skip: !isOpen });
-    const { data: inhouseItems = [] } = useGetPpcComponentsQuery({ isMaster: true }, { skip: !isOpen });
+    const { data: fgItems = [] } = useGetStoreDataQuery("fg-item", { skip: !isOpen });
     const [createProductionOrder] = useCreateProductionOrderMutation();
-    // update mutation can be added later if needed.
+    const [updateProductionOrder] = useUpdateProductionOrderMutation();
 
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState("");
@@ -51,9 +116,9 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                 const mappedItems = sourceItems.map((comp: any) => {
                     let masterId = comp.product?._id || comp.product;
                     if (!masterId && comp.componentCode) {
-                        masterId = inhouseItems.find((i: any) => i.componentCode === comp.componentCode || i.code === comp.componentCode)?._id;
+                        masterId = fgItems.find((i: any) => i.name === comp.componentCode)?.id; // approximate match if code missing
                     }
-                    const master = inhouseItems.find((i: any) => i._id === masterId);
+                    const master = fgItems.find((i: any) => i._id === masterId);
                     return {
                         _id: comp._id,
                         productType: master?.type || "Assembly",
@@ -103,7 +168,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
         }
 
         if (field === "componentId") {
-            const selectedInfo = inhouseItems.find((i: any) => i._id === value);
+            const selectedInfo = fgItems.find((i: any) => i._id === value);
             if (selectedInfo) {
                 const isDuplicate = newItems.some((item, i) => i !== index && item.componentId === value);
                 if (isDuplicate) {
@@ -111,8 +176,8 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                     return;
                 }
                 newItems[index].unit = selectedInfo.unit || "Nos";
-                newItems[index].componentName = selectedInfo.componentName || selectedInfo.name;
-                newItems[index].componentCode = selectedInfo.componentCode || selectedInfo.code;
+                newItems[index].componentName = selectedInfo.name;
+                newItems[index].componentCode = ""; // FG Items don't have code in this schema
             } else {
                 newItems[index].componentName = "";
                 newItems[index].componentCode = "";
@@ -170,8 +235,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
 
             let res;
             if (initialOrder?._id) {
-                // res = await updateProductionOrder({ id: initialOrder._id, body: orderFormData });
-                res = { error: { data: { message: "Update not implemented yet for Production Orders" } } };
+                res = await updateProductionOrder({ id: initialOrder._id, body: orderFormData });
             } else {
                 res = await createProductionOrder(orderFormData);
             }
@@ -194,8 +258,8 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
     if (!isOpen) return null;
 
     // We filter items so that they only see FG components. Usually type="Assembly" or type="Finished Goods"
-    // Since inHouseItems typically mixes components and assemblies, we'll let them pick anything, but typically they pick FG.
-    const productOptions = inhouseItems;
+    // Since fgItems typically mixes components and assemblies, we'll let them pick anything, but typically they pick FG.
+    const productOptions = fgItems;
 
     return (
         <>
@@ -270,17 +334,13 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                             <User size={14} className="text-rose-500" />
                                             Customer <span className="text-red-500">*</span>
                                         </label>
-                                        <select
-                                            required
+                                        <SearchableSelect
                                             value={formData.customerName}
-                                            onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                                            className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-fuchsia-500/20 focus:border-fuchsia-500 text-gray-700"
-                                        >
-                                            <option value="">Select Customer</option>
-                                            {customers.map((c: any) => (
-                                                <option key={c._id} value={c.name}>{c.name}</option>
-                                            ))}
-                                        </select>
+                                            onChange={(val: string) => setFormData({ ...formData, customerName: val })}
+                                            options={customers.map((c: any) => ({ value: c.name, label: c.name }))}
+                                            placeholder="Select Customer"
+                                            className="px-4 border-gray-300"
+                                        />
                                     </div>
                                     <div className="space-y-1.5">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -359,7 +419,7 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                                         className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
                                                     >
                                                         <option value="Assembly">Assembly</option>
-                                                        <option value="SubAssembly">SubAssembly</option>
+                                                        <option value="Sub Assembly">Sub Assembly</option>
                                                         <option value="Component">Component</option>
                                                     </select>
                                                 </div>
@@ -369,22 +429,14 @@ export default function CreateOrderModal({ isOpen, onClose, onSuccess, initialOr
                                                     <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
                                                         Product <span className="text-red-500">*</span>
                                                     </label>
-                                                    <select
-                                                        required
+                                                    <SearchableSelect
                                                         value={item.componentId}
-                                                        onChange={(e) => updateItem(index, 'componentId', e.target.value)}
-                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 text-sm font-medium text-gray-800"
-                                                    >
-                                                        <option value="">Select {item.productType}...</option>
-                                                        {inhouseItems.filter((opt: any) => (opt.type || "Component") === item.productType).length === 0 && (
-                                                            <option value="" disabled>No {item.productType}s found! Please add them in PPC Master - Products tab first.</option>
-                                                        )}
-                                                        {inhouseItems.filter((opt: any) => (opt.type || "Component") === item.productType).map((comp: any) => (
-                                                            <option key={comp._id} value={comp._id}>
-                                                                {comp.componentName || comp.name} ({comp.componentCode || comp.code || 'N/A'})
-                                                            </option>
-                                                        ))}
-                                                    </select>
+                                                        onChange={(val: string) => updateItem(index, 'componentId', val)}
+                                                        options={fgItems
+                                                            .filter((opt: any) => (opt.type || "Component") === item.productType)
+                                                            .map((comp: any) => ({ value: comp._id, label: comp.name }))}
+                                                        placeholder={`Select ${item.productType}...`}
+                                                    />
                                                 </div>
 
                                                 {/* Quantity */}

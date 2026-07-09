@@ -80,6 +80,7 @@ import {
   getProductionReports,
   createProductionOrder,
   getAllProductionOrders,
+  updateProductionOrder,
   getGlobalMRP,
   updateMRPItem
 } from "../controllers/ppc/index.js";
@@ -122,6 +123,7 @@ router.route("/mrp/item/:itemId").put(updateMRPItem);
 
 // NEW Production Order Routes (Exclusive for PPC Tab)
 router.route("/production-order").post(upload.array("photos", 5), createProductionOrder).get(getAllProductionOrders);
+router.route("/production-order/:id").put(upload.array("photos", 5), updateProductionOrder);
 // For update/delete/confirm, we can map to the new controllers later if required, or reuse if they are compatible.
 // For now, the user requested "new way with new backend api and schema and model" for the PPC order tab.
 

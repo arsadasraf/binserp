@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { format, parseISO } from "date-fns";
+// using native date instead of date-fns
 import { Plus, Calendar, Clock, Cpu, Users, FileText, Trash2, CheckCircle, MapPin, Briefcase } from "lucide-react";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import Modal from "@/src/components/Modal";
+import EmployeeMonthlyAssignment from "./EmployeeMonthlyAssignment";
 import {
-  useGetManpowerMasterListQuery,
+  useGetManpowerMasterQuery,
   useGetMachinesQuery,
   useGetShiftsQuery,
   useGetManpowerAllotmentsQuery,
@@ -15,8 +16,9 @@ import {
 } from "@/src/store/services/ppcService";
 
 export default function PPCDailyAssignmentTab() {
-  const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [showModal, setShowModal] = useState(false);
+  const [selectedMonthEmployee, setSelectedMonthEmployee] = useState<any>(null);
   const [formData, setFormData] = useState<any>({
     employee: "",
     shift: "",
@@ -26,7 +28,7 @@ export default function PPCDailyAssignmentTab() {
     remarks: ""
   });
 
-  const { data: employees = [], isLoading: loadingEmployees } = useGetManpowerMasterListQuery();
+  const { data: employees = [], isLoading: loadingEmployees } = useGetManpowerMasterQuery();
   const { data: machines = [], isLoading: loadingMachines } = useGetMachinesQuery();
   const { data: shifts = [], isLoading: loadingShifts } = useGetShiftsQuery();
   
@@ -99,29 +101,14 @@ export default function PPCDailyAssignmentTab() {
               className="pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-sm"
             />
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium shadow-sm transition-all"
-          >
-            <Plus size={18} />
-            Assign Employee
-          </button>
         </div>
       </div>
 
       {/* Main Content */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden dark:bg-gray-900 dark:border-gray-800 flex-1">
-        {loadingAllotments ? (
+        {loadingEmployees || loadingAllotments ? (
           <div className="flex items-center justify-center p-12">
             <LoadingSpinner size="lg" />
-          </div>
-        ) : allotments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center p-12 text-center border-t border-gray-100 border-dashed">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-              <Users className="w-8 h-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">No Assignments for {format(parseISO(selectedDate), "MMM do, yyyy")}</h3>
-            <p className="text-gray-500 text-sm max-w-md">There are no shift or machine assignments for this date. Click "Assign Employee" to start planning.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -136,66 +123,114 @@ export default function PPCDailyAssignmentTab() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-100 dark:bg-gray-900 dark:divide-gray-800">
-                {allotments.map((allotment: any) => (
-                  <tr key={allotment._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm shrink-0">
-                          {allotment.employee?.name?.substring(0, 2).toUpperCase() || 'EMP'}
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-gray-900 dark:text-white">
-                            {allotment.employee?.name}
+                {activeEmployees.map((emp: any, index: number) => {
+                  const empAllotments = allotments.filter((a: any) => a.employee?._id === (emp.employeeId || emp._id));
+                  
+                  return (
+                    <tr key={emp.employeeId || emp._id || index} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm shrink-0">
+                            {emp.name?.substring(0, 2).toUpperCase() || 'EMP'}
                           </div>
-                          <div className="text-xs text-gray-500">ID: {allotment.employee?.employeeId}</div>
+                          <div>
+                            <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                              {emp.name}
+                            </div>
+                            <div className="text-xs text-gray-500">ID: {emp.empCode || emp.employeeId}</div>
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100">
-                        <Clock size={12} />
-                        {allotment.shift}
-                        {(allotment.startTime || allotment.endTime) && (
-                          <span className="text-blue-500 opacity-70 ml-1">
-                            ({allotment.startTime || '-'} to {allotment.endTime || '-'})
-                          </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {empAllotments.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {empAllotments.map((allotment: any) => (
+                              <div key={allotment._id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium border border-blue-100 w-fit">
+                                <Clock size={12} />
+                                {allotment.shift}
+                                {(allotment.startTime || allotment.endTime) && (
+                                  <span className="text-blue-500 opacity-70 ml-1">
+                                    ({allotment.startTime || '-'} to {allotment.endTime || '-'})
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">No shift assigned</span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {allotment.machines && allotment.machines.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {allotment.machines.map((m: any) => (
-                            <span key={m._id} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium border border-gray-200">
-                              <Cpu size={10} />
-                              {m.machineCode}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">No machines assigned</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      {allotment.remarks ? (
-                        <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 max-w-[200px]" title={allotment.remarks}>
-                          {allotment.remarks}
-                        </p>
-                      ) : (
-                        <span className="text-xs text-gray-400 italic">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => handleDelete(allotment._id)}
-                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete Assignment"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4">
+                        {empAllotments.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {empAllotments.map((allotment: any) => (
+                              <div key={allotment._id} className="flex flex-wrap gap-1.5">
+                                {allotment.machines && allotment.machines.length > 0 ? (
+                                  allotment.machines.map((m: any) => (
+                                    <span key={m._id} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium border border-gray-200">
+                                      <Cpu size={10} />
+                                      {m.machineCode}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="text-xs text-gray-400 italic">No machines</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        {empAllotments.length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {empAllotments.map((allotment: any) => (
+                              <div key={allotment._id}>
+                                {allotment.remarks ? (
+                                  <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2" title={allotment.remarks}>
+                                    {allotment.remarks}
+                                  </p>
+                                ) : (
+                                  <span className="text-xs text-gray-400 italic">-</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">-</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right space-y-1">
+                        <button
+                          onClick={() => setSelectedMonthEmployee(emp)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition-colors mb-1"
+                        >
+                          <Calendar size={14} /> View Month
+                        </button>
+                        <button
+                          onClick={() => {
+                            setFormData({ ...formData, employee: emp._id || emp.employeeId });
+                            setShowModal(true);
+                          }}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors"
+                        >
+                          <Plus size={14} /> Assign Day
+                        </button>
+                        {empAllotments.map((allotment: any) => (
+                          <button
+                            key={allotment._id}
+                            onClick={() => handleDelete(allotment._id)}
+                            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-xs font-bold transition-colors mt-1"
+                            title="Delete Assignment"
+                          >
+                            <Trash2 size={14} /> Remove ({allotment.shift})
+                          </button>
+                        ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -209,7 +244,7 @@ export default function PPCDailyAssignmentTab() {
             <Calendar className="text-blue-500" size={20} />
             <div>
               <p className="text-sm font-semibold text-blue-900">Planning Date</p>
-              <p className="text-xs text-blue-700">{format(parseISO(selectedDate), "EEEE, MMMM do, yyyy")}</p>
+              <p className="text-xs text-blue-700">{new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p>
             </div>
           </div>
 
@@ -218,21 +253,11 @@ export default function PPCDailyAssignmentTab() {
             <div className="space-y-5">
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Users size={12} className="text-indigo-500"/> Select Employee <span className="text-red-500">*</span>
+                  <Users size={12} className="text-indigo-500"/> Employee
                 </label>
-                <select 
-                  required 
-                  value={formData.employee} 
-                  onChange={e => setFormData({ ...formData, employee: e.target.value })}
-                  className="block w-full border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-gray-50 focus:bg-white text-sm p-3 transition-colors appearance-none"
-                >
-                  <option value="">-- Choose Employee --</option>
-                  {activeEmployees.map((emp: any) => (
-                    <option key={emp.employeeId} value={emp._id}>
-                      {emp.name} ({emp.employeeId})
-                    </option>
-                  ))}
-                </select>
+                <div className="block w-full border border-gray-200 rounded-xl shadow-sm bg-gray-100 text-sm p-3 text-gray-700 font-medium">
+                  {activeEmployees.find((e: any) => (e._id || e.employeeId) === formData.employee)?.name || 'Unknown'}
+                </div>
               </div>
 
               <div>
@@ -242,20 +267,22 @@ export default function PPCDailyAssignmentTab() {
                 <select 
                   required 
                   value={formData.shift} 
-                  onChange={e => {
-                    const selectedShift = shifts.find((s: any) => s.shiftName === e.target.value);
+                  onChange={(e) => {
+                    const s = shifts.find((sh: any) => sh.shiftName === e.target.value);
                     setFormData({ 
                       ...formData, 
                       shift: e.target.value,
-                      startTime: selectedShift?.startTime || "",
-                      endTime: selectedShift?.endTime || ""
+                      startTime: s?.startTime || "",
+                      endTime: s?.endTime || ""
                     });
                   }}
-                  className="block w-full border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-gray-50 focus:bg-white text-sm p-3 transition-colors appearance-none"
+                  className="block w-full border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 bg-gray-50 focus:bg-white text-sm p-3 transition-colors"
                 >
                   <option value="">-- Choose Shift --</option>
                   {shifts.map((s: any) => (
-                    <option key={s._id} value={s.shiftName}>{s.shiftName} ({s.startTime} - {s.endTime})</option>
+                    <option key={s._id} value={s.shiftName}>
+                      {s.shiftName} ({s.startTime} - {s.endTime})
+                    </option>
                   ))}
                   <option value="Custom">Custom Shift</option>
                 </select>
@@ -340,8 +367,17 @@ export default function PPCDailyAssignmentTab() {
               {creating ? <LoadingSpinner size="sm" color="white" /> : 'Save Assignment'}
             </button>
           </div>
-        </form>
-      </Modal>
-    </div>
+          </form>
+        </Modal>
+
+        {/* Monthly Assignment Modal */}
+        <Modal isOpen={!!selectedMonthEmployee} onClose={() => setSelectedMonthEmployee(null)} maxWidth="full">
+          <div className="h-[90vh] w-full bg-white dark:bg-gray-900 overflow-hidden">
+            {selectedMonthEmployee && (
+              <EmployeeMonthlyAssignment employee={selectedMonthEmployee} baseDate={selectedDate} />
+            )}
+          </div>
+        </Modal>
+      </div>
   );
 }

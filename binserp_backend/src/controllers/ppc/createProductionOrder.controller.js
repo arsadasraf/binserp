@@ -48,6 +48,7 @@ export const createProductionOrder = async (req, res) => {
     // Notice: We use productionOrderSchema here, which is essentially the new dedicated schema
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
     const Component = req.getModel('Component', componentSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
 
     const photoUrls = req.files ? req.files.map((file) => `/${file.path.replace(/\\\\/g, '/')}`) : [];
 
@@ -58,17 +59,29 @@ export const createProductionOrder = async (req, res) => {
       if (!productId) continue;
 
       let masterProduct = await Component.findById(productId).populate('routing.process');
+      let isFGItem = false;
+
+      if (!masterProduct) {
+        masterProduct = await FGItem.findById(productId).populate('bom.item');
+        isFGItem = true;
+      }
 
       if (!masterProduct) continue;
 
-      const productCode = masterProduct.componentCode;
-      const productName = masterProduct.componentName;
+      const productCode = isFGItem ? masterProduct.code : masterProduct.componentCode;
+      const productName = isFGItem ? masterProduct.name : masterProduct.componentName;
       const description = masterProduct.description;
       const unit = masterProduct.unit;
 
-      const bomSnapshot = masterProduct.billOfMaterials || [];
+      const bomSnapshot = isFGItem ? (masterProduct.bom || []).map(b => ({
+        item: b.item?._id || b.item,
+        itemModel: b.itemType,
+        itemName: b.itemName,
+        quantity: b.quantity,
+        unit: b.unit
+      })) : (masterProduct.billOfMaterials || []);
 
-      const processSnapshot = (masterProduct.routing || []).map(r => ({
+      const processSnapshot = isFGItem ? [] : (masterProduct.routing || []).map(r => ({
         processName: r.processName || (r.process && r.process.processName) || 'Unnamed Process',
         standardTime: r.standardTime,
         description: r.description,

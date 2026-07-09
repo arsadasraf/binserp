@@ -67,7 +67,7 @@ export const createAllotment = async (req, res) => {
     startOfDay.setHours(0, 0, 0, 0);
 
     const allotment = await ManpowerAllotment.findOneAndUpdate(
-      { company: companyId, employee, date: startOfDay, shift },
+      { company: companyId, employee, date: startOfDay },
       {
         company: companyId,
         employee,

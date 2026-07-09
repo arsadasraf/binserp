@@ -32,7 +32,7 @@ export default function EmployeeDashboard() {
     const searchParams = useSearchParams();
 
     // Derive active tab from URL or default to 'work'
-    const activeTab = (searchParams.get("tab") as "work" | "attendance" | "payslips" | "roster") || "work";
+    const activeTab = (searchParams.get("tab") as "work" | "attendance" | "roster") || "work";
 
     useEffect(() => {
         fetchDashboardData();
@@ -137,16 +137,6 @@ export default function EmployeeDashboard() {
                     >
                         <Calendar className="h-4 w-4" />
                         <span>Attendance</span>
-                    </button>
-                    <button
-                        onClick={() => router.push("/dashboard/employee?tab=payslips")}
-                        className={`flex-1 sm:flex-none px-6 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${activeTab === "payslips"
-                            ? "bg-indigo-50 text-indigo-700 shadow-sm ring-1 ring-indigo-200"
-                            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                            }`}
-                    >
-                        <FileText className="h-4 w-4" />
-                        <span>Salaries History</span>
                     </button>
                 </div>
 
@@ -372,28 +362,7 @@ export default function EmployeeDashboard() {
                         </div>
                     )}
 
-                    {activeTab === "payslips" && (
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-                            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {data.salarySlips.length === 0 ? (
-                                    <div className="col-span-full text-center py-12">
-                                        <FileText className="h-12 w-12 mx-auto text-gray-300 mb-3" />
-                                        <p className="text-gray-500">No payslips available yet.</p>
-                                    </div>
-                                ) : (
-                                    data.salarySlips.map((slip: any) => (
-                                        <div key={slip._id} className="border border-gray-200 rounded-lg p-4 hover:border-indigo-300 transition-colors bg-gray-50 flex items-center justify-between">
-                                            <div>
-                                                <h4 className="font-semibold text-gray-900">{slip.month} {slip.year}</h4>
-                                                <p className="text-sm text-gray-500">Net: ₹{slip.netSalary.toLocaleString()}</p>
-                                            </div>
-                                            <button className="text-indigo-600 hover:text-indigo-800 font-medium text-sm">Download</button>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    )}
+
                 </motion.div>
             </main>
         </div>

@@ -89,7 +89,7 @@ import PPCPlanningTab from "./components/PPCPlanningTab"; // New Import
 
 type PPCTab = "overview" | "orders" | "planning" | "master";
 type OrderSubTab = "new-order" | "history";
-type MasterSubTab = "machine-list" | "products" | "manpower" | "shift-management" | "daily-assignments";
+type MasterSubTab = "machine-list" | "products" | "manpower" | "shift-management";
 
 import { useHeader } from "@/src/context/HeaderContext";
 
@@ -202,7 +202,7 @@ export default function PPCPage() {
                 ].map((primaryTab) => {
                   let isActive = false;
                   if (primaryTab.id === "products") isActive = subTab === "products";
-                  else isActive = !subTab || ["machine-list", "machines", "manpower", "shift-management", "daily-assignments", "shopfloor"].includes(subTab);
+                  else isActive = !subTab || ["machine-list", "machines", "manpower", "shift-management", "shopfloor"].includes(subTab);
 
                   const Icon = primaryTab.icon;
                   return (
@@ -230,13 +230,12 @@ export default function PPCPage() {
               </div>
 
               {/* Secondary Tabs for Shopfloor */}
-              {(!subTab || ["machine-list", "machines", "manpower", "shift-management", "daily-assignments", "shopfloor"].includes(subTab)) && (
+              {(!subTab || ["machine-list", "machines", "manpower", "shift-management", "shopfloor"].includes(subTab)) && (
                 <div className="flex flex-wrap gap-2 mb-2 items-center bg-gray-50 dark:bg-gray-800/50 p-1 rounded-xl border border-gray-100 dark:border-gray-800 w-fit">
                   {[
                     { id: "machine-list", label: "Machines", icon: Cpu },
                     { id: "manpower", label: "Employees", icon: Users },
                     { id: "shift-management", label: "Shifts", icon: Clock },
-                    { id: "daily-assignments", label: "Daily Assignments", icon: Calendar },
                   ].map((secondaryTab) => {
                     const isActive = subTab === secondaryTab.id || (secondaryTab.id === "machine-list" && (!subTab || subTab === "machines" || subTab === "shopfloor"));
                     const Icon = secondaryTab.icon;
@@ -264,8 +263,6 @@ export default function PPCPage() {
                   <PPCManpowerTab />
                 ) : subTab === "shift-management" ? (
                   <PPCShiftTab />
-                ) : subTab === "daily-assignments" ? (
-                  <PPCDailyAssignmentTab />
                 ) : (
                   <PPCMachinesTab initialTab="machine-list" />
                 )}
