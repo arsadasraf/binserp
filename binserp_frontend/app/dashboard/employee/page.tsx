@@ -288,9 +288,21 @@ export default function EmployeeDashboard() {
                                                         <span className="text-xs text-gray-500">({slot.startTime} - {slot.endTime})</span>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-2 text-sm text-gray-700">
-                                                    <Briefcase size={14} className="text-gray-400" />
-                                                    <span>{slot.machine?.machineName || 'No Machine'} ({slot.machine?.machineCode})</span>
+                                                <div className="flex items-start gap-2 text-sm text-gray-700">
+                                                    <Briefcase size={14} className="text-gray-400 mt-0.5" />
+                                                    <div className="flex-1">
+                                                        {slot.machines && slot.machines.length > 0 ? (
+                                                            <div className="flex flex-col gap-1">
+                                                                {slot.machines.map((m: any) => (
+                                                                    <span key={m._id} className="inline-block">
+                                                                        {m.machineName} ({m.machineCode})
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-gray-400 italic">No Machines</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 {slot.remarks && (
                                                     <div className="text-xs text-gray-500 italic mt-1 pl-6">

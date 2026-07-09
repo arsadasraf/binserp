@@ -73,6 +73,7 @@ import PPCManpowerTab from "./components/PPCManpowerTab";
 import PPCShiftTab from "./components/PPCShiftTab";
 import FGProductsTab from "./components/FGProductsTab";
 import PPCTraceTab from "./components/PPCTraceTab";
+import PPCDailyAssignmentTab from "./components/PPCDailyAssignmentTab";
 import OrderDetailModal from "./components/OrderDetailModal";
 import CreateOrderModal from "./components/CreateOrderModal";
 import OrderActionModal from "./components/OrderActionModal";
@@ -88,7 +89,7 @@ import PPCPlanningTab from "./components/PPCPlanningTab"; // New Import
 
 type PPCTab = "overview" | "orders" | "planning" | "master";
 type OrderSubTab = "new-order" | "history";
-type MasterSubTab = "machine-list" | "products" | "store" | "manpower" | "shift-management";
+type MasterSubTab = "machine-list" | "products" | "manpower" | "shift-management" | "daily-assignments";
 
 import { useHeader } from "@/src/context/HeaderContext";
 
@@ -198,12 +199,10 @@ export default function PPCPage() {
                 {[
                   { id: "shopfloor", label: "Shopfloor", icon: Hammer },
                   { id: "products", label: "FG Products", icon: Package },
-                  { id: "store", label: "Store", icon: Store },
                 ].map((primaryTab) => {
                   let isActive = false;
                   if (primaryTab.id === "products") isActive = subTab === "products";
-                  else if (primaryTab.id === "store") isActive = subTab === "store";
-                  else isActive = !subTab || ["machine-list", "machines", "manpower", "shift-management", "shopfloor"].includes(subTab);
+                  else isActive = !subTab || ["machine-list", "machines", "manpower", "shift-management", "daily-assignments", "shopfloor"].includes(subTab);
 
                   const Icon = primaryTab.icon;
                   return (
@@ -231,12 +230,13 @@ export default function PPCPage() {
               </div>
 
               {/* Secondary Tabs for Shopfloor */}
-              {(!subTab || ["machine-list", "machines", "manpower", "shift-management", "shopfloor"].includes(subTab)) && (
+              {(!subTab || ["machine-list", "machines", "manpower", "shift-management", "daily-assignments", "shopfloor"].includes(subTab)) && (
                 <div className="flex flex-wrap gap-2 mb-2 items-center bg-gray-50 dark:bg-gray-800/50 p-1 rounded-xl border border-gray-100 dark:border-gray-800 w-fit">
                   {[
                     { id: "machine-list", label: "Machines", icon: Cpu },
                     { id: "manpower", label: "Employees", icon: Users },
                     { id: "shift-management", label: "Shifts", icon: Clock },
+                    { id: "daily-assignments", label: "Daily Assignments", icon: Calendar },
                   ].map((secondaryTab) => {
                     const isActive = subTab === secondaryTab.id || (secondaryTab.id === "machine-list" && (!subTab || subTab === "machines" || subTab === "shopfloor"));
                     const Icon = secondaryTab.icon;
@@ -262,10 +262,10 @@ export default function PPCPage() {
                   <FGProductsTab />
                 ) : subTab === "manpower" ? (
                   <PPCManpowerTab />
-                ) : subTab === "store" ? (
-                  <PPCStoreTab />
                 ) : subTab === "shift-management" ? (
                   <PPCShiftTab />
+                ) : subTab === "daily-assignments" ? (
+                  <PPCDailyAssignmentTab />
                 ) : (
                   <PPCMachinesTab initialTab="machine-list" />
                 )}

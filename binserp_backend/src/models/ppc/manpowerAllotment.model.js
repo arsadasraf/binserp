@@ -43,4 +43,4 @@ export const manpowerAllotmentSchema = new mongoose.Schema(
 // export const Component = mongoose.model("Component", componentSchema);
 
 // Indexes
-manpowerAllotmentSchema.index({ company: 1, employee: 1, date: 1 }, { unique: true }); // One allotment per day per employee
+manpowerAllotmentSchema.index({ company: 1, employee: 1, date: 1, shift: 1 }, { unique: true }); // One allotment per shift per day per employee

@@ -200,6 +200,27 @@ export const ppcService = binsApi.injectEndpoints({
       invalidatesTags: (_r, _e, arg) => [{ type: "MachineMaintenance", id: arg.machine }],
     }),
 
+    // ─── Manpower Allotments (Daily Assignments) ─────────────────────
+    getManpowerAllotments: builder.query<any[], { startDate?: string; endDate?: string; employee?: string }>({
+      query: (params) => {
+        let url = "/api/ppc/allotment?";
+        if (params.startDate) url += `startDate=${params.startDate}&`;
+        if (params.endDate) url += `endDate=${params.endDate}&`;
+        if (params.employee) url += `employee=${params.employee}`;
+        return url;
+      },
+      transformResponse: (response: any) => response.allotments || [],
+      providesTags: ["Allotments"],
+    }),
+    createManpowerAllotment: builder.mutation<any, any>({
+      query: (body) => ({ url: "/api/ppc/allotment", method: "POST", body }),
+      invalidatesTags: ["Allotments"],
+    }),
+    deleteManpowerAllotment: builder.mutation<any, string>({
+      query: (id) => ({ url: `/api/ppc/allotment/${id}`, method: "DELETE" }),
+      invalidatesTags: ["Allotments"],
+    }),
+
     // ─── Machine Assignments ─────────────────────────────────────────
     getMachineAssignments: builder.query<any[], string>({
       query: (date) => `/api/ppc/machine-assignment?date=${date}`,
