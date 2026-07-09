@@ -42,7 +42,7 @@ export const storeOrderFulfillmentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "Partial", "Fulfilled", "Cancelled"],
+      enum: ["Pending", "Partial", "Fulfilled", "Cancelled", "Moved MRP"],
       default: "Pending",
     },
     remarks: {

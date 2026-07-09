@@ -429,6 +429,7 @@ export interface JobWorkItem {
     quantitySent: number;
     quantityReceived: number;
     unit: string;
+    unitPrice?: number;
     description?: string;
     status: 'Sent' | 'Partial' | 'Completed';
 }
@@ -449,13 +450,23 @@ export interface JobWorkFormData {
     vendor: string; // Vendor ID
     date: string;
     expectedReturnDate?: string;
+    poNumber?: string;
+    vehicleNo?: string;
+    estimatedWeight?: number;
+    estimatedPrice?: number;
+    freightType?: 'To pay' | 'Paid' | 'LR/NR';
+    lrNr?: string;
+    eSugamNo?: string;
+    eSugamDate?: string;
     items: {
         item: string;
-        itemName?: string; // Optional name for custom items
+        itemName?: string;
+        itemToBeReceived?: string;
         itemType: 'bo' | 'inhouse' | 'custom';
         processType: string;
         quantitySent: number;
         unit: string;
+        unitPrice?: number;
         description?: string;
     }[];
 }

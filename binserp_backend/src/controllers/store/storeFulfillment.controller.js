@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema, storeRMPlanSchema, fgItemSchema } from "../../models/store/index.js";
+import { storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema, storeRMPlanSchema, fgItemSchema, storeOrderSchema } from "../../models/store/index.js";
 
 const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
@@ -151,7 +151,12 @@ export const moveToMRP = async (req, res) => {
     });
 
     fulfillment.mrpMovedQuantity = (fulfillment.mrpMovedQuantity || 0) + mrpQuantity;
+    fulfillment.status = 'Moved MRP';
     await fulfillment.save();
+
+    // Update parent order status
+    const StoreOrder = req.getModel('StoreOrder', storeOrderSchema);
+    await StoreOrder.findByIdAndUpdate(fulfillment.storeOrder, { status: 'Moved MRP' });
 
     res.status(201).json({ success: true, message: `Sent ${mrpQuantity} units to MRP queue.`, data: newMRP });
   } catch (error) {

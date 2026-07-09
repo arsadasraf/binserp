@@ -25,6 +25,31 @@ export const jobWorkSchema = new mongoose.Schema(
     expectedReturnDate: {
       type: Date,
     },
+    poNumber: {
+      type: String,
+    },
+    vehicleNo: {
+      type: String,
+    },
+    estimatedWeight: {
+      type: Number,
+    },
+    estimatedPrice: {
+      type: Number,
+    },
+    freightType: {
+      type: String,
+      enum: ["To pay", "Paid", "LR/NR"],
+    },
+    lrNr: {
+      type: String,
+    },
+    eSugamNo: {
+      type: String,
+    },
+    eSugamDate: {
+      type: Date,
+    },
     status: {
       type: String,
       enum: ["Open", "Partial", "Closed", "Overdue"],
@@ -42,6 +67,9 @@ export const jobWorkSchema = new mongoose.Schema(
           enum: ["bo", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
           required: true,
         },
+        itemToBeReceived: {
+          type: String,
+        },
         processType: {
           type: String,
           required: true,
@@ -57,6 +85,10 @@ export const jobWorkSchema = new mongoose.Schema(
         unit: {
           type: String,
           default: "PCS",
+        },
+        unitPrice: {
+          type: Number,
+          default: 0,
         },
         description: String,
         status: {

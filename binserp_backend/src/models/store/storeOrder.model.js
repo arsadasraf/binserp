@@ -53,7 +53,7 @@ export const storeOrderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "In-Progress", "Partially Dispatched", "Dispatched", "Completed", "Cancelled"],
+      enum: ["Pending", "In-Progress", "Partially Dispatched", "Dispatched", "Completed", "Cancelled", "Moved MRP"],
       default: "Pending",
     },
     createdBy: {

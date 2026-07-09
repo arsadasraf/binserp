@@ -102,8 +102,17 @@ export default function StoreFulfillmentTab() {
                   return (
                     <tr key={f._id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="font-semibold text-gray-900 dark:text-white">
-                          {f.storeOrder?.orderNumber || "N/A"}
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-gray-900 dark:text-white">
+                            {f.storeOrder?.orderNumber || "N/A"}
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            f.status === 'Moved MRP' ? 'bg-purple-100 text-purple-700' :
+                            f.status === 'Fulfilled' ? 'bg-green-100 text-green-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {f.status || 'Pending'}
+                          </span>
                         </div>
                         <div className="text-xs text-gray-500 flex items-center gap-1 mt-1">
                           <Calendar size={12} />
@@ -153,7 +162,7 @@ export default function StoreFulfillmentTab() {
                               <Clock size={14} /> Reserve
                             </button>
                           )}
-                          {remaining > 0 && (remaining > f.availableStock) && (
+                          {remaining > 0 && (
                             <button
                               onClick={() => {
                                 setActionModal({

@@ -1,78 +1,220 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <meta charset="utf-8">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #000; margin: 0; padding: 0; }
+        .page { margin-bottom: 20px; page-break-after: always; width: 100%; box-sizing: border-box; }
+        .page:last-child { page-break-after: auto; }
+        .main-table { width: 100%; border-collapse: collapse; border: 2px solid #000; }
+        .main-table td, .main-table th { border: 1px solid #000; padding: 4px; vertical-align: top; }
+        
+        .header-top { border-bottom: 2px solid #000; text-align: center; position: relative; padding: 10px; }
+        .copy-type { position: absolute; right: 10px; top: 10px; font-weight: bold; font-size: 12px; }
+        .company-name { font-size: 20px; font-weight: bold; margin: 0; padding: 0; text-transform: uppercase; }
+        .company-details { font-size: 10px; line-height: 1.4; margin-top: 5px; }
+        
+        .doc-title { text-align: center; font-weight: bold; font-size: 13px; border-bottom: 2px solid #000; padding: 4px; background-color: #f8f9fa; }
+        
+        .address-section { display: flex; width: 100%; border-bottom: 2px solid #000; }
+        .left-panel { width: 45%; border-right: 2px solid #000; padding: 5px; box-sizing: border-box; }
+        .right-panel { width: 55%; padding: 5px; box-sizing: border-box; }
+        
+        .items-table { width: 100%; border-collapse: collapse; height: 350px; } /* fixed height for body */
+        .items-table th { text-align: center; font-weight: bold; border-bottom: 2px solid #000; background-color: #f8f9fa; }
+        .items-table td { text-align: center; border-right: 1px solid #000; }
+        .items-table tr { vertical-align: top; }
+        .items-table .totals-row td { border-top: 2px solid #000; border-bottom: 2px solid #000; font-weight: bold; text-align: right; padding-right: 10px;}
+        
+        .footer-section { width: 100%; }
+        .footer-row { display: flex; width: 100%; border-bottom: 1px solid #000; }
+        .footer-row:last-child { border-bottom: none; }
+        
+        .col-half { width: 50%; padding: 5px; box-sizing: border-box; border-right: 1px solid #000; }
+        .col-full { width: 100%; padding: 5px; box-sizing: border-box; }
+        
+        .footer-details { display: flex; width: 100%; border-top: 2px solid #000; }
+        .footer-left { width: 50%; border-right: 2px solid #000; padding: 5px; }
+        .footer-right { width: 50%; padding: 5px; text-align: right; position: relative; }
+        
+        .sign-area { margin-top: 40px; text-align: center; }
+        
+        .part-two { border-top: 2px solid #000; }
+        .part-two-title { text-align: center; font-weight: bold; padding: 5px; border-bottom: 1px solid #000; }
+        .part-two-table { width: 100%; border-collapse: collapse; }
+        .part-two-table th, .part-two-table td { border-right: 1px solid #000; padding: 5px; text-align: center; height: 40px; }
+        .part-two-table th { border-bottom: 1px solid #000; font-weight: normal; }
     </style>
 </head>
-<body class="bg-white p-8">
-    <div class="max-w-4xl mx-auto">
-        <!-- Header -->
-        <div class="flex justify-between items-start mb-8">
-            <div>
-                <% if (companyInfo?.logo) { %>
-                    <img src="<%= companyInfo.logo %>" class="h-16 mb-4" />
-                <% } %>
-                <h1 class="text-xl font-bold text-slate-800"><%= companyInfo?.companyName || 'Company Name' %></h1>
-                <p class="text-sm text-slate-500 mt-1 max-w-xs"><%= companyInfo?.billingAddress || '' %></p>
-                <% if (companyInfo?.contactNumber) { %><p class="text-sm text-slate-500">Phone: <%= companyInfo.contactNumber %></p><% } %>
-                <% if (companyInfo?.email) { %><p class="text-sm text-slate-500">Email: <%= companyInfo.email %></p><% } %>
-            </div>
-            <div class="text-right">
-                <h2 class="text-2xl font-bold text-indigo-600 mb-2 uppercase">Returnable DC</h2>
-                <p class="text-sm text-slate-600"><span class="font-semibold">Challan No:</span> <%= doc.challanNumber %></p>
-                <p class="text-sm text-slate-600"><span class="font-semibold">Date:</span> <%= new Date(doc.date).toLocaleDateString() %></p>
-                <% if (doc.expectedReturnDate) { %>
-                <p class="text-sm text-slate-600"><span class="font-semibold">Expected Return:</span> <%= new Date(doc.expectedReturnDate).toLocaleDateString() %></p>
-                <% } %>
-            </div>
-        </div>
-
-        <!-- Ship To / Vendor -->
-        <div class="mb-8 p-4 bg-slate-50 rounded-lg border border-slate-100">
-            <h3 class="text-sm font-bold text-slate-800 mb-2">SUPPLIER (JOB WORK):</h3>
-            <p class="text-sm font-semibold text-slate-700"><%= doc.vendorName || doc.vendor?.name || 'Unknown Vendor' %></p>
-        </div>
-
-        <!-- Items Table -->
-        <table class="w-full text-sm text-left mb-8">
-            <thead class="text-xs text-white uppercase bg-indigo-600 rounded-t-lg">
-                <tr>
-                    <th class="px-4 py-3 rounded-tl-lg">Item Name</th>
-                    <th class="px-4 py-3">Process Type</th>
-                    <th class="px-4 py-3 text-right">Qty Sent</th>
-                    <th class="px-4 py-3 rounded-tr-lg">Unit</th>
-                </tr>
-            </thead>
-            <tbody>
-                <% doc.items.forEach(function(item, index) { %>
-                <tr class="border-b border-slate-200 <%= index % 2 === 0 ? 'bg-white' : 'bg-slate-50' %>">
-                    <td class="px-4 py-3 font-medium text-slate-800"><%= item.itemName || '-' %></td>
-                    <td class="px-4 py-3 text-slate-500"><%= item.processType || '-' %></td>
-                    <td class="px-4 py-3 text-right font-semibold text-slate-600"><%= item.quantitySent %></td>
-                    <td class="px-4 py-3 text-slate-500"><%= item.unit || 'PCS' %></td>
-                </tr>
-                <% }); %>
-            </tbody>
+<body>
+<% const copyTypes = ['ORIGINAL', 'DUPLICATE', 'TRIPLICATE']; %>
+<% copyTypes.forEach(function(copyType, index) { %>
+    <div class="page">
+        <table class="main-table">
+            <tr>
+                <td style="padding: 0; border: none;">
+                    <div class="header-top">
+                        <div class="copy-type"><%= copyType %></div>
+                        <h1 class="company-name"><%= companyInfo.companyName || 'COMPANY NAME' %></h1>
+                        <div class="company-details">
+                            <%= companyInfo.billingAddress || companyInfo.address || '' %><br>
+                            Ph: <%= companyInfo.contactNumber || '' %><br>
+                            Email: <%= companyInfo.email || '' %>
+                        </div>
+                    </div>
+                    
+                    <div class="doc-title">
+                        RETURNABLE - DELIVERY CHALLAN
+                    </div>
+                    
+                    <div class="address-section">
+                        <div class="left-panel">
+                            <b>TO</b><br>
+                            <b>M/S <%= doc.vendor ? (doc.vendor.name || doc.vendorName) : '' %></b><br>
+                            <% if (doc.vendor) { %>
+                                <%= doc.vendor.address || '' %><br>
+                                <%= doc.vendor.city || '' %> <%= doc.vendor.pincode ? '-' + doc.vendor.pincode : '' %>
+                            <% } %>
+                        </div>
+                        <div class="right-panel">
+                            <table style="width: 100%; border: none; font-size: 11px;">
+                                <tr>
+                                    <td style="width: 50%; border: none; font-weight: bold;">DC NO: &nbsp;&nbsp;&nbsp; <%= doc.challanNumber %></td>
+                                    <td style="width: 50%; border: none; text-align: right;">Date: <%= new Date(doc.date || Date.now()).toLocaleDateString('en-GB') %></td>
+                                </tr>
+                                <tr><td colspan="2" style="border: none;">&nbsp;</td></tr>
+                                <tr>
+                                    <td colspan="2" style="border: none;">Our PO No: <%= doc.poNumber || '' %></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" style="border: none;">Estimated Price: <%= doc.estimatedPrice || '' %></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" style="border: none;">Vehicle No : <%= doc.vehicleNo || '' %></td>
+                                </tr>
+                                <tr>
+                                    <td colspan="2" style="border: none;">Estimated wt. in kgs: <%= doc.estimatedWeight || '' %></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <table class="items-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 5%;">Sl.<br>No</th>
+                                <th style="width: 25%;">Items Sent</th>
+                                <th style="width: 10%;">Qty</th>
+                                <th style="width: 25%;">Items to be Received</th>
+                                <th style="width: 10%;">Qty</th>
+                                <th style="width: 10%;">Unit<br>Price</th>
+                                <th style="width: 15%;">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% 
+                               let totalQty = 0;
+                               if (doc.items && doc.items.length > 0) { 
+                                   doc.items.forEach((item, idx) => { 
+                                       totalQty += (item.quantitySent || 0);
+                            %>
+                            <tr>
+                                <td><%= idx + 1 %></td>
+                                <td style="text-align: left;"><%= item.itemName || (item.item ? item.item.name : '') || '' %></td>
+                                <td><%= item.quantitySent %> <%= item.unit || 'Nos' %></td>
+                                <td style="text-align: left;"><%= item.itemToBeReceived || item.itemName || (item.item ? item.item.name : '') || '' %></td>
+                                <td><%= item.quantitySent %> <%= item.unit || 'Nos' %></td>
+                                <td><%= item.unitPrice || '' %></td>
+                                <td><%= item.description || '' %></td>
+                            </tr>
+                            <% 
+                                   });
+                                   
+                                   // Fill empty rows to make it look like a full page table
+                                   for(let i = doc.items.length; i < 5; i++) {
+                            %>
+                            <tr>
+                                <td style="height: 30px;"></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                            </tr>
+                            <% 
+                                   }
+                               } else { 
+                            %>
+                            <tr>
+                                <td colspan="7" style="height: 150px;">No Items</td>
+                            </tr>
+                            <% } %>
+                        </tbody>
+                        <tfoot>
+                            <tr class="totals-row">
+                                <td colspan="2" style="border-right: none;">Total Qty=</td>
+                                <td style="text-align: center; border-left: none;"><%= totalQty %></td>
+                                <td style="border-right: none;">Total Qty=</td>
+                                <td style="text-align: center; border-left: none;"><%= totalQty %></td>
+                                <td colspan="2"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    
+                    <div class="footer-section">
+                        <div class="footer-row" style="padding: 5px;">
+                            <div style="width: 50%;">The above materials sent<br>Date: <%= new Date(doc.date || Date.now()).toLocaleDateString('en-GB') %></div>
+                            <div style="width: 25%; text-align: center;">Freight to pay/Paid<br><%= doc.freightType || '' %></div>
+                            <div style="width: 25%; text-align: center;">LR/NR<br><%= doc.lrNr || '' %></div>
+                        </div>
+                        <div class="footer-row" style="padding: 5px; font-size: 10px;">
+                            <b>Note:</b><br>
+                            Please arrange to return the material back to us before <%= doc.expectedReturnDate ? new Date(doc.expectedReturnDate).toLocaleDateString('en-GB') : '___________' %> and while returning the<br>
+                            material please quote this challan reference on your delivery challan invariably, failing which payment<br>
+                            will be delayed.
+                        </div>
+                        <div class="footer-details">
+                            <div class="footer-left">
+                                Our GST No : <%= companyInfo.gstNumber || '' %><br>
+                                Our PAN No: <%= companyInfo.panNumber || '' %><br><br>
+                                Party's GST No : <%= (doc.vendor && doc.vendor.gst) ? doc.vendor.gst : '' %><br>
+                                Party's PAN No : <%= (doc.vendor && doc.vendor.pan) ? doc.vendor.pan : '' %><br><br>
+                                <span style="font-size: 9px;">RDC: <br>Date:</span>
+                            </div>
+                            <div class="footer-right">
+                                <div style="text-align: left; font-size: 10px; border-bottom: 1px solid #000; padding-bottom: 5px; margin-bottom: 5px;">
+                                    E-Sugam No: <%= doc.eSugamNo || '________________' %><br>
+                                    Date: <%= doc.eSugamDate ? new Date(doc.eSugamDate).toLocaleDateString('en-GB') : '________________' %>
+                                </div>
+                                <div style="font-weight: bold;">For <%= companyInfo.companyName || 'COMPANY NAME' %></div>
+                                
+                                <div style="position: absolute; bottom: 5px; left: 0; text-align: left; font-size: 10px;">
+                                    Received the above materials<br>
+                                    in good condition
+                                </div>
+                                <div style="position: absolute; bottom: 5px; right: 5px; font-size: 10px;">
+                                    Authorised Signatory
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="part-two">
+                            <div class="part-two-title">PART II <span style="font-weight: normal; font-size: 11px;">(to be filled by the Supplier)</span></div>
+                            <table class="part-two-table">
+                                <tr>
+                                    <th style="width: 30%;">Party's DC / Inv No. & Date</th>
+                                    <th style="width: 20%;">Qty Returned</th>
+                                    <th style="width: 25%;">Waste ( if any) Returned</th>
+                                    <th style="width: 25%; border-right: none;">Authorised Signatory</th>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td></td>
+                                    <td></td>
+                                    <td style="border-right: none;"></td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </td>
+            </tr>
         </table>
-
-        <!-- Footer -->
-        <div class="flex justify-between items-end mt-16 pt-8 border-t border-slate-200">
-            <div class="text-left w-1/3">
-                <p class="text-sm font-bold text-slate-800 mb-8 mt-12 border-t-2 border-slate-300 pt-2 inline-block">Receiver's Signature</p>
-            </div>
-            
-            <div class="text-right w-1/3">
-                <p class="text-sm font-bold text-slate-800 mb-8 mt-12 border-t-2 border-slate-300 pt-2 inline-block">Authorized Signatory</p>
-                <p class="text-xs text-slate-500 block">For <%= companyInfo?.companyName || 'Company' %></p>
-            </div>
-        </div>
-        
-        <div class="mt-8 text-center text-[10px] text-slate-400">
-            Generated on: <%= new Date().toLocaleString() %>
-        </div>
     </div>
+<% }); %>
 </body>
 </html>

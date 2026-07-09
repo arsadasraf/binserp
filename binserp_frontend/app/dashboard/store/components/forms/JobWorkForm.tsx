@@ -29,8 +29,16 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
         vendor: '',
         date: new Date().toISOString().split('T')[0],
         expectedReturnDate: '',
+        poNumber: '',
+        vehicleNo: '',
+        freightType: 'To pay',
+        lrNr: '',
+        eSugamNo: '',
+        eSugamDate: '',
+        estimatedWeight: 0,
+        estimatedPrice: 0,
         items: [
-            { item: '', itemType: 'bo', processType: '', quantitySent: 0, unit: 'PCS', description: '' }
+            { item: '', itemType: 'bo', processType: '', quantitySent: 0, unit: 'PCS', unitPrice: 0, description: '', itemToBeReceived: '' }
         ]
     });
 
@@ -52,8 +60,16 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                 vendor: '',
                 date: new Date().toISOString().split('T')[0],
                 expectedReturnDate: '',
+                poNumber: '',
+                vehicleNo: '',
+                freightType: 'To pay',
+                lrNr: '',
+                eSugamNo: '',
+                eSugamDate: '',
+                estimatedWeight: 0,
+                estimatedPrice: 0,
                 items: [
-                    { item: '', itemType: 'bo', processType: '', quantitySent: 0, unit: 'PCS', description: '' }
+                    { item: '', itemType: 'bo', processType: '', quantitySent: 0, unit: 'PCS', unitPrice: 0, description: '', itemToBeReceived: '' }
                 ]
             });
         }
@@ -87,7 +103,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
     const addItem = () => {
         setFormData({
             ...formData,
-            items: [...formData.items, { item: '', itemType: 'bo', processType: '', quantitySent: 0, unit: 'PCS', description: '' }]
+            items: [...formData.items, { item: '', itemType: 'bo', processType: '', quantitySent: 0, unit: 'PCS', unitPrice: 0, description: '', itemToBeReceived: '' }]
         });
     };
 
@@ -152,7 +168,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
 
     const handleDownloadExcel = async () => {
         try {
-            await generateDocument('excel', 'Returnable DC', [successData]);
+            await generateDocument('excel', 'Returnable DC', [{ doc: successData, companyInfo }]);
         } catch (error) {
             onError('Failed to generate Excel');
         }
@@ -274,6 +290,113 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                         </div>
                     </div>
 
+                    {/* Transport & Additional Details */}
+                    <div className="bg-gray-50/50 rounded-2xl border border-gray-100 overflow-visible shadow-sm mb-8">
+                        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2 bg-white">
+                            <span className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
+                                <Info size={18} />
+                            </span>
+                            <h3 className="text-base font-bold text-gray-900">Transport & Tax Details</h3>
+                        </div>
+                        <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 bg-white">
+                            <div className="group">
+                                <label className={labelClass}>Our PO No</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="text"
+                                        value={formData.poNumber || ''}
+                                        onChange={e => setFormData({ ...formData, poNumber: e.target.value })}
+                                        className={inputClass}
+                                        placeholder="e.g. PO-241/26"
+                                    />
+                                </div>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>Vehicle No</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="text"
+                                        value={formData.vehicleNo || ''}
+                                        onChange={e => setFormData({ ...formData, vehicleNo: e.target.value })}
+                                        className={inputClass}
+                                        placeholder="e.g. KA-01-AB-1234"
+                                    />
+                                </div>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>Estimated Weight (Kgs)</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="number"
+                                        value={formData.estimatedWeight || ''}
+                                        onChange={e => setFormData({ ...formData, estimatedWeight: Number(e.target.value) })}
+                                        className={inputClass}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>Estimated Price (₹)</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="number"
+                                        value={formData.estimatedPrice || ''}
+                                        onChange={e => setFormData({ ...formData, estimatedPrice: Number(e.target.value) })}
+                                        className={inputClass}
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>Freight Type</label>
+                                <select
+                                    value={formData.freightType || 'To pay'}
+                                    onChange={e => setFormData({ ...formData, freightType: e.target.value as any })}
+                                    className={inputClass}
+                                >
+                                    <option value="To pay">To pay</option>
+                                    <option value="Paid">Paid</option>
+                                    <option value="LR/NR">LR/NR</option>
+                                </select>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>LR / NR</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="text"
+                                        value={formData.lrNr || ''}
+                                        onChange={e => setFormData({ ...formData, lrNr: e.target.value })}
+                                        className={inputClass}
+                                        placeholder="LR/NR Details"
+                                    />
+                                </div>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>E-Sugam No</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="text"
+                                        value={formData.eSugamNo || ''}
+                                        onChange={e => setFormData({ ...formData, eSugamNo: e.target.value })}
+                                        className={inputClass}
+                                        placeholder="e-Sugam number"
+                                    />
+                                </div>
+                            </div>
+                            <div className="group">
+                                <label className={labelClass}>E-Sugam Date</label>
+                                <div className={inputWrapperClass}>
+                                    <input
+                                        type="date"
+                                        value={formData.eSugamDate ? formData.eSugamDate.split('T')[0] : ''}
+                                        onChange={e => setFormData({ ...formData, eSugamDate: e.target.value })}
+                                        className={inputClass}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Items Section */}
                     <div className="bg-gray-50/50 rounded-2xl border border-gray-100 overflow-visible shadow-sm">
                         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white">
@@ -297,7 +420,8 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                                 <thead className="bg-gray-50/80 backdrop-blur">
                                     <tr>
                                         <th className="px-4 py-3 text-left w-28 font-semibold text-gray-500 uppercase tracking-wider text-xs">Type</th>
-                                        <th className="px-4 py-3 text-left w-[35%] font-semibold text-gray-500 uppercase tracking-wider text-xs">Item Name</th>
+                                        <th className="px-4 py-3 text-left w-[25%] font-semibold text-gray-500 uppercase tracking-wider text-xs">Item Sent</th>
+                                        <th className="px-4 py-3 text-left w-[25%] font-semibold text-gray-500 uppercase tracking-wider text-xs">Item To Receive</th>
                                         <th className="px-4 py-3 text-left w-[20%] font-semibold text-gray-500 uppercase tracking-wider text-xs">Process</th>
                                         <th className="px-4 py-3 text-left w-24 font-semibold text-gray-500 uppercase tracking-wider text-xs">Qty</th>
                                         <th className="px-4 py-3 text-left w-20 font-semibold text-gray-500 uppercase tracking-wider text-xs">Unit</th>
@@ -340,6 +464,15 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
                                                     placeholder="Select Item"
                                                 />
                                                 )}
+                                            </td>
+                                            <td className="p-3">
+                                                <input
+                                                    type="text"
+                                                    value={item.itemToBeReceived || ''}
+                                                    onChange={e => handleItemChange(idx, 'itemToBeReceived', e.target.value)}
+                                                    placeholder="Same as Sent"
+                                                    className="w-full bg-transparent border-b border-transparent group-hover:border-gray-300 focus:border-indigo-500 focus:outline-none py-1.5 transition-colors"
+                                                />
                                             </td>
                                             <td className="p-3">
                                                 <input

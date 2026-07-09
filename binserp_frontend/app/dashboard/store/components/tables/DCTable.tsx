@@ -26,7 +26,7 @@ const downloadDCAsPDF = async (dc: any, companyInfo?: CompanyInfo) => {
 };
 
 const downloadSingleDCExcel = async (dc: any, companyInfo?: CompanyInfo) => {
-    await generateDocument('excel', 'Delivery Challans', [dc]);
+    await generateDocument('excel', 'Delivery Challans', [{ doc: dc, companyInfo }]);
 };
 
 export default function DCTable({ data, companyInfo, onEdit, onDelete }: DCTableProps) {
