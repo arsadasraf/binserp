@@ -29,15 +29,47 @@ export default function RoutingBuilderModal({ fgItem, onClose }: RoutingBuilderM
 
     const handleSave = async () => {
         try {
+            // Validate routing
+            const invalidSteps = routing.some(r => !r.process || r.process === "");
+            if (invalidSteps) {
+                alert("Please select a process for all routing steps.");
+                return;
+            }
+
+            // Clean up populated objects to just string IDs for backend and filter out invalid/null items
+            const cleanedBom = bom
+                .filter(b => {
+                    const id = typeof b.item === 'object' && b.item !== null ? b.item._id : b.item;
+                    return id && id !== "";
+                })
+                .map(b => ({
+                    ...b,
+                    item: typeof b.item === 'object' && b.item !== null ? b.item._id : b.item
+                }));
+
+            const cleanedRouting = routing.map(r => ({
+                ...r,
+                process: typeof r.process === 'object' && r.process !== null ? r.process._id : r.process,
+                bomRequirements: r.bomRequirements
+                    .filter((req: any) => {
+                        const id = typeof req.item === 'object' && req.item !== null ? req.item._id : req.item;
+                        return id && id !== "";
+                    })
+                    .map((req: any) => ({
+                        ...req,
+                        item: typeof req.item === 'object' && req.item !== null ? req.item._id : req.item
+                    }))
+            }));
+
             await savePPCProduct({
                 fgItemId: fgItem._id,
-                routing,
-                updatedBom: bom
+                routing: cleanedRouting,
+                updatedBom: cleanedBom
             }).unwrap();
             onClose();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to save routing", error);
-            alert("Failed to save routing.");
+            alert(error?.data?.message || error?.message || "Failed to save routing.");
         }
     };
 
@@ -85,7 +117,7 @@ export default function RoutingBuilderModal({ fgItem, onClose }: RoutingBuilderM
 
     const updateBOMRequirementQuantity = (processIndex: number, reqIndex: number, quantity: number) => {
         const reqs = [...routing[processIndex].bomRequirements];
-        reqs[reqIndex].quantity = quantity;
+        reqs[reqIndex] = { ...reqs[reqIndex], quantity };
         updateProcess(processIndex, "bomRequirements", reqs);
     };
 
@@ -145,7 +177,7 @@ export default function RoutingBuilderModal({ fgItem, onClose }: RoutingBuilderM
                                                     value={b.quantity}
                                                     onChange={(e) => {
                                                         const newBom = [...bom];
-                                                        newBom[idx].quantity = Number(e.target.value);
+                                                        newBom[idx] = { ...newBom[idx], quantity: Number(e.target.value) };
                                                         setBom(newBom);
                                                     }}
                                                     className="w-16 px-2 py-1 text-sm border border-gray-200 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 dark:bg-gray-900"

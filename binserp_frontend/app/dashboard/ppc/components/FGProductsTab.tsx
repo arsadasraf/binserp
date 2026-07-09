@@ -9,18 +9,24 @@ import RoutingBuilderModal from "./RoutingBuilderModal";
 export default function FGProductsTab() {
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
+    const [filterType, setFilterType] = useState("All");
+    const [filterRoute, setFilterRoute] = useState("All");
 
     const { data: fgItemsWrapper, isLoading } = useGetPPCProductsStatusQuery();
     const fgItems = fgItemsWrapper?.data || [];
 
-    const filteredItems = fgItems.filter((item: any) =>
-        item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.code?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredItems = fgItems.filter((item: any) => {
+        const matchesSearch = item.name?.toLowerCase().includes(searchTerm.toLowerCase()) || item.code?.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesType = filterType === "All" || (item.type || "Assembly") === filterType;
+        const matchesRoute = filterRoute === "All" || 
+            (filterRoute === "Yes" && item.isRoutingAttached) || 
+            (filterRoute === "No" && !item.isRoutingAttached);
+        
+        return matchesSearch && matchesType && matchesRoute;
+    });
 
     return (
         <div className="space-y-6">
-            {/* Header Actions */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div className="relative w-full sm:w-96">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -31,6 +37,28 @@ export default function FGProductsTab() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
                     />
+                </div>
+                <div className="flex gap-3 w-full sm:w-auto">
+                    <select
+                        value={filterType}
+                        onChange={(e) => setFilterType(e.target.value)}
+                        className="w-full sm:w-auto px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 text-sm text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none shadow-sm transition-all cursor-pointer"
+                    >
+                        <option value="All">All Types</option>
+                        <option value="Assembly">Assembly</option>
+                        <option value="Sub Assembly">Sub Assembly</option>
+                        <option value="Component">Component</option>
+                    </select>
+                    
+                    <select
+                        value={filterRoute}
+                        onChange={(e) => setFilterRoute(e.target.value)}
+                        className="w-full sm:w-auto px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 text-sm text-gray-700 dark:text-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none shadow-sm transition-all cursor-pointer"
+                    >
+                        <option value="All">All Routing Status</option>
+                        <option value="Yes">Routing Attached</option>
+                        <option value="No">No Routing</option>
+                    </select>
                 </div>
             </div>
 
