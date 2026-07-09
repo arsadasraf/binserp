@@ -83,9 +83,9 @@ export default function PPCManpowerTab() {
   // --- Process/Skill Actions (Master removed as requested) ---
 
   const filteredEmployees = (employees as ManpowerMasterItem[]).filter((emp) => {
-    const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.empCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.designation.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = (emp.name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (emp.empCode || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (emp.designation || "").toLowerCase().includes(searchTerm.toLowerCase());
     const matchesDept = filterDepartment === "All" || emp.department === filterDepartment;
     const matchesStatus = filterStatus === "All" || (filterStatus === "Active" ? emp.isShopfloorActive : !emp.isShopfloorActive);
     return matchesSearch && matchesDept && matchesStatus;

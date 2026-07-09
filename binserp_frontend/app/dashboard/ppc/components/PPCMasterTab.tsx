@@ -496,6 +496,7 @@ export default function PPCMasterTab({ subTab }: PPCMasterTabProps) {
                         setEditingMachine(null);
                     }}
                     title={editingMachine ? "Edit Machine" : "Add New Machine"}
+                    maxWidth="6xl"
                 >
                     <MachineForm
                         initialData={editingMachine}

@@ -36,7 +36,6 @@ const getCompanyLoginId = (req) => {
 
 export const getManpowerMasterList = async (req, res) => {
   const Manpower = req.getModel('Manpower', manpowerSchema);
-  const { employeeSchema } = await import("../models/hr/index.js");
   try {
     const Employee = req.getModel('Employee', employeeSchema);
 

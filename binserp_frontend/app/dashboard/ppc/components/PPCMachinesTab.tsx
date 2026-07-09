@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Search, Edit2, Trash2, MapPin, Camera, X, FileText, Download, Eye, Briefcase, User, Clock, ArrowRight, ClipboardList, CheckCircle, Cpu, Settings } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, MapPin, Camera, X, FileText, Download, Eye, Briefcase, User, Clock, ArrowRight, ClipboardList, CheckCircle, Cpu, Settings, Hash } from "lucide-react";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import Modal from "@/src/components/Modal";
 import jsPDF from "jspdf";
@@ -854,180 +854,131 @@ export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachi
                         {/* Scrollable Content Area */}
                         <div className="flex-1 overflow-y-auto p-4 md:p-6 scrollbar-thin bg-gray-50/50 dark:bg-gray-900/50 pb-32">
                             <form id="machine-form" onSubmit={handleSubmit} className="space-y-6 max-w-5xl mx-auto">
-                            {/* General Information Section */}
+                            {/* Unified 4-Column Layout */}
                             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                                <div className="flex items-center gap-2 mb-6 border-b border-gray-100 pb-4">
-                                    <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-                                        <Cpu size={18} />
-                                    </div>
-                                    <h3 className="text-lg font-bold text-gray-900">General Information</h3>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    {/* Row 1 */}
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Machine Code {editingItem ? "" : <span className="text-gray-400 normal-case">(Auto)</span>}</label>
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><Hash size={12} className="text-indigo-500"/> Machine Code {editingItem ? "" : "(Auto)"}</label>
                                         <input
                                             type="text"
                                             disabled={true}
                                             placeholder={editingItem ? "Code" : "Auto-generated"}
                                             value={formData.machineCode || ''}
                                             onChange={e => setFormData({ ...formData, machineCode: e.target.value })}
-                                            className="block w-full border-gray-200 rounded-xl shadow-sm bg-gray-50 text-gray-500 focus:ring-0 sm:text-sm p-3 border cursor-not-allowed"
+                                            className="block w-full border-gray-200 rounded-xl shadow-sm bg-gray-50 text-gray-500 focus:ring-0 text-sm p-2.5 border cursor-not-allowed"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Machine Name <span className="text-red-500">*</span></label>
-                                        <input type="text" required value={formData.machineName || ''} onChange={e => setFormData({ ...formData, machineName: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border" />
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><Settings size={12} className="text-indigo-500"/> Machine Name <span className="text-red-500">*</span></label>
+                                        <input type="text" required placeholder="e.g. CNC Mill B3" value={formData.machineName || ''} onChange={e => setFormData({ ...formData, machineName: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border placeholder-gray-300" />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Make</label>
-                                        <input type="text" value={formData.make || ''} onChange={e => setFormData({ ...formData, make: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border" />
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><Briefcase size={12} className="text-indigo-500"/> Make</label>
+                                        <input type="text" placeholder="e.g. Haas" value={formData.make || ''} onChange={e => setFormData({ ...formData, make: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border placeholder-gray-300" />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Model</label>
-                                        <input type="text" value={formData.model || ''} onChange={e => setFormData({ ...formData, model: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border" />
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><Cpu size={12} className="text-indigo-500"/> Model</label>
+                                        <input type="text" placeholder="e.g. VF-2" value={formData.model || ''} onChange={e => setFormData({ ...formData, model: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border placeholder-gray-300" />
+                                    </div>
+
+                                    {/* Row 2 */}
+                                    <div>
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={12} className="text-indigo-500"/> Serial Number</label>
+                                        <input type="text" placeholder="e.g. SN-12345" value={formData.serialNumber || ''} onChange={e => setFormData({ ...formData, serialNumber: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border placeholder-gray-300" />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Serial Number</label>
-                                        <input type="text" value={formData.serialNumber || ''} onChange={e => setFormData({ ...formData, serialNumber: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border" />
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><Clock size={12} className="text-indigo-500"/> Comm. Year</label>
+                                        <input type="number" placeholder="YYYY" value={formData.commissionYear || ''} onChange={e => setFormData({ ...formData, commissionYear: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border placeholder-gray-300" />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Commission Year</label>
-                                        <input type="number" value={formData.commissionYear || ''} onChange={e => setFormData({ ...formData, commissionYear: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border" />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Category <span className="text-red-500">*</span></label>
-                                        <select required value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border">
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><ClipboardList size={12} className="text-indigo-500"/> Category <span className="text-red-500">*</span></label>
+                                        <select required value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border appearance-none">
                                             <option value="">Select Category</option>
                                             {categories.map(c => (<option key={c._id} value={c._id}>{c.categoryName}</option>))}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Location</label>
-                                        <select value={formData.location || ''} onChange={e => setFormData({ ...formData, location: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border">
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><MapPin size={12} className="text-indigo-500"/> Location</label>
+                                        <select value={formData.location || ''} onChange={e => setFormData({ ...formData, location: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border appearance-none">
                                             <option value="">Select Location</option>
                                             {locations.map(l => (<option key={l._id} value={l._id}>{l.locationName}</option>))}
                                         </select>
                                     </div>
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1.5">Description</label>
-                                        <textarea rows={2} value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-gray-50 transition-all sm:text-sm p-3 border resize-none" />
-                                    </div>
-                                </div>
-                            </div>
 
+                                    {/* Row 3 - Description */}
+                                    <div className="col-span-1 md:col-span-2 lg:col-span-4">
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={12} className="text-indigo-500"/> Description</label>
+                                        <textarea rows={1} placeholder="Additional details..." value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border resize-none custom-scrollbar placeholder-gray-300" />
+                                    </div>
 
-                            {/* Capabilities / Processes Section */}
-                            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                                <div className="flex items-center gap-2 mb-6 border-b border-gray-100 pb-4">
-                                    <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-                                        <Settings size={18} />
+                                    {/* Row 4 - Capabilities */}
+                                    <div className="col-span-1 md:col-span-2 lg:col-span-4 border-t border-gray-100 pt-4 mt-2">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5"><Settings size={12} className="text-purple-500"/> Capabilities</label>
+                                            <button type="button" onClick={() => { const cur = formData.processes || []; setFormData({ ...formData, processes: [...cur, ""] }); }} className="inline-flex items-center px-2 py-1 border border-transparent text-[10px] font-bold rounded text-purple-700 bg-purple-100 hover:bg-purple-200 shadow-sm transition-colors uppercase tracking-wide">
+                                                <Plus className="h-3 w-3 mr-1" /> Add Process
+                                            </button>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            {(!formData.processes || formData.processes.length === 0) && (
+                                                <div className="text-xs text-gray-400 italic py-1">No capabilities added.</div>
+                                            )}
+                                            {formData.processes && formData.processes.map((procId: string, index: number) => (
+                                                <div key={index} className="flex gap-1 items-center bg-gray-50 p-1 pl-2 rounded-lg border border-gray-200 w-full sm:w-auto min-w-[200px]">
+                                                    <select value={procId} onChange={e => { const np = [...formData.processes]; np[index] = e.target.value; setFormData({ ...formData, processes: np }); }} className="flex-1 bg-transparent text-sm border-none focus:ring-0 p-0 text-gray-700">
+                                                        <option value="">Select Process...</option>
+                                                        {processes.map(p => (<option key={p._id} value={p._id}>{p.processName}</option>))}
+                                                    </select>
+                                                    <button type="button" onClick={() => { const np = formData.processes.filter((_: any, i: number) => i !== index); setFormData({ ...formData, processes: np }); }} className="p-1 text-red-400 hover:text-red-600 rounded">
+                                                        <X size={14} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
-                                    <h3 className="text-lg font-bold text-gray-900">Capabilities</h3>
-                                </div>
-                                <div className="flex flex-col gap-4">
-                                    <div className="flex items-center justify-between">
-                                        <p className="text-sm text-gray-500">Assign processes this machine is capable of performing.</p>
-                                        <button type="button" onClick={() => { const cur = formData.processes || []; setFormData({ ...formData, processes: [...cur, ""] }); }} className="inline-flex items-center px-4 py-2 border border-transparent text-xs font-semibold rounded-lg text-white bg-purple-600 hover:bg-purple-700 shadow-sm transition-colors">
-                                            <Plus className="h-4 w-4 mr-1.5" /> Add Process
-                                        </button>
-                                    </div>
-                                    <div className="bg-gray-50 rounded-xl border border-gray-200 p-4 space-y-3">
-                                        {(!formData.processes || formData.processes.length === 0) && (
-                                            <div className="text-center py-6 text-gray-400 text-sm bg-white rounded-lg border border-dashed border-gray-300">
-                                                No capabilities added. Click "Add Process" to configure.
-                                            </div>
-                                        )}
-                                        {formData.processes && formData.processes.map((procId: string, index: number) => (
-                                            <div key={index} className="flex gap-3 items-center bg-white p-2 rounded-xl shadow-sm border border-gray-100">
-                                                <select value={procId} onChange={e => { const np = [...formData.processes]; np[index] = e.target.value; setFormData({ ...formData, processes: np }); }} className="flex-1 border-gray-200 rounded-lg shadow-sm focus:bg-white focus:ring-2 focus:ring-purple-500 focus:border-purple-500 bg-gray-50 transition-all sm:text-sm p-3 border">
-                                                    <option value="">Select Process / Operation</option>
-                                                    {processes.map(p => (<option key={p._id} value={p._id}>{p.processName}</option>))}
-                                                </select>
-                                                <button type="button" onClick={() => { const np = formData.processes.filter((_: any, i: number) => i !== index); setFormData({ ...formData, processes: np }); }} className="p-3 text-red-500 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors border border-transparent hover:border-red-100">
-                                                    <Trash2 className="h-5 w-5" />
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
 
-                            {/* Photos Section */}
-                            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                                <div className="flex items-center gap-2 mb-6 border-b border-gray-100 pb-4">
-                                    <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-                                        <Camera size={18} />
-                                    </div>
-                                    <h3 className="text-lg font-bold text-gray-900">Machine Photos</h3>
-                                </div>
-                                <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 border-dashed">
-                                    <div className="flex flex-col sm:flex-row gap-6 items-start">
-                                        <label className="cursor-pointer group flex flex-col items-center justify-center w-full sm:w-32 h-32 bg-white border-2 border-dashed border-gray-300 rounded-2xl hover:bg-blue-50 hover:border-blue-500 transition-all shadow-sm">
-                                            <div className="p-2 bg-blue-50 rounded-full text-blue-600 group-hover:bg-blue-100 transition-colors mb-2">
-                                                <Camera className="w-6 h-6" />
-                                            </div>
-                                            <span className="text-xs text-gray-600 font-semibold group-hover:text-blue-600">Upload Photo</span>
-                                            <input
-                                                type="file"
-                                                className="hidden"
-                                                accept="image/*"
-                                                onChange={e => {
+                                    {/* Row 5 - Photos */}
+                                    <div className="col-span-1 md:col-span-2 lg:col-span-4 border-t border-gray-100 pt-4 mt-2">
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Camera size={12} className="text-blue-500"/> Machine Photos</label>
+                                        <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar items-center">
+                                            <label className="cursor-pointer flex-shrink-0 flex flex-col items-center justify-center w-20 h-20 bg-white border-2 border-dashed border-gray-300 rounded-xl hover:bg-blue-50 hover:border-blue-500 transition-all shadow-sm group">
+                                                <Camera className="w-5 h-5 text-gray-400 group-hover:text-blue-500 mb-1" />
+                                                <span className="text-[10px] text-gray-500 font-semibold group-hover:text-blue-600">Upload</span>
+                                                <input type="file" className="hidden" accept="image/*" multiple onChange={e => {
                                                     if (e.target.files && e.target.files.length > 0) {
-                                                        const newFile = e.target.files[0];
                                                         const currentPhotos = formData.photos || [];
-                                                        setFormData({ ...formData, photos: [...currentPhotos, newFile] });
+                                                        setFormData({ ...formData, photos: [...currentPhotos, ...Array.from(e.target.files)] });
                                                     }
-                                                }}
-                                            />
-                                        </label>
+                                                }} />
+                                            </label>
 
-                                        <div className="flex flex-wrap gap-4 flex-1">
                                             {formData.photos && Array.from(formData.photos).map((file: any, index: number) => (
-                                                <div key={`new-${index}`} className="relative w-32 h-32 border border-gray-200 rounded-2xl overflow-hidden group shadow-sm bg-white">
-                                                    <img
-                                                        src={typeof file === 'string' ? file : URL.createObjectURL(file)}
-                                                        alt={`New ${index}`}
-                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const updatedPhotos = Array.from(formData.photos || []).filter((_, i) => i !== index);
-                                                            setFormData({ ...formData, photos: updatedPhotos });
-                                                        }}
-                                                        className="absolute top-2 right-2 bg-red-500/90 hover:bg-red-600 text-white rounded-full p-1.5 shadow-md opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0"
-                                                    >
-                                                        <X size={14} strokeWidth={3} />
+                                                <div key={`new-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-xl overflow-hidden group shadow-sm bg-white flex-shrink-0">
+                                                    <img src={typeof file === 'string' ? file : URL.createObjectURL(file)} alt={`Photo ${index}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                    <button type="button" onClick={() => { const updatedPhotos = Array.from(formData.photos || []).filter((_, i) => i !== index); setFormData({ ...formData, photos: updatedPhotos }); }} className="absolute top-1 right-1 bg-red-500/90 hover:bg-red-600 text-white rounded-full p-1 shadow-md opacity-0 group-hover:opacity-100 transition-all">
+                                                        <X size={12} strokeWidth={3} />
                                                     </button>
                                                 </div>
                                             ))}
                                             {(!formData.photos || formData.photos.length === 0) && (
-                                                <div className="flex-1 h-32 flex items-center justify-center text-sm text-gray-400">
-                                                    No photos uploaded yet.
-                                                </div>
+                                                <span className="text-xs text-gray-400 italic">No photos.</span>
                                             )}
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-
-                            
-                            {/* Submit Button Block inside Form */}
-                            <div className="flex justify-end pt-6">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowModal(false)}
-                                    className="mr-3 px-6 py-3 border border-gray-300 shadow-sm text-sm font-semibold rounded-xl text-gray-700 bg-white hover:bg-gray-50 transition-all"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={submitting}
-                                    className="inline-flex justify-center px-6 py-3 border border-transparent shadow-sm text-sm font-semibold rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
-                                >
-                                    {submitting ? <LoadingSpinner size="sm" color="white" /> : (editingItem ? 'Save Machine' : 'Create Machine')}
-                                </button>
+                                
+                                {/* Action Buttons */}
+                                <div className="flex gap-3 pt-5 mt-4 border-t border-gray-100 justify-end">
+                                    <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 border border-gray-200 shadow-sm text-sm font-bold rounded-xl text-gray-600 bg-white hover:bg-gray-50 hover:text-gray-900 transition-all active:scale-[0.98]">
+                                        Cancel
+                                    </button>
+                                    <button type="submit" disabled={submitting} className="inline-flex items-center justify-center px-5 py-2.5 shadow-sm text-sm font-bold rounded-xl text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all active:scale-[0.98] min-w-[140px]">
+                                        {submitting ? <LoadingSpinner size="sm" color="white" /> : (
+                                            <><CheckCircle className="w-4 h-4 mr-2"/> {editingItem ? 'Update Machine' : 'Create Machine'}</>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                             </form>
                         </div>

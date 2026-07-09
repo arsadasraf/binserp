@@ -1,5 +1,19 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
+import { 
+    Settings2, 
+    Hash, 
+    Cpu, 
+    Activity, 
+    IndianRupee, 
+    Gauge, 
+    MapPin, 
+    FileText, 
+    Image as ImageIcon,
+    UploadCloud,
+    X,
+    CheckCircle2
+} from "lucide-react";
 
 interface MachineFormProps {
     initialData?: any;
@@ -71,9 +85,7 @@ export default function MachineForm({
         e.preventDefault();
         const data = new FormData();
 
-        // Explicitly append fields to handle types correctly
         Object.entries(formData).forEach(([key, value]) => {
-            // Skip empty strings for optional numeric fields to avoid CastError
             if ((key === "hourlyRate" || key === "capacity") && value === "") {
                 return;
             }
@@ -87,11 +99,22 @@ export default function MachineForm({
         onSubmit(data);
     };
 
+    const InputWrapper = ({ icon: Icon, label, children }: any) => (
+        <div className="relative group">
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 ml-1">
+                <Icon size={14} className="text-indigo-500" />
+                {label}
+            </label>
+            {children}
+        </div>
+    );
+
     return (
-        <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Machine Name *</label>
+        <form onSubmit={handleSubmit} className="bg-white">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-5">
+                
+                {/* 1st Row / Section */}
+                <InputWrapper icon={Settings2} label="Machine Name *">
                     <input
                         type="text"
                         name="machineName"
@@ -99,12 +122,11 @@ export default function MachineForm({
                         onChange={handleInputChange}
                         required
                         placeholder="e.g. CNC Mill B3"
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm"
                     />
-                </div>
+                </InputWrapper>
 
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Machine Code *</label>
+                <InputWrapper icon={Hash} label="Machine Code *">
                     <input
                         type="text"
                         name="machineCode"
@@ -112,12 +134,11 @@ export default function MachineForm({
                         onChange={handleInputChange}
                         required
                         placeholder="e.g. MAC-001"
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm font-mono"
                     />
-                </div>
+                </InputWrapper>
 
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Type *</label>
+                <InputWrapper icon={Cpu} label="Type *">
                     <input
                         type="text"
                         name="machineType"
@@ -125,27 +146,33 @@ export default function MachineForm({
                         onChange={handleInputChange}
                         required
                         placeholder="e.g. Lathe"
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm"
                     />
-                </div>
+                </InputWrapper>
 
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Status</label>
-                    <select
-                        name="status"
-                        value={formData.status}
-                        onChange={handleInputChange}
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
-                    >
-                        <option value="Available">Available (Green)</option>
-                        <option value="Busy">Busy (Yellow)</option>
-                        <option value="Maintenance">Maintenance (Gray)</option>
-                        <option value="Breakdown">Breakdown (Red)</option>
-                    </select>
-                </div>
+                <InputWrapper icon={Activity} label="Status">
+                    <div className="relative">
+                        <select
+                            name="status"
+                            value={formData.status}
+                            onChange={handleInputChange}
+                            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white text-sm text-gray-900 shadow-sm appearance-none"
+                        >
+                            <option value="Available">Available</option>
+                            <option value="Busy">Busy</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Breakdown">Breakdown</option>
+                        </select>
+                        <div className={`absolute right-3 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full ${
+                            formData.status === 'Available' ? 'bg-emerald-500' :
+                            formData.status === 'Busy' ? 'bg-amber-500' :
+                            formData.status === 'Maintenance' ? 'bg-gray-500' : 'bg-red-500'
+                        }`} />
+                    </div>
+                </InputWrapper>
 
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Hourly Rate (₹)</label>
+                {/* 2nd Row / Section */}
+                <InputWrapper icon={IndianRupee} label="Hourly Rate (₹)">
                     <input
                         type="number"
                         name="hourlyRate"
@@ -153,12 +180,11 @@ export default function MachineForm({
                         onChange={handleInputChange}
                         min="0"
                         placeholder="0.00"
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm font-medium"
                     />
-                </div>
+                </InputWrapper>
 
-                <div className="space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Capacity (Units/Hr)</label>
+                <InputWrapper icon={Gauge} label="Capacity (Units/Hr)">
                     <input
                         type="number"
                         name="capacity"
@@ -166,106 +192,110 @@ export default function MachineForm({
                         onChange={handleInputChange}
                         min="0"
                         placeholder="0"
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
+                        className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm"
                     />
+                </InputWrapper>
+
+                <div className="lg:col-span-2">
+                    <InputWrapper icon={MapPin} label="Location">
+                        <input
+                            type="text"
+                            name="location"
+                            value={formData.location}
+                            onChange={handleInputChange}
+                            placeholder="e.g. Shop Floor 1, Bay 3"
+                            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm"
+                        />
+                    </InputWrapper>
                 </div>
 
-                <div className="md:col-span-2 space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Location</label>
-                    <input
-                        type="text"
-                        name="location"
-                        value={formData.location}
-                        onChange={handleInputChange}
-                        placeholder="e.g. Shop Floor 1, Bay 3"
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none"
-                    />
+                {/* 3rd Row / Specifications spans full width or 2 cols */}
+                <div className="lg:col-span-4">
+                    <InputWrapper icon={FileText} label="Specifications / Details">
+                        <textarea
+                            name="specifications"
+                            value={formData.specifications}
+                            onChange={handleInputChange}
+                            rows={2}
+                            placeholder="Enter technical specifications, dimensions, power requirements, etc..."
+                            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-white placeholder-gray-400 text-sm text-gray-900 shadow-sm resize-none custom-scrollbar"
+                        />
+                    </InputWrapper>
                 </div>
 
-                <div className="md:col-span-2 space-y-2">
-                    <label className="text-sm font-semibold text-gray-700">Specifications / Details</label>
-                    <textarea
-                        name="specifications"
-                        value={formData.specifications}
-                        onChange={handleInputChange}
-                        rows={4}
-                        placeholder="Enter technical specifications, dimensions, power requirements, etc..."
-                        className="w-full px-4 py-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all bg-gray-50 focus:bg-white outline-none resize-none"
-                    />
-                </div>
+                {/* 4th Row / Media spans full width */}
+                <div className="lg:col-span-4">
+                    <InputWrapper icon={ImageIcon} label="Machine Photos">
+                        <div className="flex gap-4 overflow-x-auto pb-2 custom-scrollbar items-center">
+                            {/* Upload Button */}
+                            <label className="flex-shrink-0 w-24 h-24 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-indigo-500 hover:bg-indigo-50/50 transition-all group bg-white">
+                                <UploadCloud size={20} className="text-gray-400 group-hover:text-indigo-600 transition-colors mb-1" />
+                                <span className="text-xs font-semibold text-gray-600 group-hover:text-indigo-700">Upload</span>
+                                <input
+                                    type="file"
+                                    onChange={handlePhotoChange}
+                                    className="hidden"
+                                    accept="image/*"
+                                    multiple
+                                />
+                            </label>
 
-                <div className="md:col-span-2 space-y-3">
-                    <label className="text-sm font-semibold text-gray-700">Machine Photos</label>
-
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-4">
-                        {/* Existing Photos */}
-                        {existingPhotos.map((url, idx) => (
-                            <div key={`existing-${idx}`} className="group relative aspect-square rounded-xl overflow-hidden border border-gray-200">
-                                <Image src={url} alt="Machine" fill className="object-cover" />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <span className="text-white text-xs font-medium">Existing</span>
+                            {/* Existing Photos */}
+                            {existingPhotos.map((url, idx) => (
+                                <div key={`existing-${idx}`} className="flex-shrink-0 relative w-24 h-24 rounded-xl overflow-hidden border-2 border-gray-100 shadow-sm bg-white group">
+                                    <Image src={url} alt="Machine" fill className="object-cover" />
+                                    <div className="absolute inset-x-0 bottom-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-center">
+                                        <span className="text-white text-[9px] font-semibold">Existing</span>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
 
-                        {/* New Previews */}
-                        {previewUrls.map((url, idx) => (
-                            <div key={`new-${idx}`} className="group relative aspect-square rounded-xl overflow-hidden border border-gray-200 shadow-sm">
-                                <Image src={url} alt="Preview" fill className="object-cover" />
-                                <button
-                                    type="button"
-                                    onClick={() => removePhoto(idx)}
-                                    className="absolute top-1 right-1 bg-red-500/90 text-white rounded-full p-1.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-lg"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
-                        ))}
-
-                        {/* Upload Button */}
-                        <label className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-indigo-500 hover:bg-indigo-50/50 transition-all group">
-                            <div className="p-3 rounded-full bg-gray-100 group-hover:bg-indigo-100 transition-colors mb-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-500 group-hover:text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                            </div>
-                            <span className="text-xs font-medium text-gray-600 group-hover:text-indigo-700">Add Photo</span>
-                            <input
-                                type="file"
-                                onChange={handlePhotoChange}
-                                className="hidden"
-                                accept="image/*"
-                                multiple
-                            />
-                        </label>
-                    </div>
+                            {/* New Previews */}
+                            {previewUrls.map((url, idx) => (
+                                <div key={`new-${idx}`} className="flex-shrink-0 relative w-24 h-24 rounded-xl overflow-hidden border-2 border-indigo-100 shadow-sm bg-white group ring-2 ring-indigo-500/20">
+                                    <Image src={url} alt="Preview" fill className="object-cover" />
+                                    <button
+                                        type="button"
+                                        onClick={() => removePhoto(idx)}
+                                        className="absolute top-1 right-1 bg-red-500/90 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow-lg hover:scale-110"
+                                    >
+                                        <X size={12} strokeWidth={3} />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </InputWrapper>
                 </div>
             </div>
 
-            <div className="flex gap-4 pt-6 border-t border-gray-100">
+            {/* Action Buttons */}
+            <div className="flex gap-4 pt-5 mt-2 border-t border-gray-100">
                 <button
                     type="button"
                     onClick={onCancel}
-                    className="flex-1 px-4 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 hover:border-gray-300 transition-all focus:ring-4 focus:ring-gray-100"
+                    className="flex-1 px-4 py-3 bg-white border-2 border-gray-200 text-gray-700 rounded-xl font-bold hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900 transition-all focus:ring-4 focus:ring-gray-100 active:scale-[0.98] text-sm"
                 >
                     Cancel
                 </button>
                 <button
                     type="submit"
                     disabled={loading}
-                    className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-semibold hover:from-indigo-700 hover:to-violet-700 transition-all shadow-lg shadow-indigo-200 focus:ring-4 focus:ring-indigo-100 disabled:opacity-70 disabled:cursor-not-allowed"
+                    className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-bold hover:from-indigo-700 hover:to-violet-700 transition-all shadow-lg shadow-indigo-200 focus:ring-4 focus:ring-indigo-100 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-[0.98] text-sm"
                 >
                     {loading ? (
-                        <span className="flex items-center justify-center gap-2">
-                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             Saving...
-                        </span>
-                    ) : initialData ? "Update Machine" : "Create Machine"}
+                        </>
+                    ) : (
+                        <>
+                            <CheckCircle2 size={18} />
+                            {initialData ? "Update Machine" : "Create Machine"}
+                        </>
+                    )}
                 </button>
             </div>
         </form>
