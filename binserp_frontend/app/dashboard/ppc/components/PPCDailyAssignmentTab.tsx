@@ -238,7 +238,7 @@ export default function PPCDailyAssignmentTab() {
       </div>
 
       {/* Modal for creating assignments */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Create Daily Assignment" size="4xl">
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Create Daily Assignment" maxWidth="4xl">
         <form onSubmit={handleSubmit} className="p-1 max-w-4xl mx-auto space-y-6">
           <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-6 flex items-center gap-3">
             <Calendar className="text-blue-500" size={20} />
