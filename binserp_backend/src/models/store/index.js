@@ -4,7 +4,6 @@ export { materialIssueSchema } from './materialIssue.model.js';
 export { bomSchema } from './bom.model.js';
 export { inventorySchema } from './inventory.model.js';
 export { materialRequestSchema } from './materialRequest.model.js';
-export { purchaseOrderSchema } from './purchaseOrder.model.js';
 export { vendorSchema } from './vendor.model.js';
 export { jobWorkSupplierSchema } from './jobWorkSupplier.model.js';
 export { customerSchema } from './customer.model.js';

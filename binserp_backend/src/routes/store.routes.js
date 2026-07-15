@@ -18,9 +18,6 @@ import {
   createMaterialRequest,
   getAllMaterialRequests,
   updateMaterialRequest,
-  createPO,
-  getAllPOs,
-  updatePO,
   createVendor,
   getAllVendors,
   updateVendor,
@@ -103,11 +100,6 @@ router.get("/inventory/low-stock", getLowStockItems);
 router.post("/material-request", createMaterialRequest);
 router.get("/material-request", getAllMaterialRequests);
 router.put("/material-request/:id", updateMaterialRequest);
-
-// Purchase Order routes
-router.post("/po", createPO);
-router.get("/po", getAllPOs);
-router.put("/po/:id", updatePO);
 
 // Master routes
 router.post("/vendor", createVendor);

@@ -55,6 +55,7 @@ import crmRoutes from "./routes/crm.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import accountsRoutes from "./routes/accounts.routes.js";
 import documentRoutes from "./routes/document.routes.js";
+import purchaseRoutes from "./routes/purchase.routes.js";
 
 //routes declaration
 app.use("/api/company", companyRoutes);
@@ -74,6 +75,7 @@ app.use("/api/crm", crmRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);
+app.use("/api/purchase", purchaseRoutes);
 
 app.use(globalErrorHandler);
 // http://localhost:8000/api/v1/users/register

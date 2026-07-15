@@ -491,6 +491,44 @@ function StoreContent() {
 
         <div className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
+          {/* Purchase tabs - shown when purchase, po, purchase-rfq, vendor-quotation, or vendor-price-list tabs are active */}
+          {(activeTab === "purchase" || activeTab === "po" || activeTab === "purchase-rfq" || activeTab === "vendor-quotation" || activeTab === "vendor-price-list") && (
+            <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+              <Link
+                href="/dashboard/store?tab=purchase-rfq"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "purchase-rfq"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Purchase RFQ
+              </Link>
+              <Link
+                href="/dashboard/store?tab=vendor-quotation"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "vendor-quotation"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Vendor Quotations
+              </Link>
+              <Link
+                href="/dashboard/store?tab=purchase"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "purchase" || activeTab === "po"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Purchase Orders
+              </Link>
+              <Link
+                href="/dashboard/store?tab=vendor-price-list"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "vendor-price-list"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                RM/BO Price List
+              </Link>
+            </div>
+          )}
+
           {/* Master tabs - only shown when masters tab is active */}
           {activeTab === "masters" && (
             <div className="mb-6">
@@ -934,6 +972,21 @@ function StoreContent() {
               ) : activeTab === "incoming-po" ? (
                 <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
                   <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Customer Purchase Orders</p>
+                  <p className="text-sm">This module is currently pending frontend integration.</p>
+                </div>
+              ) : activeTab === "purchase-rfq" ? (
+                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Purchase RFQ</p>
+                  <p className="text-sm">This module is currently pending frontend integration.</p>
+                </div>
+              ) : activeTab === "vendor-quotation" ? (
+                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Vendor Quotations</p>
+                  <p className="text-sm">This module is currently pending frontend integration.</p>
+                </div>
+              ) : activeTab === "vendor-price-list" ? (
+                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">RM/BO Price List</p>
                   <p className="text-sm">This module is currently pending frontend integration.</p>
                 </div>
               ) : (activeTab === "purchase" || activeTab === "po") ? (
