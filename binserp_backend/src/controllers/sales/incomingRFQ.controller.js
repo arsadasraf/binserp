@@ -1,4 +1,5 @@
 import { incomingRFQSchema } from "../../models/sales/index.js";
+import { storePrefixSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 const getCompanyId = (req) => {
@@ -7,10 +8,18 @@ const getCompanyId = (req) => {
 
 export const createIncomingRFQ = asyncHandler(async (req, res) => {
   const IncomingRFQ = req.getModel("IncomingRFQ", incomingRFQSchema);
+  const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
   const companyId = getCompanyId(req);
   
+  let settings = await StorePrefix.findOne();
+  const prefix = settings?.incomingRfqPrefix || "RFQ";
+  const currentYear = new Date().getFullYear();
+  const count = await IncomingRFQ.countDocuments({ company: companyId });
+  const rfqNumber = `${prefix}-${currentYear}-${(count + 1).toString().padStart(3, '0')}`;
+
   const rfq = await IncomingRFQ.create({
     ...req.body,
+    rfqNumber,
     company: companyId,
     receivedBy: req.user.id,
   });

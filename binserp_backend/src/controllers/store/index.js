@@ -54,3 +54,4 @@ export { createFGItem, getAllFGItems, updateFGItem, deleteFGItem } from './fgIte
 export { createFGGRN, getAllFGGRNs, updateFGGRN, deleteFGGRN } from './fgGRN.controller.js';
 export { getRMMonthlyInventory, getFGMonthlyInventory } from './getMonthlyInventory.controller.js';
 export { updateRMMonthlyInventory, updateFGMonthlyInventory } from './updateMonthlyInventory.controller.js';
+export { getStorePrefixSettings, updateStorePrefixSettings } from './storePrefix.controller.js';

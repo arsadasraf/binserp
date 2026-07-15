@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    </style>
+</head>
+<body class="bg-white p-8">
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <div class="flex justify-between items-start mb-8">
+            <div>
+                <% if (companyInfo?.logo) { %>
+                    <img src="<%= companyInfo.logo %>" class="h-16 mb-4" />
+                <% } %>
+                <h1 class="text-xl font-bold text-slate-800"><%= companyInfo?.companyName || 'Company Name' %></h1>
+                <p class="text-sm text-slate-500 mt-1 max-w-xs"><%= companyInfo?.billingAddress || '' %></p>
+                <% if (companyInfo?.contactNumber) { %><p class="text-sm text-slate-500">Phone: <%= companyInfo.contactNumber %></p><% } %>
+                <% if (companyInfo?.email) { %><p class="text-sm text-slate-500">Email: <%= companyInfo.email %></p><% } %>
+            </div>
+            <div class="text-right">
+                <h2 class="text-3xl font-bold text-indigo-600 mb-2">INCOMING RFQ</h2>
+                <p class="text-sm text-slate-600"><span class="font-semibold">RFQ No:</span> <%= doc.rfqNumber %></p>
+                <p class="text-sm text-slate-600"><span class="font-semibold">Date:</span> <%= new Date(doc.date).toLocaleDateString() %></p>
+                <% if (doc.expectedDeliveryDate) { %>
+                <p class="text-sm text-slate-600 mt-1"><span class="font-semibold">Expected Delivery:</span> <%= new Date(doc.expectedDeliveryDate).toLocaleDateString() %></p>
+                <% } %>
+            </div>
+        </div>
+
+        <!-- Customer Info -->
+        <div class="mb-8 p-4 bg-slate-50 rounded-lg border border-slate-100">
+            <h3 class="text-sm font-bold text-slate-800 mb-2">CUSTOMER DETAILS:</h3>
+            <p class="text-sm font-semibold text-slate-700"><%= doc.customerName || 'N/A' %></p>
+            <% if (doc.customerEmail) { %><p class="text-sm text-slate-500 mt-1">Email: <%= doc.customerEmail %></p><% } %>
+            <% if (doc.customerPhone) { %><p class="text-sm text-slate-500">Phone: <%= doc.customerPhone %></p><% } %>
+        </div>
+
+        <!-- Items Table -->
+        <table class="w-full text-sm text-left mb-8">
+            <thead class="text-xs text-white uppercase bg-indigo-600 rounded-t-lg">
+                <tr>
+                    <th class="px-4 py-3 rounded-tl-lg">S.No</th>
+                    <th class="px-4 py-3">Item Name</th>
+                    <th class="px-4 py-3">Description</th>
+                    <th class="px-4 py-3 text-right">Quantity</th>
+                    <th class="px-4 py-3">Unit</th>
+                    <th class="px-4 py-3 text-right rounded-tr-lg">Target Price</th>
+                </tr>
+            </thead>
+            <tbody>
+                <% if (doc.items && doc.items.length > 0) { %>
+                    <% doc.items.forEach(function(item, index) { %>
+                    <tr class="border-b border-slate-200 <%= index % 2 === 0 ? 'bg-white' : 'bg-slate-50' %>">
+                        <td class="px-4 py-3 text-slate-600"><%= index + 1 %></td>
+                        <td class="px-4 py-3 font-medium text-slate-800">
+                            <%= item.itemType === 'FGItem' ? (item.fgItem?.name || item.fgItem) : item.customItemName %>
+                        </td>
+                        <td class="px-4 py-3 text-slate-500"><%= item.description || '-' %></td>
+                        <td class="px-4 py-3 text-right text-slate-600"><%= item.quantity %></td>
+                        <td class="px-4 py-3 text-slate-600"><%= item.unit || '-' %></td>
+                        <td class="px-4 py-3 text-right text-slate-600"><%= item.targetPrice ? item.targetPrice.toFixed(2) : '-' %></td>
+                    </tr>
+                    <% }); %>
+                <% } else { %>
+                    <tr>
+                        <td colspan="6" class="px-4 py-3 text-center text-slate-500">No items found</td>
+                    </tr>
+                <% } %>
+            </tbody>
+        </table>
+
+        <!-- Footer -->
+        <div class="flex justify-between items-end mt-12 pt-8 border-t border-slate-200">
+            <div class="w-2/3">
+                <% if (doc.remarks) { %>
+                    <h4 class="text-xs font-bold text-slate-800 mb-1">Remarks:</h4>
+                    <p class="text-xs text-slate-500 max-w-md whitespace-pre-wrap"><%= doc.remarks %></p>
+                <% } %>
+            </div>
+            
+            <div class="text-right">
+                <p class="text-sm font-bold text-slate-800 mb-8">Authorized Signatory</p>
+                <p class="text-xs text-slate-500">For <%= companyInfo?.companyName || 'Company' %></p>
+            </div>
+        </div>
+        
+        <div class="mt-8 text-center text-[10px] text-slate-400">
+            Generated on: <%= new Date().toLocaleString() %>
+        </div>
+    </div>
+</body>
+</html>

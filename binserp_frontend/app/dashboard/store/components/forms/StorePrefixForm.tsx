@@ -3,41 +3,41 @@ import { API_BASE_URL } from '@/src/utils/config';
 import { Edit2, Save, X } from 'lucide-react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 
-interface PrefixSettings {
+interface StorePrefixSettings {
     grnPrefix: string;
     poPrefix: string;
     dcPrefix: string;
     invoicePrefix: string;
-    employeePrefix: string;
     partPrefix: string;
     vendorPrefix: string;
     customerPrefix: string;
     jobWorkSupplierPrefix: string;
+    incomingRfqPrefix: string;
 }
 
-interface PrefixSettingsFormProps {
+interface StorePrefixFormProps {
     token: string | null;
     onError: (message: string) => void;
     onSuccess: (message: string) => void;
 }
 
-export default function PrefixSettingsForm({ token, onError, onSuccess }: PrefixSettingsFormProps) {
-    const [settings, setSettings] = useState<PrefixSettings>({
+export default function StorePrefixForm({ token, onError, onSuccess }: StorePrefixFormProps) {
+    const [settings, setSettings] = useState<StorePrefixSettings>({
         grnPrefix: '',
         poPrefix: '',
         dcPrefix: '',
         invoicePrefix: '',
-        employeePrefix: '',
         partPrefix: '',
         vendorPrefix: '',
         customerPrefix: '',
         jobWorkSupplierPrefix: '',
+        incomingRfqPrefix: '',
     });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     const [isEditing, setIsEditing] = useState(false);
-    const [originalSettings, setOriginalSettings] = useState<PrefixSettings | null>(null);
+    const [originalSettings, setOriginalSettings] = useState<StorePrefixSettings | null>(null);
 
     useEffect(() => {
         fetchSettings();
@@ -47,7 +47,7 @@ export default function PrefixSettingsForm({ token, onError, onSuccess }: Prefix
         if (!token) return;
         try {
             setLoading(true);
-            const response = await fetch(`${API_BASE_URL}/api/prefix`, {
+            const response = await fetch(`${API_BASE_URL}/api/store/prefix`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -63,11 +63,11 @@ export default function PrefixSettingsForm({ token, onError, onSuccess }: Prefix
                     poPrefix: data.settings.poPrefix || 'PO',
                     dcPrefix: data.settings.dcPrefix || 'DC',
                     invoicePrefix: data.settings.invoicePrefix || 'INV',
-                    employeePrefix: data.settings.employeePrefix || 'EMP',
                     partPrefix: data.settings.partPrefix || 'PART',
                     vendorPrefix: data.settings.vendorPrefix || 'VEN',
                     customerPrefix: data.settings.customerPrefix || 'CUS',
                     jobWorkSupplierPrefix: data.settings.jobWorkSupplierPrefix || 'JWS',
+                    incomingRfqPrefix: data.settings.incomingRfqPrefix || 'RFQ',
                 };
                 setSettings(fetchedSettings);
                 setOriginalSettings(fetchedSettings);
@@ -85,7 +85,7 @@ export default function PrefixSettingsForm({ token, onError, onSuccess }: Prefix
 
         try {
             setSaving(true);
-            const response = await fetch(`${API_BASE_URL}/api/prefix`, {
+            const response = await fetch(`${API_BASE_URL}/api/store/prefix`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -201,21 +201,6 @@ export default function PrefixSettingsForm({ token, onError, onSuccess }: Prefix
                         <p className="text-xs text-gray-400 mt-1">Example: {settings.invoicePrefix}-2024-001</p>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Employee ID Prefix</label>
-                        <div className="relative">
-                            <input
-                                type="text"
-                                name="employeePrefix"
-                                value={settings.employeePrefix}
-                                onChange={handleChange}
-                                disabled={!isEditing}
-                                className={`w-full pl-4 pr-10 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all uppercase ${!isEditing ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                placeholder="e.g. EMP"
-                            />
-                        </div>
-                        <p className="text-xs text-gray-400 mt-1">Example: {settings.employeePrefix}-001</p>
-                    </div>
 
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Part/Item Code Prefix</label>
@@ -279,6 +264,22 @@ export default function PrefixSettingsForm({ token, onError, onSuccess }: Prefix
                             />
                         </div>
                         <p className="text-xs text-gray-400 mt-1">Example: {settings.jobWorkSupplierPrefix}-001</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Incoming RFQ Prefix</label>
+                        <div className="relative">
+                            <input
+                                type="text"
+                                name="incomingRfqPrefix"
+                                value={settings.incomingRfqPrefix}
+                                onChange={handleChange}
+                                disabled={!isEditing}
+                                className={`w-full pl-4 pr-10 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all uppercase ${!isEditing && 'opacity-60 cursor-not-allowed'}`}
+                                placeholder="e.g. RFQ"
+                            />
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Example: {settings.incomingRfqPrefix}-2024-001</p>
                     </div>
 
                 </div>

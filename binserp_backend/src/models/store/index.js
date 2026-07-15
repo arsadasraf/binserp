@@ -21,3 +21,4 @@ export { fgInventoryMonthlySchema } from './fgInventoryMonthly.model.js';
 export { storeOrderFulfillmentSchema } from './storeOrderFulfillment.model.js';
 export { storeMRPSchema } from './storeMRP.model.js';
 export { storeRMPlanSchema } from './storeRMPlan.model.js';
+export { storePrefixSchema } from './storePrefix.model.js';

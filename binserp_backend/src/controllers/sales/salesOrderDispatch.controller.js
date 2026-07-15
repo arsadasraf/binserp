@@ -1,7 +1,7 @@
 import { customerSchema, fgItemSchema, storeOrderFulfillmentSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { prefixSettingsSchema } from "../../models/prefix/index.js";
+import { storePrefixSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import mongoose from "mongoose";
 
@@ -14,10 +14,10 @@ const getCompanyId = (req) => {
 };
 
 const generateDispatchNumber = async (req) => {
-  const PrefixSettings = req.getModel("PrefixSettings", prefixSettingsSchema);
+  const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
   const companyId = getCompanyId(req);
   
-  const settings = await PrefixSettings.findOne({ company: companyId });
+  const settings = await StorePrefix.findOne({ company: companyId });
   const prefix = settings?.dispatchPrefix || "DSP-";
   
   const StoreDispatch = req.getModel("SalesOrderDispatchHistory", salesOrderDispatchHistorySchema);

@@ -48,7 +48,9 @@ import {
   createJobWorkSupplier,
   getAllJobWorkSuppliers,
   updateJobWorkSupplier,
-  deleteJobWorkSupplier
+  deleteJobWorkSupplier,
+  getStorePrefixSettings,
+  updateStorePrefixSettings
 } from "../controllers/store/index.js";
 import {
   getFulfillments,
@@ -181,5 +183,9 @@ router.get("/monthly-inventory/rm", getRMMonthlyInventory);
 router.post("/monthly-inventory/rm", updateRMMonthlyInventory);
 router.get("/monthly-inventory/fg", getFGMonthlyInventory);
 router.post("/monthly-inventory/fg", updateFGMonthlyInventory);
+
+// Store Prefix Routes
+router.get("/prefix", getStorePrefixSettings);
+router.put("/prefix", updateStorePrefixSettings);
 
 export default router;

@@ -8,10 +8,11 @@ interface IncomingRFQTableProps {
   fgItems: any[];
   onCreate: () => void;
   onEdit: (rfq: any) => void;
+  onView: (rfq: any) => void;
   onDelete: (id: string, name: string) => void;
 }
 
-export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItems, onCreate, onEdit, onDelete }) => {
+export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItems, onCreate, onEdit, onView, onDelete }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
   const filteredRfqs = rfqs.filter((rfq) =>
@@ -73,7 +74,7 @@ export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItem
               </tr>
             ) : (
               filteredRfqs.map((rfq) => (
-                <tr key={rfq._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group">
+                <tr key={rfq._id} onClick={() => onView(rfq)} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
                   <td className="px-6 py-4">
                     <span className="font-medium text-gray-900 dark:text-white">{rfq.rfqNumber}</span>
                   </td>
@@ -99,14 +100,14 @@ export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItem
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => onEdit(rfq)}
+                        onClick={(e) => { e.stopPropagation(); onEdit(rfq); }}
                         className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
                         title="Edit RFQ"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => onDelete(rfq._id, rfq.rfqNumber)}
+                        onClick={(e) => { e.stopPropagation(); onDelete(rfq._id, rfq.rfqNumber); }}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Delete RFQ"
                       >

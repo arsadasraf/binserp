@@ -53,7 +53,7 @@ import MaterialIssueTab from "./components/tabs/MaterialIssueTab";
 import StoreTabs from "./components/tabs/StoreTabs";
 import StoreOrdersTab from "./components/tabs/StoreOrdersTab";
 import PPCProductsTab from "../ppc/components/PPCProductsTab";
-import PrefixSettingsForm from "./components/forms/PrefixSettingsForm";
+import StorePrefixForm from "./components/forms/StorePrefixForm";
 import JobWorkStore from "./components/tabs/JobWorkStore";
 import InventoryTab from "./components/tabs/InventoryTab";
 import MRPTab from "./components/tabs/MRPTab";
@@ -103,6 +103,7 @@ function StoreContent() {
   // State for Incoming RFQ modal
   const [showIncomingRFQModal, setShowIncomingRFQModal] = useState(false);
   const [editingIncomingRFQ, setEditingIncomingRFQ] = useState<any>(undefined);
+  const [previewingIncomingRFQ, setPreviewingIncomingRFQ] = useState<boolean>(false);
 
   // Filter States for Bills
   const [filterType, setFilterType] = useState<'monthly' | 'yearly'>('monthly');
@@ -235,6 +236,7 @@ function StoreContent() {
       }
       setShowIncomingRFQModal(false);
       setEditingIncomingRFQ(undefined);
+      setPreviewingIncomingRFQ(false);
     } catch (err: any) {
       setError(err.data?.message || err.message || "An error occurred");
     }
@@ -993,9 +995,19 @@ function StoreContent() {
                   <IncomingRFQTable
                     rfqs={Array.isArray(data) ? data : []}
                     fgItems={fgItems}
-                    onCreate={() => setShowIncomingRFQModal(true)}
+                    onCreate={() => {
+                      setEditingIncomingRFQ(undefined);
+                      setPreviewingIncomingRFQ(false);
+                      setShowIncomingRFQModal(true);
+                    }}
                     onEdit={(rfq) => {
                       setEditingIncomingRFQ(rfq);
+                      setPreviewingIncomingRFQ(false);
+                      setShowIncomingRFQModal(true);
+                    }}
+                    onView={(rfq) => {
+                      setEditingIncomingRFQ(rfq);
+                      setPreviewingIncomingRFQ(true);
                       setShowIncomingRFQModal(true);
                     }}
                     onDelete={handleDelete}
@@ -1058,7 +1070,7 @@ function StoreContent() {
                   loading={loading}
                 />
               ) : activeTab === "masters" && masterTab === "prefix-settings" ? (
-                <PrefixSettingsForm
+                <StorePrefixForm
                   token={token}
                   onError={setError}
                   onSuccess={setSuccess}
@@ -1216,12 +1228,16 @@ function StoreContent() {
               <IncomingRFQForm
                 initialData={editingIncomingRFQ}
                 fgItems={fgItems}
+                customers={customers}
+                companyInfo={companyInfo}
                 onSubmit={handleIncomingRFQSubmit}
                 onCancel={() => {
                   setShowIncomingRFQModal(false);
                   setEditingIncomingRFQ(undefined);
+                  setPreviewingIncomingRFQ(false);
                 }}
                 isSubmitting={loading}
+                isPreview={previewingIncomingRFQ}
               />
             )}
 
