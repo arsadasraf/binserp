@@ -397,9 +397,12 @@ export interface QuotationFormData {
     _id?: string;
     quotationNumber?: string;
     date: string;
+    customerType?: 'custom' | 'master';
+    customer?: string; // ID
     customerName: string;
     customerAddress?: string;
     items: Array<{
+        itemType?: 'custom' | 'fg';
         component?: string; // ID
         material?: string;
         productName: string;
@@ -598,6 +601,8 @@ export interface QuotationModalProps {
     onSubmit: (data: QuotationFormData) => void;
     components: any[];
     materials?: any[];
+    customers?: any[];
+    priceLists?: any[];
     loading: boolean;
     initialData?: QuotationFormData;
     isEditing?: boolean;

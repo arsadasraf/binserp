@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full", dropdownPosition = "bottom" }: any) => {
+const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full", innerClassName = "", dropdownPosition = "bottom" }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -21,7 +21,7 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className = "
     return (
         <div ref={wrapperRef} className={`relative ${className}`}>
             <div 
-                className={`w-full px-2 py-1.5 text-xs bg-white border rounded outline-none cursor-pointer flex justify-between items-center ${!selectedOption && !value ? 'border-red-300' : 'border-gray-200'}`}
+                className={`${innerClassName ? innerClassName : 'w-full px-2 py-1.5 text-xs bg-white border rounded outline-none cursor-pointer'} flex justify-between items-center ${!selectedOption && !value ? 'border-red-300' : (innerClassName ? '' : 'border-gray-200')}`}
                 onClick={() => setIsOpen(!isOpen)}
             >
                 <span className={`truncate ${!selectedOption ? 'text-gray-500' : 'text-gray-800'}`}>

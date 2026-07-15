@@ -45,6 +45,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: companyInfoData } = useGetStoreDataQuery("company-info", { skip: !token });
     const { data: materialRequestsData = [] } = useGetStoreDataQuery("material-request", { skip: !token });
     const { data: inventoryData = [] } = useGetStoreDataQuery("inventory", { skip: !token });
+    const { data: priceListsData = [] } = useGetStoreDataQuery("price-list", { skip: !token });
     
     const { data: fgItems = [] } = useGetStoreDataQuery('fg-item', { skip: !token }); const { data: fgGrns = [] } = useGetStoreDataQuery('fg-grn', { skip: !token });
     const { data: pendingProducts = [] } = useGetPpcComponentsQuery({ isInventoryItem: false }, { skip: !token });
@@ -82,6 +83,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const inventoryList = Array.isArray(inventoryData) ? inventoryData : [];
     const jobWorkSuppliers = jobWorkSuppliersData;
     const processes = processesData;
+    const priceLists = priceListsData;
     const companyInfo = companyInfoData ? (Array.isArray(companyInfoData) ? companyInfoData[0] : companyInfoData) : undefined;
     const loading = mainLoading;
 
@@ -705,6 +707,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         fgItems,
         pendingProducts,
         jobWorkSuppliers, // Added
+        priceLists, // Added
         refetch: fetchData,
     };
 }

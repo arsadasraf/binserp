@@ -174,6 +174,7 @@ function StoreContent() {
     fgItems,
     pendingProducts,
     jobWorkSuppliers,
+    priceLists,
     refetch,
   } = useStoreData(activeTab, masterTab, token);
 
@@ -1217,7 +1218,8 @@ function StoreContent() {
                 setEditingQuotation(undefined);
               }}
               customers={customers}
-              inHouseItems={fgItems}
+              components={fgItems}
+              priceLists={priceLists}
               loading={loading}
               initialData={editingQuotation}
               isEditing={!!editingQuotation}

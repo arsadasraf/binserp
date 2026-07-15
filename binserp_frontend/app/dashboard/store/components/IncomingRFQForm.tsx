@@ -3,6 +3,7 @@ import { Plus, Trash2, X, Search, FileText, Download } from "lucide-react";
 import Swal from "sweetalert2";
 import SearchableSelect from "./SearchableSelect";
 import { generateDocument } from "@/src/utils/documentHelper";
+import { API_BASE_URL } from "@/src/utils/config";
 
 interface IncomingRFQFormProps {
   initialData?: any;
@@ -17,8 +18,18 @@ interface IncomingRFQFormProps {
 
 export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, fgItems, customers = [], companyInfo, onSubmit, onCancel, isSubmitting, isPreview }) => {
   const [customerType, setCustomerType] = useState<"master" | "custom">("master");
+  const [prefix, setPrefix] = useState("RFQ");
+
+  const generateRfqNumber = (currentPrefix: string) => {
+    const currentYear = new Date().getFullYear();
+    // Use a random or temporary sequence if count is not available in frontend,
+    // or just let backend generate the actual number on submit.
+    // However, since backend uses sequence, we can show a placeholder.
+    return `${currentPrefix}-${currentYear}-Auto`;
+  };
+
   const [formData, setFormData] = useState({
-    rfqNumber: "Auto-generated",
+    rfqNumber: generateRfqNumber(prefix),
     date: new Date().toISOString().split("T")[0],
     customerName: "",
     customerEmail: "",
@@ -78,9 +89,29 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
         setCustomerType(isMaster ? "master" : "custom");
       }
     } else {
-      setFormData(prev => ({ ...prev, rfqNumber: "Auto-generated" }));
+      setFormData(prev => ({ ...prev, rfqNumber: generateRfqNumber(prefix) }));
     }
-  }, [initialData, fgItems, customers]);
+  }, [initialData, fgItems, customers, prefix]);
+
+  useEffect(() => {
+    const fetchPrefix = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_BASE_URL}/api/store/prefix`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await res.json();
+        if (data.settings?.incomingRfqPrefix) {
+          setPrefix(data.settings.incomingRfqPrefix);
+        }
+      } catch (error) {
+        console.error("Failed to fetch prefix settings", error);
+      }
+    };
+    if (!initialData) fetchPrefix();
+  }, [initialData]);
 
   const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...formData.items];
@@ -155,15 +186,22 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
       ...formData,
       items: formData.items.map(item => {
         const cleanedItem: any = { ...item };
-        if (cleanedItem.itemType === "Custom" || !cleanedItem.fgItem) {
-          delete cleanedItem.fgItem;
+        if (cleanedItem.itemType === "Custom") {
+          cleanedItem.fgItem = null;
+        } else if (cleanedItem.fgItem === "") {
+          cleanedItem.fgItem = null;
         }
         if (cleanedItem.itemType === "FGItem") {
-          delete cleanedItem.customItemName;
+          cleanedItem.customItemName = "";
         }
         return cleanedItem;
       })
     };
+    
+    // Allow backend to assign correct sequential number for new RFQs
+    if (!initialData) {
+      delete payload.rfqNumber;
+    }
 
     onSubmit(payload);
   };
@@ -411,8 +449,8 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
                         step="0.01"
                         required
                         disabled={isPreview}
-                        value={item.quantity === undefined || Number.isNaN(item.quantity as number) ? "" : item.quantity}
-                        onChange={(e) => handleItemChange(index, "quantity", e.target.value === '' ? '' : parseFloat(e.target.value))}
+                        value={item.quantity === "" ? "" : item.quantity}
+                        onChange={(e) => handleItemChange(index, "quantity", e.target.value === '' ? '' : Number(e.target.value))}
                         className={`w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isPreview ? 'opacity-70 cursor-not-allowed' : ''}`}
                       />
                     </div>
@@ -435,8 +473,8 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
                         min="0"
                         step="0.01"
                         disabled={isPreview}
-                        value={item.targetPrice === undefined || Number.isNaN(item.targetPrice as number) ? "" : item.targetPrice}
-                        onChange={(e) => handleItemChange(index, "targetPrice", e.target.value === '' ? '' : parseFloat(e.target.value))}
+                        value={item.targetPrice === "" ? "" : item.targetPrice}
+                        onChange={(e) => handleItemChange(index, "targetPrice", e.target.value === '' ? '' : Number(e.target.value))}
                         className={`w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isPreview ? 'opacity-70 cursor-not-allowed' : ''}`}
                       />
                     </div>

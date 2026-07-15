@@ -8,6 +8,8 @@
 
 import { useState, useEffect } from "react";
 import { QuotationModalProps, QuotationFormData } from "../../types/store.types";
+import { API_BASE_URL } from "@/src/utils/config";
+import SearchableSelect from "../SearchableSelect";
 
 export default function QuotationModal({
     isOpen,
@@ -15,16 +17,32 @@ export default function QuotationModal({
     onSubmit,
     components = [],
     materials = [],
+    customers = [],
+    priceLists = [],
     loading,
     initialData,
     isEditing = false,
 }: QuotationModalProps) {
+    const [prefix, setPrefix] = useState('QT-OUT');
+
+    const generateQuotationNumber = (currentPrefix: string) => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const mins = String(now.getMinutes()).padStart(2, '0');
+        return `${currentPrefix}/${year}${month}${day}-${hours}${mins}`;
+    };
+
     const [formData, setFormData] = useState<QuotationFormData>({
         quotationNumber: "",
         date: new Date().toISOString().split("T")[0],
+        customerType: 'master',
+        customer: "",
         customerName: "",
         customerAddress: "",
-        items: [{ component: "", productName: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, description: "" }],
+        items: [{ itemType: 'fg', component: "", productName: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, description: "" }],
         subtotal: 0,
         discount: 0,
         taxAmount: 0,
@@ -33,33 +51,52 @@ export default function QuotationModal({
         status: "Draft",
     });
 
-    // Auto-generate Quotation Number
-    const generateQuotationNumber = () => {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        const day = String(now.getDate()).padStart(2, '0');
-        const hours = String(now.getHours()).padStart(2, '0');
-        const mins = String(now.getMinutes()).padStart(2, '0');
-        return `QTN/${year}${month}${day}-${hours}${mins}`;
-    };
-
     const [globalTaxRate, setGlobalTaxRate] = useState(0);
+
+    // Fetch prefix settings
+    useEffect(() => {
+        const fetchPrefix = async () => {
+            try {
+                const token = localStorage.getItem("token");
+                const res = await fetch(`${API_BASE_URL}/api/store/prefix`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                const data = await res.json();
+                if (data.settings?.quotationOutwardPrefix) {
+                    setPrefix(data.settings.quotationOutwardPrefix);
+                }
+            } catch (error) {
+                console.error("Failed to fetch prefix settings", error);
+            }
+        };
+        if (isOpen && !isEditing) fetchPrefix();
+    }, [isOpen, isEditing]);
 
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
-                setFormData(initialData);
+                setFormData({
+                    ...initialData,
+                    customerType: initialData.customer ? 'master' : 'custom',
+                    items: initialData.items.map(item => ({
+                        ...item,
+                        itemType: item.component ? 'fg' : 'custom'
+                    }))
+                });
                 if (initialData.items.length > 0) {
                     setGlobalTaxRate(initialData.items[0].taxRate || 0);
                 }
             } else {
                 setFormData({
-                    quotationNumber: generateQuotationNumber(),
+                    quotationNumber: generateQuotationNumber(prefix),
                     date: new Date().toISOString().split("T")[0],
+                    customerType: 'master',
+                    customer: "",
                     customerName: "",
                     customerAddress: "",
-                    items: [{ component: "", productName: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, description: "" }],
+                    items: [{ itemType: 'fg', component: "", productName: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, description: "" }],
                     subtotal: 0,
                     discount: 0,
                     taxAmount: 0,
@@ -70,7 +107,7 @@ export default function QuotationModal({
                 setGlobalTaxRate(0);
             }
         }
-    }, [initialData, isOpen]);
+    }, [initialData, isOpen, prefix]);
 
     // Recalculate totals
     useEffect(() => {
@@ -120,6 +157,10 @@ export default function QuotationModal({
                 return cleanedItem;
             })
         };
+
+        if (cleanedData.customerType === 'custom') {
+            delete cleanedData.customer; // Remove master reference if custom
+        }
         
         onSubmit(cleanedData);
     };
@@ -127,47 +168,61 @@ export default function QuotationModal({
     const addItem = () => {
         setFormData({
             ...formData,
-            items: [...formData.items, { component: "", productName: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: globalTaxRate, taxAmount: 0, description: "" }],
+            items: [...formData.items, { itemType: 'fg', component: "", productName: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: globalTaxRate, taxAmount: 0, description: "" }],
         });
     };
 
-    const handleComponentChange = (index: number, selectedValue: string) => {
-        const [type, id] = selectedValue.split('_');
+    const handleItemTypeChange = (index: number, itemType: 'custom' | 'fg') => {
         const newItems = [...formData.items];
+        newItems[index] = {
+            ...newItems[index],
+            itemType,
+            component: '',
+            productName: '',
+            rate: 0,
+            taxRate: globalTaxRate,
+            amount: 0,
+            taxAmount: 0,
+        };
+        setFormData(prev => ({ ...prev, items: newItems }));
+    };
 
-        if (type === 'FG') {
-            const selectedComponent = components.find(item => item._id === id);
-            newItems[index] = {
-                ...newItems[index],
-                component: id,
-                material: undefined,
-                productName: selectedComponent?.partName || '',
-                unit: selectedComponent?.unit || 'PCS',
-            };
-        } else if (type === 'MAT') {
-            const selectedMaterial = materials.find((item: any) => item._id === id) as any;
-            const categoryUnit =
-                (typeof selectedMaterial?.category === "object" && selectedMaterial.category !== null && "unit" in selectedMaterial.category)
-                    ? selectedMaterial.category.unit
-                    : (typeof selectedMaterial?.categoryId === "object" && selectedMaterial.categoryId !== null && "unit" in selectedMaterial.categoryId)
-                        ? selectedMaterial.categoryId.unit
-                        : selectedMaterial?.unit;
-            newItems[index] = {
-                ...newItems[index],
-                material: id,
-                component: undefined,
-                productName: selectedMaterial?.name || '',
-                unit: categoryUnit || 'PCS',
-            };
-        } else {
-            newItems[index] = {
-                ...newItems[index],
-                component: '',
-                material: '',
-                productName: '',
-                unit: 'PCS',
-            };
+    const handleComponentChange = (index: number, selectedValue: string) => {
+        const newItems = [...formData.items];
+        const selectedComponent = components.find(item => item._id === selectedValue);
+        
+        let rate = 0;
+        let taxRate = globalTaxRate;
+
+        // Auto-fetch from priceLists if available
+        if (selectedComponent && priceLists) {
+            const itemPriceList = priceLists.find(pl => 
+                pl.status === 'Active' && 
+                pl.itemType === 'fg' && 
+                (pl.fgItem === selectedComponent._id || pl.fgItem?._id === selectedComponent._id)
+            );
+            
+            if (itemPriceList) {
+                rate = itemPriceList.rate || 0;
+                taxRate = itemPriceList.taxPercentage || globalTaxRate;
+            }
         }
+
+        const qty = newItems[index].quantity || 1;
+        const amount = qty * rate;
+        const taxAmount = (amount * taxRate) / 100;
+
+        newItems[index] = {
+            ...newItems[index],
+            component: selectedValue,
+            material: undefined,
+            productName: selectedComponent?.partName || selectedComponent?.componentName || '',
+            unit: selectedComponent?.unit || 'PCS',
+            rate,
+            taxRate,
+            amount,
+            taxAmount
+        };
         setFormData(prev => ({ ...prev, items: newItems }));
     };
 
@@ -209,19 +264,19 @@ export default function QuotationModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 bg-opacity-50">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col m-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-7xl w-[95vw] max-h-[90vh] overflow-hidden flex flex-col m-4 transform transition-all">
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
+                <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-blue-700 via-indigo-600 to-indigo-800">
                     <div>
-                        <h2 className="text-2xl font-bold text-white">
+                        <h2 className="text-2xl font-bold text-white tracking-wide">
                             {isEditing ? "Edit Quotation" : "Create Quotation"}
                         </h2>
-                        <p className="text-indigo-100 text-sm mt-1">Generate customer quotation</p>
+                        <p className="text-indigo-200 text-sm mt-1 font-medium">Generate a professional sales quotation</p>
                     </div>
                     <button
                         onClick={onClose}
-                        className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
+                        className="text-white hover:bg-white/20 p-2 rounded-full transition-colors backdrop-blur-md"
                     >
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -229,76 +284,116 @@ export default function QuotationModal({
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
                     <form id="quotation-form" onSubmit={handleSubmit} className="space-y-6">
                         {/* Quotation Details */}
-                        <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-                            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                                <div className="w-1 h-5 bg-indigo-600 rounded"></div>
+                        <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-800 mb-5 flex items-center gap-3">
+                                <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
                                 Quotation Details
                             </h3>
 
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Quotation No</label>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Quotation No</label>
                                     <input
                                         type="text"
                                         readOnly
                                         value={formData.quotationNumber}
-                                        className="input-field bg-gray-100 cursor-not-allowed"
+                                        className="w-full px-4 py-2.5 bg-gray-100/80 border border-gray-200 rounded-xl text-gray-600 cursor-not-allowed font-medium"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Date *</label>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Date <span className="text-red-500">*</span></label>
                                     <input
                                         type="date"
                                         required
                                         value={formData.date}
                                         onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                        className="input-field"
+                                        className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
                                     />
                                 </div>
                                 <div className="md:col-span-2">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name *</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={formData.customerName}
-                                        onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                                        className="input-field"
-                                        placeholder="Enter Customer Name"
-                                    />
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="block text-sm font-semibold text-gray-700">Customer <span className="text-red-500">*</span></label>
+                                        <div className="flex bg-gray-100 p-1 rounded-lg">
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormData({ ...formData, customerType: 'master', customer: '', customerName: '', customerAddress: '' })}
+                                                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-all ${formData.customerType === 'master' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                            >
+                                                Master
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormData({ ...formData, customerType: 'custom', customer: '', customerName: '', customerAddress: '' })}
+                                                className={`text-xs px-3 py-1.5 rounded-md font-medium transition-all ${formData.customerType === 'custom' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                                            >
+                                                Custom
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    {formData.customerType === 'master' ? (
+                                        <SearchableSelect
+                                            options={customers?.map((c: any) => ({ value: c._id, label: c.name })) || []}
+                                            value={formData.customer || ""}
+                                            onChange={(val: any) => {
+                                                const customerId = val;
+                                                const selectedCustomer = customers?.find(c => c._id === customerId);
+                                                setFormData({
+                                                    ...formData,
+                                                    customer: customerId,
+                                                    customerName: selectedCustomer?.name || '',
+                                                    customerAddress: selectedCustomer ? `${selectedCustomer.billingAddress || ''} ${selectedCustomer.billingCity || ''} ${selectedCustomer.billingState || ''}`.trim() : ''
+                                                });
+                                            }}
+                                            placeholder="Select Master Customer"
+                                            innerClassName="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+                                        />
+                                    ) : (
+                                        <input
+                                            type="text"
+                                            required
+                                            value={formData.customerName}
+                                            onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+                                            placeholder="Enter Custom Customer Name"
+                                        />
+                                    )}
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mt-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Customer Address</label>
-                                    <input
-                                        type="text"
-                                        value={formData.customerAddress}
-                                        onChange={(e) => setFormData({ ...formData, customerAddress: e.target.value })}
-                                        className="input-field"
-                                        placeholder="Enter full address"
-                                    />
+                            {formData.customerType === 'custom' && (
+                                <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mt-6">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 mb-2">Customer Address</label>
+                                        <input
+                                            type="text"
+                                            value={formData.customerAddress}
+                                            onChange={(e) => setFormData({ ...formData, customerAddress: e.target.value })}
+                                            className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none"
+                                            placeholder="Enter full address"
+                                        />
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
 
                         {/* Items Section */}
-                        <div className="bg-white rounded-xl border-2 border-indigo-100 p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-4">
-                                    <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                                        <div className="w-1 h-5 bg-indigo-600 rounded"></div>
+                        <div className="bg-white rounded-2xl shadow-sm border border-indigo-100 p-6">
+                            <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+                                <div className="flex items-center gap-6">
+                                    <h3 className="text-lg font-bold text-gray-800 flex items-center gap-3">
+                                        <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
                                         Items
                                     </h3>
                                     {/* Global Tax Setting */}
-                                    <div className="flex items-center gap-2 bg-indigo-50 px-3 py-1 rounded-lg">
-                                        <span className="text-xs font-semibold text-indigo-700">Global Tax %:</span>
+                                    <div className="flex items-center gap-3 bg-indigo-50/50 border border-indigo-100 px-4 py-2 rounded-xl">
+                                        <span className="text-sm font-semibold text-indigo-700">Global Tax %:</span>
                                         <input
                                             type="number"
-                                            className="w-16 text-sm border-indigo-200 rounded px-1"
+                                            className="w-20 text-sm font-medium border-indigo-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 outline-none"
                                             value={globalTaxRate}
                                             onChange={(e) => handleGlobalTaxChange(parseFloat(e.target.value) || 0)}
                                         />
@@ -308,7 +403,7 @@ export default function QuotationModal({
                                 <button
                                     type="button"
                                     onClick={addItem}
-                                    className="text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 flex items-center gap-1"
+                                    className="text-sm bg-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-500/20 flex items-center gap-2 transition-all"
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -318,46 +413,77 @@ export default function QuotationModal({
                             </div>
 
                             <div className="space-y-4">
-                                <div className="grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 px-4">
+                                <div className="grid grid-cols-12 gap-3 text-xs font-bold text-gray-500 uppercase tracking-wider px-4">
+                                    <div className="col-span-2">Type</div>
                                     <div className="col-span-3">Product / Component</div>
                                     <div className="col-span-1">Qty</div>
                                     <div className="col-span-1">Unit</div>
-                                    <div className="col-span-2">Rate</div>
-                                    <div className="col-span-2">Tax%</div>
+                                    <div className="col-span-1">Rate</div>
+                                    <div className="col-span-1">Tax%</div>
                                     <div className="col-span-2 text-right">Amount</div>
                                     <div className="col-span-1"></div>
                                 </div>
 
                                 {formData.items.map((item, index) => (
-                                    <div key={index} className="grid grid-cols-12 gap-2 items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                    <div key={index} className="grid grid-cols-12 gap-3 items-start p-4 bg-gray-50/50 hover:bg-gray-50 rounded-xl border border-gray-100 transition-colors">
+                                        
+                                        <div className="col-span-2">
+                                            <div className="flex bg-white border border-gray-200 rounded-lg p-0.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleItemTypeChange(index, 'fg')}
+                                                    className={`flex-1 text-[11px] py-1.5 px-1 rounded-md font-medium transition-all ${item.itemType !== 'custom' ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-gray-500 hover:bg-gray-50'}`}
+                                                >
+                                                    FG
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleItemTypeChange(index, 'custom')}
+                                                    className={`flex-1 text-[11px] py-1.5 px-1 rounded-md font-medium transition-all ${item.itemType === 'custom' ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-gray-500 hover:bg-gray-50'}`}
+                                                >
+                                                    Custom
+                                                </button>
+                                            </div>
+                                        </div>
+
                                         <div className="col-span-3">
-                                            <select
-                                                value={item.component || ""}
-                                                onChange={(e) => handleComponentChange(index, e.target.value)}
-                                                className="input-field text-sm py-1 px-2"
-                                            >
-                                                <option value="">Custom Item</option>
-                                                {components.map((c) => (
-                                                    <option key={c._id} value={c._id}>{c.componentName || c.name}</option>
-                                                ))}
-                                            </select>
-                                            {!item.component && (
+                                            {item.itemType !== 'custom' ? (
+                                                <select
+                                                    value={item.component || ""}
+                                                    onChange={(e) => handleComponentChange(index, e.target.value)}
+                                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                                                >
+                                                    <option value="">Select FG Item</option>
+                                                    {components.map((c) => (
+                                                        <option key={c._id} value={c._id}>{c.componentName || c.name}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
                                                 <input
                                                     type="text"
                                                     value={item.productName}
                                                     onChange={(e) => updateItem(index, "productName", e.target.value)}
-                                                    className="input-field text-sm py-1 px-2 mt-1"
-                                                    placeholder="Custom product name"
+                                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                                                    placeholder="Enter custom product name"
                                                     required
                                                 />
                                             )}
+                                            
+                                            <input
+                                                type="text"
+                                                value={item.description || ''}
+                                                onChange={(e) => updateItem(index, "description", e.target.value)}
+                                                className="w-full mt-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                                                placeholder="Optional description/specs"
+                                            />
                                         </div>
+                                        
                                         <div className="col-span-1">
                                             <input
                                                 type="number"
                                                 value={item.quantity}
-                                                onChange={(e) => updateItem(index, "quantity", parseFloat(e.target.value))}
-                                                className="input-field text-sm py-1 px-2"
+                                                onChange={(e) => updateItem(index, "quantity", parseFloat(e.target.value) || 0)}
+                                                className="w-full px-2 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                             />
                                         </div>
                                         <div className="col-span-1">
@@ -365,53 +491,45 @@ export default function QuotationModal({
                                                 type="text"
                                                 value={item.unit}
                                                 onChange={(e) => updateItem(index, "unit", e.target.value)}
-                                                className="input-field text-sm py-1 px-2 bg-white"
+                                                className="w-full px-2 py-2 bg-white border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                             />
                                         </div>
-                                        <div className="col-span-2">
+                                        <div className="col-span-1">
                                             <input
                                                 type="number"
                                                 value={item.rate}
-                                                onChange={(e) => updateItem(index, "rate", parseFloat(e.target.value))}
-                                                className="input-field text-sm py-1 px-2"
+                                                onChange={(e) => updateItem(index, "rate", parseFloat(e.target.value) || 0)}
+                                                className="w-full px-2 py-2 bg-white border border-gray-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                             />
                                         </div>
-                                        <div className="col-span-2">
+                                        <div className="col-span-1">
                                             <input
                                                 type="number"
                                                 value={item.taxRate}
-                                                onChange={(e) => updateItem(index, "taxRate", parseFloat(e.target.value))}
-                                                className="input-field text-sm py-1 px-2"
+                                                onChange={(e) => updateItem(index, "taxRate", parseFloat(e.target.value) || 0)}
+                                                className="w-full px-2 py-2 bg-white border border-gray-200 rounded-lg text-sm text-right focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                             />
                                         </div>
-                                        <div className="col-span-2 text-right font-medium text-gray-900">
-                                            ₹ {(item.amount + (item.taxAmount || 0)).toFixed(2)}
-                                            <div className="text-[10px] text-gray-500">
-                                                Base: {item.amount.toFixed(0)} | Tax: {item.taxAmount?.toFixed(0)}
+                                        <div className="col-span-2 text-right">
+                                            <div className="font-bold text-gray-900 text-sm mt-1">
+                                                ₹ {(item.amount + (item.taxAmount || 0)).toFixed(2)}
+                                            </div>
+                                            <div className="text-[10px] text-gray-500 mt-1 font-medium bg-gray-100/80 inline-block px-2 py-0.5 rounded">
+                                                Base: ₹{item.amount.toFixed(0)} | Tax: ₹{item.taxAmount?.toFixed(0)}
                                             </div>
                                         </div>
-                                        <div className="col-span-1 text-right">
+                                        <div className="col-span-1 text-right mt-1">
                                             {formData.items.length > 1 && (
                                                 <button
                                                     type="button"
                                                     onClick={() => removeItem(index)}
-                                                    className="text-red-500 hover:text-red-700"
+                                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                                                 >
                                                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                     </svg>
                                                 </button>
                                             )}
-                                        </div>
-                                        {/* Description Field (Full Width) */}
-                                        <div className="col-span-12 mt-2">
-                                            <input
-                                                type="text"
-                                                value={item.description}
-                                                onChange={(e) => updateItem(index, "description", e.target.value)}
-                                                className="input-field text-sm py-1 px-3 bg-white"
-                                                placeholder="Optional item description or specs"
-                                            />
                                         </div>
                                     </div>
                                 ))}
@@ -420,21 +538,21 @@ export default function QuotationModal({
 
                         {/* Footer Totals & Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Remarks / Terms</label>
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                                <label className="block text-sm font-semibold text-gray-700 mb-2">Remarks / Terms</label>
                                 <textarea
                                     value={formData.otherDetails}
                                     onChange={(e) => setFormData({ ...formData, otherDetails: e.target.value })}
-                                    className="input-field"
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none"
                                     rows={4}
                                     placeholder="Payment terms, delivery notes, etc."
                                 />
-                                <div className="mt-4">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                <div className="mt-5">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
                                     <select
                                         value={formData.status}
                                         onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                                        className="input-field"
+                                        className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none font-medium"
                                     >
                                         <option value="Draft">Draft</option>
                                         <option value="Sent">Sent</option>
@@ -444,27 +562,30 @@ export default function QuotationModal({
                                 </div>
                             </div>
 
-                            <div className="bg-gray-50 p-5 rounded-xl space-y-3">
-                                <div className="flex justify-between text-sm text-gray-600">
+                            <div className="bg-gradient-to-br from-indigo-50 to-blue-50 p-6 rounded-2xl border border-indigo-100/50 flex flex-col justify-center space-y-4">
+                                <div className="flex justify-between items-center text-sm font-medium text-gray-600 px-2">
                                     <span>Subtotal</span>
                                     <span>₹ {formData.subtotal.toFixed(2)}</span>
                                 </div>
-                                <div className="flex justify-between text-sm text-gray-600">
+                                <div className="flex justify-between items-center text-sm font-medium text-gray-600 px-2">
                                     <span>Total Tax</span>
                                     <span>₹ {formData.taxAmount?.toFixed(2)}</span>
                                 </div>
-                                <div className="flex justify-between items-center text-sm text-gray-600">
+                                <div className="flex justify-between items-center text-sm font-medium text-gray-900 bg-white/60 p-3 rounded-xl border border-white">
                                     <span>Discount (Flat)</span>
-                                    <input
-                                        type="number"
-                                        value={formData.discount}
-                                        onChange={(e) => setFormData({ ...formData, discount: parseFloat(e.target.value) || 0 })}
-                                        className="w-24 px-2 py-1 text-right border border-gray-300 rounded"
-                                    />
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-gray-400">₹</span>
+                                        <input
+                                            type="number"
+                                            value={formData.discount}
+                                            onChange={(e) => setFormData({ ...formData, discount: parseFloat(e.target.value) || 0 })}
+                                            className="w-24 px-3 py-1.5 text-right font-semibold bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                        />
+                                    </div>
                                 </div>
-                                <div className="pt-3 border-t border-gray-200 flex justify-between items-center">
+                                <div className="pt-4 mt-2 border-t border-indigo-100/80 flex justify-between items-center px-2">
                                     <span className="text-lg font-bold text-gray-900">Total Amount</span>
-                                    <span className="text-2xl font-bold text-indigo-600">₹ {formData.totalAmount.toFixed(2)}</span>
+                                    <span className="text-3xl font-extrabold text-indigo-700 tracking-tight">₹ {formData.totalAmount.toFixed(2)}</span>
                                 </div>
                             </div>
                         </div>
@@ -472,26 +593,29 @@ export default function QuotationModal({
                 </div>
 
                 {/* Footer Actions */}
-                <div className="p-6 border-t bg-gray-50">
-                    <div className="flex gap-3">
-                        <button
-                            type="submit"
-                            form="quotation-form"
-                            disabled={loading}
-                            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-3 rounded-lg font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
-                        >
-                            {loading ? "Saving..." : isEditing ? "Update Quotation" : "Create Quotation"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="flex-1 bg-white text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors border-2 border-gray-300"
-                        >
-                            Cancel
-                        </button>
-                    </div>
+                <div className="p-6 border-t border-gray-100 bg-white flex justify-end gap-3 rounded-b-2xl">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-6 py-2.5 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        form="quotation-form"
+                        disabled={loading}
+                        className="px-8 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        {loading && (
+                            <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        )}
+                        {loading ? "Saving..." : isEditing ? "Update Quotation" : "Create Quotation"}
+                    </button>
                 </div>
-
             </div>
         </div>
     );
