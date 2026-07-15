@@ -1,4 +1,6 @@
+import mongoose from "mongoose";
 import { priceListSchema } from "../../models/sales/index.js";
+import { fgItemSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 const getCompanyId = (req) => {
@@ -14,9 +16,12 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "FG Item, price, and tax rate are required." });
   }
 
+  // Ensure fgItem is an ObjectId
+  const fgItemObjectId = new mongoose.Types.ObjectId(fgItem);
+
   // Upsert the price list entry for this company and fgItem
   const priceListEntry = await PriceList.findOneAndUpdate(
-    { company: companyId, fgItem },
+    { company: companyId, fgItem: fgItemObjectId },
     { price, taxRate, remarks },
     { new: true, upsert: true }
   );
@@ -29,11 +34,14 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
 
 export const getAllPriceLists = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
+  req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
 
   const priceLists = await PriceList.find({ company: companyId })
     .populate("fgItem")
     .sort({ updatedAt: -1 });
+
+  console.log("PRICE LISTS RETURNED:", JSON.stringify(priceLists, null, 2));
 
   res.status(200).json({ priceLists });
 });

@@ -156,6 +156,13 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
 
             const searchLower = searchTerm.toLowerCase();
 
+            if (!searchLower) return true;
+
+            if (activeTab === "price-list") {
+                // For price list, search might be handled differently, or just fallback
+                return true;
+            }
+
             if (activeTab === "masters" || masterTab === "grn-history") {
                 // Search in master data fields
                 return (

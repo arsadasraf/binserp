@@ -13,6 +13,8 @@ interface StorePrefixSettings {
     customerPrefix: string;
     jobWorkSupplierPrefix: string;
     incomingRfqPrefix: string;
+    quotationOutwardPrefix: string;
+    quotationInwardPrefix: string;
 }
 
 interface StorePrefixFormProps {
@@ -32,6 +34,8 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
         customerPrefix: '',
         jobWorkSupplierPrefix: '',
         incomingRfqPrefix: '',
+        quotationOutwardPrefix: '',
+        quotationInwardPrefix: '',
     });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -68,6 +72,8 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
                     customerPrefix: data.settings.customerPrefix || 'CUS',
                     jobWorkSupplierPrefix: data.settings.jobWorkSupplierPrefix || 'JWS',
                     incomingRfqPrefix: data.settings.incomingRfqPrefix || 'RFQ',
+                    quotationOutwardPrefix: data.settings.quotationOutwardPrefix || 'QT-OUT',
+                    quotationInwardPrefix: data.settings.quotationInwardPrefix || 'QT-IN',
                 };
                 setSettings(fetchedSettings);
                 setOriginalSettings(fetchedSettings);
@@ -280,6 +286,38 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
                             />
                         </div>
                         <p className="text-xs text-gray-400 mt-1">Example: {settings.incomingRfqPrefix}-2024-001</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Outward Quotation Prefix (Sales)</label>
+                        <div className="relative">
+                            <input
+                                type="text"
+                                name="quotationOutwardPrefix"
+                                value={settings.quotationOutwardPrefix}
+                                onChange={handleChange}
+                                disabled={!isEditing}
+                                className={`w-full pl-4 pr-10 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all uppercase ${!isEditing && 'opacity-60 cursor-not-allowed'}`}
+                                placeholder="e.g. QT-OUT"
+                            />
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Example: {settings.quotationOutwardPrefix}-2024-001</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Inward Quotation Prefix (Purchase)</label>
+                        <div className="relative">
+                            <input
+                                type="text"
+                                name="quotationInwardPrefix"
+                                value={settings.quotationInwardPrefix}
+                                onChange={handleChange}
+                                disabled={!isEditing}
+                                className={`w-full pl-4 pr-10 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all uppercase ${!isEditing && 'opacity-60 cursor-not-allowed'}`}
+                                placeholder="e.g. QT-IN"
+                            />
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Example: {settings.quotationInwardPrefix}-2024-001</p>
                     </div>
 
                 </div>

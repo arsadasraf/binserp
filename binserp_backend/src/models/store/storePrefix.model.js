@@ -11,6 +11,8 @@ export const storePrefixSchema = new mongoose.Schema(
         customerPrefix: { type: String, default: "CUS" },
         jobWorkSupplierPrefix: { type: String, default: "JWS" },
         incomingRfqPrefix: { type: String, default: "RFQ" },
+        quotationOutwardPrefix: { type: String, default: "QT-OUT" },
+        quotationInwardPrefix: { type: String, default: "QT-IN" },
     },
     { timestamps: true }
 );

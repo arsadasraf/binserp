@@ -46,6 +46,8 @@ export const updateStorePrefixSettings = async (req, res) => {
             customerPrefix: req.body.customerPrefix,
             jobWorkSupplierPrefix: req.body.jobWorkSupplierPrefix,
             incomingRfqPrefix: req.body.incomingRfqPrefix,
+            quotationOutwardPrefix: req.body.quotationOutwardPrefix,
+            quotationInwardPrefix: req.body.quotationInwardPrefix,
         };
 
         Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
