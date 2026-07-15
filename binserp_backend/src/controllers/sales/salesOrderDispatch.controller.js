@@ -1,5 +1,5 @@
 import { customerSchema, fgItemSchema, storeOrderFulfillmentSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
-import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";

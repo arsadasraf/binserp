@@ -11,7 +11,7 @@ export * from './getAllInvoices.controller.js';
 export * from './updateInvoice.controller.js';
 export * from './salesOrder.controller.js';
 export * from './salesOrderDispatch.controller.js';
-export * from './rfq.controller.js';
+export * from './incomingRFQ.controller.js';
 export * from './incomingPO.controller.js';
 
 export * from './priceList.controller.js';

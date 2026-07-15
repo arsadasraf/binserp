@@ -20,10 +20,10 @@ import {
   deleteSalesOrder,
   createSalesDispatch,
   getDispatchHistory,
-  createRFQ,
-  getAllRFQs,
-  updateRFQ,
-  deleteRFQ,
+  createIncomingRFQ,
+  getAllIncomingRFQs,
+  updateIncomingRFQ,
+  deleteIncomingRFQ,
   createIncomingPO,
   getAllIncomingPOs,
   updateIncomingPO,
@@ -38,11 +38,11 @@ const router = express.Router();
 // All routes require authentication
 router.use(verifyJWT);
 
-// RFQ routes
-router.post("/rfq", createRFQ);
-router.get("/rfq", getAllRFQs);
-router.put("/rfq/:id", updateRFQ);
-router.delete("/rfq/:id", deleteRFQ);
+// Incoming RFQ routes
+router.post("/incoming-rfq", createIncomingRFQ);
+router.get("/incoming-rfq", getAllIncomingRFQs);
+router.put("/incoming-rfq/:id", updateIncomingRFQ);
+router.delete("/incoming-rfq/:id", deleteIncomingRFQ);
 
 // Price List routes
 router.post("/price-list", createOrUpdatePriceList);

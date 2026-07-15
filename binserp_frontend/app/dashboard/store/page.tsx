@@ -28,7 +28,7 @@ import { TabType, MasterType, GRNFormData, POFormData, DCFormData, BillingFormDa
 
 // Import custom hook for business logic
 import { useStoreData } from "./components/hooks/useStoreData";
-import { useCreateStoreRecordMutation } from "@/src/store/services/storeService";
+import { useCreateStoreRecordMutation, useUpdateStoreRecordMutation, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
 
 // Import UI components
 import StoreForm from "./components/forms/StoreForm";
@@ -47,6 +47,8 @@ import QuotationTable from "./components/tables/QuotationTable";
 import QuotationModal from "./components/modals/QuotationModal";
 import PriceListTable from "./components/tables/PriceListTable";
 import PriceListModal from "./components/modals/PriceListModal";
+import { IncomingRFQTable } from "./components/IncomingRFQTable";
+import { IncomingRFQForm } from "./components/IncomingRFQForm";
 import MaterialIssueTab from "./components/tabs/MaterialIssueTab";
 import StoreTabs from "./components/tabs/StoreTabs";
 import StoreOrdersTab from "./components/tabs/StoreOrdersTab";
@@ -72,6 +74,8 @@ function StoreContent() {
   // State for master tab selection (vendor, customer, location, category)
   const [masterTab, setMasterTab] = useState<MasterType>("vendor");
   const [createStoreRecord] = useCreateStoreRecordMutation();
+  const [updateStoreRecord] = useUpdateStoreRecordMutation();
+  const [deleteStoreRecord] = useDeleteStoreRecordMutation();
 
   // State for Create Inhouse Item Modal
   const [showFGItemForm, setShowFGItemForm] = useState(false);
@@ -95,6 +99,10 @@ function StoreContent() {
   // State for Price List modal
   const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [editingPriceList, setEditingPriceList] = useState<any>(undefined);
+
+  // State for Incoming RFQ modal
+  const [showIncomingRFQModal, setShowIncomingRFQModal] = useState(false);
+  const [editingIncomingRFQ, setEditingIncomingRFQ] = useState<any>(undefined);
 
   // Filter States for Bills
   const [filterType, setFilterType] = useState<'monthly' | 'yearly'>('monthly');
@@ -215,6 +223,22 @@ function StoreContent() {
   };
 
   const filteredBillsData = getFilteredData();
+
+  const handleIncomingRFQSubmit = async (formData: any) => {
+    try {
+      if (editingIncomingRFQ) {
+        await updateStoreRecord({ tab: "incoming-rfq", id: editingIncomingRFQ._id, body: formData }).unwrap();
+        setSuccess("Incoming RFQ updated successfully");
+      } else {
+        await createStoreRecord({ tab: "incoming-rfq", body: formData }).unwrap();
+        setSuccess("Incoming RFQ created successfully");
+      }
+      setShowIncomingRFQModal(false);
+      setEditingIncomingRFQ(undefined);
+    } catch (err: any) {
+      setError(err.data?.message || err.message || "An error occurred");
+    }
+  };
 
   // Helper to render filter input (Copied logic from MaterialIssueTab)
   const renderFilterInput = () => {
@@ -643,16 +667,16 @@ function StoreContent() {
             </div>
           )}
 
-          {/* Sales tabs - shown when sales, order-entry, quotation, incoming-po, billing, dc, mrp, price-list, or rfq tabs are active */}
-          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "incoming-po" || activeTab === "billing" || activeTab === "dc" || activeTab === "mrp" || activeTab === "price-list" || activeTab === "rfq") && (
+          {/* Sales tabs - shown when sales, order-entry, quotation, incoming-po, billing, dc, mrp, price-list, or incoming-rfq tabs are active */}
+          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "incoming-po" || activeTab === "billing" || activeTab === "dc" || activeTab === "mrp" || activeTab === "price-list" || activeTab === "incoming-rfq") && (
             <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
               <Link
-                href="/dashboard/store?tab=rfq"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "rfq"
+                href="/dashboard/store?tab=incoming-rfq"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "incoming-rfq"
                   ? "bg-indigo-600 text-white shadow-md"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
               >
-                RFQ
+                Incoming RFQ
               </Link>
               <Link
                 href="/dashboard/store?tab=quotation"
@@ -964,11 +988,19 @@ function StoreContent() {
                   onEdit={handlePriceListEdit}
                   onDelete={handleDelete}
                 />
-              ) : activeTab === "rfq" ? (
-                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
-                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Request for Quotation</p>
-                  <p className="text-sm">This module is currently pending frontend integration.</p>
-                </div>
+              ) : activeTab === "incoming-rfq" ? (
+                <>
+                  <IncomingRFQTable
+                    rfqs={Array.isArray(data) ? data : []}
+                    fgItems={fgItems}
+                    onCreate={() => setShowIncomingRFQModal(true)}
+                    onEdit={(rfq) => {
+                      setEditingIncomingRFQ(rfq);
+                      setShowIncomingRFQModal(true);
+                    }}
+                    onDelete={handleDelete}
+                  />
+                </>
               ) : activeTab === "incoming-po" ? (
                 <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
                   <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Customer Purchase Orders</p>
@@ -1172,11 +1204,27 @@ function StoreContent() {
                 setShowQuotationModal(false);
                 setEditingQuotation(undefined);
               }}
-              components={fgItems}
+              customers={customers}
+              inHouseItems={fgItems}
               loading={loading}
               initialData={editingQuotation}
               isEditing={!!editingQuotation}
             />
+
+            {/* Incoming RFQ Modal */}
+            {showIncomingRFQModal && (
+              <IncomingRFQForm
+                initialData={editingIncomingRFQ}
+                fgItems={fgItems}
+                onSubmit={handleIncomingRFQSubmit}
+                onCancel={() => {
+                  setShowIncomingRFQModal(false);
+                  setEditingIncomingRFQ(undefined);
+                }}
+                isSubmitting={loading}
+              />
+            )}
+
 
             {/* Price List Modal */}
             <PriceListModal

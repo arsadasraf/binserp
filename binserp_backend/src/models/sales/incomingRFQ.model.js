@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 
-export const rfqSchema = new mongoose.Schema(
+export const incomingRFQSchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
@@ -24,7 +24,19 @@ export const rfqSchema = new mongoose.Schema(
     customerPhone: String,
     items: [
       {
-        productName: { type: String, required: true },
+        itemType: {
+          type: String,
+          enum: ["FGItem", "Custom"],
+          required: true,
+          default: "Custom",
+        },
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
+        },
+        customItemName: {
+          type: String,
+        },
         quantity: { type: Number, required: true },
         unit: { type: String, default: "PCS" },
         description: String,
@@ -48,4 +60,4 @@ export const rfqSchema = new mongoose.Schema(
 );
 
 // Indexes
-rfqSchema.index({ company: 1, rfqNumber: 1 }, { unique: true });
+incomingRFQSchema.index({ company: 1, rfqNumber: 1 }, { unique: true });

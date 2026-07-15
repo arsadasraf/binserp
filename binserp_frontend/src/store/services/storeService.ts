@@ -22,7 +22,7 @@ const storeEndpoints = [
   { key: "fg-item", url: "/api/store/fg-item", tag: "StoreMasters", dataKey: "fgItems" },
   { key: "fg-grn", url: "/api/store/fg-grn", tag: "StoreGrn", dataKey: "grns" },
   { key: "order", url: "/api/sales/order", tag: "StoreOrder", dataKey: "orders" },
-  { key: "rfq", url: "/api/sales/rfq", tag: "StoreQuotation", dataKey: "rfqs" },
+  { key: "incoming-rfq", url: "/api/sales/incoming-rfq", tag: "IncomingRFQ", dataKey: "rfqs" },
   { key: "purchase-rfq", url: "/api/purchase/rfq", tag: "PurchaseRfq", dataKey: "data" },
   { key: "vendor-quotation", url: "/api/purchase/quotation", tag: "VendorQuotation", dataKey: "data" },
   { key: "purchase-bill", url: "/api/purchase/bill", tag: "PurchaseBill", dataKey: "data" },

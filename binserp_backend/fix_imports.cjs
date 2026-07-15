@@ -7,7 +7,7 @@ for(const file of files) {
   let c = fs.readFileSync(p, 'utf8');
   
   // Fix the literal bad replacement
-  c = c.replace(/\"\.\.\/\.\.\/models\/store\/index\.js\";\`nimport \{ rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema \} from \"\.\.\/\.\.\/models\/sales\/index\.js/g, '"../../models/store/index.js";\nimport { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js');
+  c = c.replace(/\"\.\.\/\.\.\/models\/store\/index\.js\";\`nimport \{ incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema \} from \"\.\.\/\.\.\/models\/sales\/index\.js/g, '"../../models/store/index.js";\nimport { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js');
 
   // We need to also remove 'salesOrderSchema', 'quotationSchema', etc from the FIRST import from store.
   c = c.replace(/import\s*\{([^}]*)\}\s*from\s*['"]\.\.\/\.\.\/models\/store\/index\.js['"]/g, (match, p1) => {
