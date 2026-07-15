@@ -13,9 +13,10 @@ interface QuotationTableProps {
     companyInfo?: CompanyInfo;
     onEdit: (item: any) => void;
     onDelete: (id: string) => void;
+    onView?: (item: any) => void;
 }
 
-export default function QuotationTable({ data, companyInfo, onEdit, onDelete }: QuotationTableProps) {
+export default function QuotationTable({ data, companyInfo, onEdit, onDelete, onView }: QuotationTableProps) {
     const [selectedMonth, setSelectedMonth] = useState<string>('');
 
     // Filter by selected month
@@ -80,7 +81,7 @@ export default function QuotationTable({ data, companyInfo, onEdit, onDelete }: 
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
                         {filteredData.map((item) => (
-                            <tr key={item._id} className="hover:bg-indigo-50 transition-colors">
+                            <tr key={item._id} className="hover:bg-indigo-50 transition-colors cursor-pointer" onClick={() => onView && onView(item)}>
                                 <td className="px-6 py-4 font-medium text-gray-900">{item.quotationNumber}</td>
                                 <td className="px-6 py-4 text-gray-600">{new Date(item.date).toLocaleDateString()}</td>
                                 <td className="px-6 py-4 text-gray-600">{item.customerName}</td>
@@ -96,7 +97,7 @@ export default function QuotationTable({ data, companyInfo, onEdit, onDelete }: 
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 text-right">
-                                    <div className="flex justify-end gap-2">
+                                    <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                                         <button onClick={() => handleDownloadPDF(item)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Download PDF"><Download size={16} /></button>
                                         <button onClick={() => onEdit(item)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
                                         <button onClick={() => onDelete(item._id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
@@ -114,7 +115,7 @@ export default function QuotationTable({ data, companyInfo, onEdit, onDelete }: 
             {/* Mobile Card View */}
             <div className="md:hidden flex flex-col gap-3">
                 {filteredData.map((item) => (
-                    <div key={item._id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-3">
+                    <div key={item._id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-3 cursor-pointer hover:border-indigo-200" onClick={() => onView && onView(item)}>
                         <div className="flex justify-between items-start border-b border-gray-50 pb-2">
                             <div>
                                 <span className="text-xs font-medium text-gray-500 block mb-1">Quote #{item.quotationNumber}</span>
@@ -126,7 +127,7 @@ export default function QuotationTable({ data, companyInfo, onEdit, onDelete }: 
                             <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(item.date).toLocaleDateString()}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Amount:</span> <span className="font-bold text-indigo-600">₹ {(item.totalAmount || 0).toFixed(2)}</span></div>
                         </div>
-                        <div className="flex items-center gap-2 pt-3 border-t border-gray-50 mt-1">
+                        <div className="flex items-center gap-2 pt-3 border-t border-gray-50 mt-1" onClick={(e) => e.stopPropagation()}>
                             <button onClick={() => handleDownloadPDF(item)} className="flex-1 flex justify-center py-2 text-indigo-600 bg-indigo-50 rounded-lg"><Download size={16} /></button>
                             <button onClick={() => onEdit(item)} className="flex-1 flex items-center justify-center gap-2 py-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"><Edit2 size={16} /></button>
                             <button onClick={() => onDelete(item._id)} className="flex-1 flex items-center justify-center gap-2 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"><Trash2 size={16} /></button>

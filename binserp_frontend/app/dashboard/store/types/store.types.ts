@@ -606,6 +606,7 @@ export interface QuotationModalProps {
     loading: boolean;
     initialData?: QuotationFormData;
     isEditing?: boolean;
+    isPreview?: boolean;
 }
 
 // Bills Tab Type

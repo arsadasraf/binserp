@@ -95,6 +95,7 @@ function StoreContent() {
   // State for Quotation modal
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<any>(undefined);
+  const [previewingQuotation, setPreviewingQuotation] = useState<boolean>(false);
 
   // State for Price List modal
   const [showPriceListModal, setShowPriceListModal] = useState(false);
@@ -445,6 +446,12 @@ function StoreContent() {
 
   const handleQuotationEdit = (item: any) => {
     setEditingQuotation(item);
+    setShowQuotationModal(true);
+  };
+
+  const handleQuotationView = (item: any) => {
+    setEditingQuotation(item);
+    setPreviewingQuotation(true);
     setShowQuotationModal(true);
   };
 
@@ -1062,6 +1069,7 @@ function StoreContent() {
                   data={filteredBillsData}
                   companyInfo={companyInfo}
                   onEdit={handleQuotationEdit}
+                  onView={handleQuotationView}
                   onDelete={handleDelete}
                 />
               ) : activeTab === "masters" && masterTab === "company-info" ? (
@@ -1207,6 +1215,7 @@ function StoreContent() {
               onClose={() => {
                 setShowQuotationModal(false);
                 setEditingQuotation(undefined);
+                setPreviewingQuotation(false);
               }}
               onSubmit={async (data) => {
                 if (editingQuotation) {
@@ -1216,6 +1225,7 @@ function StoreContent() {
                 }
                 setShowQuotationModal(false);
                 setEditingQuotation(undefined);
+                setPreviewingQuotation(false);
               }}
               customers={customers}
               components={fgItems}
@@ -1223,6 +1233,7 @@ function StoreContent() {
               loading={loading}
               initialData={editingQuotation}
               isEditing={!!editingQuotation}
+              isPreview={previewingQuotation}
             />
 
             {/* Incoming RFQ Modal */}

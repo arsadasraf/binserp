@@ -22,6 +22,7 @@ export default function QuotationModal({
     loading,
     initialData,
     isEditing = false,
+    isPreview = false,
 }: QuotationModalProps) {
     const [prefix, setPrefix] = useState('QT-OUT');
 
@@ -79,10 +80,13 @@ export default function QuotationModal({
             if (initialData) {
                 setFormData({
                     ...initialData,
+                    date: initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
                     customerType: initialData.customer ? 'master' : 'custom',
+                    customer: initialData.customer?._id || initialData.customer,
                     items: initialData.items.map(item => ({
                         ...item,
-                        itemType: item.component ? 'fg' : 'custom'
+                        itemType: item.component ? 'fg' : 'custom',
+                        component: item.component?._id || item.component
                     }))
                 });
                 if (initialData.items.length > 0) {
@@ -197,14 +201,12 @@ export default function QuotationModal({
         // Auto-fetch from priceLists if available
         if (selectedComponent && priceLists) {
             const itemPriceList = priceLists.find(pl => 
-                pl.status === 'Active' && 
-                pl.itemType === 'fg' && 
                 (pl.fgItem === selectedComponent._id || pl.fgItem?._id === selectedComponent._id)
             );
             
             if (itemPriceList) {
-                rate = itemPriceList.rate || 0;
-                taxRate = itemPriceList.taxPercentage || globalTaxRate;
+                rate = itemPriceList.price || 0;
+                taxRate = itemPriceList.taxRate !== undefined && itemPriceList.taxRate !== null ? itemPriceList.taxRate : globalTaxRate;
             }
         }
 
@@ -216,7 +218,7 @@ export default function QuotationModal({
             ...newItems[index],
             component: selectedValue,
             material: undefined,
-            productName: selectedComponent?.partName || selectedComponent?.componentName || '',
+            productName: selectedComponent?.name || selectedComponent?.partName || selectedComponent?.componentName || '',
             unit: selectedComponent?.unit || 'PCS',
             rate,
             taxRate,
@@ -270,7 +272,7 @@ export default function QuotationModal({
                 <div className="flex items-center justify-between p-6 border-b bg-gradient-to-r from-blue-700 via-indigo-600 to-indigo-800">
                     <div>
                         <h2 className="text-2xl font-bold text-white tracking-wide">
-                            {isEditing ? "Edit Quotation" : "Create Quotation"}
+                            {isPreview ? "Quotation Details" : isEditing ? "Edit Quotation" : "Create Quotation"}
                         </h2>
                         <p className="text-indigo-200 text-sm mt-1 font-medium">Generate a professional sales quotation</p>
                     </div>
@@ -288,12 +290,27 @@ export default function QuotationModal({
                     <form id="quotation-form" onSubmit={handleSubmit} className="space-y-6">
                         {/* Quotation Details */}
                         <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
-                            <h3 className="text-lg font-bold text-gray-800 mb-5 flex items-center gap-3">
-                                <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
-                                Quotation Details
-                            </h3>
+                            <div className="flex justify-between items-center mb-5">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-3">
+                                    <span className="w-1.5 h-6 bg-indigo-600 rounded-full"></span>
+                                    Quotation Details
+                                </h3>
+                                <div className="flex items-center gap-3">
+                                    <label className="text-sm font-semibold text-gray-700">Status:</label>
+                                    <select
+                                        value={formData.status}
+                                        onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
+                                        className="px-3 py-1.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 outline-none font-medium text-sm shadow-sm"
+                                    >
+                                        <option value="Draft">Draft</option>
+                                        <option value="Sent">Sent</option>
+                                        <option value="Accepted">Accepted</option>
+                                        <option value="Rejected">Rejected</option>
+                                    </select>
+                                </div>
+                            </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className={`grid grid-cols-1 md:grid-cols-4 gap-6 ${isPreview ? "pointer-events-none opacity-70" : ""}`}>
                                 <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Quotation No</label>
                                     <input
@@ -365,7 +382,7 @@ export default function QuotationModal({
                             </div>
 
                             {formData.customerType === 'custom' && (
-                                <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mt-6">
+                                <div className={`grid grid-cols-1 md:grid-cols-1 gap-4 mt-6 ${isPreview ? "pointer-events-none opacity-70" : ""}`}>
                                     <div>
                                         <label className="block text-sm font-semibold text-gray-700 mb-2">Customer Address</label>
                                         <input
@@ -381,7 +398,7 @@ export default function QuotationModal({
                         </div>
 
                         {/* Items Section */}
-                        <div className="bg-white rounded-2xl shadow-sm border border-indigo-100 p-6">
+                        <div className={`bg-white rounded-2xl shadow-sm border border-indigo-100 p-6 ${isPreview ? "pointer-events-none opacity-70" : ""}`}>
                             <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
                                 <div className="flex items-center gap-6">
                                     <h3 className="text-lg font-bold text-gray-800 flex items-center gap-3">
@@ -539,26 +556,15 @@ export default function QuotationModal({
                         {/* Footer Totals & Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                                <label className="block text-sm font-semibold text-gray-700 mb-2">Remarks / Terms</label>
-                                <textarea
-                                    value={formData.otherDetails}
-                                    onChange={(e) => setFormData({ ...formData, otherDetails: e.target.value })}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none"
-                                    rows={4}
-                                    placeholder="Payment terms, delivery notes, etc."
-                                />
-                                <div className="mt-5">
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Status</label>
-                                    <select
-                                        value={formData.status}
-                                        onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                                        className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none font-medium"
-                                    >
-                                        <option value="Draft">Draft</option>
-                                        <option value="Sent">Sent</option>
-                                        <option value="Accepted">Accepted</option>
-                                        <option value="Rejected">Rejected</option>
-                                    </select>
+                                <div className={isPreview ? "pointer-events-none opacity-70" : ""}>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Remarks / Terms</label>
+                                    <textarea
+                                        value={formData.otherDetails}
+                                        onChange={(e) => setFormData({ ...formData, otherDetails: e.target.value })}
+                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all resize-none"
+                                        rows={4}
+                                        placeholder="Payment terms, delivery notes, etc."
+                                    />
                                 </div>
                             </div>
 
@@ -573,7 +579,7 @@ export default function QuotationModal({
                                 </div>
                                 <div className="flex justify-between items-center text-sm font-medium text-gray-900 bg-white/60 p-3 rounded-xl border border-white">
                                     <span>Discount (Flat)</span>
-                                    <div className="flex items-center gap-2">
+                                    <div className={`flex items-center gap-2 ${isPreview ? "pointer-events-none opacity-70" : ""}`}>
                                         <span className="text-gray-400">₹</span>
                                         <input
                                             type="number"
@@ -605,15 +611,19 @@ export default function QuotationModal({
                         type="submit"
                         form="quotation-form"
                         disabled={loading}
-                        className="px-8 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                        className={`px-8 py-2.5 rounded-xl font-bold text-white shadow-sm transition-all focus:ring-4 focus:ring-indigo-500/20 ${loading ? 'bg-indigo-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-indigo-500/25 hover:shadow-indigo-500/40'}`}
                     >
-                        {loading && (
-                            <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
+                        {loading ? (
+                            <span className="flex items-center gap-2">
+                                <svg className="animate-spin h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                </svg>
+                                Saving...
+                            </span>
+                        ) : (
+                            isPreview ? "Update Status" : isEditing ? "Update Quotation" : "Create Quotation"
                         )}
-                        {loading ? "Saving..." : isEditing ? "Update Quotation" : "Create Quotation"}
                     </button>
                 </div>
             </div>
