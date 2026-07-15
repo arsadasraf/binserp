@@ -28,6 +28,7 @@ import { TabType, MasterType, GRNFormData, POFormData, DCFormData, BillingFormDa
 
 // Import custom hook for business logic
 import { useStoreData } from "./components/hooks/useStoreData";
+import { useCreateStoreRecordMutation } from "@/src/store/services/storeService";
 
 // Import UI components
 import StoreForm from "./components/forms/StoreForm";
@@ -44,6 +45,8 @@ import DCTable from "./components/tables/DCTable";
 import BillingTable from "./components/tables/BillingTable";
 import QuotationTable from "./components/tables/QuotationTable";
 import QuotationModal from "./components/modals/QuotationModal";
+import PriceListTable from "./components/tables/PriceListTable";
+import PriceListModal from "./components/modals/PriceListModal";
 import MaterialIssueTab from "./components/tabs/MaterialIssueTab";
 import StoreTabs from "./components/tabs/StoreTabs";
 import StoreOrdersTab from "./components/tabs/StoreOrdersTab";
@@ -68,6 +71,7 @@ function StoreContent() {
 
   // State for master tab selection (vendor, customer, location, category)
   const [masterTab, setMasterTab] = useState<MasterType>("vendor");
+  const [createStoreRecord] = useCreateStoreRecordMutation();
 
   // State for Create Inhouse Item Modal
   const [showFGItemForm, setShowFGItemForm] = useState(false);
@@ -87,6 +91,10 @@ function StoreContent() {
   // State for Quotation modal
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<any>(undefined);
+
+  // State for Price List modal
+  const [showPriceListModal, setShowPriceListModal] = useState(false);
+  const [editingPriceList, setEditingPriceList] = useState<any>(undefined);
 
   // Filter States for Bills
   const [filterType, setFilterType] = useState<'monthly' | 'yearly'>('monthly');
@@ -413,6 +421,11 @@ function StoreContent() {
     setShowQuotationModal(true);
   };
 
+  const handlePriceListEdit = (item: any) => {
+    setEditingPriceList(item);
+    setShowPriceListModal(true);
+  };
+
   /**
    * Downloads DC data as Excel file
    */
@@ -592,24 +605,40 @@ function StoreContent() {
             </div>
           )}
 
-          {/* Sales tabs - shown when sales, order-entry, quotation, billing, dc, or mrp tabs are active */}
-          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "billing" || activeTab === "dc" || activeTab === "mrp") && (
+          {/* Sales tabs - shown when sales, order-entry, quotation, incoming-po, billing, dc, mrp, price-list, or rfq tabs are active */}
+          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "incoming-po" || activeTab === "billing" || activeTab === "dc" || activeTab === "mrp" || activeTab === "price-list" || activeTab === "rfq") && (
             <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+              <Link
+                href="/dashboard/store?tab=rfq"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "rfq"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                RFQ
+              </Link>
+              <Link
+                href="/dashboard/store?tab=quotation"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "quotation"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Quotations
+              </Link>
+              <Link
+                href="/dashboard/store?tab=incoming-po"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "incoming-po"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Customer PO
+              </Link>
               <Link
                 href="/dashboard/store?tab=sales"
                 className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "sales" || activeTab === "order-entry"
                   ? "bg-indigo-600 text-white shadow-md"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
               >
-                Orders
-              </Link>
-              <Link
-                href="/dashboard/store?tab=mrp"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "mrp"
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
-              >
-                MRP
+                Sales Orders
               </Link>
               <Link
                 href="/dashboard/store?tab=dc"
@@ -628,12 +657,20 @@ function StoreContent() {
                 Billing
               </Link>
               <Link
-                href="/dashboard/store?tab=quotation"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "quotation"
+                href="/dashboard/store?tab=mrp"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "mrp"
                   ? "bg-indigo-600 text-white shadow-md"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
               >
-                Quotations
+                MRP
+              </Link>
+              <Link
+                href="/dashboard/store?tab=price-list"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "price-list"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Price List
               </Link>
             </div>
           )}
@@ -878,11 +915,27 @@ function StoreContent() {
                 </div>
               </div>
             )}
-
             {/* Table for displaying data */}
             {
               (activeTab === "sales" || activeTab === "order-entry") ? (
                 <StoreOrdersTab />
+              ) : activeTab === "price-list" ? (
+                <PriceListTable
+                  priceLists={filteredBillsData}
+                  fgItems={fgItems}
+                  onEdit={handlePriceListEdit}
+                  onDelete={handleDelete}
+                />
+              ) : activeTab === "rfq" ? (
+                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Request for Quotation</p>
+                  <p className="text-sm">This module is currently pending frontend integration.</p>
+                </div>
+              ) : activeTab === "incoming-po" ? (
+                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
+                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Customer Purchase Orders</p>
+                  <p className="text-sm">This module is currently pending frontend integration.</p>
+                </div>
               ) : (activeTab === "purchase" || activeTab === "po") ? (
                 <POTable
                   data={filteredBillsData}
@@ -1072,6 +1125,28 @@ function StoreContent() {
               isEditing={!!editingQuotation}
             />
 
+            {/* Price List Modal */}
+            <PriceListModal
+              isOpen={showPriceListModal}
+              onClose={() => {
+                setShowPriceListModal(false);
+                setEditingPriceList(undefined);
+              }}
+              onSubmit={async (data) => {
+                try {
+                  await createStoreRecord({ tab: "price-list", body: data }).unwrap();
+                  setSuccess("Price list saved successfully");
+                  refetch(); // Force immediate UI update
+                } catch (err: any) {
+                  setError(err?.data?.message || err.message || "Failed to save price list");
+                }
+                setShowPriceListModal(false);
+                setEditingPriceList(undefined);
+              }}
+              fgItems={fgItems}
+              initialData={editingPriceList}
+            />
+
             {/* Inhouse Item Modal */}
             <FGItemForm
               isOpen={showFGItemForm}
@@ -1172,3 +1247,5 @@ export default function StorePage() {
     </Suspense>
   );
 }
+
+ 

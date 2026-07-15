@@ -27,7 +27,10 @@ import {
   createIncomingPO,
   getAllIncomingPOs,
   updateIncomingPO,
-  deleteIncomingPO
+  deleteIncomingPO,
+  createOrUpdatePriceList,
+  getAllPriceLists,
+  deletePriceList
 } from "../controllers/sales/index.js";
 
 const router = express.Router();
@@ -40,6 +43,11 @@ router.post("/rfq", createRFQ);
 router.get("/rfq", getAllRFQs);
 router.put("/rfq/:id", updateRFQ);
 router.delete("/rfq/:id", deleteRFQ);
+
+// Price List routes
+router.post("/price-list", createOrUpdatePriceList);
+router.get("/price-list", getAllPriceLists);
+router.delete("/price-list/:id", deletePriceList);
 
 // Quotation routes
 router.post("/quotation", createQuotation);

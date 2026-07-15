@@ -24,6 +24,7 @@ const storeEndpoints = [
   { key: "order", url: "/api/sales/order", tag: "StoreOrder", dataKey: "orders" },
   { key: "rfq", url: "/api/sales/rfq", tag: "StoreQuotation", dataKey: "rfqs" },
   { key: "incoming-po", url: "/api/sales/incoming-po", tag: "StorePo", dataKey: "pos" },
+  { key: "price-list", url: "/api/sales/price-list", tag: "StorePriceList", dataKey: "priceLists" },
 ];
 
 export type StoreTab = (typeof storeEndpoints)[number]["key"];
@@ -193,5 +194,6 @@ export const {
   useGetRMPlansQuery,
   useUpdateRMPlanPOMutation
 } = storeService;
+
 
 
