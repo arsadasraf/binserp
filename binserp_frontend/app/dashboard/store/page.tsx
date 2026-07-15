@@ -182,7 +182,7 @@ function StoreContent() {
   const getFilteredData = () => {
     if (!data) return [];
     // Only filter for bills tabs
-    if (!['po', 'dc', 'billing'].includes(activeTab)) return data;
+    if (!['po', 'dc', 'billing', 'purchase'].includes(activeTab)) return data;
     if (!filterDate) return data;
 
     return data.filter((item: any) => {
@@ -570,12 +570,34 @@ function StoreContent() {
             </div>
           )}
 
-          {/* Bills tabs - shown when po, dc, billing, order-entry, quotation, or mrp tabs are active */}
-          {(activeTab === "po" || activeTab === "dc" || activeTab === "billing" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "mrp") && (
+          {/* WIP tabs - shown when wip, material-issue, or job-work tabs are active */}
+          {(activeTab === "wip" || activeTab === "material-issue" || activeTab === "job-work") && (
             <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
               <Link
-                href="/dashboard/store?tab=order-entry"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "order-entry"
+                href="/dashboard/store?tab=wip"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "wip" || activeTab === "material-issue"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Issue
+              </Link>
+              <Link
+                href="/dashboard/store?tab=job-work"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "job-work"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Job Work
+              </Link>
+            </div>
+          )}
+
+          {/* Sales tabs - shown when sales, order-entry, quotation, billing, dc, or mrp tabs are active */}
+          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "billing" || activeTab === "dc" || activeTab === "mrp") && (
+            <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+              <Link
+                href="/dashboard/store?tab=sales"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "sales" || activeTab === "order-entry"
                   ? "bg-indigo-600 text-white shadow-md"
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
               >
@@ -588,14 +610,6 @@ function StoreContent() {
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
               >
                 MRP
-              </Link>
-              <Link
-                href="/dashboard/store?tab=po"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "po"
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
-              >
-                Purchase Orders
               </Link>
               <Link
                 href="/dashboard/store?tab=dc"
@@ -620,6 +634,20 @@ function StoreContent() {
                   : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
               >
                 Quotations
+              </Link>
+            </div>
+          )}
+
+          {/* Purchase tabs - shown when purchase or po tabs are active */}
+          {(activeTab === "purchase" || activeTab === "po") && (
+            <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+              <Link
+                href="/dashboard/store?tab=purchase"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "purchase" || activeTab === "po"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                Purchase Orders
               </Link>
             </div>
           )}
@@ -853,9 +881,9 @@ function StoreContent() {
 
             {/* Table for displaying data */}
             {
-              activeTab === "order-entry" ? (
+              (activeTab === "sales" || activeTab === "order-entry") ? (
                 <StoreOrdersTab />
-              ) : activeTab === "po" ? (
+              ) : (activeTab === "purchase" || activeTab === "po") ? (
                 <POTable
                   data={filteredBillsData}
                   companyInfo={companyInfo}
@@ -903,7 +931,7 @@ function StoreContent() {
                   onSubmit={saveCompanyInfo}
                   loading={loading}
                 />
-              ) : activeTab === "material-issue" ? (
+              ) : (activeTab === "wip" || activeTab === "material-issue") ? (
                 <MaterialIssueTab storeData={{
                   data,
                   materialRequests,

@@ -94,10 +94,16 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
 
     // Placeholder functions to avoid breaking the return object before we refactor handlers
     // Handlers
-    const { refetch } = useGetStoreDataQuery(
-        activeTab === "masters" ? (masterTab === "fg-grn-history" ? "fg-grn" : masterTab) : (activeTab === "home" ? (masterTab === "grn-history" ? "grn" : masterTab === "fg-grn-history" ? "fg-grn" : "inventory") : activeTab), 
-        { skip: !token }
-    );
+    const getQueryTab = () => {
+        if (activeTab === "sales") return "order-entry";
+        if (activeTab === "purchase") return "po";
+        if (activeTab === "wip") return "material-issue";
+        if (activeTab === "masters") return masterTab === "fg-grn-history" ? "fg-grn" : masterTab;
+        if (activeTab === "home") return masterTab === "grn-history" ? "grn" : masterTab === "fg-grn-history" ? "fg-grn" : "inventory";
+        return activeTab;
+    };
+
+    const { refetch } = useGetStoreDataQuery(getQueryTab(), { skip: !token });
 
     const fetchData = () => refetch();
     const fetchMasters = () => {};

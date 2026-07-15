@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
 
-import { Package, Layers, FileText, Settings, IndianRupee, Factory } from "lucide-react";
+import { Package, Layers, FileText, Settings, IndianRupee, Factory, ShoppingCart, ClipboardList } from "lucide-react";
 import { motion } from "framer-motion";
 import { TabType } from "../../types/store.types";
 
@@ -13,11 +13,11 @@ interface StoreTabsProps {
 
 export default function StoreTabs({ activeTab }: StoreTabsProps) {
     const { showBottomNav } = useHeader();
-    const isBillsActive = ["po", "dc", "billing", "order-entry", "mrp"].includes(activeTab);
+    const isSalesActive = ["sales", "mrp", "order-entry", "quotation", "billing", "dc"].includes(activeTab);
+    const isPurchaseActive = ["purchase", "po"].includes(activeTab);
     const isMastersActive = activeTab === "masters";
     const isHomeActive = activeTab === "home";
-    const isMaterialIssueActive = activeTab === "material-issue";
-    const isJobWorkActive = activeTab === "job-work";
+    const isWipActive = ["wip", "material-issue", "job-work"].includes(activeTab);
 
     const [department, setDepartment] = useState<string>("");
 
@@ -39,9 +39,9 @@ export default function StoreTabs({ activeTab }: StoreTabsProps) {
 
     const tabs = [
         { id: "home", label: "Inventory", icon: Package, href: "/dashboard/store?tab=home", isActive: isHomeActive },
-        { id: "material-issue", label: "Issue", icon: Layers, href: "/dashboard/store?tab=material-issue", isActive: isMaterialIssueActive },
-        { id: "job-work", label: "Job Work", icon: Factory, href: "/dashboard/store?tab=job-work", isActive: isJobWorkActive },
-        { id: "bills", label: "Bills", icon: IndianRupee, href: "/dashboard/store?tab=dc", isActive: isBillsActive }, // Defaulting to DC for bills tab link
+        { id: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store?tab=wip", isActive: isWipActive },
+        { id: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store?tab=sales", isActive: isSalesActive },
+        { id: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store?tab=purchase", isActive: isPurchaseActive },
         { id: "masters", label: "Masters", icon: Settings, href: "/dashboard/store?tab=masters", isActive: isMastersActive },
     ].filter(tab => !(tab.id === "masters" && isExecutive));
 
