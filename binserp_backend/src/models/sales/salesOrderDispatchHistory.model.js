@@ -1,15 +1,15 @@
 import mongoose from "mongoose";
 
-export const storeDispatchHistorySchema = new mongoose.Schema(
+export const salesOrderDispatchHistorySchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Company",
       required: true,
     },
-    storeOrder: {
+    salesOrder: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "StoreOrder",
+      ref: "SalesOrder",
       required: true,
     },
     dispatchNumber: {
@@ -62,5 +62,5 @@ export const storeDispatchHistorySchema = new mongoose.Schema(
 );
 
 // Indexes
-storeDispatchHistorySchema.index({ company: 1, dispatchNumber: 1 }, { unique: true });
-storeDispatchHistorySchema.index({ storeOrder: 1 });
+salesOrderDispatchHistorySchema.index({ company: 1, dispatchNumber: 1 }, { unique: true });
+salesOrderDispatchHistorySchema.index({ salesOrder: 1 });

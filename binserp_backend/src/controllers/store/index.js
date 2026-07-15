@@ -41,14 +41,7 @@ export { updateRmBoItem } from './updateRmBoItem.controller.js';
 export { deleteRmBoItem } from './deleteRmBoItem.controller.js';
 export { getCompanyInfo } from './getCompanyInfo.controller.js';
 export { updateCompanyInfo } from './updateCompanyInfo.controller.js';
-export { createDC } from './createDC.controller.js';
-export { getAllDCs } from './getAllDCs.controller.js';
-export { updateDC } from './updateDC.controller.js';
-export { deleteDC } from './deleteDC.controller.js';
-export { createInvoice } from './createInvoice.controller.js';
-export { getAllInvoices } from './getAllInvoices.controller.js';
-export { updateInvoice } from './updateInvoice.controller.js';
-export { deleteInvoice } from './deleteInvoice.controller.js';
+
 export { getItemGRNHistory } from './getItemGRNHistory.controller.js';
 export { createJobWorkChallan } from './createJobWorkChallan.controller.js';
 export { receiveJobWorkItems } from './receiveJobWorkItems.controller.js';
@@ -59,11 +52,7 @@ export { createJobWorkSupplier } from './createJobWorkSupplier.controller.js';
 export { getAllJobWorkSuppliers } from './getAllJobWorkSuppliers.controller.js';
 export { updateJobWorkSupplier } from './updateJobWorkSupplier.controller.js';
 export { deleteJobWorkSupplier } from './deleteJobWorkSupplier.controller.js';
-export * from './storeOrder.controller.js';
-export { createQuotation } from './createQuotation.controller.js';
-export { getAllQuotations } from './getAllQuotations.controller.js';
-export { updateQuotation } from './updateQuotation.controller.js';
-export { deleteQuotation } from './deleteQuotation.controller.js';
+
 export { createFGItem, getAllFGItems, updateFGItem, deleteFGItem } from './fgItem.controller.js';
 export { createFGGRN, getAllFGGRNs, updateFGGRN, deleteFGGRN } from './fgGRN.controller.js';
 export { getRMMonthlyInventory, getFGMonthlyInventory } from './getMonthlyInventory.controller.js';

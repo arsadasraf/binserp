@@ -1,23 +1,6 @@
 import mongoose from "mongoose";
-import {
-  deliveryChallanSchema,
-  invoiceSchema,
-  grnSchema,
-  materialIssueSchema,
-  bomSchema,
-  inventorySchema,
-  materialRequestSchema,
-  purchaseOrderSchema,
-  vendorSchema,
-  customerSchema,
-  locationSchema,
-  categorySchema,
-  rmBoItemSchema,
-  companyInfoSchema,
-  jobWorkSchema,
-  jobWorkSupplierSchema,
-  quotationSchema
-} from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, purchaseOrderSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -60,18 +43,19 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const deleteQuotation = async (req, res) => {
+export const getAllQuotations = async (req, res) => {
   try {
     const Quotation = req.getModel('Quotation', quotationSchema);
+    req.getModel('Component', componentSchema); // Ensure Component is registered for populate
+
     const companyId = getCompanyId(req);
-    const { id } = req.params;
-    const quotation = await Quotation.findOneAndDelete({ _id: id, company: companyId });
-    if (!quotation) return res.status(404).json({ message: "Quotation not found" });
-    res.status(200).json({ message: "Quotation deleted successfully" });
+    const quotations = await Quotation.find({ company: companyId })
+      .populate("preparedBy", "name userId")
+      .populate("items.component", "componentName componentCode")
+      .sort({ createdAt: -1 });
+    res.status(200).json({ quotations, count: quotations.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-
-
 

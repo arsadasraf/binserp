@@ -9,7 +9,7 @@ export const storeOrderFulfillmentSchema = new mongoose.Schema(
     },
     storeOrder: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "StoreOrder",
+      ref: "SalesOrder",
       required: true,
     },
     fgItem: {

@@ -1,25 +1,6 @@
 import mongoose from "mongoose";
-import {
-  deliveryChallanSchema,
-  invoiceSchema,
-  grnSchema,
-  materialIssueSchema,
-  bomSchema,
-  inventorySchema,
-  materialRequestSchema,
-  purchaseOrderSchema,
-  vendorSchema,
-  customerSchema,
-  locationSchema,
-  categorySchema,
-  rmBoItemSchema,
-  companyInfoSchema,
-  jobWorkSchema,
-  jobWorkSupplierSchema,
-  quotationSchema,
-  fgItemSchema,
-  rmInventoryMonthlySchema
-} from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, purchaseOrderSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema } from "../../models/store/index.js";
+import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";

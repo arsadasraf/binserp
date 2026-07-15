@@ -1,12 +1,5 @@
 import express from "express";
 import {
-  createDC,
-  getAllDCs,
-  updateDC,
-  deleteDC,
-  createInvoice,
-  getAllInvoices,
-  updateInvoice,
   createGRN,
   getAllGRNs,
   updateGRN,
@@ -58,21 +51,8 @@ import {
   createJobWorkSupplier,
   getAllJobWorkSuppliers,
   updateJobWorkSupplier,
-  deleteJobWorkSupplier,
-  createQuotation,
-  getAllQuotations,
-  updateQuotation,
-  deleteQuotation,
-  createStoreOrder,
-  getAllStoreOrders,
-  getStoreOrderById,
-  updateStoreOrder,
-  deleteStoreOrder
+  deleteJobWorkSupplier
 } from "../controllers/store/index.js";
-import {
-  createStoreDispatch,
-  getDispatchHistory
-} from "../controllers/store/storeDispatch.controller.js";
 import {
   getFulfillments,
   reserveQuantity,
@@ -95,16 +75,6 @@ router.use(verifyJWT);
 // Restrict Master routes for Executives
 router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/company-info", "/fg-item"], restrictExecutive);
 
-// Delivery Challan routes
-router.post("/dc", createDC);
-router.get("/dc", getAllDCs);
-router.put("/dc/:id", updateDC);
-router.delete("/dc/:id", deleteDC);
-
-// Invoice routes
-router.post("/invoice", createInvoice);
-router.get("/invoice", getAllInvoices);
-router.put("/invoice/:id", updateInvoice);
 
 // GRN routes (with PDF and photos upload support)
 router.post("/grn", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 10 }]), createGRN);
@@ -180,22 +150,6 @@ router.put("/jobwork/receive/:id", receiveJobWorkItems);
 router.get("/jobwork/all", getAllJobWorkChallans);
 router.put("/jobwork/update/:id", updateJobWorkChallan);
 router.delete("/jobwork/delete/:id", deleteJobWorkChallan);
-// Quotation routes
-router.post("/quotation", createQuotation);
-router.get("/quotation", getAllQuotations);
-router.put("/quotation/:id", updateQuotation);
-router.delete("/quotation/:id", deleteQuotation);
-
-// Store Order routes
-router.post("/order", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createStoreOrder);
-router.get("/order", getAllStoreOrders);
-router.get("/order/:id", getStoreOrderById);
-router.put("/order/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), updateStoreOrder);
-router.delete("/order/:id", deleteStoreOrder);
-
-// Store Order Dispatch routes
-router.post("/order/:storeOrderId/dispatch", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createStoreDispatch);
-router.get("/order/:storeOrderId/dispatches", getDispatchHistory);
 
 // Store Fulfillment & MRP routes
 router.get("/fulfillment", getFulfillments);

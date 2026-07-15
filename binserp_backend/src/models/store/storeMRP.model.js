@@ -9,7 +9,7 @@ export const storeMRPSchema = new mongoose.Schema(
     },
     storeOrder: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "StoreOrder",
+      ref: "SalesOrder",
     },
     fgItem: {
       type: mongoose.Schema.Types.ObjectId,

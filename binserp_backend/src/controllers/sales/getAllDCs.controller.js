@@ -1,23 +1,6 @@
 import mongoose from "mongoose";
-import {
-  deliveryChallanSchema,
-  invoiceSchema,
-  grnSchema,
-  materialIssueSchema,
-  bomSchema,
-  inventorySchema,
-  materialRequestSchema,
-  purchaseOrderSchema,
-  vendorSchema,
-  customerSchema,
-  locationSchema,
-  categorySchema,
-  rmBoItemSchema,
-  companyInfoSchema,
-  jobWorkSchema,
-  jobWorkSupplierSchema,
-  quotationSchema
-} from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, purchaseOrderSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -60,18 +43,28 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const deleteInvoice = async (req, res) => {
+export const getAllDCs = async (req, res) => {
   try {
-    const Invoice = req.getModel('Invoice', invoiceSchema);
+    req.getModel('Material', rmBoItemSchema);
+    req.getModel('Customer', customerSchema);
+    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
 
     const companyId = getCompanyId(req);
-    const { id } = req.params;
-    const invoice = await Invoice.findOneAndDelete({ _id: id, company: companyId });
-    if (!invoice) return res.status(404).json({ message: "Invoice not found" });
-    res.status(200).json({ message: "Invoice deleted successfully" });
+    console.log("Fetching DCs for company:", companyId);
+
+    const dcs = await DeliveryChallan.find({ company: companyId })
+      .populate('items.material')
+      .populate('customer')
+      .sort({ createdAt: -1 }); // Newest first
+
+    console.log(`Found ${dcs.length} DCs`);
+
+    // transform for frontend if needed, or just send
+    // using 'data' key to ensure useStoreData hook picks it up correctly (result.data)
+    res.status(200).json({ data: dcs, count: dcs.length });
   } catch (error) {
+    console.error("Error fetching DCs:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// Get GRN History for a specific Item (Material or Component)

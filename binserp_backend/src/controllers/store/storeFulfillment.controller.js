@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
-import { storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema, storeRMPlanSchema, fgItemSchema, storeOrderSchema } from "../../models/store/index.js";
+import { storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema, storeRMPlanSchema, fgItemSchema } from "../../models/store/index.js";
+import { salesOrderSchema } from "../../models/sales/index.js";
 
 const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
@@ -10,7 +11,7 @@ const getCompanyId = (req) => {
 };
 
 // Models (retrieved via req.getModel in multitenant setup)
-// Fulfillments: "StoreOrderFulfillment"
+// Fulfillments: "storeOrderFulfillment"
 // Inventories: "FGInventoryMonthly"
 // MRP: "StoreMRP"
 
@@ -22,12 +23,12 @@ const getCurrentMonthString = () => {
 export const getFulfillments = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const storeOrderFulfillment = req.getModel("storeOrderFulfillment", storeOrderFulfillmentSchema);
     const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
     
     // Find all pending/partial fulfillments
-    const fulfillments = await StoreOrderFulfillment.find({ company: companyId })
-      .populate('storeOrder', 'orderNumber status customerName createdAt')
+    const fulfillments = await storeOrderFulfillment.find({ company: companyId })
+      .populate('salesOrder', 'orderNumber status customerName createdAt')
       .populate('fgItem', 'name code unit')
       .sort({ createdAt: -1 });
 
@@ -67,10 +68,10 @@ export const reserveQuantity = async (req, res) => {
     const { quantity } = req.body;
     const companyId = getCompanyId(req);
     
-    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const storeOrderFulfillment = req.getModel("storeOrderFulfillment", storeOrderFulfillmentSchema);
     const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
 
-    const fulfillment = await StoreOrderFulfillment.findOne({ _id: id, company: companyId });
+    const fulfillment = await storeOrderFulfillment.findOne({ _id: id, company: companyId });
     if (!fulfillment) return res.status(404).json({ success: false, message: "Fulfillment not found" });
 
     // Calculate remaining quantity that actually needs reservation
@@ -121,10 +122,10 @@ export const moveToMRP = async (req, res) => {
     const { quantity } = req.body;
     const companyId = getCompanyId(req);
     
-    const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+    const storeOrderFulfillment = req.getModel("storeOrderFulfillment", storeOrderFulfillmentSchema);
     const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
 
-    const fulfillment = await StoreOrderFulfillment.findOne({ _id: id, company: companyId });
+    const fulfillment = await storeOrderFulfillment.findOne({ _id: id, company: companyId });
     if (!fulfillment) return res.status(404).json({ success: false, message: "Fulfillment not found" });
 
     const remainingToFulfill = fulfillment.orderedQuantity - fulfillment.dispatchedQuantity - fulfillment.mrpMovedQuantity - fulfillment.reservedQuantity;
@@ -141,7 +142,7 @@ export const moveToMRP = async (req, res) => {
 
     const newMRP = await StoreMRP.create({
       company: companyId,
-      storeOrder: fulfillment.storeOrder,
+      salesOrder: fulfillment.salesOrder,
       fgItem: fulfillment.fgItem,
       requiredQuantity: mrpQuantity,
       dueDate: fulfillment.targetDate || new Date(),
@@ -155,8 +156,8 @@ export const moveToMRP = async (req, res) => {
     await fulfillment.save();
 
     // Update parent order status
-    const StoreOrder = req.getModel('StoreOrder', storeOrderSchema);
-    await StoreOrder.findByIdAndUpdate(fulfillment.storeOrder, { status: 'Moved MRP' });
+    const SalesOrder = req.getModel('SalesOrder', salesOrderSchema);
+    await SalesOrder.findByIdAndUpdate(fulfillment.salesOrder, { status: 'Moved MRP' });
 
     res.status(201).json({ success: true, message: `Sent ${mrpQuantity} units to MRP queue.`, data: newMRP });
   } catch (error) {
@@ -170,7 +171,7 @@ export const getStoreMRPs = async (req, res) => {
     const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
 
     const mrps = await StoreMRP.find({ company: companyId })
-      .populate('storeOrder', 'orderNumber customerName')
+      .populate('salesOrder', 'orderNumber customerName')
       .populate({
         path: 'fgItem',
         select: 'name code bom',

@@ -1,23 +1,6 @@
 import mongoose from "mongoose";
-import {
-  deliveryChallanSchema,
-  invoiceSchema,
-  grnSchema,
-  materialIssueSchema,
-  bomSchema,
-  inventorySchema,
-  materialRequestSchema,
-  purchaseOrderSchema,
-  vendorSchema,
-  customerSchema,
-  locationSchema,
-  categorySchema,
-  rmBoItemSchema,
-  companyInfoSchema,
-  jobWorkSchema,
-  jobWorkSupplierSchema,
-  quotationSchema
-} from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, purchaseOrderSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -60,22 +43,32 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const updateDC = async (req, res) => {
+export const createDC = async (req, res) => {
   try {
     const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
 
     const companyId = getCompanyId(req);
-    const { id } = req.params;
+    const { dcNumber, date, customer, items, status } = req.body;
 
-    const dc = await DeliveryChallan.findOneAndUpdate(
-      { _id: id, company: companyId },
-      req.body,
-      { new: true }
-    );
+    console.log("Creating DC:", { dcNumber, companyId });
 
-    if (!dc) return res.status(404).json({ message: "DC not found" });
-    res.status(200).json({ message: "DC updated successfully", dc });
+    const dc = await DeliveryChallan.create({
+      company: companyId,
+      dcNumber,
+      date,
+      customerName: req.body.customerName, // Fallback or direct
+      customer,
+      customerAddress: req.body.customerAddress,
+      items,
+      discount: req.body.discount,
+      otherDetails: req.body.otherDetails,
+      status: status || 'Draft',
+      preparedBy: req.user.id
+    });
+
+    res.status(201).json({ message: "DC created successfully", dc });
   } catch (error) {
+    console.error("Error creating DC:", error);
     res.status(500).json({ message: error.message });
   }
 };

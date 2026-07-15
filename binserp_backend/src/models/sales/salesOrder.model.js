@@ -5,7 +5,7 @@ function arrayLimit(val) {
 }
 
 
-export const storeOrderSchema = new mongoose.Schema(
+export const salesOrderSchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
@@ -75,4 +75,4 @@ export const storeOrderSchema = new mongoose.Schema(
 );
 
 // Indexes
-storeOrderSchema.index({ company: 1, orderNumber: 1 }, { unique: true });
+salesOrderSchema.index({ company: 1, orderNumber: 1 }, { unique: true });

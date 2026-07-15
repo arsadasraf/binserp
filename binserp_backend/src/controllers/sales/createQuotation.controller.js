@@ -1,23 +1,6 @@
 import mongoose from "mongoose";
-import {
-  deliveryChallanSchema,
-  invoiceSchema,
-  grnSchema,
-  materialIssueSchema,
-  bomSchema,
-  inventorySchema,
-  materialRequestSchema,
-  purchaseOrderSchema,
-  vendorSchema,
-  customerSchema,
-  locationSchema,
-  categorySchema,
-  rmBoItemSchema,
-  companyInfoSchema,
-  jobWorkSchema,
-  jobWorkSupplierSchema,
-  quotationSchema
-} from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, purchaseOrderSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -60,18 +43,16 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const updateQuotation = async (req, res) => {
+export const createQuotation = async (req, res) => {
   try {
     const Quotation = req.getModel('Quotation', quotationSchema);
     const companyId = getCompanyId(req);
-    const { id } = req.params;
-    const quotation = await Quotation.findOneAndUpdate(
-      { _id: id, company: companyId },
-      req.body,
-      { new: true }
-    );
-    if (!quotation) return res.status(404).json({ message: "Quotation not found" });
-    res.status(200).json({ message: "Quotation updated successfully", quotation });
+    const quotation = await Quotation.create({
+      ...req.body,
+      company: companyId,
+      preparedBy: req.user.id,
+    });
+    res.status(201).json({ message: "Quotation created successfully", quotation });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

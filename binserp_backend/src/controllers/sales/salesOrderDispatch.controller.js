@@ -1,4 +1,5 @@
-import { storeOrderSchema, customerSchema, fgItemSchema, storeDispatchHistorySchema, storeOrderFulfillmentSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { customerSchema, fgItemSchema, storeOrderFulfillmentSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
@@ -19,25 +20,25 @@ const generateDispatchNumber = async (req) => {
   const settings = await PrefixSettings.findOne({ company: companyId });
   const prefix = settings?.dispatchPrefix || "DSP-";
   
-  const StoreDispatch = req.getModel("StoreDispatchHistory", storeDispatchHistorySchema);
+  const StoreDispatch = req.getModel("SalesOrderDispatchHistory", salesOrderDispatchHistorySchema);
   const count = await StoreDispatch.countDocuments({ company: companyId });
   
   return `${prefix}${String(count + 1).padStart(4, "0")}`;
 };
 
-export const createStoreDispatch = asyncHandler(async (req, res) => {
-  const StoreDispatch = req.getModel("StoreDispatchHistory", storeDispatchHistorySchema);
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
+export const createSalesDispatch = asyncHandler(async (req, res) => {
+  const StoreDispatch = req.getModel("SalesOrderDispatchHistory", salesOrderDispatchHistorySchema);
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const companyId = getCompanyId(req);
 
-  const { storeOrderId } = req.params;
+  const { SalesOrderId } = req.params;
   let { items, dispatchDate, remarks, vehicleNumber, driverName, dispatchNumber } = req.body;
 
   if (typeof items === 'string') {
     items = JSON.parse(items);
   }
 
-  const order = await StoreOrder.findOne({ _id: storeOrderId, company: companyId });
+  const order = await SalesOrder.findOne({ _id: SalesOrderId, company: companyId });
   if (!order) {
     return res.status(404).json({ success: false, message: "Order not found" });
   }
@@ -81,7 +82,7 @@ export const createStoreDispatch = asyncHandler(async (req, res) => {
   // Create dispatch record
   const dispatchData = {
     company: companyId,
-    storeOrder: storeOrderId,
+    SalesOrder: SalesOrderId,
     dispatchNumber,
     dispatchDate: dispatchDate || new Date(),
     items,
@@ -110,7 +111,7 @@ export const createStoreDispatch = asyncHandler(async (req, res) => {
       // Update fulfillment record
       const fulfillment = await StoreOrderFulfillment.findOne({
         company: companyId,
-        storeOrder: storeOrderId,
+        SalesOrder: SalesOrderId,
         fgItem: dispatchItem.fgItem
       });
       
@@ -152,13 +153,13 @@ export const createStoreDispatch = asyncHandler(async (req, res) => {
 export const getDispatchHistory = asyncHandler(async (req, res) => {
   req.getModel('Customer', customerSchema);
   req.getModel('FGItem', fgItemSchema);
-  req.getModel('StoreOrder', storeOrderSchema);
+  req.getModel('SalesOrder', salesOrderSchema);
   
-  const StoreDispatch = req.getModel("StoreDispatchHistory", storeDispatchHistorySchema);
+  const StoreDispatch = req.getModel("SalesOrderDispatchHistory", salesOrderDispatchHistorySchema);
   const companyId = getCompanyId(req);
-  const { storeOrderId } = req.params;
+  const { SalesOrderId } = req.params;
 
-  const dispatches = await StoreDispatch.find({ company: companyId, storeOrder: storeOrderId })
+  const dispatches = await StoreDispatch.find({ company: companyId, SalesOrder: SalesOrderId })
     .populate("items.fgItem", "name type description")
     .populate("createdBy", "name")
     .sort({ dispatchDate: -1, createdAt: -1 });

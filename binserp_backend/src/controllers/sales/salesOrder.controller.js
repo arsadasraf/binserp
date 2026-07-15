@@ -1,4 +1,5 @@
-import { storeOrderSchema, customerSchema, fgItemSchema, storeOrderFulfillmentSchema } from "../../models/store/index.js";
+import { customerSchema, fgItemSchema, storeOrderFulfillmentSchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
@@ -12,21 +13,21 @@ const getCompanyId = (req) => {
 };
 
 // Generate Store Order Number if prefix is available
-const generateOrderNumber = async (req) => {
+export const generateOrderNumber = async (req) => {
   const PrefixSettings = req.getModel("PrefixSettings", prefixSettingsSchema);
   const companyId = getCompanyId(req);
   
   const settings = await PrefixSettings.findOne({ company: companyId });
-  const prefix = settings?.storeOrderPrefix || "SO-";
+  const prefix = settings?.SalesOrderPrefix || "SO-";
   
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
-  const count = await StoreOrder.countDocuments({ company: companyId });
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
+  const count = await SalesOrder.countDocuments({ company: companyId });
   
   return `${prefix}${String(count + 1).padStart(4, "0")}`;
 };
 
-export const createStoreOrder = asyncHandler(async (req, res) => {
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
+export const createSalesOrder = asyncHandler(async (req, res) => {
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const companyId = getCompanyId(req);
 
   let { orderNumber, poReference, customer, targetDate, items, totalAmount, status, remarks } = req.body;
@@ -57,13 +58,13 @@ export const createStoreOrder = asyncHandler(async (req, res) => {
   if (req.files) {
     if (req.files['photos'] && req.files['photos'].length > 0) {
       for (const file of req.files['photos']) {
-        const result = await uploadOnS3(file.path, "storeOrders", getCompanyLoginId(req));
+        const result = await uploadOnS3(file.path, "SalesOrders", getCompanyLoginId(req));
         if (result?.url) photoUrls.push(result.url);
       }
     }
     if (req.files['pdf'] && req.files['pdf'].length > 0) {
       const file = req.files['pdf'][0];
-      const result = await uploadOnS3(file.path, "storeOrders", getCompanyLoginId(req));
+      const result = await uploadOnS3(file.path, "SalesOrders", getCompanyLoginId(req));
       if (result?.url) pdfUrl = result.url;
     }
   }
@@ -83,14 +84,14 @@ export const createStoreOrder = asyncHandler(async (req, res) => {
     pdf: pdfUrl
   };
 
-  const newOrder = await StoreOrder.create(orderData);
+  const newOrder = await SalesOrder.create(orderData);
 
   // Spawn fulfillment records for each item in the order
   const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
   if (items && items.length > 0) {
     const fulfillments = items.map(item => ({
       company: companyId,
-      storeOrder: newOrder._id,
+      SalesOrder: newOrder._id,
       fgItem: item.fgItem,
       orderedQuantity: item.quantity,
       targetDate: targetDate || new Date(),
@@ -101,15 +102,15 @@ export const createStoreOrder = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, order: newOrder });
 });
 
-export const getAllStoreOrders = asyncHandler(async (req, res) => {
+export const getAllSalesOrders = asyncHandler(async (req, res) => {
   // Register required models for populate
   req.getModel('Customer', customerSchema);
   req.getModel('FGItem', fgItemSchema);
   
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const companyId = getCompanyId(req);
 
-  const orders = await StoreOrder.find({ company: companyId })
+  const orders = await SalesOrder.find({ company: companyId })
     .populate("customer", "name code email phone")
     .populate("items.fgItem", "name type description")
     .populate("createdBy", "name")
@@ -118,12 +119,12 @@ export const getAllStoreOrders = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, orders, count: orders.length });
 });
 
-export const getStoreOrderById = asyncHandler(async (req, res) => {
+export const getSalesOrderById = asyncHandler(async (req, res) => {
   req.getModel('Customer', customerSchema);
   req.getModel('FGItem', fgItemSchema);
   
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
-  const order = await StoreOrder.findById(req.params.id)
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
+  const order = await SalesOrder.findById(req.params.id)
     .populate("customer", "name code email phone")
     .populate("items.fgItem", "name type description");
 
@@ -134,12 +135,12 @@ export const getStoreOrderById = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, order });
 });
 
-export const updateStoreOrder = asyncHandler(async (req, res) => {
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
+export const updateSalesOrder = asyncHandler(async (req, res) => {
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const orderId = req.params.id;
   const companyId = getCompanyId(req);
 
-  const existingOrder = await StoreOrder.findOne({ _id: orderId, company: companyId });
+  const existingOrder = await SalesOrder.findOne({ _id: orderId, company: companyId });
   if (!existingOrder) {
     return res.status(404).json({ success: false, message: "Order not found" });
   }
@@ -169,19 +170,19 @@ export const updateStoreOrder = asyncHandler(async (req, res) => {
     let photoUrls = existingOrder.photos || [];
     if (req.files['photos'] && req.files['photos'].length > 0) {
       for (const file of req.files['photos']) {
-        const result = await uploadOnS3(file.path, "storeOrders", getCompanyLoginId(req));
+        const result = await uploadOnS3(file.path, "SalesOrders", getCompanyLoginId(req));
         if (result?.url) photoUrls.push(result.url);
       }
       req.body.photos = photoUrls.slice(-3); // Keep at most 3
     }
     if (req.files['pdf'] && req.files['pdf'].length > 0) {
       const file = req.files['pdf'][0];
-      const result = await uploadOnS3(file.path, "storeOrders", getCompanyLoginId(req));
+      const result = await uploadOnS3(file.path, "SalesOrders", getCompanyLoginId(req));
       if (result?.url) req.body.pdf = result.url;
     }
   }
 
-  const updatedOrder = await StoreOrder.findByIdAndUpdate(
+  const updatedOrder = await SalesOrder.findByIdAndUpdate(
     orderId,
     { $set: req.body },
     { new: true, runValidators: true }
@@ -190,11 +191,11 @@ export const updateStoreOrder = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, order: updatedOrder });
 });
 
-export const deleteStoreOrder = asyncHandler(async (req, res) => {
-  const StoreOrder = req.getModel("StoreOrder", storeOrderSchema);
+export const deleteSalesOrder = asyncHandler(async (req, res) => {
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const companyId = getCompanyId(req);
 
-  const deletedOrder = await StoreOrder.findOneAndDelete({ _id: req.params.id, company: companyId });
+  const deletedOrder = await SalesOrder.findOneAndDelete({ _id: req.params.id, company: companyId });
 
   if (!deletedOrder) {
     return res.status(404).json({ success: false, message: "Order not found" });

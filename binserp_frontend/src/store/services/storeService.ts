@@ -9,8 +9,8 @@ const storeEndpoints = [
   { key: "rm-bo-item", url: "/api/store/rm-bo-item", tag: "StoreInventory", dataKey: "rmBoItems" },
   { key: "job-work-supplier", url: "/api/store/job-work-supplier", tag: "StoreMasters", dataKey: "jobWorkSuppliers" },
   { key: "process", url: "/api/store/process", tag: "StoreMasters", dataKey: "processes" },
-  { key: "dc", url: "/api/store/dc", tag: "StoreDc", dataKey: "dcs" },
-  { key: "invoice", url: "/api/store/invoice", tag: "StoreInvoice", dataKey: "invoices" },
+  { key: "dc", url: "/api/sales/dc", tag: "StoreDc", dataKey: "dcs" },
+  { key: "invoice", url: "/api/sales/invoice", tag: "StoreInvoice", dataKey: "invoices" },
   { key: "grn", url: "/api/store/grn", tag: "StoreGrn", dataKey: "grns" },
   { key: "material-issue", url: "/api/store/material-issue", tag: "StoreMaterialIssue", dataKey: "materialIssues" },
   { key: "bom", url: "/api/store/bom", tag: "StoreBom", dataKey: "boms" },
@@ -18,10 +18,12 @@ const storeEndpoints = [
   { key: "material-request", url: "/api/store/material-request", tag: "StoreMaterialRequest", dataKey: "materialRequests" },
   { key: "po", url: "/api/store/po", tag: "StorePo", dataKey: "pos" },
   { key: "company-info", url: "/api/store/company-info", tag: "StoreMasters", dataKey: "companyInfo" },
-  { key: "quotation", url: "/api/store/quotation", tag: "StoreQuotation", dataKey: "quotations" },
+  { key: "quotation", url: "/api/sales/quotation", tag: "StoreQuotation", dataKey: "quotations" },
   { key: "fg-item", url: "/api/store/fg-item", tag: "StoreMasters", dataKey: "fgItems" },
   { key: "fg-grn", url: "/api/store/fg-grn", tag: "StoreGrn", dataKey: "grns" },
-  { key: "order", url: "/api/store/order", tag: "StoreOrder", dataKey: "orders" },
+  { key: "order", url: "/api/sales/order", tag: "StoreOrder", dataKey: "orders" },
+  { key: "rfq", url: "/api/sales/rfq", tag: "StoreQuotation", dataKey: "rfqs" },
+  { key: "incoming-po", url: "/api/sales/incoming-po", tag: "StorePo", dataKey: "pos" },
 ];
 
 export type StoreTab = (typeof storeEndpoints)[number]["key"];
@@ -97,14 +99,14 @@ export const storeService = binsApi.injectEndpoints({
     }),
     createStoreDispatch: builder.mutation<any, { orderId: string; body: any }>({
       query: ({ orderId, body }) => ({
-        url: `/api/store/order/${orderId}/dispatch`,
+        url: `/api/sales/order/${orderId}/dispatch`,
         method: "POST",
         body,
       }),
       invalidatesTags: ["StoreOrder" as any],
     }),
     getStoreDispatches: builder.query<any, string>({
-      query: (orderId) => `/api/store/order/${orderId}/dispatches`,
+      query: (orderId) => `/api/sales/order/${orderId}/dispatches`,
       transformResponse: (res: any) => res.dispatches,
       providesTags: ["StoreOrder" as any],
     }),

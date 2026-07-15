@@ -1,23 +1,6 @@
 import mongoose from "mongoose";
-import {
-  deliveryChallanSchema,
-  invoiceSchema,
-  grnSchema,
-  materialIssueSchema,
-  bomSchema,
-  inventorySchema,
-  materialRequestSchema,
-  purchaseOrderSchema,
-  vendorSchema,
-  customerSchema,
-  locationSchema,
-  categorySchema,
-  rmBoItemSchema,
-  companyInfoSchema,
-  jobWorkSchema,
-  jobWorkSupplierSchema,
-  quotationSchema
-} from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, purchaseOrderSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { rfqSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { prefixSettingsSchema } from "../../models/prefix/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -60,32 +43,26 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
-export const createDC = async (req, res) => {
+export const getAllInvoices = async (req, res) => {
   try {
-    const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+    req.getModel('Material', rmBoItemSchema);
+    req.getModel('Customer', customerSchema);
+    const Invoice = req.getModel('Invoice', invoiceSchema);
 
     const companyId = getCompanyId(req);
-    const { dcNumber, date, customer, items, status } = req.body;
+    console.log("Fetching Invoices for company:", companyId);
 
-    console.log("Creating DC:", { dcNumber, companyId });
+    const invoices = await Invoice.find({ company: companyId })
+      .populate('items.material')
+      .populate('customer')
+      .sort({ createdAt: -1 });
 
-    const dc = await DeliveryChallan.create({
-      company: companyId,
-      dcNumber,
-      date,
-      customerName: req.body.customerName, // Fallback or direct
-      customer,
-      customerAddress: req.body.customerAddress,
-      items,
-      discount: req.body.discount,
-      otherDetails: req.body.otherDetails,
-      status: status || 'Draft',
-      preparedBy: req.user.id
-    });
+    console.log(`Found ${invoices.length} Invoices`);
 
-    res.status(201).json({ message: "DC created successfully", dc });
+    // using 'data' key to ensure useStoreData hook picks it up correctly
+    res.status(200).json({ data: invoices, count: invoices.length });
   } catch (error) {
-    console.error("Error creating DC:", error);
+    console.error("Error fetching Invoices:", error);
     res.status(500).json({ message: error.message });
   }
 };
