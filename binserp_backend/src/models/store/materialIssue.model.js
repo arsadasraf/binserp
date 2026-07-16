@@ -34,7 +34,7 @@ export const materialIssueSchema = new mongoose.Schema(
       {
         material: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Material",
+          ref: "RmBoItem",
         },
         component: {
           type: mongoose.Schema.Types.ObjectId,

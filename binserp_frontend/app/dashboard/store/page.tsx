@@ -47,6 +47,8 @@ import QuotationTable from "./components/tables/QuotationTable";
 import QuotationModal from "./components/modals/QuotationModal";
 import PriceListTable from "./components/tables/PriceListTable";
 import PriceListModal from "./components/modals/PriceListModal";
+import VendorPriceListTable from "./components/tables/VendorPriceListTable";
+import VendorPriceListModal from "./components/modals/VendorPriceListModal";
 import { IncomingRFQTable } from "./components/IncomingRFQTable";
 import { IncomingRFQForm } from "./components/IncomingRFQForm";
 import { IncomingPOTable } from "./components/IncomingPOTable";
@@ -102,6 +104,10 @@ function StoreContent() {
   // State for Price List modal
   const [showPriceListModal, setShowPriceListModal] = useState(false);
   const [editingPriceList, setEditingPriceList] = useState<any>(undefined);
+
+  // State for Vendor Price List modal
+  const [showVendorPriceListModal, setShowVendorPriceListModal] = useState(false);
+  const [editingVendorPriceList, setEditingVendorPriceList] = useState<any>(undefined);
 
   // State for Incoming RFQ modal
   const [showIncomingRFQModal, setShowIncomingRFQModal] = useState(false);
@@ -185,14 +191,14 @@ function StoreContent() {
     pendingProducts,
     jobWorkSuppliers,
     priceLists,
+    vendorPriceLists,
     refetch,
   } = useStoreData(activeTab, masterTab, token);
 
   // Filter InHouse components based on search term AND inventory status
   const filteredInHouseComponents = useMemo(() => {
-    // Stage 1: Filter by isInventoryItem status
-    // Only show items that have been explicitly marked as inventory items (via Store > Master > Inhouse Items)
-    const inventoryItems = fgItems.filter((item: any) => item.isInventoryItem === true);
+    // Stage 1: All FG Items are Inventory items now.
+    const inventoryItems = fgItems;
 
     if (!searchTerm) return inventoryItems;
 
@@ -467,6 +473,11 @@ function StoreContent() {
   const handlePriceListEdit = (item: any) => {
     setEditingPriceList(item);
     setShowPriceListModal(true);
+  };
+
+  const handleVendorPriceListEdit = (item: any) => {
+    setEditingVendorPriceList(item);
+    setShowVendorPriceListModal(true);
   };
 
   /**
@@ -989,7 +1000,7 @@ function StoreContent() {
                 <StoreOrdersTab />
               ) : activeTab === "price-list" ? (
                 <PriceListTable
-                  priceLists={filteredBillsData}
+                  priceLists={priceLists}
                   fgItems={fgItems}
                   onEdit={handlePriceListEdit}
                   onDelete={handleDelete}
@@ -1058,10 +1069,12 @@ function StoreContent() {
                   <p className="text-sm">This module is currently pending frontend integration.</p>
                 </div>
               ) : activeTab === "vendor-price-list" ? (
-                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
-                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">RM/BO Price List</p>
-                  <p className="text-sm">This module is currently pending frontend integration.</p>
-                </div>
+                <VendorPriceListTable
+                  vendorPriceLists={vendorPriceLists}
+                  materials={materials}
+                  onEdit={handleVendorPriceListEdit}
+                  onDelete={handleDelete}
+                />
               ) : (activeTab === "purchase" || activeTab === "po") ? (
                 <POTable
                   data={filteredBillsData}
@@ -1285,17 +1298,53 @@ function StoreContent() {
               }}
               onSubmit={async (data) => {
                 try {
-                  await createStoreRecord({ tab: "price-list", body: data }).unwrap();
-                  setSuccess("Price list saved successfully");
-                  refetch(); // Force immediate UI update
+                  if (editingPriceList && !editingPriceList.isNewAssignment) {
+                    await updateStoreRecord({ tab: "price-list", id: editingPriceList._id, body: data }).unwrap();
+                    setSuccess("Price list updated successfully");
+                  } else {
+                    await createStoreRecord({ tab: "price-list", body: data }).unwrap();
+                    setSuccess("Price list saved successfully");
+                  }
                 } catch (err: any) {
                   setError(err?.data?.message || err.message || "Failed to save price list");
                 }
                 setShowPriceListModal(false);
                 setEditingPriceList(undefined);
               }}
-              fgItems={fgItems}
               initialData={editingPriceList}
+              fgItems={fgItems}
+            />
+
+            {/* Vendor Price List Modal */}
+            <VendorPriceListModal
+              isOpen={showVendorPriceListModal}
+              onClose={() => {
+                setShowVendorPriceListModal(false);
+                setEditingVendorPriceList(undefined);
+              }}
+              onSubmit={async (data) => {
+                try {
+                  if (editingVendorPriceList && !editingVendorPriceList.isNewAssignment) {
+                    // Update single vendor price list
+                    await updateStoreRecord({ tab: "vendor-price-list", id: editingVendorPriceList._id, body: { ...data, vendor: data.vendors[0] } }).unwrap();
+                    setSuccess("Vendor price list updated successfully");
+                  } else {
+                    // Create multiple vendor price lists
+                    const promises = data.vendors.map((vendorId: string) => 
+                      createStoreRecord({ tab: "vendor-price-list", body: { ...data, vendor: vendorId } }).unwrap()
+                    );
+                    await Promise.all(promises);
+                    setSuccess("Vendor price list saved successfully");
+                  }
+                  refetch();
+                } catch (err: any) {
+                  setError(err?.data?.message || err.message || "Failed to save vendor price list");
+                }
+                setShowVendorPriceListModal(false);
+                setEditingVendorPriceList(undefined);
+              }}
+              initialData={editingVendorPriceList}
+              vendors={vendors}
             />
 
             {/* Inhouse Item Modal */}

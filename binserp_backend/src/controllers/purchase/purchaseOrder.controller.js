@@ -66,7 +66,7 @@ export const createPO = asyncHandler(async (req, res) => {
 });
 
 export const getAllPOs = asyncHandler(async (req, res) => {
-  req.getModel('Material', rmBoItemSchema);
+  req.getModel('RmBoItem', rmBoItemSchema);
   req.getModel('Vendor', vendorSchema);
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
 

@@ -16,7 +16,14 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
 
   const existingPriceList = await VendorPriceList.findOne({ vendor, material, company: companyId });
   if (existingPriceList) {
-    throw new ApiError(400, "Price List for this material and vendor already exists");
+    existingPriceList.price = price;
+    existingPriceList.taxRate = taxRate;
+    if (validFrom !== undefined) existingPriceList.validFrom = validFrom;
+    if (validUntil !== undefined) existingPriceList.validUntil = validUntil;
+    if (remarks !== undefined) existingPriceList.remarks = remarks;
+    
+    await existingPriceList.save();
+    return res.status(200).json(new ApiResponse(200, existingPriceList, "Vendor Price List updated successfully"));
   }
 
   const newPriceList = await VendorPriceList.create({
@@ -35,7 +42,7 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
 });
 
 export const getVendorPriceLists = asyncHandler(async (req, res) => {
-  req.getModel('Material', rmBoItemSchema);
+  req.getModel('RmBoItem', rmBoItemSchema);
   req.getModel('Vendor', vendorSchema);
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);

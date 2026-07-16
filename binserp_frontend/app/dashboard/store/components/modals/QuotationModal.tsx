@@ -82,11 +82,11 @@ export default function QuotationModal({
                     ...initialData,
                     date: initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
                     customerType: initialData.customer ? 'master' : 'custom',
-                    customer: initialData.customer?._id || initialData.customer,
-                    items: initialData.items.map(item => ({
+                    customer: (initialData.customer as any)?._id || initialData.customer,
+                    items: initialData.items.map((item: any) => ({
                         ...item,
                         itemType: item.component ? 'fg' : 'custom',
-                        component: item.component?._id || item.component
+                        component: (item.component as any)?._id || item.component
                     }))
                 });
                 if (initialData.items.length > 0) {

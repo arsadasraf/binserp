@@ -46,7 +46,8 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: materialRequestsData = [] } = useGetStoreDataQuery("material-request", { skip: !token });
     const { data: inventoryData = [] } = useGetStoreDataQuery("inventory", { skip: !token });
     const { data: priceListsData = [] } = useGetStoreDataQuery("price-list", { skip: !token });
-    
+    const { data: vendorPriceListsData = [] } = useGetStoreDataQuery("vendor-price-list", { skip: !token });
+    const { data: quotationsData = [] } = useGetStoreDataQuery("quotation", { skip: !token });
     const { data: fgItems = [] } = useGetStoreDataQuery('fg-item', { skip: !token }); const { data: fgGrns = [] } = useGetStoreDataQuery('fg-grn', { skip: !token });
     const { data: pendingProducts = [] } = useGetPpcComponentsQuery({ isInventoryItem: false }, { skip: !token });
 
@@ -656,6 +657,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         vendors,
 
         customers,
+        quotations: quotationsData,
         locations,
         categories,
         materials,
@@ -708,6 +710,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         pendingProducts,
         jobWorkSuppliers, // Added
         priceLists, // Added
+        vendorPriceLists: vendorPriceListsData,
         refetch: fetchData,
     };
 }

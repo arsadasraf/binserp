@@ -55,7 +55,7 @@ export const inventorySchema = new mongoose.Schema(
     },
     materialId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Material",
+      ref: "RmBoItem",
     },
   },
   { timestamps: true }

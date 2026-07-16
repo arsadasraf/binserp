@@ -35,7 +35,7 @@ export const invoiceSchema = new mongoose.Schema(
       {
         material: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Material",
+          ref: "RmBoItem",
         },
         component: {
           type: mongoose.Schema.Types.ObjectId,

@@ -14,7 +14,7 @@ export const vendorPriceListSchema = new mongoose.Schema(
     },
     material: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Material",
+      ref: "RmBoItem",
       required: true,
     },
     price: {

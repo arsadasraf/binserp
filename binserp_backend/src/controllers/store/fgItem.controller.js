@@ -70,7 +70,7 @@ export const getAllFGItems = async (req, res) => {
   try {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     req.getModel('Location', locationSchema);
-    req.getModel('Material', rmBoItemSchema);
+    req.getModel('RmBoItem', rmBoItemSchema);
     const companyId = getCompanyId(req);
 
     const fgItems = await FGItem.find({ company: companyId })

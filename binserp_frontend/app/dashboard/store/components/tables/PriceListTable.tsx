@@ -7,7 +7,7 @@ interface PriceListTableProps {
   priceLists: any[];
   fgItems: any[];
   onEdit: (item: any) => void;
-  onDelete: (tab: string, id: string) => void;
+  onDelete: (id: string) => void;
 }
 
 export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }: PriceListTableProps) {
@@ -137,7 +137,7 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
                                 Edit
                               </button>
                               <button
-                                onClick={() => onDelete("price-list", priceConfig._id)}
+                                onClick={() => onDelete(priceConfig._id)}
                                 className="p-1.5 text-red-600 hover:bg-red-100 dark:text-red-400 dark:hover:bg-red-900/50 rounded-lg transition-colors"
                                 title="Delete Configuration"
                               >

@@ -10,7 +10,7 @@ const fgBOMItemSchema = new mongoose.Schema({
   item: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
-    refPath: "bom.itemType",
+    refPath: "itemType",
   },
   itemName: { type: String, required: true },
   quantity: { type: Number, required: true },

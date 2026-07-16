@@ -50,7 +50,7 @@ export const grnSchema = new mongoose.Schema(
       {
         material: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Material",
+          ref: "RmBoItem",
         },
         component: { // For InHouse GRN
           type: mongoose.Schema.Types.ObjectId,

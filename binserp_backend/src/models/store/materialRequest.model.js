@@ -30,7 +30,7 @@ export const materialRequestSchema = new mongoose.Schema(
       {
         material: { // Added reference to Material
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Material",
+          ref: "RmBoItem",
         },
         materialCode: { type: String }, // Optional for Inhouse
         materialName: { type: String, required: true },

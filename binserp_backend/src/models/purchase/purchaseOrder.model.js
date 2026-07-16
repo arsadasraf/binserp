@@ -24,7 +24,7 @@ export const purchaseOrderSchema = new mongoose.Schema(
     // Support both single material and items array
     material: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Material",
+      ref: "RmBoItem",
     },
     component: {
       type: mongoose.Schema.Types.ObjectId,
@@ -40,7 +40,7 @@ export const purchaseOrderSchema = new mongoose.Schema(
       {
         material: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Material",
+          ref: "RmBoItem",
         },
         component: {
           type: mongoose.Schema.Types.ObjectId,

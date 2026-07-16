@@ -17,7 +17,7 @@ export const materialRequirementSchema = new mongoose.Schema(
       {
         material: {
           type: mongoose.Schema.Types.ObjectId,
-          ref: "Material", // From Store Module
+          ref: "RmBoItem", // From Store Module
         },
         component: {
           type: mongoose.Schema.Types.ObjectId,

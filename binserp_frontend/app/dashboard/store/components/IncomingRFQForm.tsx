@@ -200,7 +200,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
     
     // Allow backend to assign correct sequential number for new RFQs
     if (!initialData) {
-      delete payload.rfqNumber;
+      delete (payload as any).rfqNumber;
     }
 
     onSubmit(payload);
@@ -449,7 +449,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
                         step="0.01"
                         required
                         disabled={isPreview}
-                        value={item.quantity === "" ? "" : item.quantity}
+                        value={item.quantity || ""}
                         onChange={(e) => handleItemChange(index, "quantity", e.target.value === '' ? '' : Number(e.target.value))}
                         className={`w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isPreview ? 'opacity-70 cursor-not-allowed' : ''}`}
                       />
@@ -473,7 +473,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({ initialData, f
                         min="0"
                         step="0.01"
                         disabled={isPreview}
-                        value={item.targetPrice === "" ? "" : item.targetPrice}
+                        value={item.targetPrice || ""}
                         onChange={(e) => handleItemChange(index, "targetPrice", e.target.value === '' ? '' : Number(e.target.value))}
                         className={`w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${isPreview ? 'opacity-70 cursor-not-allowed' : ''}`}
                       />

@@ -14,7 +14,7 @@ export const storeRMPlanSchema = new mongoose.Schema(
     },
     rmBoItem: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Material", // Assuming RM/BO items are in Material schema
+      ref: "RmBoItem", // Assuming RM/BO items are in Material schema
       required: true,
     },
     requiredQuantity: {

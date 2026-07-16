@@ -148,9 +148,9 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
           item.unit = selectedFg.unit || "PCS";
         }
       } else if (field === "quantity" || field === "rate" || field === "taxRate") {
-        item[field] = Number(value);
+        (item as any)[field] = Number(value);
       } else {
-        item[field] = value;
+        (item as any)[field] = value;
       }
       
       newItems[index] = item;
@@ -272,7 +272,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                   <SearchableSelect
                     options={customerOptions}
                     value={formData.customer}
-                    onChange={(val) => setFormData(prev => ({ ...prev, customer: val }))}
+                    onChange={(val: string) => setFormData(prev => ({ ...prev, customer: val }))}
                     placeholder="Select Customer"
                     disabled={isPreview}
                   />
@@ -311,7 +311,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                 <SearchableSelect
                   options={quotationOptions}
                   value={formData.quotationReference}
-                  onChange={(val) => setFormData(prev => ({ ...prev, quotationReference: val }))}
+                  onChange={(val: string) => setFormData(prev => ({ ...prev, quotationReference: val }))}
                   placeholder="Select Quotation"
                   disabled={isPreview}
                 />
@@ -390,7 +390,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                           <SearchableSelect
                             options={fgItemOptions}
                             value={item.fgItem}
-                            onChange={(val) => handleItemChange(index, "fgItem", val)}
+                            onChange={(val: string) => handleItemChange(index, "fgItem", val)}
                             placeholder="Select FG Item"
                             disabled={isPreview}
                           />

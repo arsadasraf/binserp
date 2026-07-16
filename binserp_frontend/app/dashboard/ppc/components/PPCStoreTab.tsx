@@ -116,9 +116,8 @@ export default function PPCStoreTab() {
 
     // Filter InHouse components logic (Duplicated from StorePage for consistency)
     const filteredInHouseComponents = useMemo(() => {
-        // Stage 1: Filter by isInventoryItem status
-        // Only show items that have been explicitly marked as inventory items
-        const inventoryItems = inHouseComponents.filter((item: any) => item.isInventoryItem === true);
+        // Stage 1: All inHouseComponents (FGItems) are inventory items
+        const inventoryItems = inHouseComponents;
 
         if (!searchTerm) return inventoryItems;
 

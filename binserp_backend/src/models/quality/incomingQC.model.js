@@ -10,7 +10,7 @@ export const IncomingQCSchema = new mongoose.Schema({
     grnReference: String, // Manual or ID if GRN module exists
     grnId: { type: mongoose.Schema.Types.ObjectId, ref: "GRN" }, // Direct Link
     grnItemId: { type: mongoose.Schema.Types.ObjectId }, // Specific item in GRN
-    materialId: { type: mongoose.Schema.Types.ObjectId, ref: "Material" },
+    materialId: { type: mongoose.Schema.Types.ObjectId, ref: "RmBoItem" },
     componentId: { type: mongoose.Schema.Types.ObjectId, ref: "Component" },
 
     materialName: { type: String, required: true },
