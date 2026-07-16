@@ -59,7 +59,7 @@ import StorePrefixForm from "./components/forms/StorePrefixForm";
 import JobWorkStore from "./components/tabs/JobWorkStore";
 import InventoryTab from "./components/tabs/InventoryTab";
 import MRPTab from "./components/tabs/MRPTab";
-import StoreMRPTab from "./components/tabs/StoreMRPTab";
+import SalesOrderMRPTable from "./components/tabs/SalesOrderMRPTable";
 
 
 /**
@@ -534,9 +534,17 @@ function StoreContent() {
 
         <div className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
-          {/* Purchase tabs - shown when purchase, po, purchase-rfq, vendor-quotation, or vendor-price-list tabs are active */}
-          {(activeTab === "purchase" || activeTab === "po" || activeTab === "purchase-rfq" || activeTab === "vendor-quotation" || activeTab === "vendor-price-list") && (
+          {/* Purchase tabs - shown when purchase, po, purchase-rfq, vendor-quotation, vendor-price-list, or mrp tabs are active */}
+          {(activeTab === "purchase" || activeTab === "po" || activeTab === "purchase-rfq" || activeTab === "vendor-quotation" || activeTab === "vendor-price-list" || activeTab === "mrp") && (
             <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
+              <Link
+                href="/dashboard/store?tab=mrp"
+                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "mrp"
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+              >
+                MRP
+              </Link>
               <Link
                 href="/dashboard/store?tab=purchase-rfq"
                 className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "purchase-rfq"
@@ -686,8 +694,8 @@ function StoreContent() {
             </div>
           )}
 
-          {/* Sales tabs - shown when sales, order-entry, quotation, incoming-po, billing, dc, mrp, price-list, or incoming-rfq tabs are active */}
-          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "incoming-po" || activeTab === "billing" || activeTab === "dc" || activeTab === "mrp" || activeTab === "price-list" || activeTab === "incoming-rfq") && (
+          {/* Sales tabs - shown when sales, order-entry, quotation, incoming-po, billing, dc, price-list, or incoming-rfq tabs are active */}
+          {(activeTab === "sales" || activeTab === "order-entry" || activeTab === "quotation" || activeTab === "incoming-po" || activeTab === "billing" || activeTab === "dc" || activeTab === "price-list" || activeTab === "incoming-rfq") && (
             <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
               <Link
                 href="/dashboard/store?tab=incoming-rfq"
@@ -738,14 +746,6 @@ function StoreContent() {
                 Billing
               </Link>
               <Link
-                href="/dashboard/store?tab=mrp"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "mrp"
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
-              >
-                MRP
-              </Link>
-              <Link
                 href="/dashboard/store?tab=price-list"
                 className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "price-list"
                   ? "bg-indigo-600 text-white shadow-md"
@@ -756,19 +756,6 @@ function StoreContent() {
             </div>
           )}
 
-          {/* Purchase tabs - shown when purchase or po tabs are active */}
-          {(activeTab === "purchase" || activeTab === "po") && (
-            <div className="mb-6 flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
-              <Link
-                href="/dashboard/store?tab=purchase"
-                className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeTab === "purchase" || activeTab === "po"
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
-              >
-                Purchase Orders
-              </Link>
-            </div>
-          )}
 
           <div className={`bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6`}>
 
@@ -1097,7 +1084,7 @@ function StoreContent() {
                   onDelete={handleDelete}
                 />
               ) : activeTab === "mrp" ? (
-                <StoreMRPTab />
+                <SalesOrderMRPTable />
               ) : activeTab === "quotation" ? (
                 <QuotationTable
                   data={filteredBillsData}

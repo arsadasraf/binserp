@@ -21,13 +21,18 @@ import {
   createVendorPriceList,
   getVendorPriceLists,
   updateVendorPriceList,
-  deleteVendorPriceList
+  deleteVendorPriceList,
+  getAllSalesOrderMRPs
 } from "../controllers/purchase/index.js";
 
 const router = Router();
 
 // Apply auth middleware to all purchase routes
 router.use(verifyJWT);
+
+// MRP Routes
+router.route("/mrp")
+  .get(getAllSalesOrderMRPs);
 
 // RFQ Routes
 router.route("/rfq")

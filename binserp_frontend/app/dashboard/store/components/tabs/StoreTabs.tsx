@@ -13,8 +13,8 @@ interface StoreTabsProps {
 
 export default function StoreTabs({ activeTab }: StoreTabsProps) {
     const { showBottomNav } = useHeader();
-    const isSalesActive = ["sales", "mrp", "order-entry", "quotation", "billing", "dc", "price-list", "incoming-rfq"].includes(activeTab);
-    const isPurchaseActive = ["purchase", "po", "purchase-rfq", "vendor-quotation", "purchase-bill", "vendor-price-list"].includes(activeTab);
+    const isSalesActive = ["sales", "order-entry", "quotation", "billing", "dc", "price-list", "incoming-rfq"].includes(activeTab);
+    const isPurchaseActive = ["purchase", "po", "mrp", "purchase-rfq", "vendor-quotation", "purchase-bill", "vendor-price-list"].includes(activeTab);
     const isMastersActive = activeTab === "masters";
     const isHomeActive = activeTab === "home";
     const isWipActive = ["wip", "material-issue", "job-work"].includes(activeTab);

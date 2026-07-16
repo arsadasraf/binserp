@@ -11,8 +11,7 @@ import {
   machineCategorySchema,
   machineLocationSchema,
   manpowerAllotmentSchema,
-  machineDayPlanSchema, // Added machineDayPlanSchema
-  materialRequirementSchema,
+  machineDayPlanSchema,
   machineAssignmentSchema,
   machineMaintenanceSchema,
 } from "../../models/ppc/index.js";
@@ -39,8 +38,7 @@ export const confirmPPCOrder = async (req, res) => {
   const PPCOrder = req.getModel('PPCOrder', ppcOrderSchema);
   const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
   const Job = req.getModel('Job', jobSchema);
-  const MaterialRequirement = req.getModel('MaterialRequirement', materialRequirementSchema);
-  const Inventory = req.getModel('Inventory', inventorySchema); // To check stock
+  const Inventory = req.getModel('Inventory', inventorySchema);
 
   try {
     const { id } = req.params;
@@ -165,35 +163,7 @@ export const confirmPPCOrder = async (req, res) => {
     // 2. Save Jobs to Order Items
     await order.save(); // Mongoose handles subdoc array update
 
-    // 3. Create Material Requirement Record
-    const requirementItems = [];
-    for (const [key, val] of materialMap.entries()) {
-      // Check current stock snapshot
-      const inventory = await Inventory.findOne({ company: companyId, materialId: key });
-      const currentStock = inventory ? inventory.currentStock : 0;
-      const shortage = Math.max(0, val.requiredQuantity - currentStock); // Simple check
-
-      requirementItems.push({
-        material: val.material,
-        materialName: val.materialName,
-        requiredQuantity: val.requiredQuantity,
-        unit: val.unit,
-        stockAvailable: currentStock,
-        shortage: shortage,
-        status: shortage > 0 ? 'Pending' : 'Fulfilled' // Auto-fulfill if stock exists? Or keep pending until Issued?
-        // Let's keep it 'Pending' for review unless shortage is 0
-      });
-    }
-
-    if (requirementItems.length > 0) {
-      await MaterialRequirement.create({
-        company: companyId,
-        order: order._id,
-        targetMonth: order.targetMonth,
-        items: requirementItems,
-        status: 'Draft'
-      });
-    }
+    // Old Material Requirement Calculation removed - now shifted to Sales Order approval in purchase module.
 
     // 4. Update Order Status
     order.status = 'Planning'; // Or 'Confirmed' -> 'Planning'

@@ -188,6 +188,15 @@ export const updateSalesOrder = asyncHandler(async (req, res) => {
     { new: true, runValidators: true }
   );
 
+  if (existingOrder.status !== 'Approved' && updatedOrder.status === 'Approved') {
+    try {
+      const { generateMRPForSalesOrder } = await import("../purchase/salesOrderMRP.controller.js");
+      await generateMRPForSalesOrder(req, updatedOrder);
+    } catch(err) {
+      console.error("Failed to generate MRP", err);
+    }
+  }
+
   res.status(200).json({ success: true, order: updatedOrder });
 });
 

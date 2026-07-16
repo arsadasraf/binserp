@@ -67,7 +67,6 @@ import {
   confirmPPCOrder,
   getOrderMaterialPlan,
   getOrderJobs,
-  updateMaterialRequirementStatus,
   getPlanningBacklog,
   getMachineSchedule,
   assignJobProcess,
@@ -81,8 +80,7 @@ import {
   createProductionOrder,
   getAllProductionOrders,
   updateProductionOrder,
-  getGlobalMRP,
-  updateMRPItem
+  updateProductionOrder
 } from "../controllers/ppc/index.js";
 import {
   createMachineAssignment,
@@ -115,11 +113,8 @@ router.route("/ppc-order/:id").put(upload.array("photos", 5), updateOrder).delet
 router.route("/ppc-order/:id/confirm").post(confirmPPCOrder);
 router.route("/ppc-order/:id/material-plan").get(getOrderMaterialPlan);
 router.route("/ppc-order/:id/jobs").get(getOrderJobs);
-router.route("/material-requirement/:id/item/:itemId").put(updateMaterialRequirementStatus);
 
-// Global MRP Routes
-router.route("/mrp").get(getGlobalMRP);
-router.route("/mrp/item/:itemId").put(updateMRPItem);
+// Removed Global MRP Routes (Shifted to Purchase)
 
 // NEW Production Order Routes (Exclusive for PPC Tab)
 router.route("/production-order").post(upload.array("photos", 5), createProductionOrder).get(getAllProductionOrders);

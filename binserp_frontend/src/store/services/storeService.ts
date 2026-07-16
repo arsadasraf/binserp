@@ -27,6 +27,7 @@ const storeEndpoints = [
   { key: "vendor-quotation", url: "/api/purchase/quotation", tag: "VendorQuotation", dataKey: "data" },
   { key: "purchase-bill", url: "/api/purchase/bill", tag: "PurchaseBill", dataKey: "data" },
   { key: "vendor-price-list", url: "/api/purchase/price-list", tag: "VendorPriceList", dataKey: "data" },
+  { key: "mrp", url: "/api/purchase/mrp", tag: "PurchaseMRP", dataKey: "mrps" },
   { key: "incoming-po", url: "/api/sales/incoming-po", tag: "StorePo", dataKey: "pos" },
   { key: "price-list", url: "/api/sales/price-list", tag: "StorePriceList", dataKey: "priceLists" },
 ];
@@ -137,9 +138,9 @@ export const storeService = binsApi.injectEndpoints({
       invalidatesTags: ["StoreOrder" as any],
     }),
     getStoreMRPs: builder.query<any, void>({
-      query: () => `/api/store/mrp`,
-      transformResponse: (res: any) => res.data,
-      providesTags: ["StoreOrder" as any],
+      query: () => `/api/purchase/mrp`,
+      transformResponse: (res: any) => res.mrps,
+      providesTags: ["PurchaseMRP" as any],
     }),
     planRMRequirement: builder.mutation<any, string>({
       query: (id) => ({

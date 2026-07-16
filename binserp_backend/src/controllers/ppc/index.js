@@ -5,7 +5,6 @@ export { getAllPPCOrders } from './getAllPPCOrders.controller.js';
 export { confirmPPCOrder } from './confirmPPCOrder.controller.js';
 export { getOrderMaterialPlan } from './getOrderMaterialPlan.controller.js';
 export { getOrderJobs } from './getOrderJobs.controller.js';
-export { updateMaterialRequirementStatus } from './updateMaterialRequirementStatus.controller.js';
 export { getPlanningBacklog } from './getPlanningBacklog.controller.js';
 export { getMachineSchedule } from './getMachineSchedule.controller.js';
 export { assignJobProcess } from './assignJobProcess.controller.js';

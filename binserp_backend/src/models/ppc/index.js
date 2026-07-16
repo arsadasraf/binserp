@@ -9,7 +9,6 @@ export { componentSchema } from './component.model.js';
 export { workOrderSchema } from './workOrder.model.js';
 export { processSchema } from './process.model.js';
 export { machineCategorySchema } from './machineCategory.model.js';
-export { materialRequirementSchema } from './materialRequirement.model.js';
 export { machineLocationSchema } from './machineLocation.model.js';
 export { ppcOrderSchema } from './ppcOrder.model.js';
 export { productionOrderSchema } from './productionOrder.model.js';
