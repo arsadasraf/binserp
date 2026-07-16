@@ -61,6 +61,10 @@ export const productionOrderSchema = new mongoose.Schema(
           enum: ["Individual", "Batch"],
           default: "Individual",
         },
+        movedQuantity: {
+          type: Number,
+          default: 0,
+        },
         targetDate: {
           type: Date,
         },

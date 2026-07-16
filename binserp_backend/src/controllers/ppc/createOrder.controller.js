@@ -12,7 +12,6 @@ import {
   machineLocationSchema,
   manpowerAllotmentSchema,
   machineDayPlanSchema, // Added machineDayPlanSchema
-  materialRequirementSchema,
   machineAssignmentSchema,
   machineMaintenanceSchema,
 } from "../../models/ppc/index.js";

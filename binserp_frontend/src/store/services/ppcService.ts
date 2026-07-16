@@ -42,17 +42,21 @@ export const ppcService = binsApi.injectEndpoints({
 
     // NEW PRODUCTION ORDERS API (Exclusive for PPC Tab)
     getProductionOrders: builder.query<any[], void>({
-      query: () => "/api/ppc/production-order",
+      query: () => "/api/ppc/production-orders",
       transformResponse: (response: any) => response.orders || [],
       providesTags: ["ProductionOrders"],
     }),
     createProductionOrder: builder.mutation<any, any>({
-      query: (body) => ({ url: "/api/ppc/production-order", method: "POST", body }),
+      query: (body) => ({ url: "/api/ppc/production-orders", method: "POST", body }),
       invalidatesTags: ["ProductionOrders"],
     }),
     updateProductionOrder: builder.mutation<any, { id: string; body: any }>({
-      query: ({ id, body }) => ({ url: `/api/ppc/production-order/${id}`, method: "PUT", body }),
+      query: ({ id, body }) => ({ url: `/api/ppc/production-orders/${id}`, method: "PUT", body }),
       invalidatesTags: ["ProductionOrders"],
+    }),
+    moveToManufacturing: builder.mutation<any, { id: string; itemsToMove: { productId: string, quantity: number }[] }>({
+      query: ({ id, ...body }) => ({ url: `/api/ppc/production-order/${id}/move`, method: "POST", body }),
+      invalidatesTags: ["ProductionOrders", "PpcOrders", "Orders"],
     }),
     updatePpcOrderStatus: builder.mutation<any, { id: string; status: string }>({
       query: ({ id, status }) => ({
@@ -431,7 +435,7 @@ export const {
   useCreatePpcOrderMutation, useUpdatePpcOrderMutation, useConfirmPpcOrderMutation,
   useUpdatePpcOrderStatusMutation,
   useDeleteOrderMutation,
-  useGetProductionOrdersQuery, useCreateProductionOrderMutation, useUpdateProductionOrderMutation,
+  useGetProductionOrdersQuery, useCreateProductionOrderMutation, useUpdateProductionOrderMutation, useMoveToManufacturingMutation,
   useGetDispatchQueueQuery, useConfirmDispatchMutation,
   useGetGlobalMRPQuery, useUpdateMRPItemMutation,
   useGetMaterialPlanQuery, useUpdateMaterialRequirementStatusMutation, useGetJobsByOrderQuery,

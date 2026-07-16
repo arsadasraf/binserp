@@ -192,8 +192,11 @@ export const updateSalesOrder = asyncHandler(async (req, res) => {
     try {
       const { generateMRPForSalesOrder } = await import("../purchase/salesOrderMRP.controller.js");
       await generateMRPForSalesOrder(req, updatedOrder);
+      
+      const { generateProductionOrderForSalesOrder } = await import("../ppc/createProductionOrderFromSales.controller.js");
+      await generateProductionOrderForSalesOrder(req, updatedOrder);
     } catch(err) {
-      console.error("Failed to generate MRP", err);
+      console.error("Failed to generate MRP/ProductionOrder", err);
     }
   }
 

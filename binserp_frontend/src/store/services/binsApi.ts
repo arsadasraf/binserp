@@ -69,7 +69,7 @@ export const TAG_TYPES = [
   "Processes", "Shifts", "Manpower", "ManpowerMaster", "Skills", "Components",
   "ProcurementDashboard", "Allotments", "Boms",
   "StoreDc", "StoreInvoice", "StoreGrn", "StoreMaterialIssue", "StoreBom", "StoreInventory", "StoreMaterialRequest", "StoreMasters", "StorePo", "StoreQuotation", "StoreOrder", "StorePriceList", "IncomingRFQ",
-  "PurchaseRfq", "VendorQuotation", "PurchaseBill", "VendorPriceList",
+  "PurchaseRfq", "VendorQuotation", "PurchaseBill", "VendorPriceList", "PurchaseMRP",
   "Employees", "Attendance", "Auth",
 ];
 

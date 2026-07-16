@@ -79,7 +79,6 @@ import {
   getProductionReports,
   createProductionOrder,
   getAllProductionOrders,
-  updateProductionOrder,
   updateProductionOrder
 } from "../controllers/ppc/index.js";
 import {
@@ -93,6 +92,7 @@ import {
   getPPCProductsStatus,
   savePPCProduct
 } from "../controllers/ppc/index.js";
+import { moveProductionToManufacturing } from "../controllers/ppc/moveToManufacturing.controller.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -116,11 +116,13 @@ router.route("/ppc-order/:id/jobs").get(getOrderJobs);
 
 // Removed Global MRP Routes (Shifted to Purchase)
 
-// NEW Production Order Routes (Exclusive for PPC Tab)
-router.route("/production-order").post(upload.array("photos", 5), createProductionOrder).get(getAllProductionOrders);
-router.route("/production-order/:id").put(upload.array("photos", 5), updateProductionOrder);
-// For update/delete/confirm, we can map to the new controllers later if required, or reuse if they are compatible.
-// For now, the user requested "new way with new backend api and schema and model" for the PPC order tab.
+// Production Orders & Manufacturing Orders
+router.get("/production-orders", getAllProductionOrders);
+router.post("/production-orders", upload.array('photos', 5), createProductionOrder);
+router.put("/production-orders/:id", upload.array('photos', 5), updateProductionOrder);
+router.post("/production-order/:id/move", moveProductionToManufacturing);
+
+router.get("/orders", getAllPPCOrders);
 
 // Planning Board Routes
 router.route("/planning/backlog").get(getPlanningBacklog);

@@ -5,6 +5,8 @@ import {
   useGetMachinesQuery, 
   useGetManpowerQuery, 
   useGetProductionOrdersQuery,
+  useGetPpcOrdersQuery,
+  useMoveToManufacturingMutation,
   useDeleteOrderMutation,
   useUpdatePpcOrderStatusMutation
 } from "@/src/store/services/ppcService";
@@ -28,7 +30,8 @@ import {
   Cpu,
   Package,
   Store,
-  Clock // Added Clock icon
+  Clock, // Added Clock icon
+  ArrowRight
 } from 'lucide-react';
 import { motion } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -38,6 +41,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { UserOptions } from 'jspdf-autotable'; // Type import if needed, or just standard import
+import MoveToManufacturingModal from './components/MoveToManufacturingModal';
 
 interface Order {
   _id: string;
@@ -88,7 +92,7 @@ import ProductionReports from "./components/ProductionReports";
 import PPCPlanningTab from "./components/PPCPlanningTab"; // New Import
 
 type PPCTab = "overview" | "orders" | "planning" | "master";
-type OrderSubTab = "new-order" | "history";
+type OrderSubTab = "production-orders" | "manufacturing-orders" | "history";
 type MasterSubTab = "machine-list" | "products" | "manpower" | "shift-management";
 
 import { useHeader } from "@/src/context/HeaderContext";
@@ -181,7 +185,7 @@ export default function PPCPage() {
           {/* ORDERS TAB */}
           {tab === "orders" && (
             <OrdersLayout
-              currentSubTab={(subTab as OrderSubTab) || "new-order"}
+              currentSubTab={(subTab as OrderSubTab) || "production-orders"}
               onChangeSubTab={(st) => navigateTo("orders", st)}
               setSuccess={setSuccess}
               setError={setError}
@@ -499,13 +503,22 @@ function OrdersLayout({ currentSubTab, onChangeSubTab, setSuccess, setError }: {
       {/* Order Sub-Tabs */}
       <div className="flex gap-2 mb-6 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
         <button
-          onClick={() => onChangeSubTab("new-order")}
-          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "new-order"
+          onClick={() => onChangeSubTab("production-orders")}
+          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "production-orders"
             ? "bg-indigo-600 text-white shadow-md"
             : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             }`}
         >
-          New / Active Orders
+          Production Orders (Intake)
+        </button>
+        <button
+          onClick={() => onChangeSubTab("manufacturing-orders")}
+          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "manufacturing-orders"
+            ? "bg-indigo-600 text-white shadow-md"
+            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            }`}
+        >
+          Manufacturing Orders (Active)
         </button>
         <button
           onClick={() => onChangeSubTab("history")}
@@ -544,28 +557,34 @@ function OrdersLayout({ currentSubTab, onChangeSubTab, setSuccess, setError }: {
 function OrderListTab({ currentSubTab, onChangeSubTab, onEditOrder, onCreateOrder }: { currentSubTab: OrderSubTab; onChangeSubTab: (t: any) => void; onEditOrder: (order: Order) => void; onCreateOrder: () => void }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [pushModalOpen, setPushModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
-  const { data: orders = [], isLoading: loading } = useGetProductionOrdersQuery();
+  const { data: prodOrders = [], isLoading: loadingProd } = useGetProductionOrdersQuery();
+  const { data: mfgOrders = [], isLoading: loadingMfg } = useGetPpcOrdersQuery();
+  const [moveToManufacturing] = useMoveToManufacturingMutation();
+
+  const loading = currentSubTab === "production-orders" ? loadingProd : loadingMfg;
 
   const filteredOrders = useMemo(() => {
-    if (!orders.length) return [];
-
-    const lowerTerm = searchTerm.toLowerCase();
-    let result = orders.filter(
-      (o: any) =>
-        o.orderNumber.toLowerCase().includes(lowerTerm) ||
-        o.customerName.toLowerCase().includes(lowerTerm)
-    );
-
-    if (currentSubTab === "history") {
-      result = result.filter((o: any) => ["Completed", "Dispatched", "Cancelled"].includes(o.status));
-    } else {
-      result = result.filter((o: any) => !["Completed", "Dispatched", "Cancelled"].includes(o.status));
+    let baseOrders: any[] = [];
+    if (currentSubTab === "production-orders") {
+      baseOrders = prodOrders.filter(o => o.status !== "Confirmed" && o.status !== "Completed");
+    } else if (currentSubTab === "manufacturing-orders") {
+      baseOrders = mfgOrders.filter(o => !["Completed", "Dispatched", "Cancelled"].includes(o.status));
+    } else if (currentSubTab === "history") {
+      baseOrders = mfgOrders.filter(o => ["Completed", "Dispatched", "Cancelled"].includes(o.status));
     }
 
-    return result;
-  }, [searchTerm, orders, currentSubTab]);
+    if (!baseOrders.length) return [];
+
+    const lowerTerm = searchTerm.toLowerCase();
+    return baseOrders.filter(
+      (o: any) =>
+        o.orderNumber.toLowerCase().includes(lowerTerm) ||
+        o.customerName?.toLowerCase().includes(lowerTerm)
+    );
+  }, [searchTerm, prodOrders, mfgOrders, currentSubTab]);
 
 
   const handleExportExcel = () => {
@@ -729,6 +748,15 @@ function OrderListTab({ currentSubTab, onChangeSubTab, onEditOrder, onCreateOrde
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {currentSubTab === 'production-orders' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedOrder(order); setPushModalOpen(true); }}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm"
+                        >
+                          <ArrowRight size={14} /> Push
+                        </button>
+                      )}
+                      
                       <button
                         onClick={(e) => { e.stopPropagation(); onEditOrder(order); }}
                         className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -758,6 +786,20 @@ function OrderListTab({ currentSubTab, onChangeSubTab, onEditOrder, onCreateOrde
           setSelectedOrder(null);
         }}
         onUpdateStatus={handleStatusUpdate}
+      />
+
+      <MoveToManufacturingModal
+        isOpen={pushModalOpen}
+        onClose={() => {
+          setPushModalOpen(false);
+          setSelectedOrder(null);
+        }}
+        order={selectedOrder}
+        onMove={async (itemsToMove) => {
+          if (selectedOrder) {
+            await moveToManufacturing({ id: selectedOrder._id, itemsToMove }).unwrap();
+          }
+        }}
       />
     </div>
   );

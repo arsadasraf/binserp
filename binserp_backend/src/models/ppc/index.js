@@ -16,3 +16,4 @@ export { manpowerAllotmentSchema } from './manpowerAllotment.model.js';
 export { machineDayPlanSchema } from './machineDayPlan.model.js';
 export { shiftSchema } from './shift.model.js';
 export { ppcProductSchema } from './ppcProduct.model.js';
+export { materialRequirementSchema } from './materialRequirement.model.js';
