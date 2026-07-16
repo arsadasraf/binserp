@@ -28,7 +28,7 @@ import { TabType, MasterType, GRNFormData, POFormData, DCFormData, BillingFormDa
 
 // Import custom hook for business logic
 import { useStoreData } from "./components/hooks/useStoreData";
-import { useCreateStoreRecordMutation, useUpdateStoreRecordMutation, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
+import { useCreateStoreRecordMutation, useUpdateStoreRecordMutation, useDeleteStoreRecordMutation, useGenerateSalesOrderFromPOMutation } from "@/src/store/services/storeService";
 
 // Import UI components
 import StoreForm from "./components/forms/StoreForm";
@@ -49,6 +49,8 @@ import PriceListTable from "./components/tables/PriceListTable";
 import PriceListModal from "./components/modals/PriceListModal";
 import { IncomingRFQTable } from "./components/IncomingRFQTable";
 import { IncomingRFQForm } from "./components/IncomingRFQForm";
+import { IncomingPOTable } from "./components/IncomingPOTable";
+import { IncomingPOForm } from "./components/IncomingPOForm";
 import MaterialIssueTab from "./components/tabs/MaterialIssueTab";
 import StoreTabs from "./components/tabs/StoreTabs";
 import StoreOrdersTab from "./components/tabs/StoreOrdersTab";
@@ -106,6 +108,13 @@ function StoreContent() {
   const [editingIncomingRFQ, setEditingIncomingRFQ] = useState<any>(undefined);
   const [previewingIncomingRFQ, setPreviewingIncomingRFQ] = useState<boolean>(false);
 
+  // State for Incoming PO modal
+  const [showIncomingPOModal, setShowIncomingPOModal] = useState(false);
+  const [editingIncomingPO, setEditingIncomingPO] = useState<any>(undefined);
+  const [previewingIncomingPO, setPreviewingIncomingPO] = useState<boolean>(false);
+
+  const [generateSalesOrder, { isLoading: isGeneratingOrder }] = useGenerateSalesOrderFromPOMutation();
+
   // Filter States for Bills
   const [filterType, setFilterType] = useState<'monthly' | 'yearly'>('monthly');
   const [filterDate, setFilterDate] = useState<string>('');
@@ -130,7 +139,7 @@ function StoreContent() {
     searchTerm,
     editingId,
     vendors,
-
+    quotations = [],
     customers,
     locations,
     categories,
@@ -1022,10 +1031,35 @@ function StoreContent() {
                   />
                 </>
               ) : activeTab === "incoming-po" ? (
-                <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
-                  <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Customer Purchase Orders</p>
-                  <p className="text-sm">This module is currently pending frontend integration.</p>
-                </div>
+                <IncomingPOTable
+                  pos={Array.isArray(data) ? data : []}
+                  customers={customers}
+                  onCreate={() => {
+                    setEditingIncomingPO(undefined);
+                    setPreviewingIncomingPO(false);
+                    setShowIncomingPOModal(true);
+                  }}
+                  onEdit={(po) => {
+                    setEditingIncomingPO(po);
+                    setPreviewingIncomingPO(false);
+                    setShowIncomingPOModal(true);
+                  }}
+                  onView={(po) => {
+                    setEditingIncomingPO(po);
+                    setPreviewingIncomingPO(true);
+                    setShowIncomingPOModal(true);
+                  }}
+                  onDelete={handleDelete}
+                  onGenerateOrder={async (id) => {
+                    try {
+                      await generateSalesOrder(id).unwrap();
+                      setSuccess("Sales Order generated successfully");
+                    } catch (err: any) {
+                      setError(err.data?.message || "Failed to generate Sales Order");
+                    }
+                  }}
+                  isGeneratingOrder={isGeneratingOrder}
+                />
               ) : activeTab === "purchase-rfq" ? (
                 <div className="flex flex-col items-center justify-center p-12 bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 border-dashed text-gray-500">
                   <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Purchase RFQ</p>
@@ -1353,6 +1387,32 @@ function StoreContent() {
             */}
 
 
+
+            {showIncomingPOModal && (
+              <IncomingPOForm
+                initialData={editingIncomingPO}
+                fgItems={fgItems}
+                customers={customers}
+                quotations={quotations}
+                onSubmit={async (formData) => {
+                  try {
+                    if (editingIncomingPO) {
+                      await updateStoreRecord({ tab: "incoming-po", id: editingIncomingPO._id, body: formData }).unwrap();
+                      setSuccess("Customer PO updated successfully");
+                    } else {
+                      await createStoreRecord({ tab: "incoming-po", body: formData }).unwrap();
+                      setSuccess("Customer PO created successfully");
+                    }
+                    setShowIncomingPOModal(false);
+                  } catch (err: any) {
+                    setError(err.data?.message || "Failed to save Customer PO");
+                  }
+                }}
+                onCancel={() => setShowIncomingPOModal(false)}
+                isSubmitting={loading}
+                isPreview={previewingIncomingPO}
+              />
+            )}
 
           </div>
 

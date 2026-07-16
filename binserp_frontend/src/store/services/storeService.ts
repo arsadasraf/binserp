@@ -176,6 +176,13 @@ export const storeService = binsApi.injectEndpoints({
       }),
       invalidatesTags: ["StoreOrder" as any],
     }),
+    generateSalesOrderFromPO: builder.mutation<any, string>({
+      query: (id) => ({
+        url: `/api/sales/incoming-po/${id}/generate-order`,
+        method: "POST"
+      }),
+      invalidatesTags: ["StorePo" as any, "StoreOrder" as any],
+    }),
   }),
   overrideExisting: false,
 });
@@ -196,7 +203,8 @@ export const {
   usePlanSingleRMRequirementMutation,
   usePlanProductionRequirementMutation,
   useGetRMPlansQuery,
-  useUpdateRMPlanPOMutation
+  useUpdateRMPlanPOMutation,
+  useGenerateSalesOrderFromPOMutation
 } = storeService;
 
 

@@ -62,6 +62,9 @@ export const incomingPOSchema = new mongoose.Schema(
     pdf: {
       type: String,
     },
+    photos: [{
+      type: String,
+    }],
     remarks: {
       type: String,
     },

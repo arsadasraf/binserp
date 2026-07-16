@@ -28,6 +28,7 @@ import {
   getAllIncomingPOs,
   updateIncomingPO,
   deleteIncomingPO,
+  generateSalesOrderFromPO,
   createOrUpdatePriceList,
   getAllPriceLists,
   deletePriceList
@@ -56,10 +57,11 @@ router.put("/quotation/:id", updateQuotation);
 router.delete("/quotation/:id", deleteQuotation);
 
 // Incoming PO routes
-router.post("/incoming-po", createIncomingPO);
+router.post("/incoming-po", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createIncomingPO);
 router.get("/incoming-po", getAllIncomingPOs);
-router.put("/incoming-po/:id", updateIncomingPO);
+router.put("/incoming-po/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), updateIncomingPO);
 router.delete("/incoming-po/:id", deleteIncomingPO);
+router.post("/incoming-po/:id/generate-order", generateSalesOrderFromPO);
 
 // Sales Order routes (Internal Order)
 router.post("/order", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createSalesOrder);
