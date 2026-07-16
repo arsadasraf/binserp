@@ -60,6 +60,10 @@ export const salesOrderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    isPlanned: {
+      type: Boolean,
+      default: false,
+    },
     pdf: {
       type: String,
     },

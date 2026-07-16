@@ -4,9 +4,10 @@ import React, { useState, useMemo } from 'react';
 import { 
   useGetStoreDataQuery,
   useDeleteStoreRecordMutation,
-  useUpdateStoreRecordMutation
+  useUpdateStoreRecordMutation,
+  usePlanSalesOrderMutation
 } from "@/src/store/services/storeService";
-import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, Filter, X, Truck } from 'lucide-react';
+import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, Filter, X, Activity } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -15,9 +16,6 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 
 import StoreCreateOrderModal from "../modals/StoreCreateOrderModal";
 import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
-import RMPlanModal from "../modals/RMPlanModal";
-import StoreCreateDispatchModal from "../modals/StoreCreateDispatchModal";
-import StoreFulfillmentTab from "./StoreFulfillmentTab";
 
 interface jsPDFWithPlugin extends jsPDF {
   autoTable: (options: UserOptions) => jsPDF;
@@ -38,9 +36,10 @@ interface Order {
   poReference?: string;
   remarks?: string;
   items?: { fgItem: any; name?: string; quantity: number; }[];
+  isPlanned?: boolean;
 }
 
-type OrderSubTab = "new-order" | "history" | "fulfillment";
+type OrderSubTab = "new-order" | "history";
 
 export default function StoreOrdersTab() {
   const [currentSubTab, setCurrentSubTab] = useState<OrderSubTab>("new-order");
@@ -85,28 +84,15 @@ export default function StoreOrdersTab() {
         >
           Order History
         </button>
-        <button
-          onClick={() => setCurrentSubTab("fulfillment")}
-          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "fulfillment"
-            ? "bg-indigo-600 text-white shadow-md"
-            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            }`}
-        >
-          Fulfillment
-        </button>
       </div>
 
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
-        {currentSubTab === "fulfillment" ? (
-          <StoreFulfillmentTab />
-        ) : (
-          <OrderListTab
-            key={refreshKey}
-            currentSubTab={currentSubTab}
-            onEditOrder={handleEditOrder}
-            onCreateOrder={handleCreateOrder}
-          />
-        )}
+        <OrderListTab
+          key={refreshKey}
+          currentSubTab={currentSubTab}
+          onEditOrder={handleEditOrder}
+          onCreateOrder={handleCreateOrder}
+        />
       </div>
 
       <StoreCreateOrderModal
@@ -126,11 +112,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCustomer, setFilterCustomer] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [rmPlanOpen, setRmPlanOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [selectedRmOrder, setSelectedRmOrder] = useState<Order | null>(null);
-  const [dispatchingOrder, setDispatchingOrder] = useState<Order | null>(null);
-  const [showDispatchModal, setShowDispatchModal] = useState(false);
 
   const { data: orders = [], isLoading: loading, refetch } = useGetStoreDataQuery('order');
 
@@ -227,6 +209,20 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
 
   const [deleteOrder] = useDeleteStoreRecordMutation();
   const [updateStatus] = useUpdateStoreRecordMutation();
+  const [planSalesOrder] = usePlanSalesOrderMutation();
+
+  const handlePlanOrder = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Are you sure you want to plan this order? RM/BO items will go to Purchase MRP and FG items will go to PPC.")) return;
+    try {
+      await planSalesOrder(id).unwrap();
+      alert("Order successfully planned!");
+      refetch();
+    } catch (error: any) {
+      console.error("Plan order error:", error);
+      alert(error?.data?.message || "Failed to plan order.");
+    }
+  };
 
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this order?")) return;
@@ -403,13 +399,13 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                   <td className="px-6 py-4 text-right">
                     <div className="flex justify-end gap-2 items-center">
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ml-2">
-                        {order.status !== 'Completed' && order.status !== 'Dispatched' && order.status !== 'Cancelled' && (
+                        {!order.isPlanned && order.status !== 'Completed' && order.status !== 'Cancelled' && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); setDispatchingOrder(order); setShowDispatchModal(true); }}
+                            onClick={(e) => handlePlanOrder(order._id, e)}
                             className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                            title="Dispatch Order"
+                            title="Plan Order (MRP/PPC)"
                           >
-                            <Truck size={16} />
+                            <Activity size={16} />
                           </button>
                         )}
                         <button
@@ -445,28 +441,6 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
         onUpdateStatus={handleStatusUpdate}
         storeView={true}
       />
-      
-      <RMPlanModal
-        isOpen={rmPlanOpen}
-        onClose={() => {
-          setRmPlanOpen(false);
-          setSelectedRmOrder(null);
-        }}
-        orderId={selectedRmOrder?._id || null}
-        orderNumber={selectedRmOrder?.orderNumber || ""}
-      />
-
-      {showDispatchModal && dispatchingOrder && (
-        <StoreCreateDispatchModal
-          isOpen={showDispatchModal}
-          onClose={() => setShowDispatchModal(false)}
-          order={dispatchingOrder}
-          onSuccess={(msg) => {
-            alert(msg);
-            refetch();
-          }}
-        />
-      )}
     </div>
   );
 }

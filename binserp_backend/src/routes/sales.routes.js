@@ -18,6 +18,7 @@ import {
   getSalesOrderById,
   updateSalesOrder,
   deleteSalesOrder,
+  planSalesOrder,
   createSalesDispatch,
   getDispatchHistory,
   createIncomingRFQ,
@@ -68,6 +69,7 @@ router.post("/order", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'phot
 router.get("/order", getAllSalesOrders);
 router.get("/order/:id", getSalesOrderById);
 router.put("/order/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), updateSalesOrder);
+router.post("/order/:id/plan", planSalesOrder);
 router.delete("/order/:id", deleteSalesOrder);
 
 // Sales Order Dispatch routes

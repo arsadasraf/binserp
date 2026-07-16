@@ -73,9 +73,10 @@ export const createMaterialRequest = async (req, res) => {
           return res.status(400).json({ message: "Component ID is required for Inhouse request" });
         }
 
-        const componentDoc = await FGItem.findById(componentId);
+        const Component = req.getModel('Component', componentSchema);
+        const componentDoc = await Component.findById(componentId);
         if (!componentDoc) {
-          return res.status(400).json({ message: `FG Item not found: ${componentId}` });
+          return res.status(400).json({ message: `Component not found: ${componentId}` });
         }
 
         processedItems.push({

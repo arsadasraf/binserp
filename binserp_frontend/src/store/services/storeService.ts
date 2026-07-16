@@ -111,6 +111,13 @@ export const storeService = binsApi.injectEndpoints({
       }),
       invalidatesTags: ["StoreOrder" as any],
     }),
+    planSalesOrder: builder.mutation<any, string>({
+      query: (orderId) => ({
+        url: `/api/sales/order/${orderId}/plan`,
+        method: "POST",
+      }),
+      invalidatesTags: ["StoreOrder" as any],
+    }),
     getStoreDispatches: builder.query<any, string>({
       query: (orderId) => `/api/sales/order/${orderId}/dispatches`,
       transformResponse: (res: any) => res.dispatches,
@@ -196,6 +203,7 @@ export const {
   useDeleteStoreRecordMutation,
   useCreateStoreDispatchMutation,
   useGetStoreDispatchesQuery,
+  usePlanSalesOrderMutation,
   useGetStoreFulfillmentsQuery,
   useReserveFulfillmentQuantityMutation,
   useMoveFulfillmentToMRPMutation,

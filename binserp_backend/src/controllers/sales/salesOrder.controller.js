@@ -36,7 +36,11 @@ export const createSalesOrder = asyncHandler(async (req, res) => {
   }
 
   if (!orderNumber) {
-    orderNumber = await generateOrderNumber(req);
+    if (poReference) {
+      orderNumber = `SO-${poReference}`;
+    } else {
+      orderNumber = await generateOrderNumber(req);
+    }
   }
 
   // Ensure totalAmount is calculated if not provided correctly
@@ -122,6 +126,8 @@ export const getAllSalesOrders = asyncHandler(async (req, res) => {
 export const getSalesOrderById = asyncHandler(async (req, res) => {
   req.getModel('Customer', customerSchema);
   req.getModel('FGItem', fgItemSchema);
+  const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+  const Invoice = req.getModel('Invoice', invoiceSchema);
   
   const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const order = await SalesOrder.findById(req.params.id)
@@ -132,7 +138,10 @@ export const getSalesOrderById = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: "Order not found" });
   }
 
-  res.status(200).json({ success: true, order });
+  const deliveryChallans = await DeliveryChallan.find({ salesOrderReference: order._id }).lean();
+  const invoices = await Invoice.find({ salesOrderReference: order._id }).lean();
+
+  res.status(200).json({ success: true, order, deliveryChallans, invoices });
 });
 
 export const updateSalesOrder = asyncHandler(async (req, res) => {
@@ -188,17 +197,6 @@ export const updateSalesOrder = asyncHandler(async (req, res) => {
     { new: true, runValidators: true }
   );
 
-  if (existingOrder.status !== 'Approved' && updatedOrder.status === 'Approved') {
-    try {
-      const { generateMRPForSalesOrder } = await import("../purchase/salesOrderMRP.controller.js");
-      await generateMRPForSalesOrder(req, updatedOrder);
-      
-      const { generateProductionOrderForSalesOrder } = await import("../ppc/createProductionOrderFromSales.controller.js");
-      await generateProductionOrderForSalesOrder(req, updatedOrder);
-    } catch(err) {
-      console.error("Failed to generate MRP/ProductionOrder", err);
-    }
-  }
 
   res.status(200).json({ success: true, order: updatedOrder });
 });

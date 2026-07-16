@@ -106,7 +106,8 @@ export const deleteOrder = async (req, res) => {
     return res.status(404).json({ message: "Order not found" });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Error in deleteOrder:", error);
+    res.status(500).json({ message: error.message || "An error occurred", error: error.toString() });
   }
 };
 

@@ -17,7 +17,7 @@ import {
   machineMaintenanceSchema,
 } from "../../models/ppc/index.js";
 import { employeeSchema } from "../../models/hr/index.js";
-import { bomSchema, inventorySchema, fgItemSchema } from "../../models/store/index.js";
+import { bomSchema, inventorySchema, fgItemSchema, customerSchema } from "../../models/store/index.js";
 import { autoScheduleOrder } from "../../services/planning.service.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
@@ -38,6 +38,11 @@ export const getAllProductionOrders = async (req, res) => {
   const { productionOrderSchema } = await import("../../models/ppc/index.js");
   try {
     const companyId = getCompanyId(req);
+    
+    // Register schemas used in populate
+    req.getModel('Customer', customerSchema);
+    req.getModel('Component', componentSchema);
+    
     const ProductionOrder = req.getModel('ProductionOrder', productionOrderSchema);
 
     const orders = await ProductionOrder.find({ company: companyId })

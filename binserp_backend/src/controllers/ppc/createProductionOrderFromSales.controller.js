@@ -1,6 +1,6 @@
 import { productionOrderSchema } from "../../models/ppc/index.js";
 import { fgItemSchema, inventorySchema } from "../../models/store/index.js";
-import { customerSchema } from "../../models/sales/index.js";
+import { customerSchema } from "../../models/store/index.js";
 
 export const generateProductionOrderForSalesOrder = async (req, salesOrder) => {
   const ProductionOrder = req.getModel("ProductionOrder", productionOrderSchema);

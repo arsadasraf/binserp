@@ -151,18 +151,53 @@ export const createSalesDispatch = asyncHandler(async (req, res) => {
 });
 
 export const getDispatchHistory = asyncHandler(async (req, res) => {
-  req.getModel('Customer', customerSchema);
-  req.getModel('FGItem', fgItemSchema);
-  req.getModel('SalesOrder', salesOrderSchema);
+  const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+  const Invoice = req.getModel('Invoice', invoiceSchema);
   
-  const StoreDispatch = req.getModel("SalesOrderDispatchHistory", salesOrderDispatchHistorySchema);
   const companyId = getCompanyId(req);
   const { SalesOrderId } = req.params;
 
-  const dispatches = await StoreDispatch.find({ company: companyId, SalesOrder: SalesOrderId })
-    .populate("items.fgItem", "name type description")
-    .populate("createdBy", "name")
-    .sort({ dispatchDate: -1, createdAt: -1 });
+  const dcs = await DeliveryChallan.find({ company: companyId, salesOrderReference: SalesOrderId })
+    .populate("preparedBy", "name")
+    .sort({ date: -1 });
+
+  const invoices = await Invoice.find({ company: companyId, salesOrderReference: SalesOrderId })
+    .populate("preparedBy", "name")
+    .sort({ date: -1 });
+
+  let dispatches = [];
+  
+  dcs.forEach(dc => {
+    dispatches.push({
+      _id: dc._id,
+      dispatchNumber: dc.dcNumber,
+      dispatchDate: dc.date,
+      createdBy: dc.preparedBy,
+      vehicleNumber: "",
+      driverName: "",
+      items: dc.items.map(item => ({
+        fgItem: { name: item.materialName || item.description || "Item" },
+        dispatchedQuantity: item.quantity
+      }))
+    });
+  });
+
+  invoices.forEach(inv => {
+    dispatches.push({
+      _id: inv._id,
+      dispatchNumber: inv.invoiceNumber,
+      dispatchDate: inv.date,
+      createdBy: inv.preparedBy,
+      vehicleNumber: "",
+      driverName: "",
+      items: inv.items.map(item => ({
+        fgItem: { name: item.materialName || item.description || "Item" },
+        dispatchedQuantity: item.quantity
+      }))
+    });
+  });
+
+  dispatches.sort((a, b) => new Date(b.dispatchDate) - new Date(a.dispatchDate));
 
   res.status(200).json({ success: true, dispatches, count: dispatches.length });
 });
