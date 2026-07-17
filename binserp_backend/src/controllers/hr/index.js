@@ -38,3 +38,7 @@ export { getSalaryGenerationStats } from './getSalaryGenerationStats.controller.
 export { getSalaries } from './getSalaries.controller.js';
 export { updateSalary } from './updateSalary.controller.js';
 export { deleteSalary } from './deleteSalary.controller.js';
+export { createHoliday } from './createHoliday.controller.js';
+export { getAllHolidays } from './getAllHolidays.controller.js';
+export { updateHoliday } from './updateHoliday.controller.js';
+export { deleteHoliday } from './deleteHoliday.controller.js';

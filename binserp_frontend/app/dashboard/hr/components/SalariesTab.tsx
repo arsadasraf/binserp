@@ -119,17 +119,23 @@ export default function SalariesTab() {
 
             setExistingSalaryId(null);
 
-            // Fetch DB Attendance
-            const res = await axios.get(`${API_BASE_URL}/api/hr/attendance`, {
-                headers: { Authorization: `Bearer ${token}` },
-                params: {
-                    startDate: start,
-                    endDate: end,
-                    employeeId: selectedEmployeeId
-                }
-            });
+            // Fetch DB Attendance and Holidays
+            const [attRes, holRes] = await Promise.all([
+                axios.get(`${API_BASE_URL}/api/hr/attendance`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    params: {
+                        startDate: start,
+                        endDate: end,
+                        employeeId: selectedEmployeeId
+                    }
+                }),
+                axios.get(`${API_BASE_URL}/api/hr/holiday?year=${year}&month=${monthIndex + 1}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                })
+            ]);
 
-            const attendanceRecords: any[] = res.data.attendance || [];
+            const attendanceRecords: any[] = attRes.data.attendance || [];
+            const holidays: any[] = holRes.data || [];
 
             // Build Calendar Grid
             const newCalendar: DayStatus[] = [];
@@ -146,6 +152,19 @@ export default function SalariesTab() {
                         rDate.getFullYear() === year;
                 });
 
+                // Find holiday
+                const holiday = holidays.find(h => {
+                    const hDate = new Date(h.date);
+                    return hDate.getDate() === d &&
+                        hDate.getMonth() === monthIndex &&
+                        hDate.getFullYear() === year;
+                });
+
+                let defaultStatus = record ? record.status : 'Absent';
+                if (!record && holiday) {
+                    defaultStatus = 'Holiday';
+                }
+
                 // Calculate hours fallback if missing
                 let computedHours = record?.hoursWorked || 0;
                 if (!computedHours && record?.checkIn?.time && record?.checkOut?.time) {
@@ -157,13 +176,13 @@ export default function SalariesTab() {
                     date: dateStr,
                     day: d,
                     dayName: dateObj.toLocaleDateString('en-US', { weekday: 'short' }),
-                    originalStatus: record ? record.status : 'Absent',
+                    originalStatus: defaultStatus,
                     originalCheckIn: record?.checkIn?.time,
                     originalCheckOut: record?.checkOut?.time,
                     originalHours: computedHours,
 
                     // Defaults for manual override
-                    manualStatus: record ? record.status : 'Absent',
+                    manualStatus: defaultStatus,
                     manualHours: record?.hoursWorked || 0,
                     useManual: false
                 });
@@ -189,6 +208,7 @@ export default function SalariesTab() {
 
             if (status === 'Present') presentDays += 1;
             else if (status === 'HalfDay') presentDays += 0.5;
+            else if (status === 'Holiday') presentDays += 1;
 
             // Accumulate Duty Hours
             totalDutyHours += hours;
@@ -617,7 +637,11 @@ export default function SalariesTab() {
 
                                             {/* Original Data View */}
                                             <td className="px-4 py-3">
-                                                <span className={`px-2 py-0.5 rounded text-xs ${day.originalStatus === 'Present' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300'}`}>
+                                                <span className={`px-2 py-0.5 rounded text-xs ${
+                                                    day.originalStatus === 'Present' ? 'bg-green-100 text-green-700' : 
+                                                    day.originalStatus === 'Holiday' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300'
+                                                }`}>
                                                     {day.originalStatus}
                                                 </span>
                                             </td>
@@ -646,6 +670,7 @@ export default function SalariesTab() {
                                                     <option value="Present">Present</option>
                                                     <option value="Absent">Absent</option>
                                                     <option value="HalfDay">Half Day</option>
+                                                    <option value="Holiday">Holiday</option>
                                                 </select>
                                             </td>
                                             <td className="px-4 py-3">

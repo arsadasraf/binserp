@@ -36,6 +36,8 @@ import { resolveTenant } from "../middlewares/tenant.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
 import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/index.js";
 import { createSalarySlip, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/hr/index.js";
+import { createHoliday, getAllHolidays, updateHoliday, deleteHoliday } from "../controllers/hr/index.js";
+
 const router = express.Router();
 
 // All routes require authentication
@@ -43,7 +45,7 @@ router.use(verifyJWT);
 router.use(resolveTenant);
 
 // Restrict Master routes for Executives
-router.use(["/department", "/designation", "/skill", "/employee-type"], restrictExecutive);
+router.use(["/department", "/designation", "/skill", "/employee-type", "/holiday"], restrictExecutive);
 
 // Employee routes
 router.get("/stats", getDashboardStats);
@@ -98,6 +100,12 @@ router.get("/python-health", checkPythonHealth);
 router.post("/salary", createSalarySlip);
 router.get("/salary", getSalaries);
 router.get("/salary/stats", getSalaryGenerationStats);
+
+// Holiday Routes
+router.post("/holiday", createHoliday);
+router.get("/holiday", getAllHolidays);
+router.put("/holiday/:id", updateHoliday);
+router.delete("/holiday/:id", deleteHoliday);
 router.put("/salary/:id", updateSalary);
 router.delete("/salary/:id", deleteSalary);
 

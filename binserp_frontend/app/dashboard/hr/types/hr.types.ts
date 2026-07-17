@@ -7,6 +7,15 @@ export interface Skill {
     updatedAt: string;
 }
 
+export interface Holiday {
+    _id: string;
+    name: string;
+    date: string;
+    type: string;
+    isActive: boolean;
+    company: string;
+}
+
 export interface Department {
     _id: string;
     name: string;

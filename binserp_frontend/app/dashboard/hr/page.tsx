@@ -7,9 +7,9 @@ import HRHomeTab from "./components/HRHomeTab";
 import DepartmentMaster from "./components/masters/DepartmentMaster";
 import DesignationMaster from "./components/masters/DesignationMaster";
 import EmployeeMaster from "./components/masters/EmployeeMaster";
-import SkillMaster from "./components/masters/SkillMaster";
 import EmployeeTypeMaster from "./components/masters/EmployeeTypeMaster";
 import FaceDataMaster from "./components/masters/FaceDataMaster";
+import HolidayMaster from "./components/masters/HolidayMaster";
 import HRKioskTab from "./components/HRKioskTab";
 import PresentTab from "./components/PresentTab";
 import SalariesTab from "./components/SalariesTab";
@@ -27,7 +27,7 @@ function HRPageContent() {
   const activeTab = (searchParams.get("tab") as "home" | "master" | "attendance" | "present" | "salaries") || "home";
 
   // State for Master sub-tabs
-  const [activeMasterTab, setActiveMasterTab] = useState<"department" | "designation" | "employee" | "employee-type" | "skills" | "face-data" | "prefix">("department");
+  const [activeMasterTab, setActiveMasterTab] = useState<"employee" | "employee-type" | "department" | "designation" | "face-data" | "holiday" | "prefix">("employee");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -57,22 +57,6 @@ function HRPageContent() {
               {/* Master Sub-tabs: Modern Pill Design */}
               <div className="flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
                 <button
-                  onClick={() => setActiveMasterTab("department")}
-                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "department"
-                    ? "bg-indigo-600 text-white shadow-md"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
-                >
-                  Department
-                </button>
-                <button
-                  onClick={() => setActiveMasterTab("designation")}
-                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "designation"
-                    ? "bg-indigo-600 text-white shadow-md"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
-                >
-                  Designation
-                </button>
-                <button
                   onClick={() => setActiveMasterTab("employee")}
                   className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "employee"
                     ? "bg-indigo-600 text-white shadow-md"
@@ -89,12 +73,20 @@ function HRPageContent() {
                   Employee Type
                 </button>
                 <button
-                  onClick={() => setActiveMasterTab("skills")}
-                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "skills"
+                  onClick={() => setActiveMasterTab("department")}
+                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "department"
                     ? "bg-indigo-600 text-white shadow-md"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
                 >
-                  Skills
+                  Department
+                </button>
+                <button
+                  onClick={() => setActiveMasterTab("designation")}
+                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "designation"
+                    ? "bg-indigo-600 text-white shadow-md"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+                >
+                  Designation
                 </button>
                 <button
                   onClick={() => setActiveMasterTab("face-data")}
@@ -103,6 +95,14 @@ function HRPageContent() {
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
                 >
                   Face Data
+                </button>
+                <button
+                  onClick={() => setActiveMasterTab("holiday")}
+                  className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${activeMasterTab === "holiday"
+                    ? "bg-indigo-600 text-white shadow-md"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"}`}
+                >
+                  Holidays
                 </button>
                 <button
                   onClick={() => setActiveMasterTab("prefix")}
@@ -116,12 +116,12 @@ function HRPageContent() {
 
               {/* Content Area with premium card styling */}
               <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-6">
+                {activeMasterTab === "employee" && <EmployeeMaster />}
+                {activeMasterTab === "employee-type" && <EmployeeTypeMaster />}
                 {activeMasterTab === "department" && <DepartmentMaster />}
                 {activeMasterTab === "designation" && <DesignationMaster />}
-                {activeMasterTab === "employee-type" && <EmployeeTypeMaster />}
-                {activeMasterTab === "employee" && <EmployeeMaster />}
-                {activeMasterTab === "skills" && <SkillMaster />}
                 {activeMasterTab === "face-data" && <FaceDataMaster />}
+                {activeMasterTab === "holiday" && <HolidayMaster />}
                 {activeMasterTab === "prefix" && (
                   <HRPrefixSettingsForm
                     token={token}
