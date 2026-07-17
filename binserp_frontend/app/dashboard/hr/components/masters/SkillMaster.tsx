@@ -213,7 +213,7 @@ export default function SkillMaster() {
 
             {/* Add/Edit Modal */}
             {showModal && (
-                <div className="backdrop-blur-sm bg-black/50 fixed flex inset-0 items-center justify-center p-4 z-50">
+                <div className="backdrop-blur-sm bg-black/50 fixed flex inset-0 items-center justify-center p-4 z-[999]">
                     <div className="animate-in bg-white dark:bg-slate-800 duration-200 fade-in max-w-md p-6 rounded-xl shadow-xl w-full zoom-in-95">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="dark:text-white font-bold text-gray-900 text-lg">{isEditing ? "Edit Skill" : "Add New Skill"}</h3>

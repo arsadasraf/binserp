@@ -22,6 +22,7 @@ export default function EmployeeMaster() {
     const [designations, setDesignations] = useState<Designation[]>([]);
     const [employeeTypes, setEmployeeTypes] = useState<EmployeeType[]>([]);
     const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
+    const [employeePrefix, setEmployeePrefix] = useState<string>("Prefix");
 
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
@@ -78,6 +79,10 @@ export default function EmployeeMaster() {
         professionalTax: number;
         grossSalary: number;
         netSalary: number;
+        casualLeave: number;
+        sickLeave: number;
+        perDayCalculationBasis: string;
+        otRate: number;
     }
 
     const [formData, setFormData] = useState<FormData>({
@@ -105,6 +110,10 @@ export default function EmployeeMaster() {
         professionalTax: 0,
         grossSalary: 0,
         netSalary: 0,
+        casualLeave: 0,
+        sickLeave: 0,
+        perDayCalculationBasis: "Basic",
+        otRate: 0,
     });
 
     const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -116,7 +125,22 @@ export default function EmployeeMaster() {
         fetchDesignations();
         fetchEmployeeTypes();
         fetchSkills();
+        fetchPrefixSettings();
     }, []);
+
+    const fetchPrefixSettings = async () => {
+        try {
+            const token = localStorage.getItem("token");
+            const res = await axios.get(`${API_BASE_URL}/api/hr-prefix`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.data && res.data.settings && res.data.settings.employeePrefix) {
+                setEmployeePrefix(res.data.settings.employeePrefix);
+            }
+        } catch (error) {
+            console.error("Error fetching prefix settings:", error);
+        }
+    };
 
     useEffect(() => {
         const gross =
@@ -201,7 +225,8 @@ export default function EmployeeMaster() {
             experience: "", degree: "",
             accountNumber: "", bankName: "", ifscCode: "", branchName: "",
             basic: 0, hra: 0, conveyance: 0, medical: 0, specialAllowance: 0,
-            pf: 0, professionalTax: 0, grossSalary: 0, netSalary: 0
+            pf: 0, professionalTax: 0, grossSalary: 0, netSalary: 0,
+            casualLeave: 0, sickLeave: 0, perDayCalculationBasis: "Basic", otRate: 0
         });
         setPhotoFile(null);
         setPhotoPreview(null);
@@ -242,6 +267,10 @@ export default function EmployeeMaster() {
             professionalTax: emp.salary?.professionalTax ?? 0,
             grossSalary: emp.salary?.grossSalary ?? 0,
             netSalary: emp.salary?.netSalary ?? 0,
+            perDayCalculationBasis: emp.salary?.perDayCalculationBasis || "Basic",
+            otRate: emp.salary?.otRate ?? 0,
+            casualLeave: (emp as any).leaves?.casualLeave ?? 0,
+            sickLeave: (emp as any).leaves?.sickLeave ?? 0,
         });
         setPhotoPreview(emp.photo || null);
         setPhotoFile(null);
@@ -312,7 +341,8 @@ export default function EmployeeMaster() {
             const data = new FormData();
             Object.entries(formData).forEach(([key, value]) => {
                 if (!['skills', 'accountNumber', 'bankName', 'ifscCode', 'branchName',
-                    'basic', 'hra', 'conveyance', 'medical', 'specialAllowance', 'grossSalary', 'pf', 'professionalTax', 'netSalary'].includes(key)) {
+                    'basic', 'hra', 'conveyance', 'medical', 'specialAllowance', 'grossSalary', 'pf', 'professionalTax', 'netSalary',
+                    'casualLeave', 'sickLeave', 'perDayCalculationBasis', 'otRate'].includes(key)) {
                     data.append(key, value as string);
                 }
             });
@@ -334,7 +364,13 @@ export default function EmployeeMaster() {
                 grossSalary: formData.grossSalary,
                 pf: formData.pf,
                 professionalTax: formData.professionalTax,
-                netSalary: formData.netSalary
+                netSalary: formData.netSalary,
+                perDayCalculationBasis: formData.perDayCalculationBasis,
+                otRate: formData.otRate
+            }));
+            data.append("leaves", JSON.stringify({
+                casualLeave: formData.casualLeave,
+                sickLeave: formData.sickLeave
             }));
 
             if (photoFile) data.append("photo", photoFile);
@@ -429,7 +465,7 @@ export default function EmployeeMaster() {
                                 <tr><td colSpan={5} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">No employees found.</td></tr>
                             ) : (
                                 employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).map((emp) => (
-                                    <tr key={emp._id} className="dark:hover:bg-slate-700 group hover:bg-gray-50 transition-colors">
+                                    <tr key={emp._id} onClick={() => handleOpenEdit(emp)} className="dark:hover:bg-slate-700 group hover:bg-gray-50 transition-colors cursor-pointer">
                                         <td className="px-6 py-4">
                                             <div className="flex gap-4 items-center">
                                                 <div className="bg-gray-100 dark:bg-slate-700 flex h-12 items-center justify-center overflow-hidden rounded-full shadow-inner w-12">
@@ -467,7 +503,7 @@ export default function EmployeeMaster() {
                                                 {emp.status}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-right">
+                                        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex gap-2 group-hover:opacity-100 justify-end opacity-0 transition-opacity">
                                                 <button onClick={() => handleOpenEdit(emp)} title="Edit Employee" className="bg-blue-50 hover:bg-blue-100 p-2 rounded-lg text-blue-600 transition-colors"><Edit2 size={16} /></button>
                                                 {emp.createdAt && (Date.now() - new Date(emp.createdAt).getTime() > 24 * 60 * 60 * 1000) ? (
@@ -489,7 +525,7 @@ export default function EmployeeMaster() {
                     {loading ? (
                         <div className="dark:text-gray-400 p-6 text-center text-gray-500">Loading...</div>
                     ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).map((emp) => (
-                        <div key={emp._id} className="flex flex-col gap-4 p-4">
+                        <div key={emp._id} onClick={() => handleOpenEdit(emp)} className="flex flex-col gap-4 p-4 dark:hover:bg-slate-700/50 hover:bg-gray-50 cursor-pointer transition-colors">
                             <div className="flex items-start justify-between">
                                 <div className="flex gap-3 items-center">
                                     <div className="bg-gray-100 dark:bg-slate-700 flex h-12 items-center justify-center overflow-hidden rounded-full shadow-inner w-12">
@@ -522,7 +558,7 @@ export default function EmployeeMaster() {
                                 </div>
                             </div>
 
-                            <div className="flex gap-2">
+                            <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                                 <button onClick={() => handleOpenEdit(emp)} className="bg-blue-50 flex flex-1 font-medium gap-2 hover:bg-blue-100 items-center justify-center py-2 rounded-lg text-blue-600 text-sm transition-colors"><Edit2 size={14} /> Edit</button>
                                 {emp.createdAt && (Date.now() - new Date(emp.createdAt).getTime() > 24 * 60 * 60 * 1000) ? (
                                     <button onClick={() => handleToggleStatus(emp._id)} className="bg-orange-50 flex flex-1 font-medium gap-2 hover:bg-orange-100 items-center justify-center py-2 rounded-lg text-orange-600 text-sm transition-colors"><Zap size={14} /> {emp.isActive ? "Deactivate" : "Activate"}</button>
@@ -538,7 +574,7 @@ export default function EmployeeMaster() {
 
             {/* Modern Modal */}
             {showModal && (
-                <div className="animate-in backdrop-blur-sm bg-black/60 duration-200 fade-in fixed flex inset-0 items-center justify-center p-4 z-50">
+                <div className="animate-in backdrop-blur-sm bg-black/60 duration-200 fade-in fixed flex inset-0 items-center justify-center p-4 z-[999]">
                     <div className="bg-white dark:bg-slate-800 flex flex-col max-h-[90vh] max-w-5xl overflow-hidden rounded-2xl shadow-2xl w-full">
                         {/* Modal Header */}
                         <div className="bg-white border-b border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex items-center justify-between px-6 py-4 sticky top-0 z-10">
@@ -660,7 +696,7 @@ export default function EmployeeMaster() {
                                                         <div>
                                                             <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Employee ID</label>
                                                             <div className="bg-gray-100 dark:bg-slate-700 dark:text-gray-400 font-mono px-4 py-2.5 rounded-lg text-gray-500 text-sm">
-                                                                {isEditing ? currentId : "Auto-generated (Prefix-XXXX)"}
+                                                                {isEditing ? formData.name ? employees.find(e => e._id === currentId)?.employeeId : '' : `Auto-generated (${employeePrefix}-XXXX)`}
                                                             </div>
                                                         </div>
                                                     </div>
@@ -788,6 +824,22 @@ export default function EmployeeMaster() {
                                             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
                                                 <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Briefcase size={16} /> Salary Structure</h4>
 
+                                                {/* Salary Config */}
+                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6 bg-blue-50/50 p-4 rounded-lg border border-blue-100 dark:bg-slate-800 dark:border-slate-700">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Per Day Salary Basis</label>
+                                                        <select value={formData.perDayCalculationBasis} onChange={e => setFormData({ ...formData, perDayCalculationBasis: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                            <option value="Basic">Basic</option>
+                                                            <option value="Gross">Gross</option>
+                                                            <option value="Net">Net</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">OT Rate (Per Hour)</label>
+                                                        <input type="number" value={formData.otRate} onChange={e => setFormData({ ...formData, otRate: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
+                                                    </div>
+                                                </div>
+
                                                 {/* Earnings Ref */}
                                                 <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6">
                                                     <div>
@@ -825,8 +877,9 @@ export default function EmployeeMaster() {
                                                     </div>
                                                 </div>
 
+
                                                 {/* Totals */}
-                                                <div className="bg-gray-50 border-gray-100 border-t dark:bg-slate-800/50 dark:border-slate-700 gap-4 grid grid-cols-2 p-4 pt-4 rounded-lg">
+                                                <div className="bg-gray-50 border-gray-100 border-t dark:bg-slate-800/50 dark:border-slate-700 gap-4 grid grid-cols-2 p-4 pt-4 rounded-lg mb-6">
                                                     <div>
                                                         <label className="block dark:text-gray-300 font-semibold mb-1 text-gray-600 text-xs tracking-wider uppercase">Gross Salary</label>
                                                         <div className="dark:text-white font-bold text-gray-900 text-xl">₹ {formData.grossSalary.toLocaleString()}</div>
@@ -836,6 +889,58 @@ export default function EmployeeMaster() {
                                                         <div className="font-bold text-green-600 text-xl">₹ {formData.netSalary.toLocaleString()}</div>
                                                     </div>
                                                 </div>
+
+                                                {/* Company Paid Leaves */}
+                                                <h5 className="font-bold mb-3 text-indigo-500 text-xs tracking-wider uppercase">Company Paid Leaves (Annual Quota)</h5>
+                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Casual Leaves (CL)</label>
+                                                        <input type="number" value={formData.casualLeave} onChange={e => setFormData({ ...formData, casualLeave: Number(e.target.value) })} className="bg-indigo-50/50 border border-transparent focus:bg-white focus:border-indigo-500 outline-none px-4 py-2.5 rounded-lg text-indigo-600 transition-all w-full" placeholder="0" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Sick Leaves (SL)</label>
+                                                        <input type="number" value={formData.sickLeave} onChange={e => setFormData({ ...formData, sickLeave: Number(e.target.value) })} className="bg-indigo-50/50 border border-transparent focus:bg-white focus:border-indigo-500 outline-none px-4 py-2.5 rounded-lg text-indigo-600 transition-all w-full" placeholder="0" />
+                                                    </div>
+                                                </div>
+
+                                                {/* Leave History */}
+                                                {isEditing && currentId && (() => {
+                                                    const emp = employees.find(e => e._id === currentId);
+                                                    const history = (emp as any)?.leaveHistory || [];
+                                                    if (history.length === 0) return null;
+
+                                                    const usedCL = history.filter((h: any) => h.type === 'CL').length;
+                                                    const usedSL = history.filter((h: any) => h.type === 'SL').length;
+
+                                                    return (
+                                                        <div className="mb-0 bg-slate-50 border border-slate-200 dark:bg-slate-900/50 dark:border-slate-700 p-4 rounded-xl">
+                                                            <div className="flex justify-between items-center mb-4">
+                                                                <h5 className="font-bold text-slate-600 dark:text-slate-300 text-xs tracking-wider uppercase">Leave History</h5>
+                                                                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 flex gap-4">
+                                                                    <span>Used CL: <strong className="text-indigo-600 dark:text-indigo-400">{usedCL}</strong></span>
+                                                                    <span>Used SL: <strong className="text-purple-600 dark:text-purple-400">{usedSL}</strong></span>
+                                                                </div>
+                                                            </div>
+                                                            <div className="max-h-40 overflow-y-auto pr-2 custom-scrollbar">
+                                                                <div className="space-y-2">
+                                                                    {history.map((record: any, idx: number) => (
+                                                                        <div key={idx} className="flex justify-between items-center bg-white dark:bg-slate-800 p-2.5 rounded border border-slate-100 dark:border-slate-700">
+                                                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                                                                {new Date(record.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                                                                            </span>
+                                                                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                                                                record.type === 'CL' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
+                                                                                'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                                                                            }`}>
+                                                                                {record.type}
+                                                                            </span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
 
                                             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">

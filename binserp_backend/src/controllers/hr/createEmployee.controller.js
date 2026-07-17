@@ -49,6 +49,7 @@ export const createEmployee = async (req, res) => {
       degree,
       paymentDetails,
       salary,
+      leaves,
     } = req.body;
 
     // Parse skills if it's a JSON string
@@ -75,6 +76,15 @@ export const createEmployee = async (req, res) => {
         salary = JSON.parse(salary);
       } catch (e) {
         salary = {};
+      }
+    }
+
+    // Parse leaves if it's a JSON string
+    if (typeof leaves === "string") {
+      try {
+        leaves = JSON.parse(leaves);
+      } catch (e) {
+        leaves = { casualLeave: 0, sickLeave: 0 };
       }
     }
 
@@ -159,6 +169,7 @@ export const createEmployee = async (req, res) => {
       degree,
       paymentDetails: paymentDetails || {},
       salary: salary || {},
+      leaves: leaves || { casualLeave: 0, sickLeave: 0 },
     });
 
     res.status(201).json({

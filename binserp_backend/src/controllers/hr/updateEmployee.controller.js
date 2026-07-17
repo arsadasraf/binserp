@@ -47,6 +47,9 @@ export const updateEmployee = async (req, res) => {
     if (typeof updateData.salary === "string") {
       try { updateData.salary = JSON.parse(updateData.salary); } catch (e) { }
     }
+    if (typeof updateData.leaves === "string") {
+      try { updateData.leaves = JSON.parse(updateData.leaves); } catch (e) { }
+    }
 
     // Handle photo upload if provided
     if (req.file) {

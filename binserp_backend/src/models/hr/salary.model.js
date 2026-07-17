@@ -90,8 +90,12 @@ export const salarySchema = new mongoose.Schema(
     ],
     paymentDate: Date,
     remarks: String,
+    leavesConsumed: {
+      casualLeave: { type: Number, default: 0 },
+      sickLeave: { type: Number, default: 0 }
+    },
   },
   { timestamps: true }
 );
 
-salarySchema.index({ company: 1, employee: 1, month: 1, year: 1 }, { unique: true });
+salarySchema.index({ company: 1, employee: 1, month: 1, year: 1 }, { unique: true });

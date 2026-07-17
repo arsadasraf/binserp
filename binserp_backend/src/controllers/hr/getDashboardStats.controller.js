@@ -51,7 +51,8 @@ export const getDashboardStats = async (req, res) => {
     // 1. Total Employees
     const totalEmployees = await Employee.countDocuments({
       company: companyId,
-      status: { $ne: 'Terminated' }
+      isActive: true,
+      status: { $in: ['Active', 'OnLeave'] }
     });
 
     // 2. Attendance for Target Date

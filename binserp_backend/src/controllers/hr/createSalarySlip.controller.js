@@ -18,7 +18,7 @@ export const createSalarySlip = async (req, res) => {
         const companyId = getCompanyId(req);
         const {
             employeeId, month, year, presentDays, totalDutyHours,
-            totalOtHours, otRatePH, grossPay, otPay, netPay, dailyLogs
+            totalOtHours, otRatePH, grossPay, otPay, netPay, dailyLogs, leavesConsumed
         } = req.body;
 
         const Employee = req.getModel('Employee', employeeSchema);
@@ -60,11 +60,36 @@ export const createSalarySlip = async (req, res) => {
             grossSalary: grossPay || 0,
             netSalary: netPay || 0,
             dailyLogs: dailyLogs || [],
+            leavesConsumed: leavesConsumed || { casualLeave: 0, sickLeave: 0 },
             status: "Draft",
             remarks: `Manually saved for ${presentDays} present days.`
         });
 
         await newSalary.save();
+
+        // Update employee leaves and history
+        if (leavesConsumed && (leavesConsumed.casualLeave > 0 || leavesConsumed.sickLeave > 0)) {
+            if (employee.leaves) {
+                employee.leaves.casualLeave = Math.max(0, employee.leaves.casualLeave - (leavesConsumed.casualLeave || 0));
+                employee.leaves.sickLeave = Math.max(0, employee.leaves.sickLeave - (leavesConsumed.sickLeave || 0));
+            }
+            
+            // Build history
+            if (dailyLogs && Array.isArray(dailyLogs)) {
+                dailyLogs.forEach(log => {
+                    if (log.useManual && (log.manualStatus === 'CL' || log.manualStatus === 'SL')) {
+                        employee.leaveHistory.push({
+                            date: log.date,
+                            type: log.manualStatus,
+                            month: month,
+                            year: Number(year)
+                        });
+                    }
+                });
+            }
+            await employee.save();
+        }
+
         res.status(201).json(newSalary);
 
     } catch (error) {

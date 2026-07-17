@@ -119,7 +119,7 @@ export default function FaceDataMaster() {
     if (view === "list") {
         return (
             <div className="space-y-4">
-                <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-col gap-3 items-center justify-between md:flex-row md:gap-4 p-4 rounded-xl shadow-sm">
+                <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-row gap-3 items-center justify-between md:gap-4 p-4 rounded-xl shadow-sm">
                     <div className="flex-1 md:flex-none md:w-64 relative">
                         <Search
                             className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2"
@@ -135,7 +135,7 @@ export default function FaceDataMaster() {
                     </div>
                     <button
                         onClick={() => handleStartCreate()}
-                        className="bg-blue-600 flex gap-2 hover:bg-blue-700 items-center justify-center md:px-4 flex-none px-3 md:px-4 py-2 rounded-lg text-white transition-colors"
+                        className="bg-blue-600 flex flex-none gap-2 hover:bg-blue-700 items-center justify-center md:px-4 px-3 py-2 rounded-lg text-white transition-colors"
                     >
                         <Plus size={18} />
                         <span className="hidden md:inline">Add Face Data</span>

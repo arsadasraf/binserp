@@ -91,7 +91,19 @@ export const employeeSchema = new mongoose.Schema(
       pf: { type: Number, default: 0 },
       professionalTax: { type: Number, default: 0 },
       netSalary: { type: Number, default: 0 },
+      perDayCalculationBasis: { type: String, enum: ['Basic', 'Gross', 'Net'], default: 'Basic' },
+      otRate: { type: Number, default: 0 },
     },
+    leaves: {
+      casualLeave: { type: Number, default: 0 },
+      sickLeave: { type: Number, default: 0 }
+    },
+    leaveHistory: [{
+      date: String,
+      type: { type: String }, // 'CL' or 'SL'
+      month: String,
+      year: Number
+    }],
   },
   { timestamps: true }
 );

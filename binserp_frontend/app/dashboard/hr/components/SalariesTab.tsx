@@ -29,6 +29,17 @@ export default function SalariesTab() {
     // 1. Employee & Month Selection
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+    const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+    const [employeeSearchTerm, setEmployeeSearchTerm] = useState("");
+    
+    // Derived values for search
+    const filteredEmployees = employees.filter(e => 
+        e.name.toLowerCase().includes(employeeSearchTerm.toLowerCase()) || 
+        e.employeeId.toLowerCase().includes(employeeSearchTerm.toLowerCase())
+    );
+    const selectedEmployeeDisplay = employees.find(e => e._id === selectedEmployeeId)?.name 
+        ? `${employees.find(e => e._id === selectedEmployeeId)?.name} (${employees.find(e => e._id === selectedEmployeeId)?.employeeId})`
+        : "-- Select Employee --";
 
     const [month, setMonth] = useState(new Date().toLocaleString('default', { month: 'long' }));
     const [year, setYear] = useState(new Date().getFullYear());
@@ -40,7 +51,7 @@ export default function SalariesTab() {
     const [existingSalaryId, setExistingSalaryId] = useState<string | null>(null);
 
     // 3. Salary Config
-    const [basicSalary, setBasicSalary] = useState(0);
+    const [baseSalary, setBaseSalary] = useState(0);
     const [otRatePH, setOtRatePH] = useState(0);
     const [companyName, setCompanyName] = useState('');
     const [companyLogo, setCompanyLogo] = useState('');
@@ -83,12 +94,21 @@ export default function SalariesTab() {
 
             // Auto-fill salary config from employee profile
             const emp = employees.find(e => e._id === selectedEmployeeId);
-            if (emp?.salary?.basic) {
-                setBasicSalary(emp.salary.basic);
-                setOtRatePH(Math.round((emp.salary.basic / 30 / 8)));
+            if (emp?.salary) {
+                const basis = emp.salary.perDayCalculationBasis || 'Basic';
+                if (basis === 'Gross') {
+                    setBaseSalary(emp.salary.grossSalary || 0);
+                } else if (basis === 'Net') {
+                    setBaseSalary(emp.salary.netSalary || 0);
+                } else {
+                    setBaseSalary(emp.salary.basic || 0);
+                }
+                
+                // Set OT Rate from employee profile, fallback to old logic if 0
+                setOtRatePH(emp.salary.otRate || Math.round((emp.salary.basic || 0) / 30 / 8));
             }
         }
-    }, [selectedEmployeeId, month, year]);
+    }, [selectedEmployeeId, month, year, employees]);
 
     const loadAttendanceData = async () => {
         setLoading(true);
@@ -111,7 +131,14 @@ export default function SalariesTab() {
                 setExistingSalaryId(savedRecord._id);
                 setCalendarData(savedRecord.dailyLogs || []);
                 // Update configs based on saved
-                if (savedRecord.salaryComponents?.basic) setBasicSalary(savedRecord.salaryComponents.basic);
+                // Depending on the basis, maybe they saved a different component but for now we fallback to basic component 
+                // However, since we now have dynamic calculation base, we should trust the state from DB if we want to restore exact values.
+                // For simplicity, we just use the `baseSalary` logic that was fetched on change.
+                // But if we want to extract it from savedRecord:
+                if (savedRecord.salaryComponents?.basic) {
+                    // This might overwrite the properly calculated baseSalary, so let's only do it if baseSalary is 0
+                    setBaseSalary(prev => prev || savedRecord.salaryComponents.basic);
+                }
                 if (savedRecord.otRatePH) setOtRatePH(savedRecord.otRatePH);
                 setLoading(false);
                 return;
@@ -206,7 +233,7 @@ export default function SalariesTab() {
             const status = day.useManual ? day.manualStatus : day.originalStatus;
             const hours = day.useManual ? day.manualHours : (day.originalHours || 0);
 
-            if (status === 'Present') presentDays += 1;
+            if (status === 'Present' || status === 'CL' || status === 'SL') presentDays += 1;
             else if (status === 'HalfDay') presentDays += 0.5;
             else if (status === 'Holiday') presentDays += 1;
 
@@ -222,12 +249,21 @@ export default function SalariesTab() {
             }
         });
 
-        const grossPay = (basicSalary / 30) * presentDays;
+        let casualLeaveConsumed = 0;
+        let sickLeaveConsumed = 0;
+
+        calendarData.forEach(day => {
+            const status = day.useManual ? day.manualStatus : day.originalStatus;
+            if (status === 'CL') casualLeaveConsumed += 1;
+            if (status === 'SL') sickLeaveConsumed += 1;
+        });
+
+        const grossPay = (baseSalary / 30) * presentDays;
         const otPay = totalOtHours * otRatePH;
         const netPay = grossPay + otPay;
 
-        return { presentDays, totalOtHours, totalDutyHours, grossPay, otPay, netPay };
-    }, [calendarData, basicSalary, otRatePH]);
+        return { presentDays, totalOtHours, totalDutyHours, grossPay, otPay, netPay, casualLeaveConsumed, sickLeaveConsumed };
+    }, [calendarData, baseSalary, otRatePH]);
 
 
     // Handlers
@@ -258,7 +294,8 @@ export default function SalariesTab() {
                 grossPay: totals.grossPay,
                 otPay: totals.otPay,
                 netPay: totals.netPay,
-                dailyLogs: calendarData
+                dailyLogs: calendarData,
+                leavesConsumed: { casualLeave: totals.casualLeaveConsumed, sickLeave: totals.sickLeaveConsumed }
             };
 
             if (existingSalaryId) {
@@ -439,6 +476,9 @@ export default function SalariesTab() {
                         const s = day?.useManual ? day.manualStatus : day?.originalStatus;
                         if (s === 'Present')  data.cell.styles.textColor = [22, 163, 74];
                         else if (s === 'HalfDay') data.cell.styles.textColor = [217, 119, 6];
+                        else if (s === 'Holiday') data.cell.styles.textColor = [37, 99, 235];
+                        else if (s === 'CL') data.cell.styles.textColor = [79, 70, 229]; // Indigo
+                        else if (s === 'SL') data.cell.styles.textColor = [147, 51, 234]; // Purple
                         else                  data.cell.styles.textColor = [220, 38, 38];
                     }
                 }
@@ -536,18 +576,50 @@ export default function SalariesTab() {
             {/* 1. Header Control Panel */}
             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-100 flex flex-col gap-6 items-end justify-between md:flex-row p-5 rounded-xl shadow-sm text-gray-800">
                 <div className="flex flex-col gap-4 md:flex-row md:w-auto w-full">
-                    <div>
+                    <div className="relative">
                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wide uppercase">Employee</label>
-                        <select
-                            className="bg-gray-50 border border-gray-200 dark:bg-slate-800/50 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 md:w-64 outline-none px-4 py-2.5 rounded-lg w-full dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                            value={selectedEmployeeId}
-                            onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                        <div 
+                            className="bg-gray-50 border border-gray-200 dark:bg-slate-800/50 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 md:w-64 outline-none px-4 py-2.5 rounded-lg w-full dark:text-white cursor-pointer flex justify-between items-center"
+                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                         >
-                            <option value="">-- Select Employee --</option>
-                            {employees.map(e => (
-                                <option key={e._id} value={e._id}>{e.name} ({e.employeeId})</option>
-                            ))}
-                        </select>
+                            <span className="truncate">{selectedEmployeeDisplay}</span>
+                            <span className="text-gray-400">▼</span>
+                        </div>
+                        {isDropdownOpen && (
+                            <>
+                                <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
+                                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden flex flex-col max-h-60">
+                                <div className="p-2 border-b border-gray-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
+                                    <input 
+                                        type="text" 
+                                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded px-3 py-1.5 text-sm outline-none focus:border-blue-500 dark:text-white"
+                                        placeholder="Search employee..."
+                                        value={employeeSearchTerm}
+                                        onChange={(e) => setEmployeeSearchTerm(e.target.value)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="overflow-y-auto custom-scrollbar">
+                                    {filteredEmployees.length > 0 ? filteredEmployees.map(e => (
+                                        <div 
+                                            key={e._id} 
+                                            className={`px-4 py-2 cursor-pointer text-sm hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors ${e._id === selectedEmployeeId ? 'bg-blue-100 dark:bg-slate-600 font-medium' : 'dark:text-gray-200'}`}
+                                            onClick={() => {
+                                                setSelectedEmployeeId(e._id);
+                                                setIsDropdownOpen(false);
+                                                setEmployeeSearchTerm("");
+                                            }}
+                                        >
+                                            {e.name} ({e.employeeId})
+                                        </div>
+                                    )) : (
+                                        <div className="px-4 py-3 text-sm text-gray-500 text-center">No matching employees</div>
+                                    )}
+                                </div>
+                            </div>
+                            </>
+                        )}
                     </div>
 
                     <div>
@@ -640,6 +712,8 @@ export default function SalariesTab() {
                                                 <span className={`px-2 py-0.5 rounded text-xs ${
                                                     day.originalStatus === 'Present' ? 'bg-green-100 text-green-700' : 
                                                     day.originalStatus === 'Holiday' ? 'bg-blue-100 text-blue-700' :
+                                                    day.originalStatus === 'CL' ? 'bg-indigo-100 text-indigo-700' :
+                                                    day.originalStatus === 'SL' ? 'bg-purple-100 text-purple-700' :
                                                     'bg-gray-100 text-gray-600 dark:bg-slate-700 dark:text-gray-300'
                                                 }`}>
                                                     {day.originalStatus}
@@ -671,6 +745,16 @@ export default function SalariesTab() {
                                                     <option value="Absent">Absent</option>
                                                     <option value="HalfDay">Half Day</option>
                                                     <option value="Holiday">Holiday</option>
+                                                    {(() => {
+                                                        const emp = employees.find(e => e._id === selectedEmployeeId);
+                                                        const leaves = (emp as any)?.leaves;
+                                                        return (
+                                                            <>
+                                                                {leaves?.casualLeave > 0 && <option value="CL">CL</option>}
+                                                                {leaves?.sickLeave > 0 && <option value="SL">SL</option>}
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </select>
                                             </td>
                                             <td className="px-4 py-3">
@@ -700,14 +784,15 @@ export default function SalariesTab() {
                             </h4>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block dark:text-gray-400 font-semibold mb-1 text-gray-500 text-xs uppercase">Monthly Basic Salary</label>
+                                    <label className="block dark:text-gray-400 font-semibold mb-1 text-gray-500 text-xs uppercase">Base Salary For Calculation</label>
                                     <div className="relative">
                                         <span className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2">₹</span>
                                         <input
                                             type="number"
-                                            value={basicSalary}
-                                            onChange={(e) => setBasicSalary(Number(e.target.value))}
-                                            className="border border-gray-200 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none pl-7 pr-3 py-2 rounded-lg w-full"
+                                            value={baseSalary}
+                                            onChange={(e) => setBaseSalary(Number(e.target.value))}
+                                            className="border border-gray-200 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none pl-7 pr-3 py-2 rounded-lg w-full bg-gray-50"
+                                            disabled
                                         />
                                     </div>
                                 </div>
@@ -745,6 +830,18 @@ export default function SalariesTab() {
                                     <span className="text-blue-200">Total OT Hours</span>
                                     <span className="font-bold text-lg">{totals.totalOtHours}</span>
                                 </div>
+                                {totals.casualLeaveConsumed > 0 && (
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-indigo-200">Casual Leaves (CL)</span>
+                                        <span className="font-bold text-lg text-indigo-100">{totals.casualLeaveConsumed}</span>
+                                    </div>
+                                )}
+                                {totals.sickLeaveConsumed > 0 && (
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-purple-200">Sick Leaves (SL)</span>
+                                        <span className="font-bold text-lg text-purple-100">{totals.sickLeaveConsumed}</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="border-t border-white/20 pt-4 space-y-2">
