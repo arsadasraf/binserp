@@ -22,6 +22,7 @@ export const checkOutVisitor = async (req, res) => {
 
         visitor.status = "Left";
         visitor.checkOutTime = new Date();
+        visitor.checkedOutBy = req.user._id;
         await visitor.save();
 
         res.status(200).json({ message: "Visitor checked out successfully", visitor });

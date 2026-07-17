@@ -33,6 +33,10 @@ export default function GateVehicleTab() {
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [entryLoading, setEntryLoading] = useState(false);
 
+    // Check-Out Modal State
+    const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
+    const [checkoutVehicle, setCheckoutVehicle] = useState<any>(null);
+
     // --- Entry Form State ---
     const [direction, setDirection] = useState<'Inward' | 'Outward'>('Inward');
     const [driverName, setDriverName] = useState('');
@@ -66,9 +70,12 @@ export default function GateVehicleTab() {
         if (!vehicleNumber) missingFields.push("Vehicle Number");
         if (!driverName) missingFields.push("Driver Name");
         if (!phone) missingFields.push("Phone Number");
-        if (!companyName) missingFields.push("Company Name");
-        if (!goodsType) missingFields.push("Goods Type");
         if (vehiclePhotos.length === 0) missingFields.push("Vehicle Photo");
+
+        if (direction === 'Inward') {
+            if (!companyName) missingFields.push("Origin Company");
+            if (!goodsType) missingFields.push("Goods Type");
+        }
 
         if (missingFields.length > 0) {
             alert(`Please fill the following required fields:\n- ${missingFields.join('\n- ')}`);
@@ -162,20 +169,36 @@ export default function GateVehicleTab() {
     }, [loadVehicles]);
 
     useEffect(() => {
-        if (isEntryModalOpen || captureMode !== null || selectedVehicle !== null) {
+        if (isEntryModalOpen || isCheckoutModalOpen || captureMode !== null || selectedVehicle !== null) {
             setShowBottomNav(false);
         } else {
             setShowBottomNav(true);
         }
         return () => setShowBottomNav(true);
-    }, [isEntryModalOpen, captureMode, selectedVehicle, setShowBottomNav]);
+    }, [isEntryModalOpen, isCheckoutModalOpen, captureMode, selectedVehicle, setShowBottomNav]);
 
-    const handleCheckOut = async (id: string) => {
+    const handleCheckOut = async (vehicle: any) => {
+        if (vehicle.direction === 'Outward') {
+            setCheckoutVehicle(vehicle);
+            setCompanyName('');
+            setGoodsType('');
+            setAddress('');
+            setRemarks('');
+            setDocumentPhotos([]);
+            setVehiclePhotos([]);
+            setIsCheckoutModalOpen(true);
+            return;
+        }
+
         if (!confirm("Confirm Check Out?")) return;
+        executeCheckOut(vehicle._id);
+    };
+
+    const executeCheckOut = async (id: string, payload: any = {}) => {
         try {
             setCheckoutLoading(id);
             const token = localStorage.getItem('token');
-            await axios.put(`${API_BASE_URL}/api/vehicle/${id}/checkout`, {}, {
+            await axios.put(`${API_BASE_URL}/api/vehicle/${id}/checkout`, payload, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -185,6 +208,8 @@ export default function GateVehicleTab() {
             } else {
                 loadVehicles();
             }
+            if (isCheckoutModalOpen) setIsCheckoutModalOpen(false);
+            setCheckoutVehicle(null);
         } catch (error) {
             console.error("Checkout failed", error);
             alert("Failed to check out.");
@@ -193,10 +218,33 @@ export default function GateVehicleTab() {
         }
     };
 
+    const handleOutwardCheckoutSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const missingFields = [];
+        if (!companyName) missingFields.push("Destination Company");
+        if (!goodsType) missingFields.push("Goods Type");
+        if (documentPhotos.length === 0) missingFields.push("Document Photo");
+
+        if (missingFields.length > 0) {
+            alert(`Please fill the following required fields:\n- ${missingFields.join('\n- ')}`);
+            return;
+        }
+
+        executeCheckOut(checkoutVehicle._id, {
+            companyName,
+            goodsType,
+            address,
+            purpose: remarks || 'Logistics',
+            documentPhotos,
+            vehiclePhotos
+        });
+    };
+
     const filteredVehicles = visitors.filter(v =>
         (v.direction === directionTab || (!v.direction && directionTab === 'Inward')) && 
         (v.vehicleNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.name.toLowerCase().includes(searchTerm.toLowerCase()))
+        v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (v.companyName && v.companyName.toLowerCase().includes(searchTerm.toLowerCase())))
     );
 
     // Carousel state for selected vehicle
@@ -237,13 +285,13 @@ export default function GateVehicleTab() {
                             onClick={() => setDirectionTab('Inward')}
                             className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${directionTab === 'Inward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
-                             <ArrowDown size={16} /> Inward
+                             <ArrowDown size={16} /> For Unloading
                         </button>
                         <button
                             onClick={() => setDirectionTab('Outward')}
                             className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${directionTab === 'Outward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
-                             <ArrowUp size={16} /> Outward
+                             <ArrowUp size={16} /> For Loading
                         </button>
                     </div>
                 </div>
@@ -294,21 +342,24 @@ export default function GateVehicleTab() {
                         </>
                     )}
 
-                    {/* <div className="relative flex-1 md:flex-none">
-                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                    <div className="relative hidden md:block flex-1 md:flex-none">
+                        <Search className="absolute left-3 top-2.5 text-gray-400 dark:text-gray-500" size={18} />
                         <input
                             type="text"
                             placeholder="Search vehicle..."
-                            className="pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full md:w-64"
+                            className="pl-10 pr-4 py-2 border border-gray-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full md:w-64 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />
-                    </div> */}
+                    </div>
 
                     {/* New Entry Button */}
                     {viewMode === 'active' && (
                         <button
-                            onClick={() => setIsEntryModalOpen(true)}
+                            onClick={() => {
+                                setDirection(directionTab);
+                                setIsEntryModalOpen(true);
+                            }}
                             className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors whitespace-nowrap shadow-sm hover:shadow-md"
                         >
                             <Truck size={18} /> New Vehicle
@@ -365,7 +416,7 @@ export default function GateVehicleTab() {
             {/* New Vehicle Entry Modal */}
             {isEntryModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white dark:bg-slate-800 z-10">
                             <div>
                                 <h3 className="text-xl font-bold text-gray-900 dark:text-white ">New Vehicle Entry</h3>
@@ -383,29 +434,32 @@ export default function GateVehicleTab() {
                                         <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2">
                                             Logistics Information
                                         </h4>
-                                        <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
-                                            <button type="button" onClick={() => setDirection('Inward')} className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${direction === 'Inward' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>Inward</button>
-                                            <button type="button" onClick={() => setDirection('Outward')} className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${direction === 'Outward' ? 'bg-white shadow text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>Outward</button>
+                                        <div className="px-3 py-1 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 rounded-md text-xs font-bold uppercase tracking-wider">
+                                            {direction === 'Inward' ? 'For Unloading' : 'For Loading'}
                                         </div>
                                     </div>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="md:col-span-2">
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Company Name <span className="text-red-500">*</span></label>
-                                            <div className="relative">
-                                                <input required type="text" value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full pl-4 pr-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. DHL Logistics / Vendor Name" />
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                        {direction === 'Inward' && (
+                                            <div className="md:col-span-2 lg:col-span-2">
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Origin Company <span className="text-red-500">*</span></label>
+                                                <div className="relative">
+                                                    <input required type="text" value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full pl-4 pr-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. DHL Logistics / Vendor Name" />
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div>
+                                        )}
+                                        <div className="md:col-span-1 lg:col-span-1">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Vehicle Number <span className="text-red-500">*</span></label>
                                             <div className="relative">
                                                 <Truck size={18} className="absolute left-3 top-3 text-gray-400" />
                                                 <input required type="text" value={vehicleNumber} onChange={e => setVehicleNumber(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 uppercase" placeholder="KA-01-AB-1234" />
                                             </div>
                                         </div>
-                                        <div>
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Goods Type <span className="text-red-500">*</span></label>
-                                            <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Raw Material, FG, Machinery" />
-                                        </div>
+                                        {direction === 'Inward' && (
+                                            <div className="md:col-span-1 lg:col-span-1">
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Goods Type <span className="text-red-500">*</span></label>
+                                                <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Raw Material, FG, Machinery" />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -414,23 +468,27 @@ export default function GateVehicleTab() {
                                     <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
                                         Driver Details
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                        <div className="md:col-span-1 lg:col-span-1">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Driver Name <span className="text-red-500">*</span></label>
                                             <input required type="text" value={driverName} onChange={e => setDriverName(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Driver Name" />
                                         </div>
-                                        <div>
+                                        <div className="md:col-span-1 lg:col-span-1">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Phone Number <span className="text-red-500">*</span></label>
                                             <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. 9876543210" />
                                         </div>
-                                        <div className="md:col-span-2">
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Address</label>
-                                            <input type="text" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Enter driver's address..." />
-                                        </div>
-                                        <div className="md:col-span-2">
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Remarks / Purpose</label>
-                                            <input type="text" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Delivery for Block A" />
-                                        </div>
+                                        {direction === 'Inward' && (
+                                            <>
+                                                <div className="md:col-span-3 lg:col-span-2">
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Address</label>
+                                                    <input type="text" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Enter driver's address..." />
+                                                </div>
+                                                <div className="md:col-span-3 lg:col-span-4">
+                                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Remarks / Purpose</label>
+                                                    <input type="text" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Delivery for Block A" />
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
@@ -439,7 +497,7 @@ export default function GateVehicleTab() {
                                     <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
                                         Photos
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="flex gap-6 flex-wrap">
 
                                         <div className="space-y-3">
                                             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Vehicle Info <span className="text-red-500">*</span></label>
@@ -461,8 +519,96 @@ export default function GateVehicleTab() {
                                             </div>
                                         </div>
 
+                                        {direction === 'Inward' && (
+                                            <div className="space-y-3">
+                                                <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Documents</label>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {documentPhotos.map((photo, index) => (
+                                                        <div key={index} className="relative group w-24 h-24 bg-gray-100 dark:bg-slate-700 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 shrink-0">
+                                                            <img src={photo} alt={`Document ${index + 1}`} className="w-full h-full object-cover" />
+                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                                <button type="button" onClick={() => setDocumentPhotos(prev => prev.filter((_, i) => i !== index))} className="bg-red-500 text-white p-1.5 rounded-lg text-xs font-bold shadow-lg hover:scale-105 transition-transform flex items-center justify-center">
+                                                                    <X size={14} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    <button type="button" onClick={() => setCaptureMode('document')} className="w-24 h-24 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group shrink-0">
+                                                        <User size={20} className="mb-1" />
+                                                        <span className="text-[10px] font-medium text-center leading-tight">Add<br/>Photo</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                    </div>
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="pt-6 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-slate-800 p-4 -mx-6 -mb-6 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] rounded-b-2xl">
+                                    <button type="button" onClick={() => setIsEntryModalOpen(false)} className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-100 dark:bg-slate-700 rounded-xl transition-colors">
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={entryLoading}
+                                        className="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-blue-500/30 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                    >
+                                        {entryLoading ? <LoadingSpinner /> : <Truck size={18} />} Check-In Vehicle
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Outward Check-Out Modal */}
+            {isCheckoutModalOpen && checkoutVehicle && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white dark:bg-slate-800 z-10">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 dark:text-white ">Outward Check-Out</h3>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 ">Provide final details before vehicle departure.</p>
+                            </div>
+                            <button onClick={() => { setIsCheckoutModalOpen(false); setCheckoutVehicle(null); }} className="text-gray-400 hover:text-gray-600 dark:text-gray-400 transition-colors bg-gray-50 dark:bg-slate-800 /50 p-2 rounded-full hover:bg-gray-100 dark:bg-slate-700">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-8">
+                            <form onSubmit={handleOutwardCheckoutSubmit} className="space-y-8">
+                                <div className="space-y-4">
+                                    <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
+                                        Departure Details
+                                    </h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                        <div className="md:col-span-2 lg:col-span-2">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Destination Company <span className="text-red-500">*</span></label>
+                                            <input required type="text" value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full pl-4 pr-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Client / Vendor Name" />
+                                        </div>
+                                        <div className="md:col-span-1 lg:col-span-1">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Goods Type <span className="text-red-500">*</span></label>
+                                            <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Finished Goods, Machinery" />
+                                        </div>
+                                        <div className="md:col-span-3 lg:col-span-4">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Destination Address</label>
+                                            <input type="text" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Where is it going?" />
+                                        </div>
+                                        <div className="md:col-span-3 lg:col-span-4">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Remarks / Purpose</label>
+                                            <input type="text" value={remarks} onChange={e => setRemarks(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Delivery for Block A" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 pt-4 border-t border-gray-100 dark:border-slate-700 ">
+                                    <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
+                                        Photos
+                                    </h4>
+                                    <div className="flex gap-6">
                                         <div className="space-y-3">
-                                            <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Document / ID Proof</label>
+                                            <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Documents <span className="text-red-500">*</span></label>
                                             <div className="flex flex-wrap gap-2">
                                                 {documentPhotos.map((photo, index) => (
                                                     <div key={index} className="relative group w-24 h-24 bg-gray-100 dark:bg-slate-700 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 shrink-0">
@@ -480,21 +626,19 @@ export default function GateVehicleTab() {
                                                 </button>
                                             </div>
                                         </div>
-
                                     </div>
                                 </div>
 
-                                {/* Action Buttons */}
                                 <div className="pt-6 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-slate-800 p-4 -mx-6 -mb-6 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] rounded-b-2xl">
-                                    <button type="button" onClick={() => setIsEntryModalOpen(false)} className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-100 dark:bg-slate-700 rounded-xl transition-colors">
+                                    <button type="button" onClick={() => { setIsCheckoutModalOpen(false); setCheckoutVehicle(null); }} className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-100 dark:bg-slate-700 rounded-xl transition-colors">
                                         Cancel
                                     </button>
                                     <button
                                         type="submit"
-                                        disabled={entryLoading}
-                                        className="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-blue-500/30 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                        disabled={!!checkoutLoading}
+                                        className="px-8 py-2.5 bg-red-600 text-white font-bold rounded-xl shadow-lg hover:bg-red-700 hover:shadow-red-500/30 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                                     >
-                                        {entryLoading ? <LoadingSpinner /> : <Truck size={18} />} Check-In Vehicle
+                                        {!!checkoutLoading ? <LoadingSpinner /> : <LogOut size={18} />} Check-Out & Left
                                     </button>
                                 </div>
                             </form>
@@ -569,7 +713,7 @@ export default function GateVehicleTab() {
                             <div className="absolute bottom-0 left-0 right-0 p-6 text-white text-left z-20 pointer-events-none">
                                 <h2 className="text-2xl font-bold font-mono uppercase tracking-tight">{selectedVehicle.vehicleNumber}</h2>
                                 {selectedVehicle.companyName && <p className="text-white/80 font-medium flex items-center gap-2"><Building size={14} /> {selectedVehicle.companyName}</p>}
-                                <p className="text-indigo-300 font-bold text-xs uppercase tracking-wider mt-1">{selectedVehicle.direction || 'Inward'} Vehicle</p>
+                                <p className="text-indigo-300 font-bold text-xs uppercase tracking-wider mt-1">{(selectedVehicle.direction || 'Inward') === 'Inward' ? 'For Unloading' : 'For Loading'}</p>
                             </div>
                         </div>
 
@@ -617,7 +761,7 @@ export default function GateVehicleTab() {
                             {selectedVehicle.status === 'Inside' ? (
                                 <button
                                     onClick={() => {
-                                        handleCheckOut(selectedVehicle._id);
+                                        handleCheckOut(selectedVehicle);
                                         setSelectedVehicle(null);
                                     }}
                                     disabled={!!checkoutLoading}

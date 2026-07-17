@@ -177,7 +177,8 @@ export default function GateVisitorTab() {
 
     const filteredVisitors = visitors.filter(v =>
         v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.phone.includes(searchTerm)
+        v.phone.includes(searchTerm) ||
+        (v.whomToMeet && v.whomToMeet.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     return (
@@ -248,16 +249,16 @@ export default function GateVisitorTab() {
                         </>
                     )}
 
-                    {/* <div className="relative flex-1 md:flex-none">
-                        <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                    <div className="relative hidden md:block flex-1 md:flex-none">
+                        <Search className="absolute left-3 top-2.5 text-gray-400 dark:text-gray-500" size={18} />
                         <input
                             type="text"
                             placeholder="Search visitor..."
-                            className="pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full md:w-64"
+                            className="pl-10 pr-4 py-2 border border-gray-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full md:w-64 bg-white dark:bg-slate-800 text-gray-900 dark:text-white"
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                         />
-                    </div> */}
+                    </div>
 
                     {viewMode === 'active' && (
                         <button
@@ -314,7 +315,7 @@ export default function GateVisitorTab() {
             {/* New Entry Modal */}
             {isEntryModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
                         <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white dark:bg-slate-800 z-10">
                             <div>
                                 <h3 className="text-xl font-bold text-gray-900 dark:text-white ">New Visitor Entry</h3>
@@ -332,23 +333,23 @@ export default function GateVisitorTab() {
                                     <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
                                         <User size={16} /> Visitor Information
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                        <div className="md:col-span-1 lg:col-span-1">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Full Name <span className="text-red-500">*</span></label>
                                             <input required type="text" value={visitorName} onChange={e => setVisitorName(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Rahul Kumar" />
                                         </div>
-                                        <div>
+                                        <div className="md:col-span-1 lg:col-span-1">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Phone Number <span className="text-red-500">*</span></label>
                                             <input required type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. 9876543210" />
                                         </div>
-                                        <div className="md:col-span-2">
+                                        <div className="md:col-span-1 lg:col-span-2">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Company Name (Optional)</label>
                                             <div className="relative">
                                                 <Building size={18} className="absolute left-3 top-3 text-gray-400" />
                                                 <input type="text" value={companyName} onChange={e => setCompanyName(e.target.value)} className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. DHL Logistics" />
                                             </div>
                                         </div>
-                                        <div className="md:col-span-2">
+                                        <div className="md:col-span-3 lg:col-span-4">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Address (Optional)</label>
                                             <div className="relative">
                                                 <MapPin size={18} className="absolute left-3 top-3 text-gray-400" />
@@ -363,12 +364,12 @@ export default function GateVisitorTab() {
                                     <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
                                         <Users size={16} /> Meeting Details
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                        <div className="md:col-span-1 lg:col-span-2">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Whom to Meet <span className="text-red-500">*</span></label>
                                             <input required type="text" value={whomToMeet} onChange={e => setWhomToMeet(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. HR Manager / Mr. Sharma" />
                                         </div>
-                                        <div>
+                                        <div className="md:col-span-1 lg:col-span-2">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Purpose of Visit <span className="text-red-500">*</span></label>
                                             <input required type="text" value={purpose} onChange={e => setPurpose(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Interview, Delivery, Meeting" />
                                         </div>
@@ -380,9 +381,8 @@ export default function GateVisitorTab() {
                                     <h4 className="text-sm font-bold text-gray-400 tracking-wider uppercase flex items-center gap-2 mb-4">
                                         <Camera size={16} /> Photos & Vehicle
                                     </h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                                        <div className="space-y-3 md:col-span-2">
+                                    <div className="flex gap-6">
+                                        <div className="space-y-3 w-64 max-w-full">
                                             <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Visitor Photo <span className="text-red-500">*</span></label>
                                             {visitorPhoto ? (
                                                 <div className="relative group w-full h-48 bg-gray-100 dark:bg-slate-700 rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700 ">
@@ -402,8 +402,6 @@ export default function GateVisitorTab() {
                                                 </button>
                                             )}
                                         </div>
-                                        {/* Spacer/Placeholder col if needed */}
-                                        <div className="hidden md:block"></div>
                                     </div>
                                 </div>
 

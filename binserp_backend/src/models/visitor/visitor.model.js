@@ -53,6 +53,10 @@ export const visitorSchema = new mongoose.Schema(
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
+        },
+        checkedOutBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
         }
     },
     { timestamps: true }
