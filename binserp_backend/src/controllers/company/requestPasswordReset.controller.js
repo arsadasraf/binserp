@@ -1,8 +1,6 @@
 import { Company } from "../../models/company/index.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { sendVerificationCode, sendPasswordResetEmail, sendWelcomeEmail } from "../../utils/emailService.js";
-import { sendWhatsAppVerificationCode } from "../../utils/whatsappService.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
@@ -34,9 +32,7 @@ export const requestPasswordReset = async (req, res) => {
     const resetToken = company.generatePasswordResetToken();
     await company.save();
 
-    // Send password reset email
-    await sendPasswordResetEmail(company.email, resetToken, company.companyName, "company");
-
+    // Send password reset email
     res.status(200).json({
       message: "Password reset link sent to your email",
     });

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "keywords": [],
   "author": "Asraf Ali",
@@ -40,6 +42,7 @@
     "twilio": "^5.13.1"
   },
   "devDependencies": {
+    "eslint": "^9.39.5",
     "prettier": "^3.6.2"
   }
 }

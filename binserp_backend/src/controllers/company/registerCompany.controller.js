@@ -1,8 +1,6 @@
 import { Company } from "../../models/company/index.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { sendVerificationCode, sendPasswordResetEmail, sendWelcomeEmail } from "../../utils/emailService.js";
-import { sendWhatsAppVerificationCode } from "../../utils/whatsappService.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
@@ -63,9 +61,7 @@ export const registerCompany = async (req, res) => {
     await newCompany.save();
     console.log("Company registered and saved successfully.");
 
-    // Send Welcome Email
-    await sendWelcomeEmail(newCompany.email, newCompany.companyName);
-
+    // Send Welcome Email
     // SEED TENANT DATABASE
     try {
       console.log(`Seeding Tenant DB: ${newCompany.dbName} with Admin User...`);

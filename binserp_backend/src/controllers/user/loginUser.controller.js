@@ -4,7 +4,6 @@ import { Company } from "../../models/company/index.js";
 import { getTenantConnection, getTenantModel } from "../../db/tenant.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { sendPasswordResetEmail } from "../../utils/emailService.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 
 // Generate JWT token for users

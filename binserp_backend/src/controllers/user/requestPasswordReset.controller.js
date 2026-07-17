@@ -4,7 +4,6 @@ import { Company } from "../../models/company/index.js";
 import { getTenantConnection, getTenantModel } from "../../db/tenant.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { sendPasswordResetEmail } from "../../utils/emailService.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 
 // Generate JWT token for users
@@ -46,9 +45,7 @@ export const requestPasswordReset = async (req, res) => {
     const resetToken = user.generatePasswordResetToken();
     await user.save();
 
-    // Send password reset email
-    await sendPasswordResetEmail(user.email, resetToken, user.name, "user");
-
+    // Send password reset email
     res.status(200).json({
       message: "Password reset link sent to your email",
     });
