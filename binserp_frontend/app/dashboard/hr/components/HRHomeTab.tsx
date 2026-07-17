@@ -314,13 +314,6 @@ export default function HRHomeTab() {
                 />
             </div>
 
-            <div className={`grid grid-cols-1 gap-6 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
-                <DetailTable
-                    title="Department-wise Details"
-                    data={stats.departmentWise}
-                    onItemClick={(name) => handleListClick('department', name)}
-                />
-            </div>
 
             {/* Details Modal */}
             <HRStatsModal

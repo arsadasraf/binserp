@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { LogOut, Truck, User, Search, Car, Calendar, History, Activity, Save, Building, X, MapPin } from 'lucide-react';
+import { LogOut, Truck, User, Search, Car, Calendar, History, Activity, Save, Building, X, MapPin, ArrowDown, ArrowUp } from 'lucide-react';
 import Webcam from 'react-webcam';
 import { API_BASE_URL } from '@/src/utils/config';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import { useHeader } from '@/src/context/HeaderContext';
 
 export default function GateVehicleTab() {
+    const { setShowBottomNav } = useHeader();
     const [visitors, setVisitors] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
@@ -159,6 +161,15 @@ export default function GateVehicleTab() {
         loadVehicles();
     }, [loadVehicles]);
 
+    useEffect(() => {
+        if (isEntryModalOpen || captureMode !== null || selectedVehicle !== null) {
+            setShowBottomNav(false);
+        } else {
+            setShowBottomNav(true);
+        }
+        return () => setShowBottomNav(true);
+    }, [isEntryModalOpen, captureMode, selectedVehicle, setShowBottomNav]);
+
     const handleCheckOut = async (id: string) => {
         if (!confirm("Confirm Check Out?")) return;
         try {
@@ -201,39 +212,38 @@ export default function GateVehicleTab() {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 gap-4">
+        <div className="space-y-4 md:space-y-6 -mt-2 md:mt-0">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white dark:bg-slate-800 p-3 md:p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 gap-4">
 
                 {/* Left: Title & Toggles */}
-                <div className="flex items-center gap-4">
-                    <h2 className="text-lg font-bold text-gray-800 dark:text-gray-200">Vehicle Log</h2>
-                    <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
+                <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto">
+                    <div className="flex w-full md:w-auto bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
                         <button
                             onClick={() => setViewMode('active')}
-                            className={`px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-2 transition-all ${viewMode === 'active' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
+                            className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${viewMode === 'active' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                             <Activity size={16} /> Active
                         </button>
                         <button
                             onClick={() => setViewMode('history')}
-                            className={`px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-2 transition-all ${viewMode === 'history' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
+                            className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${viewMode === 'history' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                             <History size={16} /> History
                         </button>
                     </div>
 
-                    <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg ml-4">
+                    <div className="flex w-full md:w-auto bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
                         <button
                             onClick={() => setDirectionTab('Inward')}
-                            className={`px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-2 transition-all ${directionTab === 'Inward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
+                            className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${directionTab === 'Inward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
-                             Inward
+                             <ArrowDown size={16} /> Inward
                         </button>
                         <button
                             onClick={() => setDirectionTab('Outward')}
-                            className={`px-3 py-1.5 rounded-md text-sm font-semibold flex items-center gap-2 transition-all ${directionTab === 'Outward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
+                            className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${directionTab === 'Outward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
-                             Outward
+                             <ArrowUp size={16} /> Outward
                         </button>
                     </div>
                 </div>
@@ -296,16 +306,18 @@ export default function GateVehicleTab() {
                     </div> */}
 
                     {/* New Entry Button */}
-                    <button
-                        onClick={() => setIsEntryModalOpen(true)}
-                        className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors whitespace-nowrap shadow-sm hover:shadow-md"
-                    >
-                        <Truck size={18} /> New Vehicle
-                    </button>
+                    {viewMode === 'active' && (
+                        <button
+                            onClick={() => setIsEntryModalOpen(true)}
+                            className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors whitespace-nowrap shadow-sm hover:shadow-md"
+                        >
+                            <Truck size={18} /> New Vehicle
+                        </button>
+                    )}
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in">
                 {loading ? <div className="col-span-4 text-center py-12"><LoadingSpinner /></div> : filteredVehicles.length === 0 ? (
                     <div className="col-span-4 text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 /50 rounded-xl border border-dashed">
                         {searchTerm ? 'No vehicles found matching search.' : (viewMode === 'active' ? 'No active vehicles found inside.' : 'No vehicle history for this date.')}
@@ -334,8 +346,15 @@ export default function GateVehicleTab() {
                             <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 ">
                                 <div className="flex items-center gap-2 text-xs"><User size={12} className="text-gray-400" /> Driver: <span className="font-medium text-gray-900 dark:text-white ">{v.name}</span></div>
                                 <div className="flex items-center gap-2 text-xs"><Activity size={12} className="text-gray-400" /> Type: <span className="font-medium text-gray-900 dark:text-white ">{v.goodsType || 'Logistics'}</span></div>
-                                <div className="flex items-center gap-2 text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50">
-                                    <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50 dark:border-slate-700">
+                                    <div className="flex items-center gap-1.5">
+                                        <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                    {v.checkOutTime && (
+                                        <div className="flex items-center gap-1.5 text-orange-500">
+                                            <LogOut size={12} /> OUT: {new Date(v.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
