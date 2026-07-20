@@ -86,6 +86,9 @@ export const userSchema = new mongoose.Schema(
     refreshToken: {
       type: String,
     },
+    lastActiveAt: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );

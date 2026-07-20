@@ -4,6 +4,7 @@ export { getUserById } from './getUserById.controller.js';
 export { updateUser } from './updateUser.controller.js';
 export { deleteUser } from './deleteUser.controller.js';
 export { toggleUserStatus } from './toggleUserStatus.controller.js';
+export { getActiveSessions } from './getActiveSessions.controller.js';
 export { loginUser } from './loginUser.controller.js';
 export { requestPasswordReset } from './requestPasswordReset.controller.js';
 export { resetPassword } from './resetPassword.controller.js';

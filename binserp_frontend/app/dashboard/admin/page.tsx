@@ -15,6 +15,7 @@ import {
   useToggleUserStatusMutation,
 } from "@/src/store/services/userService";
 import UserFormModal from "./components/UserFormModal";
+import ActiveSessionsTable from "./components/ActiveSessionsTable";
 
 interface User {
   _id: string;
@@ -137,6 +138,7 @@ export default function AdminDashboard() {
   const [toggleUserStatus, { isLoading: isToggling }] = useToggleUserStatusMutation();
 
   const [showForm, setShowForm] = useState(false);
+  const [activeTab, setActiveTab] = useState<"users" | "sessions">("users");
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -284,7 +286,33 @@ export default function AdminDashboard() {
             isLoading={isCreating || isUpdating}
           />
 
-          {/* Global Search Header */}
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200 dark:border-slate-700 mb-4 bg-white dark:bg-slate-800 rounded-t-xl px-2 pt-2">
+            <button
+              onClick={() => setActiveTab("users")}
+              className={`py-2 px-4 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === "users"
+                  ? "bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600 dark:bg-slate-700 dark:text-indigo-400"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+              }`}
+            >
+              User Management
+            </button>
+            <button
+              onClick={() => setActiveTab("sessions")}
+              className={`py-2 px-4 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === "sessions"
+                  ? "bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600 dark:bg-slate-700 dark:text-indigo-400"
+                  : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800/50"
+              }`}
+            >
+              Active Sessions
+            </button>
+          </div>
+
+          {activeTab === "users" ? (
+            <>
+              {/* Global Search Header */}
           <div className="bg-white h-auto  p-2 rounded-md shadow-sm border border-gray-200 dark:border-slate-700 mb-2 flex  sm:flex-row  items-center justify-between">
             <div className="flex flex-1  gap-1  w-full sm:w-96">
               <input
@@ -509,6 +537,10 @@ export default function AdminDashboard() {
               )}
             </div>
           </div>
+            </>
+          ) : (
+            <ActiveSessionsTable />
+          )}
         </div>
       </div>
     

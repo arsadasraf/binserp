@@ -7,6 +7,10 @@ export const userService = binsApi.injectEndpoints({
       transformResponse: (response: any) => response.users || [],
       providesTags: ["Auth"],
     }),
+    getActiveSessions: builder.query<any[], void>({
+      query: () => "/api/user/active-sessions",
+      providesTags: ["Auth"],
+    }),
     createUser: builder.mutation<any, Record<string, any>>({
       query: (body) => ({
         url: "/api/user/create",
@@ -43,6 +47,7 @@ export const userService = binsApi.injectEndpoints({
 
 export const {
   useGetUsersQuery,
+  useGetActiveSessionsQuery,
   useCreateUserMutation,
   useUpdateUserMutation,
   useDeleteUserMutation,

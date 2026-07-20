@@ -59,6 +59,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         throw new ApiError(401, "Account deactivated. Please contact an administrator.");
       }
 
+      const now = new Date();
+      if (!user.lastActiveAt || now - user.lastActiveAt > 5 * 60 * 1000) {
+        UserModel.updateOne({ _id: user._id }, { $set: { lastActiveAt: now } }).catch(err => console.error("Error updating user lastActiveAt:", err));
+      }
+
       user.company = company; // Manually populate
       req.user = user;
       req.userType = "user";
@@ -96,6 +101,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
       if (employee.isActive === false || employee.status !== "Active") {
         throw new ApiError(401, "Account deactivated. Please contact an administrator.");
+      }
+
+      const now = new Date();
+      if (!employee.lastActiveAt || now - employee.lastActiveAt > 5 * 60 * 1000) {
+        EmployeeModel.updateOne({ _id: employee._id }, { $set: { lastActiveAt: now } }).catch(err => console.error("Error updating employee lastActiveAt:", err));
       }
 
       // Populate company manually
