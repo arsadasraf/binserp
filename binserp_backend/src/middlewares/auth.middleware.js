@@ -94,6 +94,10 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         throw new ApiError(404, "Employee not found");
       }
 
+      if (employee.isActive === false || employee.status !== "Active") {
+        throw new ApiError(401, "Account deactivated. Please contact an administrator.");
+      }
+
       // Populate company manually
       employee.company = company;
 
@@ -128,6 +132,9 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
     next();
   } catch (error) {
     console.error("[Auth] Error:", error.message);
+    if (error instanceof ApiError) {
+      throw error;
+    }
     if (error.name === "TokenExpiredError") {
       throw new ApiError(401, "Token expired. Please log in again.");
     }
@@ -168,6 +175,9 @@ export const verifySaasAdminJWT = asyncHandler(async (req, res, next) => {
 
     next();
   } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
     if (error.name === "TokenExpiredError") {
       throw new ApiError(401, "Token expired. Please log in again.");
     }

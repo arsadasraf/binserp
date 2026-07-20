@@ -110,8 +110,21 @@ export default function LoginPage() {
         setTimeout(redirect, 800);
       }
     } catch (err: any) {
-      console.error("Login error:", err);
-      setError(err.data?.message || err.message || "Login failed. Please check your credentials.");
+      console.error("Login error raw:", err);
+      let errorMessage = "Login failed. Please check your credentials.";
+      
+      if (err?.data?.message) {
+        errorMessage = err.data.message;
+      } else if (err?.error) {
+        errorMessage = err.error;
+      } else if (err?.message) {
+        errorMessage = err.message;
+      } else if (typeof err === "string") {
+        errorMessage = err;
+      }
+      
+      console.error("Parsed error message:", errorMessage);
+      setError(errorMessage);
     }
   };
 

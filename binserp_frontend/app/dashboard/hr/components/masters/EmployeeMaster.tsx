@@ -167,7 +167,7 @@ export default function EmployeeMaster() {
         try {
             const token = localStorage.getItem("token");
             const response = await axios.get(
-                `${API_BASE_URL}/api/hr/employee`,
+                `${API_BASE_URL}/api/hr/employee?_t=${new Date().getTime()}`,
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             setEmployees(response.data.employees);
