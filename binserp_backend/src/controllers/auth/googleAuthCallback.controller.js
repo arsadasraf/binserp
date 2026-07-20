@@ -1,10 +1,4 @@
-import jwt from "jsonwebtoken";
-
-const generateToken = (companyId) => {
-    return jwt.sign({ id: companyId }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-    });
-};
+import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
 export const googleAuthCallback = (req, res) => {
     // The company/profile is available on req.user thanks to passport
@@ -25,10 +19,17 @@ export const googleAuthCallback = (req, res) => {
     }
 
     const company = userOrCompany;
-    const token = generateToken(company._id);
+    const { accessToken, refreshToken } = generateTokens(company._id, "company");
     
-    // We send payload as JSON string encoded in base64 to avoid URL length issues,
-    // or we just send the token and type, and let frontend fetch profile.
+    // Save refresh token asynchronously (don't block redirect unnecessarily, but better to wait)
+    company.refreshToken = refreshToken;
+    // Note: Since this is in passport callback, company might be a mongoose document. Let's assume it is.
+    company.save({ validateBeforeSave: false }).catch(err => console.error("Error saving refresh token in Google Auth:", err));
+
+    // Set secure HttpOnly cookies
+    setTokenCookies(res, accessToken, refreshToken);
+    
+    // We send payload as JSON string encoded in base64 to avoid URL length issues.
     // The frontend's /auth/success page will handle it.
     
     const companyData = {
@@ -42,5 +43,6 @@ export const googleAuthCallback = (req, res) => {
 
     const encodedData = Buffer.from(JSON.stringify(companyData)).toString('base64');
     
-    res.redirect(`${frontendUrl}/auth/success?token=${token}&type=company&data=${encodedData}`);
+    // Still passing accessToken in URL temporarily for backward compatibility in frontend /auth/success
+    res.redirect(`${frontendUrl}/auth/success?token=${accessToken}&type=company&data=${encodedData}`);
 };

@@ -72,7 +72,7 @@ export default function LoginPage() {
 
       if (response.token) {
         setSuccess(loginType === "company" ? "Company login successful!" : "User login successful!");
-        const realUserType = (response.user && (response.user.type === 'employee' || response.user.roleLevel === 1)) ? 'employee' : loginType;
+        const realUserType = (response.user && response.user.type === 'employee') ? 'employee' : loginType;
 
         persistSession({
           token: response.token,

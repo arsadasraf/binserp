@@ -5,8 +5,9 @@ import fs from 'fs';
 import path from 'path';
 import passport from "passport";
 import { configurePassport } from "./config/passport.js";
-
-
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import mongoSanitize from "express-mongo-sanitize";
 
 const app = express();
 
@@ -29,6 +30,34 @@ app.use(express.json({ limit: "16mb" }));
 app.use(express.urlencoded({ extended: true, limit: "16mb" }));
 app.use(express.static("public"));
 app.use(cookieParser());
+
+// Security Middlewares
+app.use(helmet());
+// Fix for Express 5: req.query is a getter, so we must sanitize objects in-place instead of reassigning
+app.use((req, res, next) => {
+    ['body', 'params', 'headers', 'query'].forEach((key) => {
+        if (req[key]) {
+            mongoSanitize.sanitize(req[key]);
+        }
+    });
+    next();
+});
+
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 200, // Limit each IP to 200 requests per window
+    message: "Too many requests from this IP, please try again later."
+});
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // Limit each IP to 20 auth requests per window
+    message: "Too many login attempts from this IP, please try again later."
+});
+
+app.use("/api/", apiLimiter);
+app.use("/api/user/login", authLimiter);
+app.use("/api/auth/login", authLimiter);
 
 // Passport Initialization
 configurePassport();
@@ -70,7 +99,7 @@ app.use("/api/hr-prefix", hrPrefixRoutes);
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/crm", crmRoutes);
-app.use("/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/purchase", purchaseRoutes);

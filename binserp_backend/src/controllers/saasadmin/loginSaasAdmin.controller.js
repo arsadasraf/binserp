@@ -10,13 +10,7 @@ import { logAuditAction } from "../../utils/auditLogger.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
 import crypto from "crypto";
-
-// 🔑 Generate JWT for SaaS Admin
-const generateToken = (adminId) => {
-    return jwt.sign({ id: adminId, type: "saasadmin" }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-    });
-};
+import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
 // 🔐 Login SaaS Admin
 
@@ -69,8 +63,12 @@ export const loginSaasAdmin = asyncHandler(async (req, res) => {
         req,
     });
 
-    // Generate token
-    const token = generateToken(admin._id);
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokens(admin._id, "saasadmin");
+
+    // Save refresh token
+    admin.refreshToken = refreshToken;
+    await admin.save({ validateBeforeSave: false });
 
     // Send response
     const adminData = {
@@ -81,7 +79,13 @@ export const loginSaasAdmin = asyncHandler(async (req, res) => {
     };
 
     res
-        .cookie("saasAdminToken", token, {
+        .cookie("saasAdminToken", accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            maxAge: 15 * 60 * 1000, // 15 minutes
+        })
+        .cookie("refreshToken", refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
@@ -89,7 +93,7 @@ export const loginSaasAdmin = asyncHandler(async (req, res) => {
         })
         .status(200)
         .json(
-            new ApiResponse(200, { admin: adminData, token }, "Login successful")
+            new ApiResponse(200, { admin: adminData, token: accessToken }, "Login successful")
         );
 });
 

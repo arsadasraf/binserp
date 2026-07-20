@@ -82,7 +82,10 @@ export const userSchema = new mongoose.Schema(
     },
     activatedAt: {
       type: Date,
-    }
+    },
+    refreshToken: {
+      type: String,
+    },
   },
   { timestamps: true }
 );

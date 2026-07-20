@@ -4,58 +4,105 @@ import Swal from "sweetalert2";
 
 const baseUrl = API_BASE_URL;
 
-const getToken = () => {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
-};
+import { clearSession } from "@/src/lib/session";
 
 const baseQuery = fetchBaseQuery({
   baseUrl,
-  prepareHeaders: (headers) => {
-    const token = getToken();
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-    return headers;
-  },
+  credentials: "include", // Send HttpOnly cookies automatically
 });
+
+// Mutex to prevent multiple simultaneous refresh calls
+let isRefreshing = false;
+let failedQueue: any[] = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
 
 // Global Interceptor
 const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (args, api, extraOptions) => {
   let result = await baseQuery(args, api, extraOptions);
 
   if (result.error && result.error.status === 401) {
-    // Ignore 401 if it's a login request (let the component handle it)
     const isLoginRoute = typeof args === 'string' ? args.includes('/login') : args.url.includes('/login');
+    const isRefreshRoute = typeof args === 'string' ? args.includes('/refresh') : args.url.includes('/refresh');
     
-    if (!isLoginRoute) {
+    if (!isLoginRoute && !isRefreshRoute) {
+      if (isRefreshing) {
+        // Wait for the refresh to complete before retrying this request
+        try {
+          await new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          });
+          // Retry the original query after successful refresh
+          return await baseQuery(args, api, extraOptions);
+        } catch (err) {
+          return result; // Return original 401 error if refresh failed
+        }
+      }
+
       const errorData: any = result.error.data;
       const isDeactivated = errorData?.message?.toLowerCase().includes("deactivated");
       
-      if (typeof window !== "undefined") {
-        // Clear local storage
-        localStorage.removeItem("token");
-        localStorage.removeItem("user");
-        
-        // Show elegant alert
-        await Swal.fire({
-          icon: 'error',
-          title: isDeactivated ? 'Account Deactivated' : 'Session Expired',
-          text: isDeactivated 
-            ? 'Your account has been deactivated. Please contact an administrator.'
-            : 'Your session has expired or is invalid. Please log in again.',
-          confirmButtonColor: '#4f46e5',
-          confirmButtonText: 'Go to Login',
-          allowOutsideClick: false,
-          background: '#ffffff',
-          customClass: {
-            title: 'text-xl font-bold text-gray-900',
-            popup: 'rounded-2xl shadow-2xl border border-gray-100',
-          }
-        });
+      if (isDeactivated) {
+        // Hard logout for deactivated accounts
+        clearSession();
+        if (typeof window !== "undefined") {
+          await Swal.fire({
+            icon: 'error',
+            title: 'Account Deactivated',
+            text: 'Your account has been deactivated. Please contact an administrator.',
+            confirmButtonColor: '#4f46e5',
+            confirmButtonText: 'Go to Login',
+            allowOutsideClick: false,
+          });
+          window.location.href = '/login';
+        }
+        return result;
+      }
 
-        // Force redirect
-        window.location.href = '/login';
+      isRefreshing = true;
+
+      try {
+        // Attempt to refresh token
+        const refreshResult = await baseQuery({
+          url: '/api/auth/refresh',
+          method: 'POST',
+        }, api, extraOptions);
+
+        if (refreshResult.data) {
+          // Success! Process queued requests and retry the original one
+          isRefreshing = false;
+          processQueue(null, "success");
+          return await baseQuery(args, api, extraOptions);
+        } else {
+          // Refresh failed (e.g. refresh token expired)
+          throw new Error("Refresh failed");
+        }
+      } catch (refreshError) {
+        isRefreshing = false;
+        processQueue(refreshError, null);
+        
+        clearSession();
+        
+        if (typeof window !== "undefined") {
+          await Swal.fire({
+            icon: 'error',
+            title: 'Session Expired',
+            text: 'Your session has expired. Please log in again.',
+            confirmButtonColor: '#4f46e5',
+            confirmButtonText: 'Go to Login',
+            allowOutsideClick: false,
+          });
+          window.location.href = '/login';
+        }
       }
     }
   }

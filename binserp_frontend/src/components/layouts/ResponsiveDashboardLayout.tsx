@@ -184,6 +184,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
   const [userSubtitle, setUserSubtitle] = useState("Dashboard");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true); // New state for desktop toggle
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   // const [storeMenuOpen, setStoreMenuOpen] = useState(false);
   // const [ppcMenuOpen, setPpcMenuOpen] = useState(false);
   const [pythonOnline, setPythonOnline] = useState<boolean | null>(null);
@@ -251,29 +252,48 @@ function LayoutContent({ children }: { children: ReactNode }) {
       resolvedSubtitle = "Company Admin";
     }
 
-    setNavItems(resolveNavItems(userType, department));
+    const items = resolveNavItems(userType, department);
+    setNavItems(items);
     setUserName(resolvedName);
     setUserSubtitle(resolvedSubtitle);
 
-    // Auto-expand store menu if in store module
-    // if (pathname?.startsWith("/dashboard/store")) {
-    //   setStoreMenuOpen(true);
-    // }
-    // // Auto-expand PPC menu if in PPC module
-    // if (pathname?.startsWith("/dashboard/ppc")) {
-    //   setPpcMenuOpen(true);
-    // }
-  }, [pathname]);
+    // 🔒 Navigation Guard Logic
+    if (pathname) {
+      const isAuthorized = items.some(item => 
+        pathname === item.href || pathname.startsWith(item.href + "/")
+      );
+
+      // Allow some global routes just in case they exist
+      const isGlobalRoute = pathname === "/dashboard/profile" || pathname === "/dashboard/settings";
+
+      if (!isAuthorized && !isGlobalRoute && pathname !== "/dashboard") {
+        console.warn(`Unauthorized access attempt to ${pathname}. Redirecting...`);
+        const fallbackRoute = items.length > 0 ? items[0].href : "/dashboard";
+        router.replace(fallbackRoute);
+        return; // Wait for redirect to finish
+      }
+
+      // If they are on the root /dashboard but it's not in their allowed items, redirect to their default home
+      if (pathname === "/dashboard") {
+        const hasDashboard = items.some(item => item.href === "/dashboard");
+        if (!hasDashboard && items.length > 0) {
+          router.replace(items[0].href);
+          return;
+        }
+      }
+    }
+
+    setIsCheckingAuth(false);
+  }, [pathname, router]);
 
   // Polling Python Health
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const token = localStorage.getItem("token");
         const apiUrl = API_BASE_URL || "http://localhost:8000";
         const res = await fetch(`${apiUrl}/api/hr/python-health`, {
+          credentials: "include",
           headers: {
-            Authorization: `Bearer ${token}`,
             "Content-Type": "application/json"
           }
         });
@@ -555,8 +575,14 @@ function LayoutContent({ children }: { children: ReactNode }) {
         </header>
 
         {/* Main Content */}
-        <main ref={mainRef} className="flex-1 overflow-y-auto">
-          {children}
+        <main ref={mainRef} className="flex-1 overflow-y-auto relative">
+          {isCheckingAuth ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-gray-950/50 backdrop-blur-sm z-50">
+              <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ) : (
+            children
+          )}
         </main>
 
         {/* Mobile Bottom Navigation */}

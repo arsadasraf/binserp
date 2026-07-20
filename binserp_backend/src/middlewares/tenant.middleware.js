@@ -8,13 +8,14 @@ import { getTenantConnection, getTenantModel } from "../db/tenant.js";
  */
 export const resolveTenant = async (req, res, next) => {
     try {
-        let companyId = req.body?.companyId || req.query?.companyId || req.headers?.["x-company-id"];
-        console.log(`[resolveTenant] Initial companyId: ${companyId}`);
-
-        // Check if company is already attached via auth middleware
-        if (!companyId && req.company) {
-            console.log(`[resolveTenant] Found req.company. ID: ${req.company.companyId}`);
+        // STRENGTHENED: Always prioritize the securely authenticated company
+        let companyId = null;
+        if (req.company && req.company.companyId) {
             companyId = req.company.companyId;
+            console.log(`[resolveTenant] Found req.company. ID: ${companyId}`);
+        } else {
+            companyId = req.body?.companyId || req.query?.companyId || req.headers?.["x-company-id"];
+            console.log(`[resolveTenant] Initial companyId from input: ${companyId}`);
         }
 
         // If still no companyId, we might be in a public/master route, or it's an error.

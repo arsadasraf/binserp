@@ -114,6 +114,9 @@ export const companySchema = new mongoose.Schema({
   passwordResetExpires: {
     type: Date,
     default: null
+  },
+  refreshToken: {
+    type: String,
   }
 }, { timestamps: true });
 

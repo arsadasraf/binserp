@@ -1,6 +1,6 @@
 import express from "express";
 import passport from "passport";
-import { googleAuthCallback } from "../controllers/auth/index.js";
+import { googleAuthCallback, refreshTokens, logout } from "../controllers/auth/index.js";
 
 const router = express.Router();
 
@@ -39,5 +39,13 @@ router.get(
     },
     googleAuthCallback
 );
+
+// @route   POST /api/auth/refresh
+// @desc    Refresh access token
+router.post("/refresh", refreshTokens);
+
+// @route   POST /api/auth/logout
+// @desc    Logout user and clear cookies
+router.post("/logout", logout);
 
 export default router;

@@ -55,11 +55,11 @@ export default function Dashboard() {
         const department = user.department;
         setUserRole(department);
 
-        if (department === "HR") {
+        if (department === "HR" || department === "HR Executive") {
           router.push("/dashboard/hr");
-        } else if (department === "Store") {
+        } else if (department === "Store" || department === "Store Executive") {
           router.push("/dashboard/store");
-        } else if (department === "PPC") {
+        } else if (department === "PPC" || department === "PPC Executive") {
           router.push("/dashboard/ppc");
         } else if (department === "Accounts") {
           router.push("/dashboard/accounts");

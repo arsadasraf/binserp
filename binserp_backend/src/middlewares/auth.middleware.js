@@ -14,7 +14,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
     req.cookies?.accessToken ||
     req.header("Authorization")?.replace("Bearer ", "");
 
-  if (!token) {
+  if (!token || token === "null" || token === "undefined") {
     throw new ApiError(401, "Unauthorized access: No token provided");
   }
 
@@ -42,6 +42,10 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       req.getModel = (modelName, schema) => {
         return getTenantModel(dbName, modelName, schema);
       };
+
+      // Pre-register common models for population queries
+      req.getModel("User", userSchema);
+      req.getModel("Employee", employeeSchema);
 
       // 3. Find User
       const UserModel = req.getModel("User", userSchema);
@@ -78,6 +82,10 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         return getTenantModel(dbName, modelName, schema);
       };
 
+      // Pre-register common models for population queries
+      req.getModel("User", userSchema);
+      req.getModel("Employee", employeeSchema);
+
       // Find Employee
       const EmployeeModel = req.getModel("Employee", employeeSchema);
       const employee = await EmployeeModel.findById(decoded.id);
@@ -106,8 +114,9 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         req.getModel = (modelName, schema) => {
           return getTenantModel(company.dbName, modelName, schema);
         };
-        // Pre-register User model for population queries
+        // Pre-register common models for population queries
         req.getModel("User", userSchema);
+        req.getModel("Employee", employeeSchema);
         req.company = company;
       }
 
@@ -135,7 +144,7 @@ export const verifySaasAdminJWT = asyncHandler(async (req, res, next) => {
     req.cookies?.saasAdminToken ||
     req.header("Authorization")?.replace("Bearer ", "");
 
-  if (!token) {
+  if (!token || token === "null" || token === "undefined") {
     throw new ApiError(401, "Unauthorized access: No token provided");
   }
 

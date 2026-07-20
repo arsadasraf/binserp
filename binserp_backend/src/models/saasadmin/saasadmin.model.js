@@ -25,6 +25,9 @@ export const saasAdminSchema = new mongoose.Schema(
             type: Number,
             default: 100, // Highest level - super admin
         },
+        refreshToken: {
+            type: String,
+        },
     },
     { timestamps: true }
 );

@@ -104,8 +104,31 @@ export const employeeSchema = new mongoose.Schema(
       month: String,
       year: Number
     }],
+    password: {
+      type: String,
+      // Not required initially to support legacy employees who only have joiningDate
+    },
+    refreshToken: {
+      type: String,
+    },
   },
   { timestamps: true }
 );
+
+import bcrypt from "bcryptjs";
+
+// Hash employee password before saving if it has been modified
+employeeSchema.pre("save", async function (next) {
+  if (!this.isModified("password") || !this.password) return next();
+
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+employeeSchema.methods.comparePassword = async function (password) {
+  if (!this.password) return false;
+  return await bcrypt.compare(password, this.password);
+};
+
 // Indexes
 employeeSchema.index({ company: 1, employeeId: 1 });

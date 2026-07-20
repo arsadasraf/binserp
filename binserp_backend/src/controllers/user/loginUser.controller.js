@@ -5,14 +5,7 @@ import { getTenantConnection, getTenantModel } from "../../db/tenant.js";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
-
-// Generate JWT token for users
-// Generate JWT token for users
-const generateUserToken = (userId, companyId) => {
-  return jwt.sign({ id: userId, type: "user", companyId }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
-};
+import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -99,8 +92,15 @@ export const loginUser = async (req, res) => {
         }
       }
 
-      // Pass companyId to token
-      const token = generateUserToken(user._id, company.companyId);
+      // Generate tokens
+      const { accessToken, refreshToken } = generateTokens(user._id, "user", company.companyId);
+
+      // Save refresh token to user
+      user.refreshToken = refreshToken;
+      await user.save({ validateBeforeSave: false });
+
+      // Set cookies
+      setTokenCookies(res, accessToken, refreshToken);
 
       return res.status(200).json({
         message: "Login successful",
@@ -118,7 +118,7 @@ export const loginUser = async (req, res) => {
             companyName: company.companyName,
           },
         },
-        token,
+        token: accessToken, // Send access token in body temporarily
       });
     }
 
@@ -127,24 +127,37 @@ export const loginUser = async (req, res) => {
 
     if (employee) {
       // --- EMPLOYEE FOUND ---
-      // Password must match Joining Date (YYYY-MM-DD)
-      const joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
+      let isMatch = false;
 
-      if (password !== joiningDate) {
-        return res.status(401).json({ message: "Invalid credentials (Password is your Joining Date: YYYY-MM-DD)" });
+      // Use secure password if it exists
+      if (employee.password) {
+        isMatch = await employee.comparePassword(password);
+      } else {
+        // Legacy fallback: Password must match Joining Date (YYYY-MM-DD)
+        const joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
+        isMatch = (password === joiningDate);
+      }
+
+      if (!isMatch) {
+        return res.status(401).json({ message: "Invalid credentials" });
       }
 
       if (employee.status !== 'Active') {
         return res.status(403).json({ message: "Account is not active." });
       }
 
-      // Generate Token with 'employee' type
-      const token = jwt.sign({ id: employee._id, type: "employee", companyId: company.companyId }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-      });
+      // Generate tokens
+      const { accessToken, refreshToken } = generateTokens(employee._id, "employee", company.companyId);
+
+      // Save refresh token to employee
+      employee.refreshToken = refreshToken;
+      await employee.save({ validateBeforeSave: false });
 
       // Determine Role Level
       const roleLevel = employee.roleLevel || 1;
+
+      // Set cookies
+      setTokenCookies(res, accessToken, refreshToken);
 
       return res.status(200).json({
         message: "Employee Login successful",
@@ -164,7 +177,7 @@ export const loginUser = async (req, res) => {
             companyName: company.companyName,
           },
         },
-        token,
+        token: accessToken, // Send token in body as well temporarily during migration
       });
     }
 

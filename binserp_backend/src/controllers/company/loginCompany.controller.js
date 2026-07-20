@@ -4,13 +4,7 @@ import crypto from "crypto";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
-
-// Generate JWT token
-const generateToken = (companyId) => {
-  return jwt.sign({ id: companyId }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
-};
+import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
 // ✅ Register Company
 
@@ -43,7 +37,14 @@ export const loginCompany = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const token = generateToken(company._id);
+    const { accessToken, refreshToken } = generateTokens(company._id, "company");
+
+    // Save refresh token
+    company.refreshToken = refreshToken;
+    await company.save({ validateBeforeSave: false });
+
+    // SET HTTP ONLY COOKIE
+    setTokenCookies(res, accessToken, refreshToken);
 
     res.status(200).json({
       message: "Login successful",
@@ -54,7 +55,7 @@ export const loginCompany = async (req, res) => {
         logo: (await signPhotos([company.logo]))[0],
         isVerified: company.isVerified,
       },
-      token,
+      token: accessToken,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

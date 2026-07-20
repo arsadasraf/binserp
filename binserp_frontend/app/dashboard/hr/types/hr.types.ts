@@ -77,7 +77,19 @@ export interface Employee {
         netSalary: number;
         deductions?: number;
         incentives?: number;
+        perDayCalculationBasis?: string;
+        otRate?: number;
     };
+    leaves?: {
+        casualLeave: number;
+        sickLeave: number;
+    };
+    leaveHistory?: {
+        date: string;
+        type: string;
+        month: string;
+        year: number;
+    }[];
     skills: {
         name: string;
         level: number;
