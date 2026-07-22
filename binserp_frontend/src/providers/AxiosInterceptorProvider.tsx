@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import axios from "axios";
 import Swal from "sweetalert2";
+import { API_BASE_URL } from "@/src/utils/config";
 
 let isRefreshing = false;
 let failedQueue: any[] = [];
@@ -49,9 +50,7 @@ export default function AxiosInterceptorProvider({ children }: { children: React
             isRefreshing = true;
 
             try {
-              // Note: We assume API_BASE_URL is handled appropriately by axios if it's relative
-              // If not, we might need the full URL, but typically axios instances handle this or base tag handles it.
-              const refreshUrl = originalRequest.baseURL ? `${originalRequest.baseURL}/api/auth/refresh` : '/api/auth/refresh';
+              const refreshUrl = `${API_BASE_URL}/api/auth/refresh`;
               
               await axios.post(refreshUrl, {}, { withCredentials: true });
               

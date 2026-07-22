@@ -54,25 +54,22 @@ export const refreshTokens = async (req, res, next) => {
 
     // Verify the token matches the one in DB
     if (userInstance.refreshToken !== refreshToken) {
-      // Possible token reuse / compromised token. Revoke all.
-      userInstance.refreshToken = null;
-      await userInstance.save({ validateBeforeSave: false });
-      throw new ApiError(401, "Refresh token mismatch. Session revoked.");
+      // Possible token reuse or revoked session.
+      throw new ApiError(401, "Refresh token mismatch or session revoked.");
     }
 
-    // Generate new tokens (Rotation)
+    // Generate new access token
     const newTokens = generateTokens(id, type, companyId);
 
-    // Save new refresh token
-    userInstance.refreshToken = newTokens.refreshToken;
-    await userInstance.save({ validateBeforeSave: false });
+    // Keep the existing refresh token to avoid race conditions with multiple tabs/requests
+    const newAccessToken = newTokens.accessToken;
 
-    // Set new cookies
-    setTokenCookies(res, newTokens.accessToken, newTokens.refreshToken);
+    // Set new cookies (this also renews the refresh token cookie expiration)
+    setTokenCookies(res, newAccessToken, refreshToken);
 
     return res.status(200).json({
       message: "Tokens refreshed successfully",
-      token: newTokens.accessToken // Sent for backward compatibility if needed
+      token: newAccessToken // Sent for backward compatibility if needed
     });
   } catch (error) {
     next(error);
