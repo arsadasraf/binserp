@@ -320,7 +320,8 @@ export default function FaceDataMaster() {
                                 ref={webcamRef}
                                 screenshotFormat="image/jpeg"
                                 className="h-full object-cover w-full"
-                                videoConstraints={{ facingMode: "environment" }}
+                                videoConstraints={{ facingMode: { ideal: "environment" } }}
+                                onUserMediaError={(err) => alert("Could not access camera. Please check permissions.")}
                             />
                         </div>
                         <button

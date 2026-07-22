@@ -221,8 +221,9 @@ export default function AttendanceTab() {
                     ref={webcamRef}
                     screenshotFormat="image/jpeg"
                     screenshotQuality={JPEG_QUALITY}
+                    videoConstraints={{ facingMode: { ideal: facingMode }, width: WEBCAM_WIDTH, height: WEBCAM_HEIGHT }}
+                    onUserMediaError={(err) => alert("Could not access camera. Please check permissions.")}
                     className="h-full object-cover w-full"
-                    videoConstraints={{ facingMode, width: WEBCAM_WIDTH, height: WEBCAM_HEIGHT }}
                 />
 
                 {/* Scanner line */}

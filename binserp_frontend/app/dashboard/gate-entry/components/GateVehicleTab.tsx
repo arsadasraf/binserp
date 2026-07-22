@@ -903,7 +903,8 @@ export default function GateVehicleTab() {
                                 audio={false}
                                 ref={webcamRef}
                                 screenshotFormat="image/jpeg"
-                                videoConstraints={{ facingMode: "environment" }}
+                                videoConstraints={{ facingMode: { ideal: "environment" } }}
+                                onUserMediaError={(err) => alert("Could not access camera. Please check permissions.")}
                                 className="absolute inset-0 w-full h-full object-cover"
                             />
                             {/* Camera Frame Overlay */}

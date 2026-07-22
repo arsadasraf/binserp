@@ -78,6 +78,12 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
         }, api, extraOptions);
 
         if (refreshResult.data) {
+          const newToken = (refreshResult.data as any).token;
+          if (newToken && typeof window !== "undefined") {
+            localStorage.setItem("token", newToken);
+            const isSecure = window.location.protocol === "https:";
+            document.cookie = `accessToken=${encodeURIComponent(newToken)}; max-age=${60 * 60 * 8}; path=/; SameSite=Lax; ${isSecure ? "Secure" : ""}`;
+          }
           // Success! Process queued requests and retry the original one
           isRefreshing = false;
           processQueue(null, "success");

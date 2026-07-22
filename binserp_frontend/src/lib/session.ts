@@ -37,6 +37,7 @@ export const persistSession = ({ token, userType, user }: PersistArgs) => {
   }
 
   setCookie("userType", userType);
+  setCookie("accessToken", token);
 };
 
 export const clearSession = async () => {
