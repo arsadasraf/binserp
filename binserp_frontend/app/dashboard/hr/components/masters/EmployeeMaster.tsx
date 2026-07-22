@@ -26,6 +26,7 @@ export default function EmployeeMaster() {
 
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
+    const [typeFilter, setTypeFilter] = useState("");
     const [showModal, setShowModal] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [currentId, setCurrentId] = useState<string | null>(null);
@@ -425,15 +426,27 @@ export default function EmployeeMaster() {
         <div className="space-y-6">
             {/* Header Actions */}
             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-row gap-3 items-center justify-between md:gap-4 md:p-5 p-4 rounded-2xl shadow-sm">
-                <div className="flex-1 md:flex-none md:w-72 relative">
-                    <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2" size={18} />
-                    <input
-                        type="text"
-                        placeholder="Search..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none pl-10 pr-4 py-2.5 rounded-xl text-sm transition-all w-full"
-                    />
+                <div className="flex flex-1 md:flex-none gap-3 items-center">
+                    <div className="relative w-full md:w-72">
+                        <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2" size={18} />
+                        <input
+                            type="text"
+                            placeholder="Search..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none pl-10 pr-4 py-2.5 rounded-xl text-sm transition-all w-full"
+                        />
+                    </div>
+                    <select
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                        className="bg-gray-50 border border-gray-200 dark:border-slate-700 dark:bg-slate-800/50 focus:border-blue-500 outline-none px-3 py-2.5 rounded-xl text-sm transition-all w-32 md:w-40 dark:text-gray-200"
+                    >
+                        <option value="">All Types</option>
+                        {employeeTypes.map(t => (
+                            <option key={t._id} value={t.name}>{t.name}</option>
+                        ))}
+                    </select>
                 </div>
                 <button
                     onClick={handleOpenAdd}
@@ -453,6 +466,7 @@ export default function EmployeeMaster() {
                             <tr>
                                 <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Employee</th>
                                 <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Role</th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Type</th>
                                 <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Skills</th>
                                 <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Status</th>
                                 <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700 text-right">Actions</th>
@@ -460,11 +474,11 @@ export default function EmployeeMaster() {
                         </thead>
                         <tbody className="divide-gray-100 divide-y">
                             {loading ? (
-                                <tr><td colSpan={5} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">Loading...</td></tr>
-                            ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).length === 0 ? (
-                                <tr><td colSpan={5} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">No employees found.</td></tr>
+                                <tr><td colSpan={6} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">Loading...</td></tr>
+                            ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) && (typeFilter === "" || e.employeeType === typeFilter)).length === 0 ? (
+                                <tr><td colSpan={6} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">No employees found.</td></tr>
                             ) : (
-                                employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).map((emp) => (
+                                employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) && (typeFilter === "" || e.employeeType === typeFilter)).map((emp) => (
                                     <tr key={emp._id} onClick={() => handleOpenEdit(emp)} className="dark:hover:bg-slate-700 group hover:bg-gray-50 transition-colors cursor-pointer">
                                         <td className="px-6 py-4">
                                             <div className="flex gap-4 items-center">
@@ -484,6 +498,11 @@ export default function EmployeeMaster() {
                                         <td className="px-6 py-4">
                                             <div className="dark:text-gray-100 font-medium text-gray-800">{emp.designation}</div>
                                             <div className="dark:text-gray-400 text-gray-500 text-sm">{emp.department}</div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2.5 py-1 rounded-md text-xs font-medium dark:bg-indigo-900/30 dark:text-indigo-400 dark:border-indigo-800/30">
+                                                {emp.employeeType || "Full-Time"}
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-wrap gap-1 max-w-[200px]">
@@ -524,7 +543,7 @@ export default function EmployeeMaster() {
                 <div className="divide-gray-100 divide-y md:hidden">
                     {loading ? (
                         <div className="dark:text-gray-400 p-6 text-center text-gray-500">Loading...</div>
-                    ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase())).map((emp) => (
+                    ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) && (typeFilter === "" || e.employeeType === typeFilter)).map((emp) => (
                         <div key={emp._id} onClick={() => handleOpenEdit(emp)} className="flex flex-col gap-4 p-4 dark:hover:bg-slate-700/50 hover:bg-gray-50 cursor-pointer transition-colors">
                             <div className="flex items-start justify-between">
                                 <div className="flex gap-3 items-center">
@@ -547,11 +566,14 @@ export default function EmployeeMaster() {
                             </div>
 
                             <div className="flex flex-col gap-2">
-                                <div className="flex gap-2">
-                                    <div className="dark:text-gray-300 flex gap-1.5 items-center text-gray-600 text-xs"><Briefcase size={14} className="dark:text-gray-500 text-gray-400" /> {emp.designation}</div>
-                                    <div className="dark:text-gray-300 flex gap-1.5 items-center text-gray-600 text-xs"><User size={14} className="dark:text-gray-500 text-gray-400" /> {emp.department}</div>
+                                <div className="flex gap-2 flex-wrap">
+                                    <div className="dark:text-gray-300 flex gap-1.5 items-center text-gray-600 text-xs bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded"><Briefcase size={14} className="dark:text-gray-500 text-gray-400" /> {emp.designation}</div>
+                                    <div className="dark:text-gray-300 flex gap-1.5 items-center text-gray-600 text-xs bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded"><User size={14} className="dark:text-gray-500 text-gray-400" /> {emp.department}</div>
+                                    <div className="dark:text-indigo-400 text-indigo-700 text-xs font-medium bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded border border-indigo-100 dark:border-indigo-800/30">
+                                        {emp.employeeType || "Full-Time"}
+                                    </div>
                                 </div>
-                                <div className="flex flex-wrap gap-1">
+                                <div className="flex flex-wrap gap-1 mt-1">
                                     {emp.skills && emp.skills.length > 0 && emp.skills.map((skill: any, idx) => (
                                         <span key={idx} className="bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded text-[10px] text-blue-600">{skill.name}</span>
                                     ))}

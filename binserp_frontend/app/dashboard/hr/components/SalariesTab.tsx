@@ -56,7 +56,7 @@ export default function SalariesTab() {
     const [companyName, setCompanyName] = useState('');
     const [companyLogo, setCompanyLogo] = useState('');
     const [companyAddress, setCompanyAddress] = useState('');
-    const [currency, setCurrency] = useState('Rs');
+    const [currency, setCurrency] = useState('₹');
 
     // Fetch Employees and Company Branding on Mount
     useEffect(() => {
@@ -80,6 +80,7 @@ export default function SalariesTab() {
                 if (prefixRes?.data?.settings?.companyLogo) setCompanyLogo(prefixRes.data.settings.companyLogo);
                 if (prefixRes?.data?.settings?.companyAddress) setCompanyAddress(prefixRes.data.settings.companyAddress);
                 if (prefixRes?.data?.settings?.currency) setCurrency(prefixRes.data.settings.currency);
+                else setCurrency('₹');
             } catch (err) {
                 console.error("Error loading initial data", err);
             }
@@ -396,7 +397,8 @@ export default function SalariesTab() {
         doc.setFillColor(241, 245, 249);
         doc.rect(0, 32, pageW, 16, 'F');
 
-        const cur = currency || 'Rs';
+        // jsPDF standard fonts do not support the ₹ symbol. Fallback to Rs. for PDF rendering.
+        const cur = (currency === '₹' || !currency) ? 'Rs.' : currency;
         const summaryItems = [
             { label: 'Present Days', value: String(totals.presentDays) },
             { label: 'Duty Hours',   value: String(totals.totalDutyHours) },
@@ -501,7 +503,7 @@ export default function SalariesTab() {
 
     const generateExcel = () => {
         const emp = employees.find(e => e._id === selectedEmployeeId);
-        const cur = currency || 'Rs';
+        const cur = currency || '₹';
 
         // Build a single sheet using an Array of Arrays
         const aoa: any[][] = [];
