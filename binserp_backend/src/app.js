@@ -13,11 +13,31 @@ const app = express();
 
 app.set('trust proxy', true); // Trust proxy for correct IP resolution
 
-const origin = process.env.FRONTEND_URL || "http://localhost:3000";
-// ✅ Fixed CORS configuration for credentials support
+const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+// ✅ Fixed CORS configuration for credentials support & local network access
 app.use(
     cors({
-        origin: origin,
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+            
+            // Allow configured frontend URL, any binserp.com subdomain, or any local network IP for development
+            if (origin === frontendUrl || 
+                (origin && origin.includes('binserp.com')) ||
+                origin.startsWith("http://localhost:") || 
+                origin.startsWith("http://127.0.0.1:") || 
+                origin.startsWith("http://192.168.") || 
+                origin.startsWith("http://10.") ||
+                origin.startsWith("https://localhost:") ||
+                origin.startsWith("https://127.0.0.1:") ||
+                origin.startsWith("https://192.168.") ||
+                origin.startsWith("https://10.")) {
+                return callback(null, true);
+            }
+            
+            // If none of the above, deny CORS
+            callback(new Error('Not allowed by CORS'));
+        },
         credentials: true,
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization"],
@@ -99,7 +119,7 @@ app.use("/api/hr-prefix", hrPrefixRoutes);
 app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/crm", crmRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/purchase", purchaseRoutes);

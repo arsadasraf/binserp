@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, ChevronLeft, ChevronRight, X, Truck, User, Car, Activity, Save, Building, MapPin, ArrowDown, ArrowUp, FileText, History, Download } from 'lucide-react';
+import Webcam from 'react-webcam';
 import { API_BASE_URL } from '@/src/utils/config';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
@@ -902,7 +903,7 @@ export default function GateVehicleTab() {
                                 audio={false}
                                 ref={webcamRef}
                                 screenshotFormat="image/jpeg"
-                                videoConstraints={{ facingMode: "user" }}
+                                videoConstraints={{ facingMode: "environment" }}
                                 className="absolute inset-0 w-full h-full object-cover"
                             />
                             {/* Camera Frame Overlay */}

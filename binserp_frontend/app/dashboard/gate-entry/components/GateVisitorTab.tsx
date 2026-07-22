@@ -660,7 +660,7 @@ export default function GateVisitorTab() {
                                 audio={false}
                                 ref={webcamRef}
                                 screenshotFormat="image/jpeg"
-                                videoConstraints={{ facingMode: "user" }}
+                                videoConstraints={{ facingMode: "environment" }}
                                 className="absolute inset-0 w-full h-full object-cover"
                             />
                             {/* Camera Frame Overlay */}

@@ -320,7 +320,7 @@ export default function FaceDataMaster() {
                                 ref={webcamRef}
                                 screenshotFormat="image/jpeg"
                                 className="h-full object-cover w-full"
-                                videoConstraints={{ facingMode: "user" }}
+                                videoConstraints={{ facingMode: "environment" }}
                             />
                         </div>
                         <button

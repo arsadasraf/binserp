@@ -284,7 +284,7 @@ export default function EmployeeMaster() {
 
     const startCamera = async () => {
         try {
-            const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             setStream(mediaStream);
             setIsCameraActive(true);
             setTimeout(() => {
