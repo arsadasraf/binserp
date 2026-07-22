@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { LogOut, Truck, User, Search, Car, Calendar, History, Activity, Save, Building, X, MapPin, ArrowDown, ArrowUp } from 'lucide-react';
-import Webcam from 'react-webcam';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, ChevronLeft, ChevronRight, X, Truck, User, Car, Activity, Save, Building, MapPin, ArrowDown, ArrowUp, FileText, History, Download } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
+import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { useHeader } from '@/src/context/HeaderContext';
 
@@ -14,6 +14,14 @@ export default function GateVehicleTab() {
     const [loading, setLoading] = useState(false);
     const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [filters, setFilters] = useState<Record<string, string[]>>({});
+
+    const handleFilterChange = (column: string, values: string[]) => {
+        setFilters(prev => ({
+            ...prev,
+            [column]: values
+        }));
+    };
 
     // View Mode: 'active' | 'history'
     const [viewMode, setViewMode] = useState<'active' | 'history'>('active');
@@ -46,6 +54,8 @@ export default function GateVehicleTab() {
     const [phone, setPhone] = useState('');
     const [vehicleNumber, setVehicleNumber] = useState('');
     const [remarks, setRemarks] = useState(''); // Mapping to 'purpose'
+    const [documentType, setDocumentType] = useState<'dc' | 'invoice' | ''>('');
+    const [documentNumber, setDocumentNumber] = useState('');
     const [documentPhotos, setDocumentPhotos] = useState<string[]>([]);
     const [vehiclePhotos, setVehiclePhotos] = useState<string[]>([]);
 
@@ -75,6 +85,8 @@ export default function GateVehicleTab() {
         if (direction === 'Inward') {
             if (!companyName) missingFields.push("Origin Company");
             if (!goodsType) missingFields.push("Goods Type");
+            if (!documentType) missingFields.push("Document Type");
+            if (!documentNumber) missingFields.push("Document Number");
         }
 
         if (missingFields.length > 0) {
@@ -93,6 +105,8 @@ export default function GateVehicleTab() {
                 address,
                 vehicleNumber,
                 direction,
+                documentType,
+                documentNumber,
                 purpose: remarks || 'Logistics', // Default purpose if empty
                 documentPhotos, 
                 vehiclePhotos
@@ -110,6 +124,8 @@ export default function GateVehicleTab() {
             setAddress('');
             setVehicleNumber('');
             setRemarks('');
+            setDocumentType('');
+            setDocumentNumber('');
             setDocumentPhotos([]);
             setVehiclePhotos([]);
             setIsEntryModalOpen(false);
@@ -184,6 +200,8 @@ export default function GateVehicleTab() {
             setGoodsType('');
             setAddress('');
             setRemarks('');
+            setDocumentType('');
+            setDocumentNumber('');
             setDocumentPhotos([]);
             setVehiclePhotos([]);
             setIsCheckoutModalOpen(true);
@@ -223,6 +241,8 @@ export default function GateVehicleTab() {
         const missingFields = [];
         if (!companyName) missingFields.push("Destination Company");
         if (!goodsType) missingFields.push("Goods Type");
+        if (!documentType) missingFields.push("Document Type");
+        if (!documentNumber) missingFields.push("Document Number");
         if (documentPhotos.length === 0) missingFields.push("Document Photo");
 
         if (missingFields.length > 0) {
@@ -234,18 +254,43 @@ export default function GateVehicleTab() {
             companyName,
             goodsType,
             address,
+            documentType,
+            documentNumber,
             purpose: remarks || 'Logistics',
             documentPhotos,
             vehiclePhotos
         });
     };
 
-    const filteredVehicles = visitors.filter(v =>
-        (v.direction === directionTab || (!v.direction && directionTab === 'Inward')) && 
-        (v.vehicleNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (v.companyName && v.companyName.toLowerCase().includes(searchTerm.toLowerCase())))
-    );
+    const filteredVehicles = visitors.filter(item => {
+        const matchDir = (item.direction === directionTab || (!item.direction && directionTab === 'Inward'));
+        
+        const matchSearch = (item.vehicleNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (item.companyName && item.companyName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (item.documentNumber && item.documentNumber.toLowerCase().includes(searchTerm.toLowerCase())));
+        
+        if (!matchDir || !matchSearch) return false;
+
+        return Object.entries(filters).every(([key, selectedValues]) => {
+            if (selectedValues.length === 0) return true;
+            
+            let itemValue = '';
+            if (key === 'company') {
+                itemValue = item.companyName || '-';
+            } else if (key === 'driverName') {
+                itemValue = item.name || '-';
+            } else if (key === 'docType') {
+                itemValue = item.documentType || '-';
+            } else if (key === 'docNo') {
+                itemValue = item.documentNumber || '-';
+            } else {
+                itemValue = String(item[key] || '-');
+            }
+            
+            return selectedValues.includes(itemValue);
+        });
+    });
 
     // Carousel state for selected vehicle
     const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -257,6 +302,49 @@ export default function GateVehicleTab() {
 
     const prevPhoto = () => {
         setCurrentPhotoIndex((prev) => (prev - 1 + allPhotos.length) % allPhotos.length);
+    };
+
+    const downloadCurrentPhoto = () => {
+        if (!allPhotos || allPhotos.length === 0) return;
+        const currentSrc = allPhotos[currentPhotoIndex];
+        const a = document.createElement('a');
+        a.href = currentSrc;
+        a.download = `vehicle_${selectedVehicle?.vehicleNumber}_photo_${currentPhotoIndex + 1}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    };
+
+    const downloadPDF = (vehicle: any) => {
+        import('jspdf').then(({ jsPDF }) => {
+            const doc = new jsPDF();
+            doc.setFontSize(20);
+            doc.text(`Vehicle Entry Details: ${vehicle.vehicleNumber}`, 14, 22);
+
+            doc.setFontSize(12);
+            doc.text(`Status: ${vehicle.status}`, 14, 32);
+            doc.text(`Direction: ${(vehicle.direction || 'Inward') === 'Inward' ? 'For Unloading' : 'For Loading'}`, 14, 40);
+
+            import('jspdf-autotable').then(({ default: autoTable }) => {
+                autoTable(doc, {
+                    startY: 50,
+                    head: [['Field', 'Value']],
+                    body: [
+                        ['Driver Name', vehicle.name || 'N/A'],
+                        ['Phone', vehicle.phone || 'N/A'],
+                        ['Company', vehicle.companyName || 'N/A'],
+                        ['Goods Type', vehicle.goodsType || 'N/A'],
+                        ['Document Type', vehicle.documentType || 'N/A'],
+                        ['Document Number', vehicle.documentNumber || 'N/A'],
+                        ['Purpose / Remarks', vehicle.purpose || 'N/A'],
+                        ['Address', vehicle.address || 'N/A'],
+                        ['Check-In Time', new Date(vehicle.checkInTime).toLocaleString()],
+                        ['Check-Out Time', vehicle.checkOutTime ? new Date(vehicle.checkOutTime).toLocaleString() : 'N/A']
+                    ],
+                });
+                doc.save(`${vehicle.vehicleNumber}-details.pdf`);
+            });
+        });
     };
 
     return (
@@ -368,9 +456,10 @@ export default function GateVehicleTab() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in">
-                {loading ? <div className="col-span-4 text-center py-12"><LoadingSpinner /></div> : filteredVehicles.length === 0 ? (
-                    <div className="col-span-4 text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 /50 rounded-xl border border-dashed">
+            {/* Mobile View: Cards */}
+            <div className="grid grid-cols-1 gap-4 animate-in fade-in md:hidden">
+                {loading ? <div className="text-center py-12"><LoadingSpinner /></div> : filteredVehicles.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-dashed">
                         {searchTerm ? 'No vehicles found matching search.' : (viewMode === 'active' ? 'No active vehicles found inside.' : 'No vehicle history for this date.')}
                     </div>
                 ) : (
@@ -397,6 +486,9 @@ export default function GateVehicleTab() {
                             <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400 ">
                                 <div className="flex items-center gap-2 text-xs"><User size={12} className="text-gray-400" /> Driver: <span className="font-medium text-gray-900 dark:text-white ">{v.name}</span></div>
                                 <div className="flex items-center gap-2 text-xs"><Activity size={12} className="text-gray-400" /> Type: <span className="font-medium text-gray-900 dark:text-white ">{v.goodsType || 'Logistics'}</span></div>
+                                {v.documentType && v.documentNumber && (
+                                    <div className="flex items-center gap-2 text-xs"><FileText size={12} className="text-gray-400" /> Doc: <span className="font-medium text-gray-900 dark:text-white uppercase">{v.documentType} - {v.documentNumber}</span></div>
+                                )}
                                 <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50 dark:border-slate-700">
                                     <div className="flex items-center gap-1.5">
                                         <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -411,6 +503,134 @@ export default function GateVehicleTab() {
                         </div>
                     ))
                 )}
+            </div>
+
+            {/* Desktop View: Table */}
+            <div className="hidden md:block bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden animate-in fade-in">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-gray-600 dark:text-gray-400">
+                        <thead className="bg-gray-50 dark:bg-slate-900/50 text-xs uppercase text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-slate-700">
+                            <tr>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="vehicleNumber"
+                                        title="Vehicle No."
+                                        data={visitors}
+                                        currentFilters={filters['vehicleNumber'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('vehicleNumber', vals)}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="driverName"
+                                        title="Driver Name"
+                                        data={visitors}
+                                        currentFilters={filters['driverName'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('driverName', vals)}
+                                        getValue={(item) => item.name || '-'}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="company"
+                                        title="Company"
+                                        data={visitors}
+                                        currentFilters={filters['company'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('company', vals)}
+                                        getValue={(item) => item.companyName || '-'}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="goodsType"
+                                        title="Goods Type"
+                                        data={visitors}
+                                        currentFilters={filters['goodsType'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('goodsType', vals)}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="docType"
+                                        title="Doc Type"
+                                        data={visitors}
+                                        currentFilters={filters['docType'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('docType', vals)}
+                                        getValue={(item) => item.documentType || '-'}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="docNo"
+                                        title="Doc No"
+                                        data={visitors}
+                                        currentFilters={filters['docNo'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('docNo', vals)}
+                                        getValue={(item) => item.documentNumber || '-'}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <div className="font-bold mb-2">Check-In</div>
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <div className="font-bold mb-2">Check-Out</div>
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="status"
+                                        title="Status"
+                                        data={visitors}
+                                        currentFilters={filters['status'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('status', vals)}
+                                    />
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan={8} className="text-center py-12"><LoadingSpinner /></td>
+                                </tr>
+                            ) : filteredVehicles.length === 0 ? (
+                                <tr>
+                                    <td colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 border-dashed">
+                                        {searchTerm ? 'No vehicles found matching search.' : (viewMode === 'active' ? 'No active vehicles found inside.' : 'No vehicle history for this date.')}
+                                    </td>
+                                </tr>
+                            ) : (
+                                filteredVehicles.map((v) => (
+                                    <tr 
+                                        key={v._id} 
+                                        onClick={() => { setSelectedVehicle(v); setCurrentPhotoIndex(0); }}
+                                        className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${v.status === 'Left' ? 'opacity-80' : ''}`}
+                                    >
+                                        <td className="px-4 py-3 font-bold font-mono text-gray-900 dark:text-white whitespace-nowrap">{v.vehicleNumber}</td>
+                                        <td className="px-4 py-3">{v.name}</td>
+                                        <td className="px-4 py-3">{v.companyName || '-'}</td>
+                                        <td className="px-4 py-3">{v.goodsType || '-'}</td>
+                                        <td className="px-4 py-3">
+                                            {v.documentType ? (
+                                                <span className="uppercase text-xs font-semibold">{v.documentType}</span>
+                                            ) : '-'}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            {v.documentNumber ? (
+                                                <span className="uppercase text-xs font-semibold">{v.documentNumber}</span>
+                                            ) : '-'}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">{v.checkOutTime ? new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
+                                                {v.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* New Vehicle Entry Modal */}
@@ -455,10 +675,24 @@ export default function GateVehicleTab() {
                                             </div>
                                         </div>
                                         {direction === 'Inward' && (
+                                            <>
                                             <div className="md:col-span-1 lg:col-span-1">
                                                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Goods Type <span className="text-red-500">*</span></label>
                                                 <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Raw Material, FG, Machinery" />
                                             </div>
+                                            <div className="md:col-span-1 lg:col-span-1">
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Type <span className="text-red-500">*</span></label>
+                                                <select required value={documentType} onChange={e => setDocumentType(e.target.value as any)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800">
+                                                    <option value="">Select...</option>
+                                                    <option value="dc">Delivery Challan (DC)</option>
+                                                    <option value="invoice">Invoice</option>
+                                                </select>
+                                            </div>
+                                            <div className="md:col-span-1 lg:col-span-1">
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Number <span className="text-red-500">*</span></label>
+                                                <input required type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Doc #..." />
+                                            </div>
+                                            </>
                                         )}
                                     </div>
                                 </div>
@@ -591,6 +825,18 @@ export default function GateVehicleTab() {
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Goods Type <span className="text-red-500">*</span></label>
                                             <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Finished Goods, Machinery" />
                                         </div>
+                                        <div className="md:col-span-1 lg:col-span-1">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Type <span className="text-red-500">*</span></label>
+                                            <select required value={documentType} onChange={e => setDocumentType(e.target.value as any)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800">
+                                                <option value="">Select...</option>
+                                                <option value="dc">Delivery Challan (DC)</option>
+                                                <option value="invoice">Invoice</option>
+                                            </select>
+                                        </div>
+                                        <div className="md:col-span-1 lg:col-span-1">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Number <span className="text-red-500">*</span></label>
+                                            <input required type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Doc #..." />
+                                        </div>
                                         <div className="md:col-span-3 lg:col-span-4">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Destination Address</label>
                                             <input type="text" value={address} onChange={e => setAddress(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Where is it going?" />
@@ -709,6 +955,12 @@ export default function GateVehicleTab() {
                             <button onClick={() => setSelectedVehicle(null)} className="absolute top-4 right-4 bg-black/30 hover:bg-black/50 text-white p-2 rounded-full backdrop-blur-sm transition-all focus:outline-none z-20">
                                 <X size={20} />
                             </button>
+                            
+                            {allPhotos.length > 0 && (
+                                <button onClick={downloadCurrentPhoto} className="absolute top-4 left-4 bg-black/50 hover:bg-black/80 text-white px-3 py-1.5 rounded-lg backdrop-blur-sm transition-all flex items-center gap-2 text-xs font-bold z-20">
+                                    <Download size={14} /> Download Photo
+                                </button>
+                            )}
 
                             <div className="absolute bottom-0 left-0 right-0 p-6 text-white text-left z-20 pointer-events-none">
                                 <h2 className="text-2xl font-bold font-mono uppercase tracking-tight">{selectedVehicle.vehicleNumber}</h2>
@@ -745,6 +997,14 @@ export default function GateVehicleTab() {
                                     <p className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold text-gray-400 mb-0.5">Goods Type</p>
                                     <p className="font-semibold text-gray-900 dark:text-white ">{selectedVehicle.goodsType || 'N/A'}</p>
                                 </div>
+                                <div className="text-left">
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold text-gray-400 mb-0.5">Document Type</p>
+                                    <p className="font-semibold text-gray-900 dark:text-white uppercase">{selectedVehicle.documentType || 'N/A'}</p>
+                                </div>
+                                <div className="text-left">
+                                    <p className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold text-gray-400 mb-0.5">Document No.</p>
+                                    <p className="font-semibold text-gray-900 dark:text-white uppercase">{selectedVehicle.documentNumber || 'N/A'}</p>
+                                </div>
                                 <div className="col-span-2 text-left">
                                     <p className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold text-gray-400 mb-0.5">Remarks / Purpose</p>
                                     <p className="font-semibold text-gray-900 dark:text-white ">{selectedVehicle.purpose}</p>
@@ -758,24 +1018,32 @@ export default function GateVehicleTab() {
                             {/* Removed static Additional Photos Gallery in favor of the new Photo Carousel Slider */}
 
                             {/* Actions */}
-                            {selectedVehicle.status === 'Inside' ? (
+                            <div className="flex gap-3 mt-2">
                                 <button
-                                    onClick={() => {
-                                        handleCheckOut(selectedVehicle);
-                                        setSelectedVehicle(null);
-                                    }}
-                                    disabled={!!checkoutLoading}
-                                    className="w-full py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                    onClick={() => downloadPDF(selectedVehicle)}
+                                    className="flex-1 py-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-all flex items-center justify-center gap-2"
                                 >
-                                    {checkoutLoading === selectedVehicle._id ? <LoadingSpinner /> : <LogOut size={20} />} Check Out Vehicle
+                                    <FileText size={18} /> Download PDF
                                 </button>
-                            ) : (
-                                selectedVehicle.checkOutTime && (
-                                    <div className="text-center py-2 bg-gray-100 dark:bg-slate-700 rounded-lg text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 ">
-                                        Checked Out: {new Date(selectedVehicle.checkOutTime).toLocaleString()}
-                                    </div>
-                                )
-                            )}
+                                {selectedVehicle.status === 'Inside' ? (
+                                    <button
+                                        onClick={() => {
+                                            handleCheckOut(selectedVehicle);
+                                            setSelectedVehicle(null);
+                                        }}
+                                        disabled={!!checkoutLoading}
+                                        className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {checkoutLoading === selectedVehicle._id ? <LoadingSpinner /> : <LogOut size={18} />} Check Out
+                                    </button>
+                                ) : (
+                                    selectedVehicle.checkOutTime && (
+                                        <div className="flex-1 text-center py-3 bg-gray-100 dark:bg-slate-700 rounded-xl text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 flex items-center justify-center">
+                                            Checked Out: {new Date(selectedVehicle.checkOutTime).toLocaleString()}
+                                        </div>
+                                    )
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

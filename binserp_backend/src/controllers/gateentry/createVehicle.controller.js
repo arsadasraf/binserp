@@ -8,7 +8,7 @@ const getCompanyId = (req) => {
 
 export const createVehicle = async (req, res) => {
     try {
-        const { driverName, phone, vehicleNumber, goodsType, purpose, documentPhotos, vehiclePhotos, companyName, address, direction } = req.body;
+        const { driverName, phone, vehicleNumber, goodsType, purpose, documentPhotos, vehiclePhotos, companyName, address, direction, documentType, documentNumber } = req.body;
         const companyId = getCompanyId(req);
         const Vehicle = req.getModel('Vehicle', vehicleSchema);
 
@@ -27,6 +27,8 @@ export const createVehicle = async (req, res) => {
             vehiclePhotos,
             companyName,
             address,
+            documentType,
+            documentNumber,
             direction: direction || "Inward",
             createdBy: req.user._id,
             status: "Inside"

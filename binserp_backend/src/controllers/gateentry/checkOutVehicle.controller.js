@@ -20,7 +20,7 @@ export const checkOutVehicle = async (req, res) => {
             return res.status(400).json({ message: "Vehicle already checked out" });
         }
 
-        const { companyName, goodsType, address, purpose, documentPhotos, vehiclePhotos } = req.body || {};
+        const { companyName, goodsType, address, purpose, documentPhotos, vehiclePhotos, documentType, documentNumber } = req.body || {};
 
         if (vehicle.direction === 'Outward') {
             if (companyName) vehicle.companyName = companyName;
@@ -29,6 +29,8 @@ export const checkOutVehicle = async (req, res) => {
             if (purpose) vehicle.purpose = purpose;
             if (documentPhotos) vehicle.documentPhotos = documentPhotos;
             if (vehiclePhotos) vehicle.vehiclePhotos = vehiclePhotos;
+            if (documentType) vehicle.documentType = documentType;
+            if (documentNumber) vehicle.documentNumber = documentNumber;
         }
 
         vehicle.status = "Left";

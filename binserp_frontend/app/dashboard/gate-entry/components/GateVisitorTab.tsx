@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import Webcam from 'react-webcam';
-import { LogOut, Truck, User, Search, Plus, Save, Camera, X, Building, MapPin, Users, Calendar, History, Activity } from 'lucide-react';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
+import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { useHeader } from '@/src/context/HeaderContext';
 
@@ -14,6 +15,14 @@ export default function GateVisitorTab() {
     const [loading, setLoading] = useState(false);
     const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [filters, setFilters] = useState<Record<string, string[]>>({});
+
+    const handleFilterChange = (column: string, values: string[]) => {
+        setFilters(prev => ({
+            ...prev,
+            [column]: values
+        }));
+    };
 
     // View Mode: 'active' | 'history'
     const [viewMode, setViewMode] = useState<'active' | 'history'>('active');
@@ -175,11 +184,121 @@ export default function GateVisitorTab() {
         }
     };
 
-    const filteredVisitors = visitors.filter(v =>
-        v.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        v.phone.includes(searchTerm) ||
-        (v.whomToMeet && v.whomToMeet.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const filteredVisitors = visitors.filter(item => {
+        const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.phone.includes(searchTerm) ||
+            (item.whomToMeet && item.whomToMeet.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        if (!matchesSearch) return false;
+
+        return Object.entries(filters).every(([key, selectedValues]) => {
+            if (selectedValues.length === 0) return true;
+            
+            let itemValue = '';
+            if (key === 'company') {
+                itemValue = item.companyName || '-';
+            } else {
+                itemValue = String(item[key] || '-');
+            }
+            
+            return selectedValues.includes(itemValue);
+        });
+    });
+
+    const downloadIDCard = (visitor: any) => {
+        import('jspdf').then(({ jsPDF }) => {
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [54, 86]
+            });
+
+            // Background
+            doc.setFillColor(240, 248, 255); // Alice blue
+            doc.rect(0, 0, 54, 86, 'F');
+
+            // Header banner
+            doc.setFillColor(79, 70, 229); // Indigo 600
+            doc.rect(0, 0, 54, 12, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.text("VISITOR PASS", 27, 8, { align: 'center' });
+
+            // Photo
+            if (visitor.visitorPhoto && visitor.visitorPhoto.startsWith('data:image')) {
+                try {
+                    doc.addImage(visitor.visitorPhoto, 'JPEG', 15, 15, 24, 24);
+                    doc.setDrawColor(79, 70, 229);
+                    doc.setLineWidth(0.5);
+                    doc.rect(15, 15, 24, 24, 'S');
+                } catch (e) {
+                    console.error("Failed to add image to PDF", e);
+                }
+            } else {
+                // Placeholder
+                doc.setDrawColor(200, 200, 200);
+                doc.setFillColor(220, 220, 220);
+                doc.rect(15, 15, 24, 24, 'FD');
+                doc.setTextColor(150, 150, 150);
+                doc.setFontSize(8);
+                doc.text("No Photo", 27, 27, { align: 'center' });
+            }
+
+            // Visitor Info
+            doc.setTextColor(0, 0, 0);
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "bold");
+            doc.text(visitor.name || "Unknown", 27, 44, { align: 'center' });
+
+            if (visitor.companyName) {
+                doc.setFontSize(7);
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(100, 100, 100);
+                doc.text(visitor.companyName, 27, 48, { align: 'center' });
+            }
+
+            // Details
+            doc.setFontSize(7);
+            doc.setTextColor(0, 0, 0);
+            doc.setFont("helvetica", "bold");
+            
+            let y = 56;
+            
+            doc.text("Phone:", 5, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(visitor.phone || "N/A", 20, y);
+            
+            y += 5;
+            doc.setFont("helvetica", "bold");
+            doc.text("To Meet:", 5, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(visitor.whomToMeet || "N/A", 20, y);
+            
+            y += 5;
+            doc.setFont("helvetica", "bold");
+            doc.text("Purpose:", 5, y);
+            doc.setFont("helvetica", "normal");
+            doc.text(visitor.purpose || "N/A", 20, y);
+
+            y += 5;
+            doc.setFont("helvetica", "bold");
+            doc.text("Check-In:", 5, y);
+            doc.setFont("helvetica", "normal");
+            const checkInStr = new Date(visitor.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+            doc.text(checkInStr, 20, y);
+
+            // Footer
+            doc.setDrawColor(200, 200, 200);
+            doc.line(0, 77, 54, 77);
+            
+            doc.setFontSize(5);
+            doc.setTextColor(150, 150, 150);
+            doc.text("Please return this pass at the gate before leaving.", 27, 81, { align: 'center' });
+
+            doc.save(`Visitor-Pass-${(visitor.name || 'Unknown').replace(/\s+/g, '-')}.pdf`);
+        });
+    };
 
     return (
         <div className="space-y-4 md:space-y-6 -mt-2 md:mt-0">
@@ -271,9 +390,10 @@ export default function GateVisitorTab() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-in fade-in">
-                {loading ? <div className="col-span-3 text-center py-12"><LoadingSpinner /></div> : filteredVisitors.length === 0 ? (
-                    <div className="col-span-3 text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800 /50 rounded-xl border border-dashed">
+            {/* Mobile View: Cards */}
+            <div className="grid grid-cols-1 gap-4 animate-in fade-in md:hidden">
+                {loading ? <div className="text-center py-12"><LoadingSpinner /></div> : filteredVisitors.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-dashed">
                         {searchTerm ? 'No visitors found matching search.' : (viewMode === 'active' ? 'No active visitors currently inside.' : 'No visitor history for this date.')}
                     </div>
                 ) : (
@@ -310,6 +430,113 @@ export default function GateVisitorTab() {
                         </div>
                     ))
                 )}
+            </div>
+
+            {/* Desktop View: Table */}
+            <div className="hidden md:block bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden animate-in fade-in">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm text-gray-600 dark:text-gray-400">
+                        <thead className="bg-gray-50 dark:bg-slate-900/50 text-xs uppercase text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-slate-700">
+                            <tr>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="name"
+                                        title="Visitor Name"
+                                        data={visitors}
+                                        currentFilters={filters['name'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('name', vals)}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="company"
+                                        title="Company"
+                                        data={visitors}
+                                        currentFilters={filters['company'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('company', vals)}
+                                        getValue={(item) => item.companyName || '-'}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="phone"
+                                        title="Phone"
+                                        data={visitors}
+                                        currentFilters={filters['phone'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('phone', vals)}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="whomToMeet"
+                                        title="To Meet"
+                                        data={visitors}
+                                        currentFilters={filters['whomToMeet'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('whomToMeet', vals)}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="purpose"
+                                        title="Purpose"
+                                        data={visitors}
+                                        currentFilters={filters['purpose'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('purpose', vals)}
+                                    />
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <div className="font-bold mb-2">Check-In</div>
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <div className="font-bold mb-2">Check-Out</div>
+                                </th>
+                                <th className="px-4 py-3 align-top">
+                                    <ColumnFilter
+                                        column="status"
+                                        title="Status"
+                                        data={visitors}
+                                        currentFilters={filters['status'] || []}
+                                        onFilterChange={(vals) => handleFilterChange('status', vals)}
+                                    />
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan={8} className="text-center py-12"><LoadingSpinner /></td>
+                                </tr>
+                            ) : filteredVisitors.length === 0 ? (
+                                <tr>
+                                    <td colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 border-dashed">
+                                        {searchTerm ? 'No visitors found matching search.' : (viewMode === 'active' ? 'No active visitors currently inside.' : 'No visitor history for this date.')}
+                                    </td>
+                                </tr>
+                            ) : (
+                                filteredVisitors.map((v) => (
+                                    <tr 
+                                        key={v._id} 
+                                        onClick={() => setSelectedVisitor(v)}
+                                        className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${v.status === 'Left' ? 'opacity-80' : ''}`}
+                                    >
+                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{v.name}</td>
+                                        <td className="px-4 py-3">{v.companyName || '-'}</td>
+                                        <td className="px-4 py-3">{v.phone}</td>
+                                        <td className="px-4 py-3">{v.whomToMeet}</td>
+                                        <td className="px-4 py-3">{v.purpose}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">{v.checkOutTime ? new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
+                                                {v.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* New Entry Modal */}
@@ -503,24 +730,32 @@ export default function GateVisitorTab() {
                             </div>
 
                             {/* Actions */}
-                            {selectedVisitor.status === 'Inside' ? (
+                            <div className="flex gap-3 mt-2">
                                 <button
-                                    onClick={() => {
-                                        handleCheckOut(selectedVisitor._id);
-                                        setSelectedVisitor(null);
-                                    }}
-                                    disabled={!!checkoutLoading}
-                                    className="w-full py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                    onClick={() => downloadIDCard(selectedVisitor)}
+                                    className="flex-1 py-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-all flex items-center justify-center gap-2"
                                 >
-                                    {checkoutLoading === selectedVisitor._id ? <LoadingSpinner /> : <LogOut size={20} />} Check Out Visitor
+                                    <FileText size={18} /> Print ID Card
                                 </button>
-                            ) : (
-                                selectedVisitor.checkOutTime && (
-                                    <div className="text-center py-2 bg-gray-100 dark:bg-slate-700 rounded-lg text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 ">
-                                        Checked Out: {new Date(selectedVisitor.checkOutTime).toLocaleString()}
-                                    </div>
-                                )
-                            )}
+                                {selectedVisitor.status === 'Inside' ? (
+                                    <button
+                                        onClick={() => {
+                                            handleCheckOut(selectedVisitor._id);
+                                            setSelectedVisitor(null);
+                                        }}
+                                        disabled={!!checkoutLoading}
+                                        className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {checkoutLoading === selectedVisitor._id ? <LoadingSpinner /> : <LogOut size={18} />} Check Out
+                                    </button>
+                                ) : (
+                                    selectedVisitor.checkOutTime && (
+                                        <div className="flex-1 text-center py-3 bg-gray-100 dark:bg-slate-700 rounded-xl text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 flex items-center justify-center">
+                                            Checked Out: {new Date(selectedVisitor.checkOutTime).toLocaleString()}
+                                        </div>
+                                    )
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>

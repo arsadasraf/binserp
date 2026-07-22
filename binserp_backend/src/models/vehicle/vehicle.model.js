@@ -36,6 +36,15 @@ export const vehicleSchema = new mongoose.Schema(
             type: String,
             default: "",
         },
+        documentType: {
+            type: String,
+            enum: ["dc", "invoice", ""],
+            default: "",
+        },
+        documentNumber: {
+            type: String,
+            default: "",
+        },
         documentPhotos: { // Document/ID Photos
             type: [String],
             default: [],
