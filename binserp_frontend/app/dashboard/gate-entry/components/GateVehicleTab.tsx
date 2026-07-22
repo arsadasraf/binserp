@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, ChevronLeft, ChevronRight, X, Truck, User, Car, Activity, Save, Building, MapPin, ArrowDown, ArrowUp, FileText, History, Download } from 'lucide-react';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, ChevronLeft, ChevronRight, X, Truck, User, Car, Activity, Save, Building, MapPin, ArrowDown, ArrowUp, FileText, History, Download, Camera, Upload } from 'lucide-react';
 import Webcam from 'react-webcam';
 import { API_BASE_URL } from '@/src/utils/config';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
@@ -748,9 +748,24 @@ export default function GateVehicleTab() {
                                                     </div>
                                                 ))}
                                                 <button type="button" onClick={() => setCaptureMode('vehicle')} className="w-24 h-24 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group shrink-0">
-                                                    <Truck size={20} className="mb-1" />
-                                                    <span className="text-[10px] font-medium text-center leading-tight">Add<br/>Photo</span>
+                                                    <Camera size={20} className="mb-1" />
+                                                    <span className="text-[10px] font-medium text-center leading-tight">Camera</span>
                                                 </button>
+                                                <label className="w-24 h-24 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-green-500 hover:text-green-500 hover:bg-green-50 transition-all group shrink-0">
+                                                    <Upload size={20} className="mb-1" />
+                                                    <span className="text-[10px] font-medium text-center leading-tight">Upload</span>
+                                                    <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
+                                                        if (e.target.files) {
+                                                            Array.from(e.target.files).forEach(file => {
+                                                                const reader = new FileReader();
+                                                                reader.onloadend = () => {
+                                                                    setVehiclePhotos(prev => [...prev, reader.result as string]);
+                                                                };
+                                                                reader.readAsDataURL(file);
+                                                            });
+                                                        }
+                                                    }} />
+                                                </label>
                                             </div>
                                         </div>
 
@@ -769,9 +784,24 @@ export default function GateVehicleTab() {
                                                         </div>
                                                     ))}
                                                     <button type="button" onClick={() => setCaptureMode('document')} className="w-24 h-24 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group shrink-0">
-                                                        <User size={20} className="mb-1" />
-                                                        <span className="text-[10px] font-medium text-center leading-tight">Add<br/>Photo</span>
+                                                        <Camera size={20} className="mb-1" />
+                                                        <span className="text-[10px] font-medium text-center leading-tight">Camera</span>
                                                     </button>
+                                                    <label className="w-24 h-24 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-green-500 hover:text-green-500 hover:bg-green-50 transition-all group shrink-0">
+                                                        <Upload size={20} className="mb-1" />
+                                                        <span className="text-[10px] font-medium text-center leading-tight">Upload</span>
+                                                        <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
+                                                            if (e.target.files) {
+                                                                Array.from(e.target.files).forEach(file => {
+                                                                    const reader = new FileReader();
+                                                                    reader.onloadend = () => {
+                                                                        setDocumentPhotos(prev => [...prev, reader.result as string]);
+                                                                    };
+                                                                    reader.readAsDataURL(file);
+                                                                });
+                                                            }
+                                                        }} />
+                                                    </label>
                                                 </div>
                                             </div>
                                         )}

@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import Webcam from 'react-webcam';
-import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText } from 'lucide-react';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText, Upload } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
@@ -621,12 +621,30 @@ export default function GateVisitorTab() {
                                                     </div>
                                                 </div>
                                             ) : (
-                                                <button type="button" onClick={() => setCaptureMode('visitor')} className="w-full h-48 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group">
-                                                    <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-full group-hover:bg-white dark:bg-slate-800 mb-2 transition-colors">
-                                                        <Camera size={24} />
-                                                    </div>
-                                                    <span className="text-sm font-medium">Click to Capture Photo</span>
-                                                </button>
+                                                <div className="flex gap-4 w-full">
+                                                    <button type="button" onClick={() => setCaptureMode('visitor')} className="flex-1 h-48 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group">
+                                                        <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-full group-hover:bg-white dark:bg-slate-800 mb-2 transition-colors">
+                                                            <Camera size={24} />
+                                                        </div>
+                                                        <span className="text-sm font-medium text-center">Capture Photo<br/><span className="text-xs opacity-70">(Camera)</span></span>
+                                                    </button>
+                                                    <label className="flex-1 h-48 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-green-500 hover:text-green-500 hover:bg-green-50 transition-all group">
+                                                        <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-full group-hover:bg-white dark:bg-slate-800 mb-2 transition-colors">
+                                                            <Upload size={24} />
+                                                        </div>
+                                                        <span className="text-sm font-medium text-center">Upload Photo<br/><span className="text-xs opacity-70">(Gallery)</span></span>
+                                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) {
+                                                                const reader = new FileReader();
+                                                                reader.onloadend = () => {
+                                                                    setVisitorPhoto(reader.result as string);
+                                                                };
+                                                                reader.readAsDataURL(file);
+                                                            }
+                                                        }} />
+                                                    </label>
+                                                </div>
                                             )}
                                         </div>
                                     </div>
