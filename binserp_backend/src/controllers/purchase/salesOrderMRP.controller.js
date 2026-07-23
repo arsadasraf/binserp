@@ -43,7 +43,7 @@ async function resolveBOM(req, bomArray, multiplierQuantity, materialMap) {
   }
 }
 
-export const generateMRPForSalesOrder = async (req, order) => {
+export const generateMRPForSalesOrder = async (req, order, planDetails) => {
   const SalesOrderMRP = req.getModel('SalesOrderMRP', salesOrderMRPSchema);
   const Inventory = req.getModel('Inventory', inventorySchema);
   const FGItemModel = req.getModel('FGItem', fgItemSchema);
@@ -59,9 +59,19 @@ export const generateMRPForSalesOrder = async (req, order) => {
     for (const item of order.items) {
       if (!item.fgItem) continue;
       
+      let productionQty = item.quantity;
+      if (planDetails && Array.isArray(planDetails)) {
+        const pd = planDetails.find(p => p.fgItem?.toString() === item.fgItem.toString());
+        if (pd && pd.productionQty !== undefined) {
+           productionQty = Number(pd.productionQty);
+        }
+      }
+      
+      if (productionQty <= 0) continue;
+
       const fgItem = await FGItemModel.findById(item.fgItem).lean();
       if (fgItem && fgItem.bom && fgItem.bom.length > 0) {
-        await resolveBOM(req, fgItem.bom, item.quantity, materialMap);
+        await resolveBOM(req, fgItem.bom, productionQty, materialMap);
       }
     }
 
@@ -88,6 +98,7 @@ export const generateMRPForSalesOrder = async (req, order) => {
         company: companyId,
         salesOrder: order._id,
         orderNumber: order.orderNumber,
+        customerPoReference: order.poReference,
         targetDate: order.targetDate,
         items: requirementItems,
         status: 'Open'

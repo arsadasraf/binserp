@@ -39,6 +39,16 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className = "
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
                             onClick={e => e.stopPropagation()}
+                            onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault(); // Prevent form submission
+                                    if (filteredOptions.length > 0) {
+                                        onChange(filteredOptions[0].value);
+                                        setIsOpen(false);
+                                        setSearchTerm("");
+                                    }
+                                }
+                            }}
                             autoFocus
                         />
                     </div>
@@ -46,7 +56,8 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className = "
                         <div
                             key={o.value}
                             className={`px-2 py-1.5 text-xs cursor-pointer hover:bg-indigo-50 truncate ${value === o.value ? 'bg-indigo-100 text-indigo-700' : ''}`}
-                            onClick={() => {
+                            onMouseDown={(e) => {
+                                e.preventDefault(); // Prevent input from losing focus
                                 onChange(o.value);
                                 setIsOpen(false);
                                 setSearchTerm("");

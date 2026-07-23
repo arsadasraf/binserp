@@ -40,6 +40,8 @@ export const incomingPOSchema = new mongoose.Schema(
         taxRate: { type: Number, default: 0 },
         taxAmount: { type: Number, default: 0 },
         expectedDeliveryDate: Date,
+        dispatchedQuantity: { type: Number, default: 0 },
+        billedQuantity: { type: Number, default: 0 },
       },
     ],
     subtotal: { type: Number, required: true },
@@ -67,6 +69,13 @@ export const incomingPOSchema = new mongoose.Schema(
     }],
     remarks: {
       type: String,
+    },
+    transportationMethod: {
+      type: String,
+    },
+    transportationCharges: {
+      type: Number,
+      default: 0,
     },
   },
   { timestamps: true }

@@ -50,6 +50,34 @@ export const createInvoice = async (req, res) => {
     const companyId = getCompanyId(req);
     console.log("Creating Invoice:", req.body.invoiceNumber);
 
+    const { customerPoReference, items } = req.body;
+
+    if (customerPoReference && items) {
+      const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
+      const po = await IncomingPO.findOne({ _id: customerPoReference, company: companyId });
+      
+      if (!po) {
+        return res.status(404).json({ message: "Customer PO not found" });
+      }
+
+      // Validate quantities
+      for (const invoiceItem of items) {
+        // Find matching item in PO
+        const poItem = po.items.find(i => i.productName === invoiceItem.materialName || i.fgItem?.toString() === invoiceItem.material?.toString());
+        if (poItem) {
+          const remainingQty = poItem.quantity - (poItem.billedQuantity || 0);
+          if (invoiceItem.quantity > remainingQty) {
+            return res.status(400).json({ 
+              message: `Cannot bill more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${invoiceItem.quantity}` 
+            });
+          }
+          // Update billed quantity
+          poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity);
+        }
+      }
+      await po.save();
+    }
+
     const invoice = await Invoice.create({
       company: companyId,
       ...req.body,

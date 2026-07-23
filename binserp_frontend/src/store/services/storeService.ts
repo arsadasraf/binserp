@@ -111,12 +111,13 @@ export const storeService = binsApi.injectEndpoints({
       }),
       invalidatesTags: ["StoreOrder" as any],
     }),
-    planSalesOrder: builder.mutation<any, string>({
-      query: (orderId) => ({
-        url: `/api/sales/order/${orderId}/plan`,
+    planSalesOrder: builder.mutation<any, { id: string; planDetails?: any[] }>({
+      query: ({ id, planDetails }) => ({
+        url: `/api/sales/order/${id}/plan`,
         method: "POST",
+        body: { planDetails }
       }),
-      invalidatesTags: ["StoreOrder" as any],
+      invalidatesTags: ["StoreOrder" as any, "PurchaseMRP" as any, "PpcOrders" as any, "ProductionOrders" as any],
     }),
     getStoreDispatches: builder.query<any, string>({
       query: (orderId) => `/api/sales/order/${orderId}/dispatches`,
@@ -191,6 +192,9 @@ export const storeService = binsApi.injectEndpoints({
       }),
       invalidatesTags: ["StorePo" as any, "StoreOrder" as any],
     }),
+    getIncomingPODispatchHistory: builder.query<any, string>({
+      query: (id) => `/api/sales/incoming-po/${id}/dispatch-history`,
+    }),
   }),
   overrideExisting: false,
 });
@@ -213,7 +217,8 @@ export const {
   usePlanProductionRequirementMutation,
   useGetRMPlansQuery,
   useUpdateRMPlanPOMutation,
-  useGenerateSalesOrderFromPOMutation
+  useGenerateSalesOrderFromPOMutation,
+  useGetIncomingPODispatchHistoryQuery
 } = storeService;
 
 

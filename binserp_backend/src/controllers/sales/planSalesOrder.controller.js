@@ -21,11 +21,13 @@ export const planSalesOrder = asyncHandler(async (req, res) => {
   }
 
   try {
+    const { planDetails } = req.body;
+
     const { generateMRPForSalesOrder } = await import("../purchase/salesOrderMRP.controller.js");
-    await generateMRPForSalesOrder(req, order);
+    await generateMRPForSalesOrder(req, order, planDetails);
     
     const { generateProductionOrderForSalesOrder } = await import("../ppc/createProductionOrderFromSales.controller.js");
-    await generateProductionOrderForSalesOrder(req, order);
+    await generateProductionOrderForSalesOrder(req, order, planDetails);
   } catch(err) {
     console.error("Failed to generate MRP/ProductionOrder", err);
     return res.status(500).json({ success: false, message: "Failed to plan order: " + err.message });

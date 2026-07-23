@@ -11,6 +11,8 @@ import { useState, useEffect } from "react";
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from "lucide-react";
 import { DCModalProps, DCFormData, RmBoItem } from "../../types/store.types";
 import SearchableSelect from "../SearchableSelect";
+import { useGetStoreDataQuery } from "@/src/store/services/storeService";
+import Swal from "sweetalert2";
 
 interface ExtendedDCModalProps extends DCModalProps {
     materials?: RmBoItem[]; // For backward compatibility if passed
@@ -45,6 +47,7 @@ export default function DCModal({
     const [customer, setCustomer] = useState("");
     const [customerName, setCustomerName] = useState("");
     const [customerAddress, setCustomerAddress] = useState("");
+    const [customerPoReference, setCustomerPoReference] = useState("");
     const [discount, setDiscount] = useState(0);
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
@@ -58,6 +61,8 @@ export default function DCModal({
         unit: "PCS",
         description: ""
     }]);
+
+    const { data: incomingPOs } = useGetStoreDataQuery("incoming-po", { skip: !isOpen });
 
     const generateDCNumber = () => {
         const now = new Date();
@@ -78,6 +83,7 @@ export default function DCModal({
             setCustomer(initialData.customer || "");
             setCustomerName(initialData.customerName || "");
             setCustomerAddress(initialData.customerAddress || "");
+            setCustomerPoReference(initialData.customerPoReference || "");
             setDiscount(initialData.discount || 0);
             setOtherDetails(initialData.otherDetails || "");
             setStatus(initialData.status || "Draft");
@@ -112,7 +118,9 @@ export default function DCModal({
             setDate(new Date().toISOString().split("T")[0]);
             setCustomer("");
             setCustomerName("");
+            setCustomerName("");
             setCustomerAddress("");
+            setCustomerPoReference("");
             setDiscount(0);
             setOtherDetails("");
             setStatus("Draft");
@@ -213,12 +221,30 @@ export default function DCModal({
             return payload;
         });
 
+        // Validation against Customer PO
+        if (customerPoReference && incomingPOs) {
+            const po = (incomingPOs as any[]).find(p => p._id === customerPoReference);
+            if (po) {
+                for (const item of payloadItems) {
+                    const poItem = po.items.find((i: any) => i.productName === item.materialName || i.fgItem?._id === item.material || i.fgItem === item.material);
+                    if (poItem) {
+                        const remaining = poItem.quantity - (poItem.dispatchedQuantity || 0);
+                        if (item.quantity > remaining) {
+                            Swal.fire("Validation Error", `Cannot dispatch more than PO quantity for ${poItem.productName}. Remaining: ${remaining}, Requested: ${item.quantity}`, "error");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         onSubmit({
             dcNumber,
             date,
             customer,
             customerName,
             customerAddress,
+            customerPoReference,
             items: payloadItems,
             discount,
             otherDetails,
@@ -270,7 +296,7 @@ export default function DCModal({
                                 <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-cyan-500"></div>
                                 <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">DC Details</h3>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                     {/* DC Number */}
                                     <div className="space-y-1.5">
                                         <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -311,6 +337,30 @@ export default function DCModal({
                                             value={customer || ""}
                                             onChange={(val: any) => handleCustomerChange(val)}
                                             placeholder="Select Customer"
+                                        />
+                                    </div>
+
+                                    {/* Customer PO Reference */}
+                                    <div className="space-y-1.5 overflow-visible">
+                                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                                            <FileText size={14} className="text-indigo-500" />
+                                            Customer PO Ref
+                                        </label>
+                                        <SearchableSelect
+                                            options={Array.isArray(incomingPOs) ? incomingPOs.map((po: any) => ({
+                                                value: po._id,
+                                                label: po.poNumber
+                                            })) : []}
+                                            value={customerPoReference || ""}
+                                            onChange={(val: any) => {
+                                                setCustomerPoReference(val);
+                                                const po = Array.isArray(incomingPOs) ? incomingPOs.find((p: any) => p._id === val) : null;
+                                                if (po && po.customer) {
+                                                    const custId = po.customer._id || po.customer;
+                                                    handleCustomerChange(custId);
+                                                }
+                                            }}
+                                            placeholder="Select PO"
                                         />
                                     </div>
                                 </div>

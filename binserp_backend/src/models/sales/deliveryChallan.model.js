@@ -24,9 +24,9 @@ export const deliveryChallanSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
     },
-    salesOrderReference: {
+    customerPoReference: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "SalesOrder",
+      ref: "IncomingPO",
     },
     customerAddress: String,
     items: [

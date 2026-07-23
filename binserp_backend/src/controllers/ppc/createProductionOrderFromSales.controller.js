@@ -2,7 +2,7 @@ import { productionOrderSchema } from "../../models/ppc/index.js";
 import { fgItemSchema, inventorySchema } from "../../models/store/index.js";
 import { customerSchema } from "../../models/store/index.js";
 
-export const generateProductionOrderForSalesOrder = async (req, salesOrder) => {
+export const generateProductionOrderForSalesOrder = async (req, salesOrder, planDetails) => {
   const ProductionOrder = req.getModel("ProductionOrder", productionOrderSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const Customer = req.getModel("Customer", customerSchema);
@@ -20,10 +20,21 @@ export const generateProductionOrderForSalesOrder = async (req, salesOrder) => {
     const fgItems = [];
     
     for (const item of salesOrder.items) {
-      if (!item.product) continue;
+      const fgItemId = item.fgItem || item.product;
+      if (!fgItemId) continue;
       
+      let productionQty = item.quantity;
+      if (planDetails && Array.isArray(planDetails)) {
+        const pd = planDetails.find(p => p.fgItem?.toString() === fgItemId.toString());
+        if (pd && pd.productionQty !== undefined) {
+           productionQty = Number(pd.productionQty);
+        }
+      }
+      
+      if (productionQty <= 0) continue;
+
       // Check if it's an FG item
-      const fgItem = await FGItem.findOne({ _id: item.product, company: companyId }).populate('bom.item');
+      const fgItem = await FGItem.findOne({ _id: fgItemId, company: companyId }).populate('bom.item');
       if (fgItem) {
         // Prepare snapshots
         const bomSnapshot = (fgItem.bom || []).map(b => ({
@@ -50,7 +61,7 @@ export const generateProductionOrderForSalesOrder = async (req, salesOrder) => {
           description: fgItem.description,
           unit: fgItem.unit || item.unit,
           price: item.pricePerQuantity || 0,
-          quantity: item.quantity,
+          quantity: productionQty,
           trackingType: "Individual", // default
           targetDate: salesOrder.expectedDeliveryDate || salesOrder.date,
           bomSnapshot,
@@ -78,6 +89,7 @@ export const generateProductionOrderForSalesOrder = async (req, salesOrder) => {
       company: companyId,
       orderNumber: `PRD-${salesOrder.orderNumber}-${randomSuffix}`,
       poReference: salesOrder.orderNumber,
+      customerPoReference: salesOrder.poReference,
       customer: salesOrder.customer,
       customerName: customerName,
       deliveryDate: salesOrder.expectedDeliveryDate || new Date(new Date().setDate(new Date().getDate() + 30)),

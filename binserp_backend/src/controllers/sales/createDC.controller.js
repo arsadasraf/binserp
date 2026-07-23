@@ -48,9 +48,35 @@ export const createDC = async (req, res) => {
     const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
 
     const companyId = getCompanyId(req);
-    const { dcNumber, date, customer, items, status } = req.body;
+    const { dcNumber, date, customer, items, status, customerPoReference } = req.body;
 
     console.log("Creating DC:", { dcNumber, companyId });
+
+    if (customerPoReference) {
+      const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
+      const po = await IncomingPO.findOne({ _id: customerPoReference, company: companyId });
+      
+      if (!po) {
+        return res.status(404).json({ message: "Customer PO not found" });
+      }
+
+      // Validate quantities
+      for (const dcItem of items) {
+        // Find matching item in PO (assuming matching by productName for now, since DC might not store fgItem id)
+        const poItem = po.items.find(i => i.productName === dcItem.materialName || i.fgItem?.toString() === dcItem.material?.toString());
+        if (poItem) {
+          const remainingQty = poItem.quantity - (poItem.dispatchedQuantity || 0);
+          if (dcItem.quantity > remainingQty) {
+            return res.status(400).json({ 
+              message: `Cannot dispatch more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${dcItem.quantity}` 
+            });
+          }
+          // Update dispatched quantity
+          poItem.dispatchedQuantity = (poItem.dispatchedQuantity || 0) + Number(dcItem.quantity);
+        }
+      }
+      await po.save();
+    }
 
     const dc = await DeliveryChallan.create({
       company: companyId,
@@ -59,6 +85,7 @@ export const createDC = async (req, res) => {
       customerName: req.body.customerName, // Fallback or direct
       customer,
       customerAddress: req.body.customerAddress,
+      customerPoReference,
       items,
       discount: req.body.discount,
       otherDetails: req.body.otherDetails,

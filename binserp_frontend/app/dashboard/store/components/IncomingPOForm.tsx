@@ -49,10 +49,12 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
     ],
     subtotal: 0,
     discount: 0,
+    transportationCharges: 0,
     taxAmount: 0,
     totalAmount: 0,
     status: "Received",
     remarks: "",
+    transportationMethod: "",
   });
 
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -84,10 +86,12 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
         }],
         subtotal: initialData.subtotal || 0,
         discount: initialData.discount || 0,
+        transportationCharges: initialData.transportationCharges || 0,
         taxAmount: initialData.taxAmount || 0,
         totalAmount: initialData.totalAmount || 0,
         status: initialData.status || "Received",
         remarks: initialData.remarks || "",
+        transportationMethod: initialData.transportationMethod || "",
       });
     }
   }, [initialData]);
@@ -105,7 +109,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
       return { ...item, amount, taxAmount };
     });
 
-    const newTotalAmount = newSubtotal + newTaxAmount - (formData.discount || 0);
+    const newTotalAmount = newSubtotal + newTaxAmount + Number(formData.transportationCharges || 0) - (formData.discount || 0);
 
     // Only update if values actually changed to prevent infinite loops
     if (
@@ -122,7 +126,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
         totalAmount: newTotalAmount
       }));
     }
-  }, [formData.items, formData.discount]);
+  }, [formData.items, formData.discount, formData.transportationCharges]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -180,7 +184,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.customer) {
-      alert("Please select a customer.");
+      alert(`Please select a customer. (Debug: Customers count=${customers.length}, First customer=${JSON.stringify(customers[0] || {})})`);
       return;
     }
     if (!formData.poNumber.trim()) {
@@ -231,7 +235,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
   };
 
   const customerOptions = useMemo(() => {
-    return customers.map(c => ({ value: c._id, label: c.name }));
+    return customers.map(c => ({ value: c._id || c.id, label: c.name || c.customerName }));
   }, [customers]);
 
   const fgItemOptions = useMemo(() => {
@@ -288,7 +292,6 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                   onChange={handleChange}
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
                   placeholder="e.g. PO-2023-001"
-                  required
                   disabled={isPreview}
                 />
               </div>
@@ -301,7 +304,6 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                   value={formData.date}
                   onChange={handleChange}
                   className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
-                  required
                   disabled={isPreview}
                 />
               </div>
@@ -402,7 +404,6 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                             placeholder="Product Name"
                             className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
                             disabled={isPreview}
-                            required
                           />
                         )}
                       </div>
@@ -441,7 +442,6 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                             onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
                             className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
                             disabled={isPreview}
-                            required
                           />
                         </div>
                         <div className="w-16">
@@ -468,7 +468,6 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                             onChange={(e) => handleItemChange(index, "rate", e.target.value)}
                             className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
                             disabled={isPreview}
-                            required
                           />
                         </div>
                         <div className="w-16">
@@ -500,17 +499,31 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
             {/* Totals & Remarks Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4 border-t border-gray-100 dark:border-gray-800">
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Remarks / Terms</label>
-                  <textarea
-                    name="remarks"
-                    value={formData.remarks}
-                    onChange={handleChange}
-                    rows={2}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white resize-none"
-                    placeholder="Any special terms or conditions..."
-                    disabled={isPreview}
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Remarks / Terms</label>
+                    <textarea
+                      name="remarks"
+                      value={formData.remarks}
+                      onChange={handleChange}
+                      rows={2}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white resize-none"
+                      placeholder="Any special terms or conditions..."
+                      disabled={isPreview}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Transportation Method</label>
+                    <input
+                      type="text"
+                      name="transportationMethod"
+                      value={formData.transportationMethod}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                      placeholder="e.g. By Road, Courier, etc."
+                      disabled={isPreview}
+                    />
+                  </div>
                 </div>
                 
                 {/* File Uploads */}
@@ -568,6 +581,21 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                         name="discount"
                         min="0"
                         value={formData.discount === 0 ? "" : formData.discount}
+                        onChange={handleChange}
+                        className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-right text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                        disabled={isPreview}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400 items-center">
+                    <span>Transportation Charges</span>
+                    <div className="flex items-center gap-1 w-32">
+                      <span className="text-gray-500">₹</span>
+                      <input
+                        type="number"
+                        name="transportationCharges"
+                        min="0"
+                        value={formData.transportationCharges === 0 ? "" : formData.transportationCharges}
                         onChange={handleChange}
                         className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-right text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
                         disabled={isPreview}

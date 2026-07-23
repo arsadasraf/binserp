@@ -9,6 +9,8 @@
 import { useState, useEffect } from "react";
 import { BillingModalProps, BillingFormData, RmBoItem } from "../../types/store.types";
 import SearchableSelect from "../SearchableSelect";
+import { useGetStoreDataQuery } from "@/src/store/services/storeService";
+import Swal from "sweetalert2";
 
 interface ExtendedBillingModalProps extends BillingModalProps {
     materials?: RmBoItem[];
@@ -31,6 +33,7 @@ export default function BillingModal({
         customer: "",
         customerAddress: "",
         customerGST: "",
+        customerPoReference: "",
         items: [{ material: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0 }],
         subtotal: 0,
         discount: 0,
@@ -51,6 +54,7 @@ export default function BillingModal({
     };
 
     const [globalTaxRate, setGlobalTaxRate] = useState(0);
+    const { data: incomingPOs } = useGetStoreDataQuery("incoming-po", { skip: !isOpen });
 
     useEffect(() => {
         if (!isOpen) return;
@@ -70,6 +74,7 @@ export default function BillingModal({
             customer: "",
             customerAddress: "",
             customerGST: "",
+            customerPoReference: "",
             items: [{ material: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0 }],
             subtotal: 0,
             discount: 0,
@@ -115,6 +120,24 @@ export default function BillingModal({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validation against Customer PO
+        if (formData.customerPoReference && incomingPOs) {
+            const po = (incomingPOs as any[]).find(p => p._id === formData.customerPoReference);
+            if (po) {
+                for (const item of formData.items) {
+                    const poItem = po.items.find((i: any) => i.productName === item.materialName || i.fgItem?._id === item.material || i.fgItem === item.material);
+                    if (poItem) {
+                        const remaining = poItem.quantity - (poItem.billedQuantity || 0);
+                        if (item.quantity > remaining) {
+                            Swal.fire("Validation Error", `Cannot bill more than PO quantity for ${poItem.productName}. Remaining: ${remaining}, Requested: ${item.quantity}`, "error");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
         onSubmit(formData);
     };
 

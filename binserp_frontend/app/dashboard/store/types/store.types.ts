@@ -372,6 +372,7 @@ export interface BillingFormData {
     customer?: string; // ID
     customerAddress?: string;
     customerGST?: string;
+    customerPoReference?: string;
     items: Array<{
         material?: string; // ID
         component?: string;
@@ -401,6 +402,7 @@ export interface QuotationFormData {
     customer?: string; // ID
     customerName: string;
     customerAddress?: string;
+    customerPoReference?: string;
     items: Array<{
         itemType?: 'custom' | 'fg';
         component?: string; // ID

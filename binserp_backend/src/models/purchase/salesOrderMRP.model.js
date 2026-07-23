@@ -15,6 +15,9 @@ export const salesOrderMRPSchema = new mongoose.Schema({
     type: String, 
     required: true 
   },
+  customerPoReference: {
+    type: String,
+  },
   targetDate: { 
     type: Date 
   },

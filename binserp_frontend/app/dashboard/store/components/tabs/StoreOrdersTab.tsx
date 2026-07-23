@@ -8,6 +8,7 @@ import {
   usePlanSalesOrderMutation
 } from "@/src/store/services/storeService";
 import { Search, FileSpreadsheet, FileText, Plus, Edit2, Trash2, Calendar, Filter, X, Activity } from 'lucide-react';
+import { SalesOrderPlanModal } from "../modals/SalesOrderPlanModal";
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
@@ -114,6 +115,10 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [orderToPlan, setOrderToPlan] = useState<any>(null);
+  const [isPlanning, setIsPlanning] = useState(false);
+
   const { data: orders = [], isLoading: loading, refetch } = useGetStoreDataQuery('order');
 
   const filteredOrders = useMemo(() => {
@@ -211,16 +216,25 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   const [updateStatus] = useUpdateStoreRecordMutation();
   const [planSalesOrder] = usePlanSalesOrderMutation();
 
-  const handlePlanOrder = async (id: string, e: React.MouseEvent) => {
+  const handlePlanOrderClick = (order: any, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Are you sure you want to plan this order? RM/BO items will go to Purchase MRP and FG items will go to PPC.")) return;
+    setOrderToPlan(order);
+    setShowPlanModal(true);
+  };
+
+  const handleConfirmPlanOrder = async (id: string, planDetails: any[]) => {
     try {
-      await planSalesOrder(id).unwrap();
+      setIsPlanning(true);
+      await planSalesOrder({ id, planDetails }).unwrap();
       alert("Order successfully planned!");
+      setShowPlanModal(false);
+      setOrderToPlan(null);
       refetch();
     } catch (error: any) {
       console.error("Plan order error:", error);
       alert(error?.data?.message || "Failed to plan order.");
+    } finally {
+      setIsPlanning(false);
     }
   };
 
@@ -401,7 +415,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                       <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-1 ml-2">
                         {!order.isPlanned && order.status !== 'Completed' && order.status !== 'Cancelled' && (
                           <button
-                            onClick={(e) => handlePlanOrder(order._id, e)}
+                            onClick={(e) => handlePlanOrderClick(order, e)}
                             className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                             title="Plan Order (MRP/PPC)"
                           >
@@ -430,6 +444,19 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
           </tbody>
         </table>
       </div>
+
+      {showPlanModal && orderToPlan && (
+        <SalesOrderPlanModal
+          isOpen={showPlanModal}
+          onClose={() => {
+            setShowPlanModal(false);
+            setOrderToPlan(null);
+          }}
+          order={orderToPlan}
+          onPlanOrder={handleConfirmPlanOrder}
+          isPlanning={isPlanning}
+        />
+      )}
 
       <StoreOrderDetailModal
         isOpen={detailsOpen}

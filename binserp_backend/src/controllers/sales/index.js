@@ -14,5 +14,6 @@ export * from './planSalesOrder.controller.js';
 export * from './salesOrderDispatch.controller.js';
 export * from './incomingRFQ.controller.js';
 export * from './incomingPO.controller.js';
+export * from './incomingPOHistory.controller.js';
 
 export * from './priceList.controller.js';

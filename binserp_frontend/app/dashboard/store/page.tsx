@@ -44,6 +44,8 @@ import PrintSettingsForm from "./components/forms/PrintSettingsForm";
 import DCTable from "./components/tables/DCTable";
 import BillingTable from "./components/tables/BillingTable";
 import QuotationTable from "./components/tables/QuotationTable";
+import { IncomingPODetailsModal } from "./components/IncomingPODetailsModal";
+import { MasterDetailModal } from "./components/modals/MasterDetailModal";
 import QuotationModal from "./components/modals/QuotationModal";
 import PriceListTable from "./components/tables/PriceListTable";
 import PriceListModal from "./components/modals/PriceListModal";
@@ -77,8 +79,8 @@ function StoreContent() {
 
   // State for master tab selection (vendor, customer, location, category)
   const [masterTab, setMasterTab] = useState<MasterType>("vendor");
-  const [createStoreRecord] = useCreateStoreRecordMutation();
-  const [updateStoreRecord] = useUpdateStoreRecordMutation();
+  const [createStoreRecord, { isLoading: isCreatingRecord }] = useCreateStoreRecordMutation();
+  const [updateStoreRecord, { isLoading: isUpdatingRecord }] = useUpdateStoreRecordMutation();
   const [deleteStoreRecord] = useDeleteStoreRecordMutation();
 
   // State for Create Inhouse Item Modal
@@ -1278,16 +1280,65 @@ function StoreContent() {
                 customers={customers}
                 companyInfo={companyInfo}
                 onSubmit={handleIncomingRFQSubmit}
-                onCancel={() => {
-                  setShowIncomingRFQModal(false);
-                  setEditingIncomingRFQ(undefined);
-                  setPreviewingIncomingRFQ(false);
+                onClose={() => {
+                    setShowIncomingRFQModal(false);
+                    setEditingIncomingRFQ(undefined);
+                    setPreviewingIncomingRFQ(false);
                 }}
-                isSubmitting={loading}
-                isPreview={previewingIncomingRFQ}
+                isSubmitting={isUpdatingRecord}
               />
             )}
 
+            {/* Incoming PO Details/Form */}
+            {showIncomingPOModal && !previewingIncomingPO && (
+              <IncomingPOForm
+                initialData={editingIncomingPO}
+                fgItems={fgItems}
+                customers={customers}
+                quotations={quotations}
+                onSubmit={async (formData) => {
+                  try {
+                    if (editingIncomingPO) {
+                      await updateStoreRecord({ tab: "incoming-po", id: editingIncomingPO._id, body: formData }).unwrap();
+                      setSuccess("Customer PO updated successfully");
+                    } else {
+                      await createStoreRecord({ tab: "incoming-po", body: formData }).unwrap();
+                      setSuccess("Customer PO created successfully");
+                    }
+                    setShowIncomingPOModal(false);
+                  } catch (err: any) {
+                    setError(err.data?.message || "Failed to save Customer PO");
+                  }
+                }}
+                onCancel={() => setShowIncomingPOModal(false)}
+                isSubmitting={loading}
+                isPreview={previewingIncomingPO}
+              />
+            )}
+
+            {showIncomingPOModal && previewingIncomingPO && (
+              <IncomingPODetailsModal
+                isOpen={showIncomingPOModal}
+                onClose={() => {
+                  setShowIncomingPOModal(false);
+                  setEditingIncomingPO(undefined);
+                  setPreviewingIncomingPO(false);
+                }}
+                po={editingIncomingPO}
+                customers={customers}
+                fgItems={fgItems}
+                companyInfo={companyInfo}
+                onGenerateOrder={async (id) => {
+                  try {
+                    await generateSalesOrder(id).unwrap();
+                    setSuccess("Sales Order generated successfully");
+                  } catch (err: any) {
+                    setError(err.data?.message || "Failed to generate Sales Order");
+                  }
+                }}
+                isGeneratingOrder={isGeneratingOrder}
+              />
+            )}
 
             {/* Price List Modal */}
             <PriceListModal
@@ -1421,34 +1472,6 @@ function StoreContent() {
                I will Modify Chunk 5 to keep `fg-items` logic.
                I will Modify Chunk 6 (this one) to KEEP `FGItemForm`.
             */}
-
-
-
-            {showIncomingPOModal && (
-              <IncomingPOForm
-                initialData={editingIncomingPO}
-                fgItems={fgItems}
-                customers={customers}
-                quotations={quotations}
-                onSubmit={async (formData) => {
-                  try {
-                    if (editingIncomingPO) {
-                      await updateStoreRecord({ tab: "incoming-po", id: editingIncomingPO._id, body: formData }).unwrap();
-                      setSuccess("Customer PO updated successfully");
-                    } else {
-                      await createStoreRecord({ tab: "incoming-po", body: formData }).unwrap();
-                      setSuccess("Customer PO created successfully");
-                    }
-                    setShowIncomingPOModal(false);
-                  } catch (err: any) {
-                    setError(err.data?.message || "Failed to save Customer PO");
-                  }
-                }}
-                onCancel={() => setShowIncomingPOModal(false)}
-                isSubmitting={loading}
-                isPreview={previewingIncomingPO}
-              />
-            )}
 
           </div>
 
