@@ -84,6 +84,10 @@ export interface Employee {
         casualLeave: number;
         sickLeave: number;
     };
+    standardWorkingHours?: number;
+    weeklyOff?: string;
+    holidayWorkPolicy?: string;
+    weekOffWorkPolicy?: string;
     leaveHistory?: {
         date: string;
         type: string;

@@ -94,8 +94,13 @@ export const salarySchema = new mongoose.Schema(
       casualLeave: { type: Number, default: 0 },
       sickLeave: { type: Number, default: 0 }
     },
+    recordType: {
+      type: String,
+      enum: ["Salary", "Overtime", "Combined"],
+      default: "Combined"
+    },
   },
   { timestamps: true }
 );
 
-salarySchema.index({ company: 1, employee: 1, month: 1, year: 1 }, { unique: true });
+salarySchema.index({ company: 1, employee: 1, month: 1, year: 1, recordType: 1 }, { unique: true });

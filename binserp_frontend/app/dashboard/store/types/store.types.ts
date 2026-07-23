@@ -349,6 +349,7 @@ export interface DCFormData {
     customerName: string;
     customer?: string; // ID
     customerAddress?: string;
+    customerPoReference?: string;
     items: Array<{
         material?: string; // ID
         component?: string;

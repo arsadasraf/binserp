@@ -84,6 +84,10 @@ export default function EmployeeMaster() {
         sickLeave: number;
         perDayCalculationBasis: string;
         otRate: number;
+        standardWorkingHours: number;
+        weeklyOff: string;
+        holidayWorkPolicy: string;
+        weekOffWorkPolicy: string;
     }
 
     const [formData, setFormData] = useState<FormData>({
@@ -115,6 +119,10 @@ export default function EmployeeMaster() {
         sickLeave: 0,
         perDayCalculationBasis: "Basic",
         otRate: 0,
+        standardWorkingHours: 9,
+        weeklyOff: "Sunday",
+        holidayWorkPolicy: "Overtime",
+        weekOffWorkPolicy: "Overtime",
     });
 
     const [photoFile, setPhotoFile] = useState<File | null>(null);
@@ -227,7 +235,8 @@ export default function EmployeeMaster() {
             accountNumber: "", bankName: "", ifscCode: "", branchName: "",
             basic: 0, hra: 0, conveyance: 0, medical: 0, specialAllowance: 0,
             pf: 0, professionalTax: 0, grossSalary: 0, netSalary: 0,
-            casualLeave: 0, sickLeave: 0, perDayCalculationBasis: "Basic", otRate: 0
+            casualLeave: 0, sickLeave: 0, perDayCalculationBasis: "Basic", otRate: 0,
+            standardWorkingHours: 9, weeklyOff: "Sunday", holidayWorkPolicy: "Overtime", weekOffWorkPolicy: "Overtime"
         });
         setPhotoFile(null);
         setPhotoPreview(null);
@@ -272,6 +281,10 @@ export default function EmployeeMaster() {
             otRate: emp.salary?.otRate ?? 0,
             casualLeave: (emp as any).leaves?.casualLeave ?? 0,
             sickLeave: (emp as any).leaves?.sickLeave ?? 0,
+            standardWorkingHours: emp.standardWorkingHours ?? 9,
+            weeklyOff: emp.weeklyOff || "Sunday",
+            holidayWorkPolicy: emp.holidayWorkPolicy || "Overtime",
+            weekOffWorkPolicy: emp.weekOffWorkPolicy || "Overtime",
         });
         setPhotoPreview(emp.photo || null);
         setPhotoFile(null);
@@ -343,7 +356,8 @@ export default function EmployeeMaster() {
             Object.entries(formData).forEach(([key, value]) => {
                 if (!['skills', 'accountNumber', 'bankName', 'ifscCode', 'branchName',
                     'basic', 'hra', 'conveyance', 'medical', 'specialAllowance', 'grossSalary', 'pf', 'professionalTax', 'netSalary',
-                    'casualLeave', 'sickLeave', 'perDayCalculationBasis', 'otRate'].includes(key)) {
+                    'casualLeave', 'sickLeave', 'perDayCalculationBasis', 'otRate',
+                    'standardWorkingHours', 'weeklyOff', 'holidayWorkPolicy', 'weekOffWorkPolicy'].includes(key)) {
                     data.append(key, value as string);
                 }
             });
@@ -373,6 +387,11 @@ export default function EmployeeMaster() {
                 casualLeave: formData.casualLeave,
                 sickLeave: formData.sickLeave
             }));
+            
+            data.append("standardWorkingHours", String(formData.standardWorkingHours));
+            data.append("weeklyOff", formData.weeklyOff);
+            data.append("holidayWorkPolicy", formData.holidayWorkPolicy);
+            data.append("weekOffWorkPolicy", formData.weekOffWorkPolicy);
 
             if (photoFile) data.append("photo", photoFile);
 
@@ -859,6 +878,34 @@ export default function EmployeeMaster() {
                                                     <div>
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">OT Rate (Per Hour)</label>
                                                         <input type="number" value={formData.otRate} onChange={e => setFormData({ ...formData, otRate: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
+                                                    </div>
+                                                </div>
+
+                                                {/* Working Policies Config */}
+                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-4 mb-6 bg-purple-50/50 p-4 rounded-lg border border-purple-100 dark:bg-slate-800 dark:border-slate-700">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Standard Hrs/Day</label>
+                                                        <input type="number" value={formData.standardWorkingHours} onChange={e => setFormData({ ...formData, standardWorkingHours: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Weekly Off Day</label>
+                                                        <select value={formData.weeklyOff} onChange={e => setFormData({ ...formData, weeklyOff: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                            {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(d => <option key={d} value={d}>{d}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Holiday Work Policy</label>
+                                                        <select value={formData.holidayWorkPolicy} onChange={e => setFormData({ ...formData, holidayWorkPolicy: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                            <option value="Overtime">Overtime</option>
+                                                            <option value="CompOff">Comp Off</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Week Off Policy</label>
+                                                        <select value={formData.weekOffWorkPolicy} onChange={e => setFormData({ ...formData, weekOffWorkPolicy: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                            <option value="Overtime">Overtime</option>
+                                                            <option value="CompOff">Comp Off</option>
+                                                        </select>
                                                     </div>
                                                 </div>
 

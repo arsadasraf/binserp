@@ -45,7 +45,7 @@ import DCTable from "./components/tables/DCTable";
 import BillingTable from "./components/tables/BillingTable";
 import QuotationTable from "./components/tables/QuotationTable";
 import { IncomingPODetailsModal } from "./components/IncomingPODetailsModal";
-import { MasterDetailModal } from "./components/modals/MasterDetailModal";
+import MasterDetailModal from "./components/modals/MasterDetailModal";
 import QuotationModal from "./components/modals/QuotationModal";
 import PriceListTable from "./components/tables/PriceListTable";
 import PriceListModal from "./components/modals/PriceListModal";
@@ -1280,7 +1280,7 @@ function StoreContent() {
                 customers={customers}
                 companyInfo={companyInfo}
                 onSubmit={handleIncomingRFQSubmit}
-                onClose={() => {
+                onCancel={() => {
                     setShowIncomingRFQModal(false);
                     setEditingIncomingRFQ(undefined);
                     setPreviewingIncomingRFQ(false);

@@ -98,6 +98,11 @@ export const employeeSchema = new mongoose.Schema(
       casualLeave: { type: Number, default: 0 },
       sickLeave: { type: Number, default: 0 }
     },
+    standardWorkingHours: { type: Number, default: 9 },
+    weeklyOff: { type: String, default: 'Sunday' },
+    holidayWorkPolicy: { type: String, enum: ['Overtime', 'CompOff'], default: 'Overtime' },
+    weekOffWorkPolicy: { type: String, enum: ['Overtime', 'CompOff'], default: 'Overtime' },
+    compOffBalance: { type: Number, default: 0 },
     leaveHistory: [{
       date: String,
       type: { type: String }, // 'CL' or 'SL'

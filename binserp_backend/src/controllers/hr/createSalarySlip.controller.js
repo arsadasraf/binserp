@@ -18,7 +18,8 @@ export const createSalarySlip = async (req, res) => {
         const companyId = getCompanyId(req);
         const {
             employeeId, month, year, presentDays, totalDutyHours,
-            totalOtHours, otRatePH, grossPay, otPay, netPay, dailyLogs, leavesConsumed
+            totalOtHours, otRatePH, grossPay, otPay, netPay, dailyLogs, leavesConsumed,
+            generationType, compOffAccrued
         } = req.body;
 
         const Employee = req.getModel('Employee', employeeSchema);
@@ -29,9 +30,11 @@ export const createSalarySlip = async (req, res) => {
             return res.status(404).json({ message: "Employee not found" });
         }
 
+        const recordType = generationType || "Combined";
+
         const existing = await Salary.findOne({ company: companyId, employee: employeeId, month, year });
         if (existing) {
-            return res.status(400).json({ message: "Salary record already exists for this month. Please update it instead." });
+            return res.status(400).json({ message: `A salary record already exists for this month. Please update it instead.` });
         }
 
         const newSalary = new Salary({
@@ -39,7 +42,7 @@ export const createSalarySlip = async (req, res) => {
             employee: employeeId,
             month,
             year,
-            workingDays: 30,
+            workingDays: 30, // Could be derived dynamically
             presentDays: presentDays || 0,
             totalDutyHours: totalDutyHours || 0,
             otRatePH: otRatePH || 0,
@@ -62,12 +65,20 @@ export const createSalarySlip = async (req, res) => {
             dailyLogs: dailyLogs || [],
             leavesConsumed: leavesConsumed || { casualLeave: 0, sickLeave: 0 },
             status: "Draft",
+            recordType: "Combined",
             remarks: `Manually saved for ${presentDays} present days.`
         });
 
         await newSalary.save();
 
-        // Update employee leaves and history
+        // Update employee leaves and history and comp off
+        let employeeUpdated = false;
+        
+        if (compOffAccrued && compOffAccrued > 0) {
+            employee.compOffBalance = (employee.compOffBalance || 0) + compOffAccrued;
+            employeeUpdated = true;
+        }
+
         if (leavesConsumed && (leavesConsumed.casualLeave > 0 || leavesConsumed.sickLeave > 0)) {
             if (employee.leaves) {
                 employee.leaves.casualLeave = Math.max(0, employee.leaves.casualLeave - (leavesConsumed.casualLeave || 0));
@@ -87,14 +98,27 @@ export const createSalarySlip = async (req, res) => {
                     }
                 });
             }
-            await employee.save();
+            employeeUpdated = true;
+        }
+
+        if (employeeUpdated) {
+            await Employee.updateOne(
+                { _id: employee._id },
+                { 
+                    $set: { 
+                        compOffBalance: employee.compOffBalance,
+                        leaves: employee.leaves,
+                        leaveHistory: employee.leaveHistory
+                    } 
+                }
+            );
         }
 
         res.status(201).json(newSalary);
 
     } catch (error) {
         console.error("Error generating salary:", error);
-        res.status(500).json({ message: "Server error generating salary" });
+        res.status(500).json({ message: `Server error generating salary: ${error.message}` });
     }
 };
 

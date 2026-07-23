@@ -85,7 +85,15 @@ export const updateSalary = async (req, res) => {
                     });
                 }
 
-                await employee.save();
+                await Employee.updateOne(
+                    { _id: employee._id },
+                    { 
+                        $set: { 
+                            leaves: employee.leaves,
+                            leaveHistory: employee.leaveHistory
+                        } 
+                    }
+                );
             }
         }
 
@@ -93,7 +101,7 @@ export const updateSalary = async (req, res) => {
         res.status(200).json(salary);
     } catch (error) {
         console.error("Error updating salary:", error);
-        res.status(500).json({ message: "Error updating salary" });
+        res.status(500).json({ message: `Error updating salary: ${error.message}` });
     }
 };
 

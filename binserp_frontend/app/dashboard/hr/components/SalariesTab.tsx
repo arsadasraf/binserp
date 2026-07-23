@@ -26,7 +26,12 @@ interface DayStatus {
 }
 
 export default function SalariesTab() {
-    // 1. Employee & Month Selection
+    // 1. Top Level Tab & Date Selection
+    const [activeMainTab, setActiveMainTab] = useState<'generator' | 'saved'>('generator');
+    const [month, setMonth] = useState(new Date().toLocaleString('default', { month: 'long' }));
+    const [year, setYear] = useState(new Date().getFullYear());
+
+    // 2. Employee Selection (For Generator)
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
     const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -41,21 +46,38 @@ export default function SalariesTab() {
         ? `${employees.find(e => e._id === selectedEmployeeId)?.name} (${employees.find(e => e._id === selectedEmployeeId)?.employeeId})`
         : "-- Select Employee --";
 
-    const [month, setMonth] = useState(new Date().toLocaleString('default', { month: 'long' }));
-    const [year, setYear] = useState(new Date().getFullYear());
-
-    // 2. Data State
+    // 3. Data State
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [calendarData, setCalendarData] = useState<DayStatus[]>([]);
     const [existingSalaryId, setExistingSalaryId] = useState<string | null>(null);
 
-    // 3. Salary Config
+    // 4. Saved Salaries Tab State
+    const [savedSalaries, setSavedSalaries] = useState<any[]>([]);
+    const [loadingSaved, setLoadingSaved] = useState(false);
+    const [savedSalarySearchTerm, setSavedSalarySearchTerm] = useState("");
+
+    const filteredSavedSalaries = useMemo(() => {
+        let filtered = savedSalaries;
+        if (selectedEmployeeId) {
+            filtered = filtered.filter(salary => salary.employee?._id === selectedEmployeeId);
+        }
+        if (savedSalarySearchTerm) {
+            const term = savedSalarySearchTerm.toLowerCase();
+            filtered = filtered.filter(salary => 
+                (salary.employee?.name || '').toLowerCase().includes(term) || 
+                (salary.employee?.employeeId || '').toLowerCase().includes(term)
+            );
+        }
+        return filtered;
+    }, [savedSalaries, savedSalarySearchTerm, selectedEmployeeId]);
+
+    // 5. Salary Config
     const [baseSalary, setBaseSalary] = useState(0);
     const [otRatePH, setOtRatePH] = useState(0);
-    const [companyName, setCompanyName] = useState('');
-    const [companyLogo, setCompanyLogo] = useState('');
-    const [companyAddress, setCompanyAddress] = useState('');
+    const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+    const [companyName, setCompanyName] = useState<string | null>(null);
+    const [companyAddress, setCompanyAddress] = useState<string | null>(null);
     const [currency, setCurrency] = useState('₹');
 
     // Fetch Employees and Company Branding on Mount
@@ -90,7 +112,7 @@ export default function SalariesTab() {
 
     // Load Data when selection changes
     useEffect(() => {
-        if (selectedEmployeeId && month && year) {
+        if (selectedEmployeeId && month && year && activeMainTab === 'generator') {
             loadAttendanceData();
 
             // Auto-fill salary config from employee profile
@@ -109,7 +131,29 @@ export default function SalariesTab() {
                 setOtRatePH(emp.salary.otRate || Math.round((emp.salary.basic || 0) / 30 / 8));
             }
         }
-    }, [selectedEmployeeId, month, year, employees]);
+    }, [selectedEmployeeId, month, year, employees, activeMainTab]);
+
+    useEffect(() => {
+        if (activeMainTab === 'saved') {
+            fetchSavedSalaries();
+        }
+    }, [month, year, activeMainTab]);
+
+    const fetchSavedSalaries = async () => {
+        setLoadingSaved(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.get(`${API_BASE_URL}/api/hr/salary`, {
+                headers: { Authorization: `Bearer ${token}` },
+                params: { month, year }
+            });
+            setSavedSalaries(res.data || []);
+        } catch (error) {
+            console.error("Error fetching saved salaries:", error);
+        } finally {
+            setLoadingSaved(false);
+        }
+    };
 
     const loadAttendanceData = async () => {
         setLoading(true);
@@ -121,30 +165,8 @@ export default function SalariesTab() {
             const start = new Date(year, monthIndex, 1).toISOString();
             const end = new Date(year, monthIndex, daysInMonth, 23, 59, 59).toISOString();
 
-            // Check if saved salary exists
-            const salaryRes = await axios.get(`${API_BASE_URL}/api/hr/salary`, {
-                headers: { Authorization: `Bearer ${token}` },
-                params: { month, year, employeeId: selectedEmployeeId }
-            });
-
-            if (salaryRes.data && salaryRes.data.length > 0) {
-                const savedRecord = salaryRes.data[0];
-                setExistingSalaryId(savedRecord._id);
-                setCalendarData(savedRecord.dailyLogs || []);
-                // Update configs based on saved
-                // Depending on the basis, maybe they saved a different component but for now we fallback to basic component 
-                // However, since we now have dynamic calculation base, we should trust the state from DB if we want to restore exact values.
-                // For simplicity, we just use the `baseSalary` logic that was fetched on change.
-                // But if we want to extract it from savedRecord:
-                if (savedRecord.salaryComponents?.basic) {
-                    // This might overwrite the properly calculated baseSalary, so let's only do it if baseSalary is 0
-                    setBaseSalary(prev => prev || savedRecord.salaryComponents.basic);
-                }
-                if (savedRecord.otRatePH) setOtRatePH(savedRecord.otRatePH);
-                setLoading(false);
-                return;
-            }
-
+            // NO longer checking for saved salary here. 
+            // The generator pulls fresh real-time data always.
             setExistingSalaryId(null);
 
             // Fetch DB Attendance and Holidays
@@ -229,26 +251,51 @@ export default function SalariesTab() {
         let presentDays = 0;
         let totalOtHours = 0;
         let totalDutyHours = 0;
+        let compOffAccrued = 0;
+
+        const emp = employees.find(e => e._id === selectedEmployeeId);
+        const standardHours = (emp as any)?.standardWorkingHours || 9;
+        const weeklyOff = (emp as any)?.weeklyOff || "Sunday";
+        const holidayWorkPolicy = (emp as any)?.holidayWorkPolicy || "Overtime";
+        const weekOffWorkPolicy = (emp as any)?.weekOffWorkPolicy || "Overtime";
+
+        let weeklyOffsCount = 0;
 
         calendarData.forEach(day => {
+            const dateObj = new Date(day.date);
+            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const isWeeklyOff = days[dateObj.getDay()] === weeklyOff;
+            if (isWeeklyOff) weeklyOffsCount++;
+
             const status = day.useManual ? day.manualStatus : day.originalStatus;
             const hours = day.useManual ? day.manualHours : (day.originalHours || 0);
 
-            if (status === 'Present' || status === 'CL' || status === 'SL') presentDays += 1;
-            else if (status === 'HalfDay') presentDays += 0.5;
-            else if (status === 'Holiday') presentDays += 1;
-
-            // Accumulate Duty Hours
             totalDutyHours += hours;
 
-            // Simple OT Logic: Anything above 9 hours is OT? 
-            // Or use explicit manual hours if they want to treat it as "Extra" hours? 
-            // For this layout, let's assume 'manualHours' IS the working hours.
-            // Let's standardise: Standard shift = 8 hours. Anything above is OT.
-            if (hours > 8) {
-                totalOtHours += (hours - 8);
+            const isPublicHoliday = day.originalStatus === 'Holiday';
+
+            if (isWeeklyOff) {
+                if (hours > 0) {
+                    if (weekOffWorkPolicy === "Overtime") totalOtHours += hours;
+                    else compOffAccrued += (hours / standardHours);
+                }
+            } else if (isPublicHoliday) {
+                presentDays += 1;
+                if (hours > 0) {
+                    if (holidayWorkPolicy === "Overtime") totalOtHours += hours;
+                    else compOffAccrued += (hours / standardHours);
+                }
+            } else {
+                if (status === 'Present' || status === 'CL' || status === 'SL') presentDays += 1;
+                else if (status === 'HalfDay') presentDays += 0.5;
+                
+                if (hours > standardHours) {
+                    totalOtHours += (hours - standardHours);
+                }
             }
         });
+
+        const effectiveWorkingDays = calendarData.length - weeklyOffsCount;
 
         let casualLeaveConsumed = 0;
         let sickLeaveConsumed = 0;
@@ -259,12 +306,24 @@ export default function SalariesTab() {
             if (status === 'SL') sickLeaveConsumed += 1;
         });
 
-        const grossPay = (baseSalary / 30) * presentDays;
+        const grossPay = effectiveWorkingDays > 0 ? (baseSalary / effectiveWorkingDays) * presentDays : 0;
         const otPay = totalOtHours * otRatePH;
         const netPay = grossPay + otPay;
 
-        return { presentDays, totalOtHours, totalDutyHours, grossPay, otPay, netPay, casualLeaveConsumed, sickLeaveConsumed };
-    }, [calendarData, baseSalary, otRatePH]);
+        return { 
+            presentDays, 
+            totalOtHours, 
+            totalDutyHours, 
+            grossPay, 
+            otPay, 
+            netPay, 
+            casualLeaveConsumed, 
+            sickLeaveConsumed,
+            compOffAccrued,
+            effectiveWorkingDays,
+            weeklyOffsCount
+        };
+    }, [calendarData, baseSalary, otRatePH, employees, selectedEmployeeId]);
 
 
     // Handlers
@@ -296,7 +355,8 @@ export default function SalariesTab() {
                 otPay: totals.otPay,
                 netPay: totals.netPay,
                 dailyLogs: calendarData,
-                leavesConsumed: { casualLeave: totals.casualLeaveConsumed, sickLeave: totals.sickLeaveConsumed }
+                leavesConsumed: { casualLeave: totals.casualLeaveConsumed, sickLeave: totals.sickLeaveConsumed },
+                compOffAccrued: totals.compOffAccrued
             };
 
             if (existingSalaryId) {
@@ -313,44 +373,65 @@ export default function SalariesTab() {
                 setExistingSalaryId(res.data._id);
                 alert("Salary record saved successfully!");
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error saving salary:", error);
-            alert("Failed to save salary record.");
+            const msg = error.response?.data?.message || error.message || "Unknown error";
+            alert(`Failed to save salary record: ${msg}`);
         } finally {
             setSaving(false);
         }
     };
 
-    // --- Exports ---
-    const generatePDF = () => {
-        // Portrait A4 – compact enough to fit 31 rows on one page
+    const handleEditSavedSalary = (salary: any) => {
+        setSelectedEmployeeId(salary.employee._id);
+        setExistingSalaryId(salary._id);
+        setCalendarData(salary.dailyLogs || []);
+        if (salary.salaryComponents?.basic) {
+            setBaseSalary(salary.salaryComponents.basic);
+        }
+        if (salary.otRatePH) setOtRatePH(salary.otRatePH);
+        setActiveMainTab('generator');
+    };
+
+    const handleDeleteSavedSalary = async (id: string) => {
+        if (!confirm("Are you sure you want to delete this salary record?")) return;
+        try {
+            const token = localStorage.getItem('token');
+            await axios.delete(`${API_BASE_URL}/api/hr/salary/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setSavedSalaries(prev => prev.filter(s => s._id !== id));
+            alert("Salary record deleted.");
+        } catch (error) {
+            console.error("Error deleting salary:", error);
+            alert("Failed to delete salary record.");
+        }
+    };
+
+    const handleDownloadSavedPDF = (salary: any, slipType: 'Combined' | 'Salary' | 'Overtime') => {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        const emp = employees.find(e => e._id === selectedEmployeeId);
+        const emp = salary.employee;
         const pageW = doc.internal.pageSize.getWidth();
         const pageH = doc.internal.pageSize.getHeight();
         const margin = 10;
 
         const drawHeader = () => {
-            // ─ Row 1: Blue branding band (company info) ───────────────
             doc.setFillColor(37, 99, 235);
             doc.rect(0, 0, pageW, 20, 'F');
-
             doc.setTextColor(255, 255, 255);
 
             const hasLogo = !!companyLogo;
-            const logoSize = 14; // square logo
+            const logoSize = 14;
             const logoX = margin;
             const logoY = 3;
 
             if (hasLogo) {
                 try {
-                    doc.addImage(companyLogo, 'JPEG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
-                } catch { /* skip if load fails */ }
+                    doc.addImage(companyLogo!, 'JPEG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
+                } catch { }
             }
 
-            // Company name & address — always to the right of the logo (or at margin if no logo)
             const nameX = hasLogo ? margin + logoSize + 3 : margin;
-
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(13);
             doc.text(companyName || 'Company', nameX, 10);
@@ -361,51 +442,57 @@ export default function SalariesTab() {
                 doc.text(companyAddress, nameX, 16, { maxWidth: 75 });
             }
 
-            // Title — centered
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(10);
-            doc.text('Monthly Salary Slip', pageW / 2, 10, { align: 'center' });
+            const titleSuffix = slipType === 'Combined' ? '' : ` (${slipType})`;
+            doc.text(`Monthly Salary Slip${titleSuffix}`, pageW / 2, 10, { align: 'center' });
 
-            // Period & date — right
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(8);
-            doc.text(`${month} ${year}`, pageW - margin, 10, { align: 'right' });
+            doc.text(`${salary.month} ${salary.year}`, pageW - margin, 10, { align: 'right' });
             doc.setFontSize(7);
             doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, pageW - margin, 16, { align: 'right' });
 
-            // ─ Row 2: White-ish employee band ─────────────────────────
-            doc.setFillColor(219, 234, 254); // blue-100
+            doc.setFillColor(219, 234, 254);
             doc.rect(0, 20, pageW, 12, 'F');
-
-            doc.setTextColor(30, 58, 138); // blue-900
+            doc.setTextColor(30, 58, 138);
             doc.setFont('helvetica', 'bold');
             doc.setFontSize(9);
             doc.text(emp?.name || '-', margin, 27);
 
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
-            doc.setTextColor(55, 65, 81); // gray-700
+            doc.setTextColor(55, 65, 81);
             const empInfo = `ID: ${emp?.employeeId || '-'}  |  Dept: ${emp?.department || '-'}  |  Desig: ${emp?.designation || '-'}`;
             doc.text(empInfo, pageW - margin, 27, { align: 'right' });
         };
 
         drawHeader();
 
-        // ── Summary strip ─────────────────────────────────────────────
-        // Starts after the two-row header (20 + 12 = 32mm)
         doc.setTextColor(30, 30, 30);
         doc.setFillColor(241, 245, 249);
         doc.rect(0, 32, pageW, 16, 'F');
 
-        // jsPDF standard fonts do not support the ₹ symbol. Fallback to Rs. for PDF rendering.
         const cur = (currency === '₹' || !currency) ? 'Rs.' : currency;
+        
+        let displayGrossPay = salary.grossSalary || 0;
+        let displayOtPay = salary.overtime?.amount || 0;
+
+        if (slipType === 'Overtime') {
+            displayGrossPay = 0;
+        } else if (slipType === 'Salary') {
+            displayOtPay = 0;
+        }
+        
+        const displayNetPay = displayGrossPay + displayOtPay;
+
         const summaryItems = [
-            { label: 'Present Days', value: String(totals.presentDays) },
-            { label: 'Duty Hours',   value: String(totals.totalDutyHours) },
-            { label: 'OT Hours',     value: Number(totals.totalOtHours).toFixed(2) },
-            { label: 'Basic Pay',    value: `${cur} ${totals.grossPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
-            { label: 'OT Pay',       value: `${cur} ${totals.otPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
-            { label: 'Net Payable',  value: `${cur} ${totals.netPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
+            { label: 'Present Days', value: String(salary.presentDays || 0) },
+            { label: 'Duty Hours',   value: String(salary.totalDutyHours || 0) },
+            { label: 'OT Hours',     value: Number(salary.overtime?.hours || salary.totalOtHours || 0).toFixed(2) },
+            { label: 'Basic Pay',    value: `${cur} ${displayGrossPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
+            { label: 'OT Pay',       value: `${cur} ${displayOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
+            { label: 'Net Payable',  value: `${cur} ${displayNetPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
         ];
         const sw = (pageW - 2 * margin) / summaryItems.length;
         summaryItems.forEach((item, i) => {
@@ -421,10 +508,7 @@ export default function SalariesTab() {
         });
         doc.setTextColor(30, 30, 30);
 
-        // ── Attendance table ─────────────────────────────────────────
-        // Portrait usable width = 190mm  |  5 columns totalling ~187mm
-        // Row height @ font 6.5pt + 1.2mm pad ≈ 4.5mm → 31 rows ≈ 140mm  ✓
-        const tableBody = calendarData.map(d => {
+        const tableBody = (salary.dailyLogs || []).map((d: any) => {
             const finalStatus = d.useManual ? d.manualStatus : d.originalStatus;
             const finalHours  = d.useManual ? d.manualHours  : (d.originalHours ?? 0);
             return [
@@ -443,51 +527,32 @@ export default function SalariesTab() {
             head: [['Date', 'Day', 'DB Status', 'DB Hrs', 'Final Status', 'Final Hrs']],
             body: tableBody,
             theme: 'grid',
-            pageBreak: 'avoid',          // keep all rows on one page
-            styles: {
-                fontSize: 6.5,
-                cellPadding: 1.2,
-                halign: 'center',
-                valign: 'middle',
-                overflow: 'linebreak',
-            },
-            headStyles: {
-                fillColor: [37, 99, 235],
-                textColor: 255,
-                fontStyle: 'bold',
-                fontSize: 7,
-                cellPadding: 1.5,
-            },
+            pageBreak: 'avoid',
+            styles: { fontSize: 6.5, cellPadding: 1.2, halign: 'center', valign: 'middle', overflow: 'linebreak' },
+            headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 7, cellPadding: 1.5 },
             columnStyles: {
-                0: { cellWidth: 26 },   // Date
-                1: { cellWidth: 12 },   // Day
-                2: { cellWidth: 32 },   // DB Status
-                3: { cellWidth: 18 },   // DB Hrs
-                4: { cellWidth: 56 },   // Final Status (wider – shows "(M)" note)
-                5: { cellWidth: 46 },   // Final Hrs
+                0: { cellWidth: 26 }, 1: { cellWidth: 12 }, 2: { cellWidth: 32 },
+                3: { cellWidth: 18 }, 4: { cellWidth: 56 }, 5: { cellWidth: 46 },
             },
             didParseCell: (data) => {
                 if (data.section === 'body') {
-                    const day = calendarData[data.row.index];
-                    // Weekend highlight
+                    const day = (salary.dailyLogs || [])[data.row.index];
                     if (day && ['Sat', 'Sun'].includes(day.dayName)) {
                         data.cell.styles.fillColor = [254, 242, 242];
                     }
-                    // Color-code Final Status column (index 4)
                     if (data.column.index === 4) {
                         const s = day?.useManual ? day.manualStatus : day?.originalStatus;
                         if (s === 'Present')  data.cell.styles.textColor = [22, 163, 74];
                         else if (s === 'HalfDay') data.cell.styles.textColor = [217, 119, 6];
                         else if (s === 'Holiday') data.cell.styles.textColor = [37, 99, 235];
-                        else if (s === 'CL') data.cell.styles.textColor = [79, 70, 229]; // Indigo
-                        else if (s === 'SL') data.cell.styles.textColor = [147, 51, 234]; // Purple
+                        else if (s === 'CL') data.cell.styles.textColor = [79, 70, 229];
+                        else if (s === 'SL') data.cell.styles.textColor = [147, 51, 234];
                         else                  data.cell.styles.textColor = [220, 38, 38];
                     }
                 }
             },
         });
 
-        // ── Footer ───────────────────────────────────────────────────
         const finalY = (doc as any).lastAutoTable?.finalY || pageH - 15;
         if (finalY + 14 < pageH) {
             doc.setDrawColor(200, 200, 200);
@@ -498,174 +563,123 @@ export default function SalariesTab() {
             doc.text(companyName || '', pageW - margin, finalY + 11, { align: 'right' });
         }
 
-        doc.save(`Salary_${emp?.name}_${month}_${year}.pdf`);
+        doc.save(`Salary_${emp?.name}_${salary.month}_${salary.year}.pdf`);
     };
 
-    const generateExcel = () => {
-        const emp = employees.find(e => e._id === selectedEmployeeId);
-        const cur = currency || '₹';
 
-        // Build a single sheet using an Array of Arrays
-        const aoa: any[][] = [];
-
-        // 1. Branding Header
-        aoa.push([companyName || 'Company', '', '', '', `Generated: ${new Date().toLocaleDateString('en-IN')}`]);
-        if (companyAddress) aoa.push([companyAddress]);
-        aoa.push([]); // empty row
-        
-        // 2. Title & Period
-        aoa.push(['MONTHLY SALARY SLIP', '', '', '', `${month} ${year}`]);
-        aoa.push([]);
-
-        // 3. Employee Info
-        aoa.push(['Employee Name:', emp?.name || '-', 'Employee ID:', emp?.employeeId || '-']);
-        aoa.push(['Department:', emp?.department || '-', 'Designation:', emp?.designation || '-']);
-        aoa.push([]);
-
-        // 4. Summary Strip
-        aoa.push(['PAY SUMMARY']);
-        aoa.push(['Present Days', 'Duty Hours', 'OT Hours', 'Basic Pay', 'OT Pay', 'Net Payable']);
-        aoa.push([
-            totals.presentDays,
-            totals.totalDutyHours,
-            Number(totals.totalOtHours).toFixed(2),
-            `${cur} ${totals.grossPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-            `${cur} ${totals.otPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
-            `${cur} ${totals.netPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
-        ]);
-        aoa.push([]);
-
-        // 5. Attendance Table
-        aoa.push(['DAILY ATTENDANCE LOG']);
-        aoa.push(['Date', 'Day', 'DB Status', 'DB Hrs', 'Final Status', 'Final Hrs']);
-        
-        calendarData.forEach(d => {
-            const finalStatus = d.useManual ? d.manualStatus : d.originalStatus;
-            const finalHours  = d.useManual ? d.manualHours  : (d.originalHours ?? 0);
-            aoa.push([
-                d.date,
-                d.dayName,
-                d.originalStatus || 'Absent',
-                d.originalHours != null ? `${d.originalHours}h` : '-',
-                d.useManual ? `${d.manualStatus} (M)` : finalStatus,
-                finalHours != null ? `${finalHours}h` : '-'
-            ]);
-        });
-
-        // 6. Footer
-        aoa.push([]);
-        aoa.push(['This is a system-generated document.']);
-
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-        // Adjust column widths
-        ws['!cols'] = [
-            { wch: 15 }, // Date / Labels
-            { wch: 20 }, // Day / Values
-            { wch: 20 }, // DB Status / Labels
-            { wch: 20 }, // DB Hrs / Values
-            { wch: 20 }, // Final Status
-            { wch: 15 }  // Final Hrs
-        ];
-
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Salary Slip");
-        XLSX.writeFile(wb, `Salary_${emp?.name}_${month}_${year}.xlsx`);
-    };
 
     return (
         <div className="animate-in duration-300 fade-in space-y-6">
-            {/* 1. Header Control Panel */}
-            <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 dark:text-gray-100 flex flex-col gap-6 items-end justify-between md:flex-row p-5 rounded-xl shadow-sm text-gray-800">
-                <div className="flex flex-col gap-4 md:flex-row md:w-auto w-full">
-                    <div className="relative">
-                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wide uppercase">Employee</label>
-                        <div 
-                            className="bg-gray-50 border border-gray-200 dark:bg-slate-800/50 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 md:w-64 outline-none px-4 py-2.5 rounded-lg w-full dark:text-white cursor-pointer flex justify-between items-center"
-                            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                        >
-                            <span className="truncate">{selectedEmployeeDisplay}</span>
-                            <span className="text-gray-400">▼</span>
+            
+            <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-4 rounded-xl shadow-sm flex flex-col xl:flex-row justify-between items-center gap-4 relative z-20">
+                <div className="flex gap-2 w-full xl:w-auto">
+                    <button 
+                        onClick={() => setActiveMainTab('generator')}
+                        className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex-1 xl:flex-none ${activeMainTab === 'generator' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-slate-700'}`}
+                    >
+                        Salary Generator
+                    </button>
+                    <button 
+                        onClick={() => setActiveMainTab('saved')}
+                        className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex-1 xl:flex-none ${activeMainTab === 'saved' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' : 'text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-slate-700'}`}
+                    >
+                        Saved Salaries
+                    </button>
+                </div>
+                
+                <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
+                    {/* GLOBAL EMPLOYEE SEARCH */}
+                    <div className="relative w-full md:w-64">
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase hidden md:block">Employee:</label>
+                            <div 
+                                className="bg-gray-50 border border-gray-200 dark:bg-slate-900 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2 rounded-lg w-full dark:text-white cursor-pointer flex justify-between items-center text-sm"
+                                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                            >
+                                <span className="truncate">{selectedEmployeeDisplay}</span>
+                                <span className="text-gray-400 text-xs ml-2">▼</span>
+                            </div>
                         </div>
                         {isDropdownOpen && (
                             <>
                                 <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
-                                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden flex flex-col max-h-60">
-                                <div className="p-2 border-b border-gray-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
-                                    <input 
-                                        type="text" 
-                                        className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded px-3 py-1.5 text-sm outline-none focus:border-blue-500 dark:text-white"
-                                        placeholder="Search employee..."
-                                        value={employeeSearchTerm}
-                                        onChange={(e) => setEmployeeSearchTerm(e.target.value)}
-                                        onClick={(e) => e.stopPropagation()}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="overflow-y-auto custom-scrollbar">
-                                    {filteredEmployees.length > 0 ? filteredEmployees.map(e => (
+                                <div className="absolute z-20 w-full md:w-80 right-0 mt-1 bg-white border border-gray-200 dark:bg-slate-800 dark:border-slate-700 rounded-lg shadow-lg overflow-hidden flex flex-col max-h-80">
+                                    <div className="p-2 border-b border-gray-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-800">
+                                        <input 
+                                            type="text" 
+                                            className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded px-3 py-2 text-sm outline-none focus:border-blue-500 dark:text-white"
+                                            placeholder="Search employee..."
+                                            value={employeeSearchTerm}
+                                            onChange={(e) => setEmployeeSearchTerm(e.target.value)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <div className="overflow-y-auto custom-scrollbar">
                                         <div 
-                                            key={e._id} 
-                                            className={`px-4 py-2 cursor-pointer text-sm hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors ${e._id === selectedEmployeeId ? 'bg-blue-100 dark:bg-slate-600 font-medium' : 'dark:text-gray-200'}`}
+                                            className={`px-4 py-2 cursor-pointer text-sm hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors ${!selectedEmployeeId ? 'bg-blue-100 dark:bg-slate-600 font-medium text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-200'}`}
                                             onClick={() => {
-                                                setSelectedEmployeeId(e._id);
+                                                setSelectedEmployeeId("");
                                                 setIsDropdownOpen(false);
                                                 setEmployeeSearchTerm("");
                                             }}
                                         >
-                                            {e.name} ({e.employeeId})
+                                            <span className="font-semibold">All Employees</span> (Saved DB Only)
                                         </div>
-                                    )) : (
-                                        <div className="px-4 py-3 text-sm text-gray-500 text-center">No matching employees</div>
-                                    )}
+                                        <div className="h-px bg-gray-100 dark:bg-slate-700 w-full"></div>
+                                        
+                                        {filteredEmployees.length > 0 ? filteredEmployees.map(e => (
+                                            <div 
+                                                key={e._id} 
+                                                className={`px-4 py-2 cursor-pointer text-sm hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors ${e._id === selectedEmployeeId ? 'bg-blue-100 dark:bg-slate-600 font-medium text-blue-700 dark:text-blue-300' : 'dark:text-gray-200'}`}
+                                                onClick={() => {
+                                                    setSelectedEmployeeId(e._id);
+                                                    setIsDropdownOpen(false);
+                                                    setEmployeeSearchTerm("");
+                                                }}
+                                            >
+                                                {e.name} ({e.employeeId})
+                                            </div>
+                                        )) : (
+                                            <div className="px-4 py-3 text-sm text-gray-500 text-center">No matching employees</div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
                             </>
                         )}
                     </div>
 
-                    <div>
-                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wide uppercase">Period</label>
-                        <div className="flex gap-2">
-                            <select
-                                className="bg-gray-50 border border-gray-200 dark:bg-slate-800/50 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2.5 rounded-lg dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                                value={month}
-                                onChange={(e) => setMonth(e.target.value)}
-                            >
-                                {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
-                                    <option key={m} value={m}>{m}</option>
-                                ))}
-                            </select>
-                            <select
-                                className="bg-gray-50 border border-gray-200 dark:bg-slate-800/50 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2.5 rounded-lg dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                                value={year}
-                                onChange={(e) => setYear(Number(e.target.value))}
-                            >
-                                {Array.from({ length: new Date().getFullYear() - 2023 + 1 }, (_, i) => 2023 + i).map(y => (
-                                    <option key={y} value={y}>{y}</option>
-                                ))}
-                            </select>
-                        </div>
+                    <div className="hidden md:block h-8 w-px bg-gray-200 dark:bg-slate-700"></div>
+
+                    {/* PERIOD SECTION */}
+                    <div className="flex items-center gap-2 w-full md:w-auto">
+                        <label className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase hidden md:block">Period:</label>
+                        <select
+                            className="bg-gray-50 border border-gray-200 dark:bg-slate-900 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2 rounded-lg text-sm dark:text-white w-full md:w-auto"
+                            value={month}
+                            onChange={(e) => setMonth(e.target.value)}
+                        >
+                            {["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map(m => (
+                                <option key={m} value={m}>{m}</option>
+                            ))}
+                        </select>
+                        <select
+                            className="bg-gray-50 border border-gray-200 dark:bg-slate-900 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none px-3 py-2 rounded-lg text-sm dark:text-white w-full md:w-auto"
+                            value={year}
+                            onChange={(e) => setYear(Number(e.target.value))}
+                        >
+                            {Array.from({ length: new Date().getFullYear() - 2023 + 1 }, (_, i) => 2023 + i).map(y => (
+                                <option key={y} value={y}>{y}</option>
+                            ))}
+                        </select>
                     </div>
                 </div>
-
-                {selectedEmployeeId && (
-                    <div className="flex gap-3">
-                        <button
-                            onClick={generatePDF}
-                            className="bg-red-50 flex font-medium gap-2 hover:bg-red-100 items-center px-4 py-2.5 rounded-lg text-red-700 transition-colors"
-                        >
-                            <FileText size={18} /> PDF
-                        </button>
-                        <button
-                            onClick={generateExcel}
-                            className="bg-green-50 flex font-medium gap-2 hover:bg-green-100 items-center px-4 py-2.5 rounded-lg text-green-700 transition-colors"
-                        >
-                            <FileSpreadsheet size={18} /> Excel
-                        </button>
-                    </div>
-                )}
             </div>
+
+            {/* GENERATOR TAB CONTENT */}
+            {activeMainTab === 'generator' && (
+            <>
+
 
             {loading && (
                 <div className="bg-white dark:bg-slate-800 p-12 rounded-xl shadow-sm text-center">
@@ -810,6 +824,7 @@ export default function SalariesTab() {
                                         />
                                     </div>
                                 </div>
+
                             </div>
                         </div>
 
@@ -832,6 +847,20 @@ export default function SalariesTab() {
                                     <span className="text-blue-200">Total OT Hours</span>
                                     <span className="font-bold text-lg">{totals.totalOtHours}</span>
                                 </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-blue-200">Effective Working Days</span>
+                                    <span className="font-bold text-lg">{totals.effectiveWorkingDays}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-sm">
+                                    <span className="text-blue-200">Weekly Offs</span>
+                                    <span className="font-bold text-lg">{totals.weeklyOffsCount}</span>
+                                </div>
+                                {totals.compOffAccrued > 0 && (
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-green-200">Comp Off Accrued</span>
+                                        <span className="font-bold text-lg text-green-100">+{totals.compOffAccrued} Days</span>
+                                    </div>
+                                )}
                                 {totals.casualLeaveConsumed > 0 && (
                                     <div className="flex items-center justify-between text-sm">
                                         <span className="text-indigo-200">Casual Leaves (CL)</span>
@@ -888,6 +917,110 @@ export default function SalariesTab() {
                     </div>
                     <h3 className="dark:text-gray-200 font-bold text-gray-700 text-lg">Salary Calculator</h3>
                     <p className="dark:text-gray-400 mt-1 text-gray-500 text-sm">Select an employee and period to start generating salary slips.</p>
+                </div>
+            )}
+            </>
+            )}
+
+            {/* SAVED DATABASE TAB CONTENT */}
+            {activeMainTab === 'saved' && (
+                <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                        <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">Saved Salaries for {month} {year}</h3>
+                        <div className="relative w-full md:w-64">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                            <input 
+                                type="text"
+                                placeholder="Search by name or ID..."
+                                className="w-full bg-gray-50 border border-gray-200 dark:bg-slate-900 dark:border-slate-700 focus:ring-2 focus:ring-blue-500 outline-none pl-9 pr-3 py-2 rounded-lg text-sm dark:text-white"
+                                value={savedSalarySearchTerm}
+                                onChange={(e) => setSavedSalarySearchTerm(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    {loadingSaved ? (
+                        <div className="py-12 text-center">
+                            <LoadingSpinner />
+                            <p className="dark:text-gray-400 mt-2 text-gray-500 text-sm">Loading saved records...</p>
+                        </div>
+                    ) : filteredSavedSalaries.length === 0 ? (
+                        <div className="py-12 text-center text-gray-500 dark:text-gray-400 border-2 border-dashed border-gray-200 dark:border-slate-700 rounded-lg">
+                            No salary records found matching your search.
+                        </div>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm">
+                                <thead className="bg-gray-50 dark:bg-slate-900 dark:text-gray-400 text-gray-500 uppercase text-xs">
+                                    <tr>
+                                        <th className="px-4 py-3">Employee</th>
+                                        <th className="px-4 py-3">Present Days</th>
+                                        <th className="px-4 py-3">Basic Pay</th>
+                                        <th className="px-4 py-3">OT Pay</th>
+                                        <th className="px-4 py-3">Net Pay</th>
+                                        <th className="px-4 py-3">Status</th>
+                                        <th className="px-4 py-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
+                                    {filteredSavedSalaries.map(salary => (
+                                        <tr key={salary._id} className="hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">
+                                                {salary.employee?.name || 'Unknown'} <br/>
+                                                <span className="text-xs text-gray-500 dark:text-gray-400">{salary.employee?.employeeId}</span>
+                                            </td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{salary.presentDays}</td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">₹ {salary.grossSalary?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">₹ {salary.overtime?.amount?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
+                                            <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200">₹ {salary.netSalary?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-1 text-xs rounded-full ${salary.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 dark:bg-slate-600 dark:text-gray-300'}`}>
+                                                    {salary.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right space-x-2">
+                                                <button 
+                                                    onClick={() => handleEditSavedSalary(salary)}
+                                                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium"
+                                                >
+                                                    Edit Data
+                                                </button>
+                                                <div className="flex items-center gap-2 justify-end">
+                                                    <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500">PDF:</span>
+                                                    <button 
+                                                        onClick={() => handleDownloadSavedPDF(salary, 'Combined')}
+                                                        className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 text-xs font-medium px-1"
+                                                        title="Combined PDF"
+                                                    >
+                                                        Comb
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDownloadSavedPDF(salary, 'Salary')}
+                                                        className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 text-xs font-medium px-1 border-l border-gray-200 dark:border-gray-700"
+                                                        title="Standard Salary PDF"
+                                                    >
+                                                        Sal
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDownloadSavedPDF(salary, 'Overtime')}
+                                                        className="text-orange-600 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300 text-xs font-medium px-1 border-l border-gray-200 dark:border-gray-700"
+                                                        title="Overtime PDF"
+                                                    >
+                                                        OT
+                                                    </button>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleDeleteSavedSalary(salary._id)}
+                                                    className="text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 text-xs font-medium mt-2"
+                                                >
+                                                    Delete
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
