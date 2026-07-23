@@ -31,17 +31,20 @@ export function proxy(request: NextRequest) {
   }
 
   if (isProtected && userType !== "company") {
-    if (department === "CEO" || department === "MD") {
-      // CEO and MD have full access, bypass restrictions
+    const upperDept = department?.toUpperCase();
+    if (upperDept === "CEO" || upperDept === "MD" || upperDept === "MANAGER") {
+      // CEO, MD and Manager have full access, bypass restrictions
     } else {
       for (const [route, allowedDepartments] of Object.entries(departmentAccess)) {
-        if (pathname.startsWith(route) && department && !allowedDepartments.includes(department)) {
-          return NextResponse.redirect(new URL("/dashboard/reports", request.url));
+        // also make allowed departments case insensitive
+        const allowedUpper = allowedDepartments.map(d => d.toUpperCase());
+        if (pathname.startsWith(route) && upperDept && !allowedUpper.includes(upperDept)) {
+          return NextResponse.redirect(new URL("/dashboard", request.url));
         }
       }
       
       // Admin should only access /dashboard and /dashboard/admin
-      if (pathname.startsWith("/dashboard/admin") && department !== "Admin") {
+      if (pathname.startsWith("/dashboard/admin") && upperDept !== "ADMIN") {
         return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     }

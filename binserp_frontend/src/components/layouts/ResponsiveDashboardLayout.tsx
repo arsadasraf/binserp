@@ -158,15 +158,20 @@ function resolveNavItems(userType: string | null, department: string | null) {
     ...(departmentNavMap.Accounts || []),
   ];
 
-  if (department === "CEO" || department === "MD" || department === "Manager") {
+  const upperDept = department?.toUpperCase();
+  if (upperDept === "CEO" || upperDept === "MD" || upperDept === "MANAGER") {
     return [...allModulesNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
+
+  const matchedDepartmentNav = department
+    ? Object.entries(departmentNavMap).find(([k]) => k.toUpperCase() === department.toUpperCase())?.[1]
+    : null;
 
   const list =
     userType === "company"
       ? companyNav
-      : department && departmentNavMap[department]
-        ? departmentNavMap[department]
+      : matchedDepartmentNav
+        ? matchedDepartmentNav
         : fallbackNav;
 
   return [...list].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
