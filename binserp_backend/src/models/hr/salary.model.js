@@ -92,12 +92,25 @@ export const salarySchema = new mongoose.Schema(
     remarks: String,
     leavesConsumed: {
       casualLeave: { type: Number, default: 0 },
-      sickLeave: { type: Number, default: 0 }
+      sickLeave: { type: Number, default: 0 },
+      compOff: { type: Number, default: 0 }
+    },
+    compOffAccrued: {
+      type: Number,
+      default: 0
     },
     recordType: {
       type: String,
       enum: ["Salary", "Overtime", "Combined"],
       default: "Combined"
+    },
+    generatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
     },
   },
   { timestamps: true }

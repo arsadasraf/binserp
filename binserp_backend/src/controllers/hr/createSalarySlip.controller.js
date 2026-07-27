@@ -63,10 +63,13 @@ export const createSalarySlip = async (req, res) => {
             grossSalary: grossPay || 0,
             netSalary: netPay || 0,
             dailyLogs: dailyLogs || [],
-            leavesConsumed: leavesConsumed || { casualLeave: 0, sickLeave: 0 },
+            leavesConsumed: leavesConsumed || { casualLeave: 0, sickLeave: 0, compOff: 0 },
+            compOffAccrued: compOffAccrued || 0,
             status: "Draft",
             recordType: "Combined",
-            remarks: `Manually saved for ${presentDays} present days.`
+            remarks: `Manually saved for ${presentDays} present days.`,
+            generatedBy: req.user._id,
+            updatedBy: req.user._id
         });
 
         await newSalary.save();
@@ -79,25 +82,70 @@ export const createSalarySlip = async (req, res) => {
             employeeUpdated = true;
         }
 
-        if (leavesConsumed && (leavesConsumed.casualLeave > 0 || leavesConsumed.sickLeave > 0)) {
+        if (leavesConsumed && (leavesConsumed.casualLeave > 0 || leavesConsumed.sickLeave > 0 || leavesConsumed.compOff > 0)) {
             if (employee.leaves) {
                 employee.leaves.casualLeave = Math.max(0, employee.leaves.casualLeave - (leavesConsumed.casualLeave || 0));
                 employee.leaves.sickLeave = Math.max(0, employee.leaves.sickLeave - (leavesConsumed.sickLeave || 0));
             }
-            
-            // Build history
-            if (dailyLogs && Array.isArray(dailyLogs)) {
-                dailyLogs.forEach(log => {
-                    if (log.useManual && (log.manualStatus === 'CL' || log.manualStatus === 'SL')) {
-                        employee.leaveHistory.push({
-                            date: log.date,
-                            type: log.manualStatus,
-                            month: month,
-                            year: Number(year)
-                        });
-                    }
-                });
+            if (leavesConsumed.compOff > 0) {
+                employee.compOffBalance = Math.max(0, (employee.compOffBalance || 0) - leavesConsumed.compOff);
             }
+            employeeUpdated = true;
+        }
+            
+        // Build history
+        if (dailyLogs && Array.isArray(dailyLogs)) {
+            const standardHours = employee.standardWorkingHours || 9;
+            const weeklyOff = employee.weeklyOff || "Sunday";
+            const weekOffWorkPolicy = employee.weekOffWorkPolicy || "Overtime";
+            const holidayWorkPolicy = employee.holidayWorkPolicy || "Overtime";
+
+            dailyLogs.forEach(log => {
+                const dateObj = new Date(log.date);
+                const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+                const isWeeklyOff = days[dateObj.getDay()] === weeklyOff;
+                const isPublicHoliday = log.originalStatus === 'Holiday';
+
+                const status = log.useManual ? log.manualStatus : log.originalStatus;
+                const hours = log.useManual ? log.manualHours : (log.originalHours || 0);
+
+                if (log.useManual && (log.manualStatus === 'CL' || log.manualStatus === 'SL' || log.manualStatus === 'CO')) {
+                    employee.leaveHistory.push({
+                        date: log.date,
+                        type: log.manualStatus,
+                        month: month,
+                        year: Number(year)
+                    });
+                }
+                
+                if (status === 'CO') {
+                    employee.compOffHistory.push({
+                        date: log.date,
+                        transactionType: 'Consumed',
+                        amount: 1,
+                        month: month,
+                        year: Number(year)
+                    });
+                }
+
+                if (isWeeklyOff && hours > 0 && weekOffWorkPolicy === "CompOff") {
+                    employee.compOffHistory.push({
+                        date: log.date,
+                        transactionType: 'Earned',
+                        amount: hours / standardHours,
+                        month: month,
+                        year: Number(year)
+                    });
+                } else if (isPublicHoliday && hours > 0 && holidayWorkPolicy === "CompOff") {
+                    employee.compOffHistory.push({
+                        date: log.date,
+                        transactionType: 'Earned',
+                        amount: hours / standardHours,
+                        month: month,
+                        year: Number(year)
+                    });
+                }
+            });
             employeeUpdated = true;
         }
 
@@ -108,7 +156,8 @@ export const createSalarySlip = async (req, res) => {
                     $set: { 
                         compOffBalance: employee.compOffBalance,
                         leaves: employee.leaves,
-                        leaveHistory: employee.leaveHistory
+                        leaveHistory: employee.leaveHistory,
+                        compOffHistory: employee.compOffHistory
                     } 
                 }
             );

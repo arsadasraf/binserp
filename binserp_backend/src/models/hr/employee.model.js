@@ -109,6 +109,13 @@ export const employeeSchema = new mongoose.Schema(
       month: String,
       year: Number
     }],
+    compOffHistory: [{
+      date: String,
+      transactionType: { type: String, enum: ['Earned', 'Consumed'] },
+      amount: Number,
+      month: String,
+      year: Number
+    }],
     password: {
       type: String,
       // Not required initially to support legacy employees who only have joiningDate

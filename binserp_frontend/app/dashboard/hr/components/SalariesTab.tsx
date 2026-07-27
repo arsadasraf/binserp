@@ -8,6 +8,7 @@ import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { Employee, Salary } from '../types/hr.types';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import EditSalaryModal from './modals/EditSalaryModal';
 import { API_BASE_URL } from '@/src/utils/config';
 
 interface DayStatus {
@@ -25,10 +26,12 @@ interface DayStatus {
     useManual: boolean;
 }
 
+const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 export default function SalariesTab() {
     // 1. Top Level Tab & Date Selection
     const [activeMainTab, setActiveMainTab] = useState<'generator' | 'saved'>('generator');
-    const [month, setMonth] = useState(new Date().toLocaleString('default', { month: 'long' }));
+    const [month, setMonth] = useState(months[new Date().getMonth()]);
     const [year, setYear] = useState(new Date().getFullYear());
 
     // 2. Employee Selection (For Generator)
@@ -56,12 +59,10 @@ export default function SalariesTab() {
     const [savedSalaries, setSavedSalaries] = useState<any[]>([]);
     const [loadingSaved, setLoadingSaved] = useState(false);
     const [savedSalarySearchTerm, setSavedSalarySearchTerm] = useState("");
+    const [editingSalaryData, setEditingSalaryData] = useState<any>(null);
 
     const filteredSavedSalaries = useMemo(() => {
         let filtered = savedSalaries;
-        if (selectedEmployeeId) {
-            filtered = filtered.filter(salary => salary.employee?._id === selectedEmployeeId);
-        }
         if (savedSalarySearchTerm) {
             const term = savedSalarySearchTerm.toLowerCase();
             filtered = filtered.filter(salary => 
@@ -70,7 +71,7 @@ export default function SalariesTab() {
             );
         }
         return filtered;
-    }, [savedSalaries, savedSalarySearchTerm, selectedEmployeeId]);
+    }, [savedSalaries, savedSalarySearchTerm]);
 
     // 5. Salary Config
     const [baseSalary, setBaseSalary] = useState(0);
@@ -274,21 +275,23 @@ export default function SalariesTab() {
 
             const isPublicHoliday = day.originalStatus === 'Holiday';
 
+            // Base Present Days logic
+            if (status === 'Present' || status === 'CL' || status === 'SL' || status === 'CO') presentDays += 1;
+            else if (status === 'HalfDay') presentDays += 0.5;
+            else if (status === 'Holiday') presentDays += 1; // Unedited public holidays are paid
+
+            // Overtime & CompOff Accrual logic
             if (isWeeklyOff) {
                 if (hours > 0) {
                     if (weekOffWorkPolicy === "Overtime") totalOtHours += hours;
                     else compOffAccrued += (hours / standardHours);
                 }
             } else if (isPublicHoliday) {
-                presentDays += 1;
                 if (hours > 0) {
                     if (holidayWorkPolicy === "Overtime") totalOtHours += hours;
                     else compOffAccrued += (hours / standardHours);
                 }
             } else {
-                if (status === 'Present' || status === 'CL' || status === 'SL') presentDays += 1;
-                else if (status === 'HalfDay') presentDays += 0.5;
-                
                 if (hours > standardHours) {
                     totalOtHours += (hours - standardHours);
                 }
@@ -299,14 +302,17 @@ export default function SalariesTab() {
 
         let casualLeaveConsumed = 0;
         let sickLeaveConsumed = 0;
+        let compOffConsumed = 0;
 
         calendarData.forEach(day => {
             const status = day.useManual ? day.manualStatus : day.originalStatus;
             if (status === 'CL') casualLeaveConsumed += 1;
             if (status === 'SL') sickLeaveConsumed += 1;
+            if (status === 'CO') compOffConsumed += 1;
         });
 
-        const grossPay = effectiveWorkingDays > 0 ? (baseSalary / effectiveWorkingDays) * presentDays : 0;
+        const cappedPresentDays = Math.min(presentDays, effectiveWorkingDays);
+        const grossPay = effectiveWorkingDays > 0 ? (baseSalary / effectiveWorkingDays) * cappedPresentDays : 0;
         const otPay = totalOtHours * otRatePH;
         const netPay = grossPay + otPay;
 
@@ -319,6 +325,7 @@ export default function SalariesTab() {
             netPay, 
             casualLeaveConsumed, 
             sickLeaveConsumed,
+            compOffConsumed,
             compOffAccrued,
             effectiveWorkingDays,
             weeklyOffsCount
@@ -336,6 +343,21 @@ export default function SalariesTab() {
     const updateManualField = (index: number, field: keyof DayStatus, value: any) => {
         const newData = [...calendarData];
         newData[index] = { ...newData[index], [field]: value };
+        
+        // Auto-fill hours if changing status
+        if (field === 'manualStatus') {
+            const emp = employees.find(e => e._id === selectedEmployeeId);
+            const standardHours = (emp as any)?.standardWorkingHours || 9;
+            
+            if (value === 'Present' && newData[index].manualHours === 0) {
+                newData[index].manualHours = standardHours;
+            } else if (value === 'HalfDay' && newData[index].manualHours === 0) {
+                newData[index].manualHours = standardHours / 2;
+            } else if (value === 'Absent' || value === 'Holiday' || value === 'CL' || value === 'SL' || value === 'CO') {
+                newData[index].manualHours = 0;
+            }
+        }
+        
         setCalendarData(newData);
     };
 
@@ -355,7 +377,11 @@ export default function SalariesTab() {
                 otPay: totals.otPay,
                 netPay: totals.netPay,
                 dailyLogs: calendarData,
-                leavesConsumed: { casualLeave: totals.casualLeaveConsumed, sickLeave: totals.sickLeaveConsumed },
+                leavesConsumed: { 
+                    casualLeave: totals.casualLeaveConsumed, 
+                    sickLeave: totals.sickLeaveConsumed,
+                    compOff: totals.compOffConsumed
+                },
                 compOffAccrued: totals.compOffAccrued
             };
 
@@ -374,23 +400,20 @@ export default function SalariesTab() {
                 alert("Salary record saved successfully!");
             }
         } catch (error: any) {
-            console.error("Error saving salary:", error);
-            const msg = error.response?.data?.message || error.message || "Unknown error";
-            alert(`Failed to save salary record: ${msg}`);
+            if (error.response?.status === 400 && error.response?.data?.message?.includes('already exists')) {
+                alert("Salary has already been created for this month. Please go to the Saved Salaries tab and edit it.");
+            } else {
+                console.error("Error saving salary:", error);
+                const msg = error.response?.data?.message || error.message || "Unknown error";
+                alert(`Failed to save salary record: ${msg}`);
+            }
         } finally {
             setSaving(false);
         }
     };
 
     const handleEditSavedSalary = (salary: any) => {
-        setSelectedEmployeeId(salary.employee._id);
-        setExistingSalaryId(salary._id);
-        setCalendarData(salary.dailyLogs || []);
-        if (salary.salaryComponents?.basic) {
-            setBaseSalary(salary.salaryComponents.basic);
-        }
-        if (salary.otRatePH) setOtRatePH(salary.otRatePH);
-        setActiveMainTab('generator');
+        setEditingSalaryData(salary);
     };
 
     const handleDeleteSavedSalary = async (id: string) => {
@@ -537,7 +560,7 @@ export default function SalariesTab() {
             didParseCell: (data) => {
                 if (data.section === 'body') {
                     const day = (salary.dailyLogs || [])[data.row.index];
-                    if (day && ['Sat', 'Sun'].includes(day.dayName)) {
+                    if (day && (day.dayName === 'Sun' || day.originalStatus === 'Holiday')) {
                         data.cell.styles.fillColor = [254, 242, 242];
                     }
                     if (data.column.index === 4) {
@@ -589,7 +612,9 @@ export default function SalariesTab() {
                 
                 <div className="flex flex-col md:flex-row items-center gap-4 w-full xl:w-auto">
                     {/* GLOBAL EMPLOYEE SEARCH */}
-                    <div className="relative w-full md:w-64">
+                    {activeMainTab === 'generator' && (
+                        <>
+                            <div className="relative w-full md:w-64">
                         <div className="flex items-center gap-2">
                             <label className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase hidden md:block">Employee:</label>
                             <div 
@@ -647,9 +672,10 @@ export default function SalariesTab() {
                                 </div>
                             </>
                         )}
-                    </div>
-
-                    <div className="hidden md:block h-8 w-px bg-gray-200 dark:bg-slate-700"></div>
+                            </div>
+                            <div className="hidden md:block h-8 w-px bg-gray-200 dark:bg-slate-700"></div>
+                        </>
+                    )}
 
                     {/* PERIOD SECTION */}
                     <div className="flex items-center gap-2 w-full md:w-auto">
@@ -717,9 +743,9 @@ export default function SalariesTab() {
                                 </thead>
                                 <tbody className="divide-gray-100 divide-y">
                                     {calendarData.map((day, idx) => (
-                                        <tr key={day.date} className={`hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors ${day.useManual ? 'bg-blue-50/30 dark:bg-blue-900/30' : ''}`}>
+                                        <tr key={day.date} className={`hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors ${day.useManual ? 'bg-blue-50/30 dark:bg-blue-900/30' : day.dayName === 'Sun' || day.originalStatus === 'Holiday' ? 'bg-red-50/30 dark:bg-red-900/5' : ''}`}>
                                             <td className="dark:text-gray-200 font-medium px-4 py-3 text-gray-700">{day.date}</td>
-                                            <td className={`px-4 py-3 ${['Sat', 'Sun'].includes(day.dayName) ? 'text-red-500 font-bold' : 'text-gray-500 dark:text-gray-400'}`}>
+                                            <td className={`px-4 py-3 ${day.dayName === 'Sun' || day.originalStatus === 'Holiday' ? 'text-red-500 font-bold' : 'text-gray-500 dark:text-gray-400'}`}>
                                                 {day.dayName}
                                             </td>
 
@@ -768,6 +794,7 @@ export default function SalariesTab() {
                                                             <>
                                                                 {leaves?.casualLeave > 0 && <option value="CL">CL</option>}
                                                                 {leaves?.sickLeave > 0 && <option value="SL">SL</option>}
+                                                                <option value="CO">Comp Off (CO)</option>
                                                             </>
                                                         );
                                                     })()}
@@ -873,6 +900,12 @@ export default function SalariesTab() {
                                         <span className="font-bold text-lg text-purple-100">{totals.sickLeaveConsumed}</span>
                                     </div>
                                 )}
+                                {totals.compOffConsumed > 0 && (
+                                    <div className="flex items-center justify-between text-sm">
+                                        <span className="text-teal-200">Comp Offs Used (CO)</span>
+                                        <span className="font-bold text-lg text-teal-100">{totals.compOffConsumed}</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="border-t border-white/20 pt-4 space-y-2">
@@ -957,7 +990,7 @@ export default function SalariesTab() {
                                         <th className="px-4 py-3">Basic Pay</th>
                                         <th className="px-4 py-3">OT Pay</th>
                                         <th className="px-4 py-3">Net Pay</th>
-                                        <th className="px-4 py-3">Status</th>
+                                        <th className="px-4 py-3">Record Details</th>
                                         <th className="px-4 py-3 text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -973,9 +1006,12 @@ export default function SalariesTab() {
                                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">₹ {salary.overtime?.amount?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
                                             <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200">₹ {salary.netSalary?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
                                             <td className="px-4 py-3">
-                                                <span className={`px-2 py-1 text-xs rounded-full ${salary.status === 'Paid' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600 dark:bg-slate-600 dark:text-gray-300'}`}>
-                                                    {salary.status}
-                                                </span>
+                                                <div className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
+                                                    <div><span className="font-semibold text-gray-700 dark:text-gray-300">Gen:</span> {new Date(salary.createdAt).toLocaleDateString()} {salary.generatedBy?.name ? `by ${salary.generatedBy.name}` : ''}</div>
+                                                    {salary.updatedAt && salary.createdAt !== salary.updatedAt && (
+                                                        <div><span className="font-semibold text-gray-700 dark:text-gray-300">Ed:</span> {new Date(salary.updatedAt).toLocaleDateString()} {salary.updatedBy?.name ? `by ${salary.updatedBy.name}` : ''}</div>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-4 py-3 text-right space-x-2">
                                                 <button 
@@ -1023,6 +1059,16 @@ export default function SalariesTab() {
                     )}
                 </div>
             )}
+            <EditSalaryModal 
+                isOpen={!!editingSalaryData}
+                onClose={() => setEditingSalaryData(null)}
+                salary={editingSalaryData}
+                employees={employees}
+                onSuccess={() => {
+                    setEditingSalaryData(null);
+                    fetchSavedSalaries();
+                }}
+            />
         </div>
     );
 }

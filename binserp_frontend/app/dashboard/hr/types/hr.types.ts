@@ -88,9 +88,17 @@ export interface Employee {
     weeklyOff?: string;
     holidayWorkPolicy?: string;
     weekOffWorkPolicy?: string;
+    compOffBalance?: number;
     leaveHistory?: {
         date: string;
         type: string;
+        month: string;
+        year: number;
+    }[];
+    compOffHistory?: {
+        date: string;
+        transactionType: 'Earned' | 'Consumed';
+        amount: number;
         month: string;
         year: number;
     }[];

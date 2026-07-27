@@ -50,6 +50,7 @@ export const createEmployee = async (req, res) => {
       paymentDetails,
       salary,
       leaves,
+      compOffBalance,
     } = req.body;
 
     // Parse skills if it's a JSON string
@@ -170,6 +171,7 @@ export const createEmployee = async (req, res) => {
       paymentDetails: paymentDetails || {},
       salary: salary || {},
       leaves: leaves || { casualLeave: 0, sickLeave: 0 },
+      compOffBalance: compOffBalance || 0,
     });
 
     res.status(201).json({
