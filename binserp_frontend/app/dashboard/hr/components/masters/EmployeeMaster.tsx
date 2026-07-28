@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Search, Edit2, X, Camera, Upload, Coins, Briefcase, User, IndianRupee, Save, Phone, Mail, Check, Zap, ChevronDown, ChevronUp, History } from "lucide-react";
+import { Plus, Trash2, Search, Edit2, X, Camera, Upload, Coins, Briefcase, User, IndianRupee, Save, Phone, Mail, Check, Zap, ChevronDown, ChevronUp, History, Clock, Download, Eye, FileText } from "lucide-react";
 import axios from "axios";
 import { Employee, Department, Designation, Skill, EmployeeType } from "../../types/hr.types";
 import { API_BASE_URL } from "@/src/utils/config";
@@ -22,7 +22,6 @@ export default function EmployeeMaster() {
     const [departments, setDepartments] = useState<Department[]>([]);
     const [designations, setDesignations] = useState<Designation[]>([]);
     const [employeeTypes, setEmployeeTypes] = useState<EmployeeType[]>([]);
-    const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
     const [employeePrefix, setEmployeePrefix] = useState<string>("Prefix");
 
     const [loading, setLoading] = useState(true);
@@ -32,7 +31,7 @@ export default function EmployeeMaster() {
     const [isEditing, setIsEditing] = useState(false);
     const [currentId, setCurrentId] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [activeTab, setActiveTab] = useState<"personal" | "professional" | "salary">("personal");
+    const [activeTab, setActiveTab] = useState<"personal" | "professional" | "salary" | "leave_ot">("personal");
 
     // CompOff History Modal State
     const [showCompOffHistoryModal, setShowCompOffHistoryModal] = useState(false);
@@ -45,20 +44,7 @@ export default function EmployeeMaster() {
     const [capturedImage, setCapturedImage] = useState<string | null>(null);
     const [stream, setStream] = useState<MediaStream | null>(null);
 
-    // Skill Dropdown State
-    const [isSkillDropdownOpen, setIsSkillDropdownOpen] = useState(false);
-    const [skillSearch, setSkillSearch] = useState("");
-    const dropdownRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsSkillDropdownOpen(false);
-            }
-        };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
 
     interface FormData {
         name: string;
@@ -69,7 +55,6 @@ export default function EmployeeMaster() {
         designation: string;
         joiningDate: string;
         status: string;
-        skills: string[]; // Array of Skill IDs
         experience: string;
         degree: string;
         accountNumber: string;
@@ -90,10 +75,13 @@ export default function EmployeeMaster() {
         perDayCalculationBasis: string;
         otRate: number;
         standardWorkingHours: number;
-        weeklyOff: string;
+        weeklyOff: string[];
         holidayWorkPolicy: string;
         weekOffWorkPolicy: string;
         compOffBalance: number;
+        isOTApplicable: boolean;
+        otCompensateForAbsent: boolean;
+        absentOTRate: number;
     }
 
     const [formData, setFormData] = useState<FormData>({
@@ -105,7 +93,6 @@ export default function EmployeeMaster() {
         designation: "",
         joiningDate: new Date().toISOString().split("T")[0],
         status: "Active",
-        skills: [],
         experience: "",
         degree: "",
         accountNumber: "",
@@ -126,21 +113,32 @@ export default function EmployeeMaster() {
         perDayCalculationBasis: "Basic",
         otRate: 0,
         standardWorkingHours: 9,
-        weeklyOff: "Sunday",
+        weeklyOff: ["Sunday"],
         holidayWorkPolicy: "Overtime",
         weekOffWorkPolicy: "Overtime",
         compOffBalance: 0,
+        isOTApplicable: false,
+        otCompensateForAbsent: true,
+        absentOTRate: 0,
     });
 
     const [photoFile, setPhotoFile] = useState<File | null>(null);
     const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+    const [idFiles, setIdFiles] = useState<File[]>([]);
+    const [idPreviews, setIdPreviews] = useState<string[]>([]);
+
+    const [degreeFiles, setDegreeFiles] = useState<File[]>([]);
+    const [degreePreviews, setDegreePreviews] = useState<string[]>([]);
+
+    const [experienceFiles, setExperienceFiles] = useState<File[]>([]);
+    const [experiencePreviews, setExperiencePreviews] = useState<string[]>([]);
 
     useEffect(() => {
         fetchEmployees();
         fetchDepartments();
         fetchDesignations();
         fetchEmployeeTypes();
-        fetchSkills();
         fetchPrefixSettings();
     }, []);
 
@@ -223,30 +221,23 @@ export default function EmployeeMaster() {
         } catch (error) { console.error(error); }
     };
 
-    const fetchSkills = async () => {
-        try {
-            const token = localStorage.getItem("token");
-            const response = await axios.get(
-                `${API_BASE_URL}/api/hr/skill`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-            setAvailableSkills(response.data);
-        } catch (error) { console.error(error); }
-    };
-
     const handleOpenAdd = () => {
         setFormData({
             name: "", email: "", contact: "", department: "", employeeType: "Full-Time", designation: "",
-            joiningDate: new Date().toISOString().split("T")[0], status: "Active", skills: [],
+            joiningDate: new Date().toISOString().split("T")[0], status: "Active",
             experience: "", degree: "",
             accountNumber: "", bankName: "", ifscCode: "", branchName: "",
             basic: 0, hra: 0, conveyance: 0, medical: 0, specialAllowance: 0,
             pf: 0, professionalTax: 0, grossSalary: 0, netSalary: 0,
             casualLeave: 0, sickLeave: 0, perDayCalculationBasis: "Basic", otRate: 0,
-            standardWorkingHours: 9, weeklyOff: "Sunday", holidayWorkPolicy: "Overtime", weekOffWorkPolicy: "Overtime", compOffBalance: 0
+            standardWorkingHours: 9, weeklyOff: ["Sunday"], holidayWorkPolicy: "Overtime", weekOffWorkPolicy: "Overtime", compOffBalance: 0,
+            isOTApplicable: false, otCompensateForAbsent: true, absentOTRate: 0
         });
         setPhotoFile(null);
         setPhotoPreview(null);
+        setIdFiles([]); setIdPreviews([]);
+        setDegreeFiles([]); setDegreePreviews([]);
+        setExperienceFiles([]); setExperiencePreviews([]);
         setCapturedImage(null);
         setIsEditing(false);
         setCurrentId(null);
@@ -255,9 +246,6 @@ export default function EmployeeMaster() {
     };
 
     const handleOpenEdit = (emp: Employee) => {
-        // Map existing skills (which are objects) to IDs
-        const skillIds = emp.skills ? emp.skills.map((s: any) => s._id || s) : [];
-
         setFormData({
             name: emp.name,
             email: emp.email,
@@ -267,7 +255,6 @@ export default function EmployeeMaster() {
             designation: emp.designation,
             joiningDate: new Date(emp.joiningDate).toISOString().split("T")[0],
             status: emp.status,
-            skills: skillIds,
             experience: emp.experience || "",
             degree: emp.degree || "",
             accountNumber: emp.paymentDetails?.accountNumber || "",
@@ -289,13 +276,26 @@ export default function EmployeeMaster() {
             casualLeave: (emp as any).leaves?.casualLeave ?? 0,
             sickLeave: (emp as any).leaves?.sickLeave ?? 0,
             standardWorkingHours: emp.standardWorkingHours ?? 9,
-            weeklyOff: emp.weeklyOff || "Sunday",
+            weeklyOff: Array.isArray(emp.weeklyOff) ? emp.weeklyOff : emp.weeklyOff ? [emp.weeklyOff as unknown as string] : ["Sunday"],
             holidayWorkPolicy: emp.holidayWorkPolicy || "Overtime",
             weekOffWorkPolicy: emp.weekOffWorkPolicy || "Overtime",
             compOffBalance: emp.compOffBalance ?? 0,
+            isOTApplicable: emp.isOTApplicable ?? false,
+            otCompensateForAbsent: emp.otCompensateForAbsent ?? true,
+            absentOTRate: emp.absentOTRate ?? 0,
         });
         setPhotoPreview(emp.photo || null);
         setPhotoFile(null);
+        
+        setIdFiles([]);
+        setIdPreviews((emp as any).idDocuments || []);
+        
+        setDegreeFiles([]);
+        setDegreePreviews(emp.degreeDocuments || []);
+        
+        setExperienceFiles([]);
+        setExperiencePreviews(emp.experienceDocuments || []);
+
         setCapturedImage(null);
         setIsEditing(true);
         setCurrentId(emp._id);
@@ -352,7 +352,7 @@ export default function EmployeeMaster() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.name || !formData.email) return;
+        if (!formData.name) return;
 
         setSubmitting(true);
         try {
@@ -362,16 +362,16 @@ export default function EmployeeMaster() {
 
             const data = new FormData();
             Object.entries(formData).forEach(([key, value]) => {
-                if (!['skills', 'accountNumber', 'bankName', 'ifscCode', 'branchName',
+                if (!['accountNumber', 'bankName', 'ifscCode', 'branchName',
                     'basic', 'hra', 'conveyance', 'medical', 'specialAllowance', 'grossSalary', 'pf', 'professionalTax', 'netSalary',
                     'casualLeave', 'sickLeave', 'perDayCalculationBasis', 'otRate',
-                    'standardWorkingHours', 'weeklyOff', 'holidayWorkPolicy', 'weekOffWorkPolicy', 'compOffBalance'].includes(key)) {
+                    'standardWorkingHours', 'weeklyOff', 'holidayWorkPolicy', 'weekOffWorkPolicy', 'compOffBalance',
+                    'isOTApplicable', 'otCompensateForAbsent', 'absentOTRate'].includes(key)) {
                     data.append(key, value as string);
                 }
             });
 
             // Serialize complex data
-            data.append("skills", JSON.stringify(formData.skills));
             data.append("paymentDetails", JSON.stringify({
                 accountNumber: formData.accountNumber,
                 bankName: formData.bankName,
@@ -397,12 +397,24 @@ export default function EmployeeMaster() {
             }));
             
             data.append("standardWorkingHours", String(formData.standardWorkingHours));
-            data.append("weeklyOff", formData.weeklyOff);
+            data.append("weeklyOff", JSON.stringify(formData.weeklyOff));
             data.append("holidayWorkPolicy", formData.holidayWorkPolicy);
             data.append("weekOffWorkPolicy", formData.weekOffWorkPolicy);
             data.append("compOffBalance", String(formData.compOffBalance));
+            data.append("isOTApplicable", String(formData.isOTApplicable));
+            data.append("otCompensateForAbsent", String(formData.otCompensateForAbsent));
+            data.append("absentOTRate", String(formData.absentOTRate));
 
             if (photoFile) data.append("photo", photoFile);
+
+            idFiles.forEach(f => data.append("idDocuments", f));
+            degreeFiles.forEach(f => data.append("degreeDocuments", f));
+            experienceFiles.forEach(f => data.append("experienceDocuments", f));
+            
+            // Append remaining preview URLs to keep existing files
+            if (idPreviews.length > 0) data.append("existingIdDocuments", JSON.stringify(idPreviews.filter(p => p.startsWith('http'))));
+            if (degreePreviews.length > 0) data.append("existingDegreeDocuments", JSON.stringify(degreePreviews.filter(p => p.startsWith('http'))));
+            if (experiencePreviews.length > 0) data.append("existingExperienceDocuments", JSON.stringify(experiencePreviews.filter(p => p.startsWith('http'))));
 
             if (isEditing && currentId) await axios.put(`${url}/${currentId}`, data, { headers });
             else await axios.post(url, data, { headers });
@@ -437,18 +449,44 @@ export default function EmployeeMaster() {
         }
     };
 
-    const toggleSkill = (skillId: string) => {
-        setFormData(prev => {
-            const exists = prev.skills.includes(skillId);
-            if (exists) return { ...prev, skills: prev.skills.filter(id => id !== skillId) };
-            return { ...prev, skills: [...prev.skills, skillId] };
-        });
+    const handleMultiFileChange = (e: React.ChangeEvent<HTMLInputElement>, setFiles: React.Dispatch<React.SetStateAction<File[]>>, setPreviews: React.Dispatch<React.SetStateAction<string[]>>) => {
+        if (e.target.files) {
+            const newFiles = Array.from(e.target.files).slice(0, 5); // Limit to 5
+            setFiles(prev => [...prev, ...newFiles].slice(0, 5));
+            
+            newFiles.forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    setPreviews(prev => [...prev, ev.target?.result as string].slice(0, 5));
+                };
+                reader.readAsDataURL(file);
+            });
+        }
     };
 
-    // Filter skills for dropdown
-    const filteredSkills = availableSkills.filter(skill =>
-        skill.name.toLowerCase().includes(skillSearch.toLowerCase())
-    );
+    const removeMultiFile = (index: number, previews: string[], setPreviews: React.Dispatch<React.SetStateAction<string[]>>, setFiles: React.Dispatch<React.SetStateAction<File[]>>) => {
+        const isExistingUrl = previews[index].startsWith('http');
+        setPreviews(prev => prev.filter((_, i) => i !== index));
+        
+        if (!isExistingUrl) {
+            const existingUrlsCount = previews.filter(p => p.startsWith('http')).length;
+            const fileIndex = index - existingUrlsCount;
+            if (fileIndex >= 0) {
+                setFiles(prev => prev.filter((_, i) => i !== fileIndex));
+            }
+        }
+    };
+    const getBaseHourlyRate = () => {
+        const { perDayCalculationBasis, basic, grossSalary, netSalary, standardWorkingHours } = formData;
+        let monthlyBase = 0;
+        if (perDayCalculationBasis === "Gross") monthlyBase = grossSalary || 0;
+        else if (perDayCalculationBasis === "Net") monthlyBase = netSalary || 0;
+        else monthlyBase = basic || 0;
+
+        const perDay = monthlyBase / 30; // Assuming 30 days
+        const hours = standardWorkingHours || 9; // Avoid division by zero
+        return perDay / hours;
+    };
 
     return (
         <div className="space-y-6">
@@ -656,6 +694,7 @@ export default function EmployeeMaster() {
                                         { id: "personal", icon: User, label: "Personal" },
                                         { id: "professional", icon: Briefcase, label: "Professional" },
                                         { id: "salary", icon: IndianRupee, label: "Salary & Payment" },
+                                        { id: "leave_ot", icon: Clock, label: "Leave & OT Policies" },
                                     ].map(tab => (
                                         <button
                                             key={tab.id}
@@ -734,12 +773,12 @@ export default function EmployeeMaster() {
                                                             <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. Rahul Sharma" />
                                                         </div>
                                                         <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Email Address</label>
-                                                            <input required type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="rahul@example.com" />
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Email Address (Optional)</label>
+                                                            <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="rahul@example.com" />
                                                         </div>
                                                         <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Contact Number</label>
-                                                            <input required type="text" value={formData.contact} onChange={e => setFormData({ ...formData, contact: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="+91 9876543210" />
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Contact Number (Optional)</label>
+                                                            <input type="text" value={formData.contact} onChange={e => setFormData({ ...formData, contact: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="+91 9876543210" />
                                                         </div>
                                                     </div>
 
@@ -801,79 +840,137 @@ export default function EmployeeMaster() {
                                             </div>
 
                                             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 md:col-span-2 p-6 rounded-xl shadow-sm space-y-4">
-                                                <h4 className="border-b dark:text-white font-semibold mb-2 pb-2 text-gray-900 text-sm">Qualifications & Skills</h4>
-                                                <div className="gap-4 grid grid-cols-2">
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Degree / Qualification</label>
-                                                        <input type="text" value={formData.degree} onChange={e => setFormData({ ...formData, degree: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. B.Tech Computer Science" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Experience</label>
-                                                        <input type="text" value={formData.experience} onChange={e => setFormData({ ...formData, experience: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. 3 Years" />
-                                                    </div>
+                                                <h4 className="border-b dark:text-white font-semibold mb-2 pb-2 text-gray-900 text-sm">Documents, Qualifications & Experience</h4>
+                                                <div className="gap-6 grid grid-cols-1 md:grid-cols-3">
 
-                                                    {/* Multi-Select Dropdown with Icon */}
-                                                    <div className="col-span-2" ref={dropdownRef}>
-                                                        <label className="dark:text-gray-400 flex font-semibold gap-1 items-center mb-1.5 text-gray-500 text-xs tracking-wider uppercase">
-                                                            <Zap size={14} className="text-orange-500" />
-                                                            Skills (Multi-Select)
-                                                        </label>
-                                                        <div className="relative">
-                                                            <div
-                                                                className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 flex flex-wrap focus-within:bg-white focus-within:border-blue-500 gap-2 items-center min-h-[42px] outline-none px-3 py-2 rounded-lg transition-all w-full"
-                                                                onClick={() => { setIsSkillDropdownOpen(true); }}
-                                                            >
-                                                                {formData.skills.map(skillId => {
-                                                                    const skill = availableSkills.find(s => s._id === skillId);
-                                                                    return skill ? (
-                                                                        <span key={skillId} className="bg-blue-100 flex font-medium gap-1 items-center px-2 py-0.5 rounded text-blue-700 text-xs">
-                                                                            {skill.name}
-                                                                            <X size={12} className="cursor-pointer hover:text-red-500" onClick={(e) => { e.stopPropagation(); toggleSkill(skillId); }} />
-                                                                        </span>
-                                                                    ) : null;
-                                                                })}
-                                                                <input
-                                                                    type="text"
-                                                                    className="bg-transparent flex-1 min-w-[60px] outline-none text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white"
-                                                                    placeholder={formData.skills.length === 0 ? "Select skills..." : ""}
-                                                                    value={skillSearch}
-                                                                    onChange={(e) => setSkillSearch(e.target.value)}
-                                                                    onFocus={() => setIsSkillDropdownOpen(true)}
-                                                                />
-                                                                <div className="ml-auto pointer-events-none">
-                                                                    {isSkillDropdownOpen ? <ChevronUp size={16} className="dark:text-gray-500 text-gray-400" /> : <ChevronDown size={16} className="dark:text-gray-500 text-gray-400" />}
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Dropdown Menu */}
-                                                            {isSkillDropdownOpen && (
-                                                                <div className="absolute animate-in bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 duration-100 fade-in left-0 max-h-60 overflow-y-auto rounded-lg shadow-xl top-[102%] w-full z-20 zoom-in-95">
-                                                                    {filteredSkills.length === 0 ? (
-                                                                        <div className="dark:text-gray-400 p-3 text-center text-gray-500 text-sm">No skills found. Add from master.</div>
-                                                                    ) : (
-                                                                        filteredSkills.map(skill => {
-                                                                            const isSelected = formData.skills.includes(skill._id);
-                                                                            return (
-                                                                                <div
-                                                                                    key={skill._id}
-                                                                                    onClick={() => { toggleSkill(skill._id); setSkillSearch(""); }}
-                                                                                    className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-gray-50 transition-colors flex items-center justify-between group ${isSelected ? "bg-blue-50/50" : ""}`}
-                                                                                >
-                                                                                    <div className="flex gap-2 items-center">
-                                                                                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? "bg-blue-600 border-blue-600" : "border-gray-300 bg-white group-hover:border-blue-400"}`}>
-                                                                                            {isSelected && <Check size={10} className="text-white" />}
-                                                                                        </div>
-                                                                                        <span className={isSelected ? "font-medium text-gray-900" : "text-gray-700"}>{skill.name}</span>
-                                                                                    </div>
-                                                                                    {skill.description && <span className="dark:text-gray-500 group-hover:inline hidden max-w-[150px] text-gray-400 text-xs truncate">{skill.description}</span>}
+                                                    {/* Identity Documents Section */}
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Identity Documents (Max 5)</label>
+                                                            <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800/50 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-600">
+                                                                <Upload size={16} />
+                                                                <span className="text-sm font-medium">Select Files</span>
+                                                                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setIdFiles, setIdPreviews)} />
+                                                            </label>
+                                                            {idPreviews.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 mt-3">
+                                                                    {idPreviews.map((preview, idx) => {
+                                                                        const isPdf = preview.toLowerCase().includes('.pdf') || preview.startsWith('data:application/pdf');
+                                                                        return (
+                                                                        <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-200 w-20 h-20 bg-gray-50 flex items-center justify-center">
+                                                                            {isPdf ? (
+                                                                                <FileText className="text-gray-400" size={24} />
+                                                                            ) : (
+                                                                                <img src={preview} alt="ID Preview" className="w-full h-full object-cover" />
+                                                                            )}
+                                                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                                                                <div className="flex gap-2">
+                                                                                    <a href={preview} target="_blank" rel="noopener noreferrer" className="bg-white/20 hover:bg-white/40 text-white rounded-full p-1.5 transition-colors">
+                                                                                        <Eye size={12} />
+                                                                                    </a>
+                                                                                    <a href={preview} download={`id-doc-${idx}`} className="bg-white/20 hover:bg-white/40 text-white rounded-full p-1.5 transition-colors">
+                                                                                        <Download size={12} />
+                                                                                    </a>
                                                                                 </div>
-                                                                            );
-                                                                        })
-                                                                    )}
+                                                                            </div>
+                                                                            <button type="button" onClick={() => removeMultiFile(idx, idPreviews, setIdPreviews, setIdFiles)} className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10">
+                                                                                <X size={10} />
+                                                                            </button>
+                                                                        </div>
+                                                                    )})}
                                                                 </div>
                                                             )}
                                                         </div>
                                                     </div>
+                                                    
+                                                    {/* Degree Section */}
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Degree / Qualification</label>
+                                                            <input type="text" value={formData.degree} onChange={e => setFormData({ ...formData, degree: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. B.Tech Computer Science" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Upload Degree Documents (Max 5)</label>
+                                                            <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800/50 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-600">
+                                                                <Upload size={16} />
+                                                                <span className="text-sm font-medium">Select Files</span>
+                                                                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setDegreeFiles, setDegreePreviews)} />
+                                                            </label>
+                                                            {degreePreviews.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 mt-3">
+                                                                    {degreePreviews.map((preview, idx) => {
+                                                                        const isPdf = preview.toLowerCase().includes('.pdf') || preview.startsWith('data:application/pdf');
+                                                                        return (
+                                                                        <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-200 w-20 h-20 bg-gray-50 flex items-center justify-center">
+                                                                            {isPdf ? (
+                                                                                <FileText className="text-gray-400" size={24} />
+                                                                            ) : (
+                                                                                <img src={preview} alt="Degree Preview" className="w-full h-full object-cover" />
+                                                                            )}
+                                                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                                                                <div className="flex gap-2">
+                                                                                    <a href={preview} target="_blank" rel="noopener noreferrer" className="bg-white/20 hover:bg-white/40 text-white rounded-full p-1.5 transition-colors">
+                                                                                        <Eye size={12} />
+                                                                                    </a>
+                                                                                    <a href={preview} download={`degree-doc-${idx}`} className="bg-white/20 hover:bg-white/40 text-white rounded-full p-1.5 transition-colors">
+                                                                                        <Download size={12} />
+                                                                                    </a>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button type="button" onClick={() => removeMultiFile(idx, degreePreviews, setDegreePreviews, setDegreeFiles)} className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10">
+                                                                                <X size={10} />
+                                                                            </button>
+                                                                        </div>
+                                                                    )})}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Experience Section */}
+                                                    <div className="space-y-4">
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Experience</label>
+                                                            <input type="text" value={formData.experience} onChange={e => setFormData({ ...formData, experience: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. 3 Years" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Upload Experience Documents (Max 5)</label>
+                                                            <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800/50 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-600">
+                                                                <Upload size={16} />
+                                                                <span className="text-sm font-medium">Select Files</span>
+                                                                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setExperienceFiles, setExperiencePreviews)} />
+                                                            </label>
+                                                            {experiencePreviews.length > 0 && (
+                                                                <div className="flex flex-wrap gap-2 mt-3">
+                                                                    {experiencePreviews.map((preview, idx) => {
+                                                                        const isPdf = preview.toLowerCase().includes('.pdf') || preview.startsWith('data:application/pdf');
+                                                                        return (
+                                                                        <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-200 w-20 h-20 bg-gray-50 flex items-center justify-center">
+                                                                            {isPdf ? (
+                                                                                <FileText className="text-gray-400" size={24} />
+                                                                            ) : (
+                                                                                <img src={preview} alt="Experience Preview" className="w-full h-full object-cover" />
+                                                                            )}
+                                                                            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                                                                                <div className="flex gap-2">
+                                                                                    <a href={preview} target="_blank" rel="noopener noreferrer" className="bg-white/20 hover:bg-white/40 text-white rounded-full p-1.5 transition-colors">
+                                                                                        <Eye size={12} />
+                                                                                    </a>
+                                                                                    <a href={preview} download={`experience-doc-${idx}`} className="bg-white/20 hover:bg-white/40 text-white rounded-full p-1.5 transition-colors">
+                                                                                        <Download size={12} />
+                                                                                    </a>
+                                                                                </div>
+                                                                            </div>
+                                                                            <button type="button" onClick={() => removeMultiFile(idx, experiencePreviews, setExperiencePreviews, setExperienceFiles)} className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-10">
+                                                                                <X size={10} />
+                                                                            </button>
+                                                                        </div>
+                                                                    )})}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
                                                 </div>
                                             </div>
                                         </div>
@@ -885,49 +982,7 @@ export default function EmployeeMaster() {
                                             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
                                                 <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Briefcase size={16} /> Salary Structure</h4>
 
-                                                {/* Salary Config */}
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6 bg-blue-50/50 p-4 rounded-lg border border-blue-100 dark:bg-slate-800 dark:border-slate-700">
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Per Day Salary Basis</label>
-                                                        <select value={formData.perDayCalculationBasis} onChange={e => setFormData({ ...formData, perDayCalculationBasis: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
-                                                            <option value="Basic">Basic</option>
-                                                            <option value="Gross">Gross</option>
-                                                            <option value="Net">Net</option>
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">OT Rate (Per Hour)</label>
-                                                        <input type="number" value={formData.otRate} onChange={e => setFormData({ ...formData, otRate: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
-                                                    </div>
-                                                </div>
 
-                                                {/* Working Policies Config */}
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-4 mb-6 bg-purple-50/50 p-4 rounded-lg border border-purple-100 dark:bg-slate-800 dark:border-slate-700">
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Standard Hrs/Day</label>
-                                                        <input type="number" value={formData.standardWorkingHours} onChange={e => setFormData({ ...formData, standardWorkingHours: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Weekly Off Day</label>
-                                                        <select value={formData.weeklyOff} onChange={e => setFormData({ ...formData, weeklyOff: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
-                                                            {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(d => <option key={d} value={d}>{d}</option>)}
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Holiday Work Policy</label>
-                                                        <select value={formData.holidayWorkPolicy} onChange={e => setFormData({ ...formData, holidayWorkPolicy: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
-                                                            <option value="Overtime">Overtime</option>
-                                                            <option value="CompOff">Comp Off</option>
-                                                        </select>
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Week Off Policy</label>
-                                                        <select value={formData.weekOffWorkPolicy} onChange={e => setFormData({ ...formData, weekOffWorkPolicy: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
-                                                            <option value="Overtime">Overtime</option>
-                                                            <option value="CompOff">Comp Off</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
 
                                                 {/* Earnings Ref */}
                                                 <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6">
@@ -976,6 +1031,148 @@ export default function EmployeeMaster() {
                                                     <div>
                                                         <label className="block font-semibold mb-1 text-green-600 text-xs tracking-wider uppercase">Net Salary</label>
                                                         <div className="font-bold text-green-600 text-xl">₹ {formData.netSalary.toLocaleString()}</div>
+                                                    </div>
+                                                </div>
+
+
+                                            </div>
+
+                                            <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
+                                                <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Coins size={16} /> Banking Details</h4>
+                                                <div className="gap-4 grid grid-cols-2">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Bank Name</label>
+                                                        <input type="text" value={formData.bankName} onChange={e => setFormData({ ...formData, bankName: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. HDFC Bank" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Account Number</label>
+                                                        <input type="text" value={formData.accountNumber} onChange={e => setFormData({ ...formData, accountNumber: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">IFSC Code</label>
+                                                        <input type="text" value={formData.ifscCode} onChange={e => setFormData({ ...formData, ifscCode: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Branch Name</label>
+                                                        <input type="text" value={formData.branchName} onChange={e => setFormData({ ...formData, branchName: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Leave & OT Policies Tab */}
+                                    {activeTab === "leave_ot" && (
+                                        <div className="animate-in duration-300 slide-in-from-right-4 space-y-6">
+                                            <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
+                                                <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Clock size={16} /> Leave & OT Policies</h4>
+
+                                                {/* Salary Config */}
+                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-4 mb-6 bg-blue-50/50 p-4 rounded-lg border border-blue-100 dark:bg-slate-800 dark:border-slate-700">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">OT Applicable</label>
+                                                        <div className="mt-3">
+                                                            <Switch
+                                                                checked={formData.isOTApplicable}
+                                                                onChange={(c) => {
+                                                                    if (!c) {
+                                                                        setFormData({ ...formData, isOTApplicable: c, holidayWorkPolicy: "CompOff", weekOffWorkPolicy: "CompOff" });
+                                                                    } else {
+                                                                        setFormData({ ...formData, isOTApplicable: c, holidayWorkPolicy: "Overtime", weekOffWorkPolicy: "Overtime" });
+                                                                    }
+                                                                }}
+                                                                label={formData.isOTApplicable ? "Yes" : "No"}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    {formData.isOTApplicable && (
+                                                        <>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">OT Compensates Absenteeism</label>
+                                                                <div className="mt-3">
+                                                                    <Switch
+                                                                        checked={formData.otCompensateForAbsent}
+                                                                        onChange={(c) => setFormData({ ...formData, otCompensateForAbsent: c })}
+                                                                        label={formData.otCompensateForAbsent ? "Yes" : "No"}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Per Day Salary Basis</label>
+                                                                <select value={formData.perDayCalculationBasis} onChange={e => setFormData({ ...formData, perDayCalculationBasis: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                                    <option value="Basic">Basic</option>
+                                                                    <option value="Gross">Gross</option>
+                                                                    <option value="Net">Net</option>
+                                                                </select>
+                                                            </div>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Main OT Rate (Multiplier, e.g. 1.5x)</label>
+                                                                <input type="number" step="0.1" value={formData.otRate} onChange={e => setFormData({ ...formData, otRate: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="1.5" />
+                                                                <div className="mt-1.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100/50 dark:bg-blue-900/30 px-2 py-1 rounded inline-block">
+                                                                    Estimated: ₹{(getBaseHourlyRate() * (formData.otRate || 0)).toFixed(2)} / hr
+                                                                </div>
+                                                            </div>
+                                                            {!formData.otCompensateForAbsent && (
+                                                                <div>
+                                                                    <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Absent OT Rate (Multiplier, e.g. 1.0x)</label>
+                                                                    <input type="number" step="0.1" value={formData.absentOTRate} onChange={e => setFormData({ ...formData, absentOTRate: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="1.0" />
+                                                                    <div className="mt-1.5 text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-100/50 dark:bg-blue-900/30 px-2 py-1 rounded inline-block">
+                                                                        Estimated: ₹{(getBaseHourlyRate() * (formData.absentOTRate || 0)).toFixed(2)} / hr
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                {/* Working Policies Config */}
+                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-4 mb-6 bg-purple-50/50 p-4 rounded-lg border border-purple-100 dark:bg-slate-800 dark:border-slate-700">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Standard Hrs/Day</label>
+                                                        <input type="number" value={formData.standardWorkingHours} onChange={e => setFormData({ ...formData, standardWorkingHours: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Weekly Off Day(s)</label>
+                                                        <div className="relative group">
+                                                            <div className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 px-4 py-2.5 rounded-lg transition-all w-full cursor-pointer flex flex-wrap gap-1 min-h-[42px] items-center">
+                                                                {formData.weeklyOff.length > 0 ? (
+                                                                    formData.weeklyOff.map(d => (
+                                                                        <span key={d} className="bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 text-xs px-2 py-0.5 rounded-md flex items-center gap-1">
+                                                                            {d.substring(0, 3)}
+                                                                            <button type="button" onClick={(e) => { e.stopPropagation(); setFormData({ ...formData, weeklyOff: formData.weeklyOff.filter(w => w !== d) }); }}><X size={10} /></button>
+                                                                        </span>
+                                                                    ))
+                                                                ) : <span className="text-gray-400 text-sm">Select days...</span>}
+                                                            </div>
+                                                            <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20 overflow-hidden">
+                                                                {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(d => (
+                                                                    <div key={d} className="px-4 py-2 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer flex items-center gap-2 text-sm" onClick={() => {
+                                                                        if (!formData.weeklyOff.includes(d)) {
+                                                                            setFormData({ ...formData, weeklyOff: [...formData.weeklyOff, d] });
+                                                                        } else {
+                                                                            setFormData({ ...formData, weeklyOff: formData.weeklyOff.filter(w => w !== d) });
+                                                                        }
+                                                                    }}>
+                                                                        <input type="checkbox" checked={formData.weeklyOff.includes(d)} readOnly className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                                                                        {d}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Holiday Work Policy</label>
+                                                        <select disabled={!formData.isOTApplicable} value={formData.holidayWorkPolicy} onChange={e => setFormData({ ...formData, holidayWorkPolicy: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-slate-800">
+                                                            <option value="Overtime" disabled={!formData.isOTApplicable}>Overtime</option>
+                                                            <option value="CompOff">Comp Off</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Week Off Policy</label>
+                                                        <select disabled={!formData.isOTApplicable} value={formData.weekOffWorkPolicy} onChange={e => setFormData({ ...formData, weekOffWorkPolicy: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full disabled:bg-gray-100 disabled:text-gray-500 dark:disabled:bg-slate-800">
+                                                            <option value="Overtime" disabled={!formData.isOTApplicable}>Overtime</option>
+                                                            <option value="CompOff">Comp Off</option>
+                                                        </select>
                                                     </div>
                                                 </div>
 
@@ -1058,28 +1255,6 @@ export default function EmployeeMaster() {
                                                         </div>
                                                     );
                                                 })()}
-                                            </div>
-
-                                            <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
-                                                <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Coins size={16} /> Banking Details</h4>
-                                                <div className="gap-4 grid grid-cols-2">
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Bank Name</label>
-                                                        <input type="text" value={formData.bankName} onChange={e => setFormData({ ...formData, bankName: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. HDFC Bank" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Account Number</label>
-                                                        <input type="text" value={formData.accountNumber} onChange={e => setFormData({ ...formData, accountNumber: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">IFSC Code</label>
-                                                        <input type="text" value={formData.ifscCode} onChange={e => setFormData({ ...formData, ifscCode: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Branch Name</label>
-                                                        <input type="text" value={formData.branchName} onChange={e => setFormData({ ...formData, branchName: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
-                                                    </div>
-                                                </div>
                                             </div>
                                         </div>
                                     )}

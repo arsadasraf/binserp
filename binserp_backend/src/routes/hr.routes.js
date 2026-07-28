@@ -56,10 +56,10 @@ router.post("/job/assign", assignJob); // Admin/Manager assigns
 router.get("/job/me", getEmployeeJobs); // Employee view
 router.put("/job/:id/status", updateEmployeeJobStatus); // Employee update status
 
-router.post("/employee", upload.single("photo"), createEmployee);
+router.post("/employee", upload.fields([{ name: "photo", maxCount: 1 }, { name: "idDocuments", maxCount: 5 }, { name: "degreeDocuments", maxCount: 5 }, { name: "experienceDocuments", maxCount: 5 }]), createEmployee);
 router.get("/employee", getAllEmployees);
 router.get("/employee/:id", getEmployeeById);
-router.put("/employee/:id", upload.single("photo"), updateEmployee);
+router.put("/employee/:id", upload.fields([{ name: "photo", maxCount: 1 }, { name: "idDocuments", maxCount: 5 }, { name: "degreeDocuments", maxCount: 5 }, { name: "experienceDocuments", maxCount: 5 }]), updateEmployee);
 router.put("/employee/:id/toggle-status", toggleEmployeeStatus);
 router.delete("/employee/:id", deleteEmployee);
 

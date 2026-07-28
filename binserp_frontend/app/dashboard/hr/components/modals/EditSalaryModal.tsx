@@ -47,18 +47,18 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
         let totalDutyHours = 0;
         let compOffAccrued = 0;
 
-        const emp = employees.find(e => e._id === salary?.employee?._id);
-        const standardHours = (emp as any)?.standardWorkingHours || 9;
-        const weeklyOff = (emp as any)?.weeklyOff || "Sunday";
-        const holidayWorkPolicy = (emp as any)?.holidayWorkPolicy || "Overtime";
-        const weekOffWorkPolicy = (emp as any)?.weekOffWorkPolicy || "Overtime";
+        const emp = employees.find(e => e._id === salary?.employee?._id) as any;
+        const standardHours = emp?.standardWorkingHours || 9;
+        const weeklyOff = Array.isArray(emp?.weeklyOff) ? emp.weeklyOff : [emp?.weeklyOff || "Sunday"];
+        const holidayWorkPolicy = emp?.holidayWorkPolicy || "Overtime";
+        const weekOffWorkPolicy = emp?.weekOffWorkPolicy || "Overtime";
 
         let weeklyOffsCount = 0;
 
         calendarData.forEach(day => {
             const dateObj = new Date(day.date);
             const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-            const isWeeklyOff = days[dateObj.getDay()] === weeklyOff;
+            const isWeeklyOff = weeklyOff.includes(days[dateObj.getDay()]);
             if (isWeeklyOff) weeklyOffsCount++;
 
             const status = day.useManual ? day.manualStatus : day.originalStatus;
@@ -92,6 +92,34 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
         });
 
         const effectiveWorkingDays = calendarData.length - weeklyOffsCount;
+        const cappedPresentDays = Math.min(presentDays, effectiveWorkingDays);
+        
+        // Absent hours strictly based on missing full/half days
+        const absentDays = Math.max(0, effectiveWorkingDays - cappedPresentDays);
+        const absentHours = absentDays * standardHours;
+
+        // OT Multiplier Logic
+        const otCompensateForAbsent = emp?.otCompensateForAbsent ?? true;
+        const mainOTRateMultiplier = emp?.salary?.otRate || 1.0;
+        const absentOTRateMultiplier = emp?.absentOTRate || 1.0;
+        
+        let compensatedHours = 0;
+        let mainOtHours = 0;
+        let absentOtHours = 0;
+        let otPay = 0;
+
+        const baseHourlyRate = effectiveWorkingDays > 0 && standardHours > 0 ? (baseSalary / effectiveWorkingDays) / standardHours : 0;
+
+        if (otCompensateForAbsent) {
+            compensatedHours = Math.min(totalOtHours, absentHours);
+            mainOtHours = totalOtHours - compensatedHours;
+            // Add compensated hours value directly to OT pay to restore docked base pay
+            otPay = (mainOtHours * baseHourlyRate * mainOTRateMultiplier) + (compensatedHours * baseHourlyRate * 1.0);
+        } else {
+            absentOtHours = Math.min(totalOtHours, absentHours);
+            mainOtHours = totalOtHours - absentOtHours;
+            otPay = (absentOtHours * baseHourlyRate * absentOTRateMultiplier) + (mainOtHours * baseHourlyRate * mainOTRateMultiplier);
+        }
 
         let casualLeaveConsumed = 0;
         let sickLeaveConsumed = 0;
@@ -104,13 +132,11 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
             if (status === 'CO') compOffConsumed += 1;
         });
 
-        const cappedPresentDays = Math.min(presentDays, effectiveWorkingDays);
         const grossPay = effectiveWorkingDays > 0 ? (baseSalary / effectiveWorkingDays) * cappedPresentDays : 0;
-        const otPay = totalOtHours * otRatePH;
         const netPay = grossPay + otPay;
 
         return { 
-            presentDays, 
+            presentDays: cappedPresentDays, 
             totalOtHours, 
             totalDutyHours, 
             grossPay, 
@@ -121,9 +147,14 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
             compOffConsumed,
             compOffAccrued,
             effectiveWorkingDays,
-            weeklyOffsCount
+            weeklyOffsCount,
+            absentHours,
+            compensatedHours,
+            mainOtHours,
+            absentOtHours,
+            baseHourlyRate
         };
-    }, [calendarData, baseSalary, otRatePH, employees, salary]);
+    }, [calendarData, baseSalary, employees, salary]);
 
     const toggleManual = (index: number) => {
         const newData = [...calendarData];
@@ -161,7 +192,7 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
                 presentDays: totals.presentDays,
                 totalDutyHours: totals.totalDutyHours,
                 totalOtHours: totals.totalOtHours,
-                otRatePH: otRatePH,
+                otRatePH: totals.baseHourlyRate,
                 grossPay: totals.grossPay,
                 otPay: totals.otPay,
                 netPay: totals.netPay,
@@ -248,42 +279,103 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
                                         />
                                     </div>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">
-                                        OT Rate / Hour
-                                    </label>
-                                    <div className="relative">
-                                        <IndianRupee size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                        <input 
-                                            type="number"
-                                            value={otRatePH || ''}
-                                            onChange={(e) => setOtRatePH(Number(e.target.value))}
-                                            className="w-full pl-8 pr-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-                                        />
-                                    </div>
-                                </div>
+                                {(() => {
+                                    const emp = employees.find(e => e._id === salary?.employee?._id) as any;
+                                    if (emp?.isOTApplicable) {
+                                        return (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="bg-blue-50 border border-blue-100 dark:bg-blue-900/20 dark:border-blue-800/30 p-2 rounded-lg">
+                                                    <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase">Main OT Rate</p>
+                                                    <p className="text-sm font-bold text-blue-900 dark:text-blue-100">₹ {Math.round(totals.baseHourlyRate * (emp?.salary?.otRate || 1.0))}/hr</p>
+                                                </div>
+                                                <div className="bg-red-50 border border-red-100 dark:bg-red-900/20 dark:border-red-800/30 p-2 rounded-lg">
+                                                    <p className="text-[10px] font-semibold text-red-600 dark:text-red-400 uppercase">Absent OT Rate</p>
+                                                    <p className="text-sm font-bold text-red-900 dark:text-red-100">₹ {Math.round(totals.baseHourlyRate * (emp?.absentOTRate || 1.0))}/hr</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+                                    return null;
+                                })()}
                             </div>
                         </div>
 
                         {/* Summary Display */}
-                        <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-800/30 flex flex-col justify-center">
-                                <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">Present Days</p>
-                                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">{totals.presentDays}</p>
-                            </div>
-                            <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl border border-purple-100 dark:border-purple-800/30 flex flex-col justify-center">
-                                <p className="text-xs font-medium text-purple-600 dark:text-purple-400 mb-1">OT Hours</p>
-                                <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">{totals.totalOtHours.toFixed(2)}h</p>
-                            </div>
-                            <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800/30 flex flex-col justify-center">
-                                <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">Total Duty Hrs</p>
-                                <p className="text-2xl font-bold text-amber-900 dark:text-amber-100">{totals.totalDutyHours.toFixed(2)}h</p>
-                            </div>
-                            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/30 flex flex-col justify-center">
-                                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 mb-1">Net Payable</p>
-                                <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-100">
-                                    ₹ {Math.round(totals.netPay).toLocaleString()}
-                                </p>
+                        <div className="lg:col-span-2 bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5 shadow-sm">
+                            <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-4 text-sm flex items-center gap-2">
+                                <Calculator size={16} className="text-blue-500" />
+                                Detailed Calculation Summary
+                            </h3>
+                            
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                                {/* Days Column */}
+                                <div className="space-y-2.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Applicable Days</span>
+                                        <span className="font-bold text-slate-700 dark:text-slate-300">{totals.effectiveWorkingDays}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Working Days</span>
+                                        <span className="font-bold text-blue-600 dark:text-blue-400">{totals.presentDays}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Absent Days</span>
+                                        <span className="font-bold text-red-600 dark:text-red-400">{totals.effectiveWorkingDays - totals.presentDays}</span>
+                                    </div>
+                                </div>
+
+                                {/* Hours Column */}
+                                <div className="space-y-2.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Applicable Hrs</span>
+                                        <span className="font-bold text-slate-700 dark:text-slate-300">
+                                            {(() => {
+                                                const emp = employees.find(e => e._id === salary?.employee?._id) as any;
+                                                return (totals.effectiveWorkingDays * (emp?.standardWorkingHours || 9)).toFixed(1);
+                                            })()}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Total Work Hrs</span>
+                                        <span className="font-bold text-blue-600 dark:text-blue-400">{totals.totalDutyHours.toFixed(1)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Total Absent Hrs</span>
+                                        <span className="font-bold text-red-600 dark:text-red-400">{totals.absentHours.toFixed(1)}</span>
+                                    </div>
+                                </div>
+
+                                {/* OT Column */}
+                                <div className="space-y-2.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Total OT Hrs</span>
+                                        <span className="font-bold text-purple-600 dark:text-purple-400">{totals.totalOtHours.toFixed(1)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">OT Compensated</span>
+                                        <span className="font-bold text-orange-600 dark:text-orange-400">{totals.compensatedHours.toFixed(1)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Main OT Hrs</span>
+                                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{totals.mainOtHours.toFixed(1)}</span>
+                                    </div>
+                                </div>
+
+                                {/* Pay Column */}
+                                <div className="space-y-2.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Gross Salary</span>
+                                        <span className="font-bold text-slate-700 dark:text-slate-300">₹ {Math.round(totals.grossPay).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-xs">
+                                        <span className="text-slate-500 font-medium">Total OT Pay</span>
+                                        <span className="font-bold text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.otPay).toLocaleString()}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-sm font-bold pt-1 border-t border-slate-100 dark:border-slate-700 mt-1">
+                                        <span className="text-slate-700 dark:text-slate-200">Net Payable</span>
+                                        <span className="text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.netPay).toLocaleString()}</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

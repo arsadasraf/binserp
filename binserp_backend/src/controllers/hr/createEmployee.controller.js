@@ -41,26 +41,23 @@ export const createEmployee = async (req, res) => {
       department,
       employeeType,
       designation,
-      skills,
       joiningDate,
       status,
       faceEncoding,
       experience,
       degree,
+      standardWorkingHours,
+      holidayWorkPolicy,
+      weekOffWorkPolicy,
       paymentDetails,
       salary,
       leaves,
       compOffBalance,
+      isOTApplicable,
+      otCompensateForAbsent,
+      absentOTRate
     } = req.body;
 
-    // Parse skills if it's a JSON string
-    if (typeof skills === "string") {
-      try {
-        skills = JSON.parse(skills);
-      } catch (e) {
-        skills = skills ? [skills] : [];
-      }
-    }
 
     // Parse paymentDetails if it's a JSON string
     if (typeof paymentDetails === "string") {
@@ -89,9 +86,18 @@ export const createEmployee = async (req, res) => {
       }
     }
 
-    if (!name || !email || !contact || !department || !designation) {
+    let parsedWeeklyOff = req.body.weeklyOff || ["Sunday"];
+    if (typeof parsedWeeklyOff === "string") {
+      try {
+        parsedWeeklyOff = JSON.parse(parsedWeeklyOff);
+      } catch (e) {
+        parsedWeeklyOff = [parsedWeeklyOff];
+      }
+    }
+
+    if (!name || !department || !designation) {
       return res.status(400).json({
-        message: "Name, email, contact, department, and designation are required",
+        message: "Name, department, and designation are required",
       });
     }
 
@@ -132,8 +138,11 @@ export const createEmployee = async (req, res) => {
     }
 
     // Check if employeeId already exists
+    const searchConditions = [{ employeeId }];
+    if (email) searchConditions.push({ email });
+
     const existingEmployee = await Employee.findOne({
-      $or: [{ employeeId }, { email }],
+      $or: searchConditions,
       company: companyId
     });
 
@@ -143,12 +152,37 @@ export const createEmployee = async (req, res) => {
       });
     }
 
-    // Handle photo upload if provided
+    // Handle file uploads if provided
     let photoUrl = null;
-    if (req.file) {
-      const uploadResult = await uploadOnS3(req.file.path, "employees", getCompanyLoginId(req));
-      if (uploadResult) {
-        photoUrl = uploadResult.secure_url;
+    let idDocumentsUrls = [];
+    let degreeDocumentsUrls = [];
+    let experienceDocumentsUrls = [];
+    
+    if (req.files) {
+      if (req.files['photo'] && req.files['photo'].length > 0) {
+        const uploadResult = await uploadOnS3(req.files['photo'][0].path, "employees", getCompanyLoginId(req));
+        if (uploadResult) photoUrl = uploadResult.secure_url;
+      }
+      
+      if (req.files['idDocuments'] && req.files['idDocuments'].length > 0) {
+        for (const file of req.files['idDocuments']) {
+          const uploadResult = await uploadOnS3(file.path, "employees/documents", getCompanyLoginId(req));
+          if (uploadResult) idDocumentsUrls.push(uploadResult.secure_url);
+        }
+      }
+      
+      if (req.files['degreeDocuments'] && req.files['degreeDocuments'].length > 0) {
+        for (const file of req.files['degreeDocuments']) {
+          const uploadResult = await uploadOnS3(file.path, "employees/documents", getCompanyLoginId(req));
+          if (uploadResult) degreeDocumentsUrls.push(uploadResult.secure_url);
+        }
+      }
+      
+      if (req.files['experienceDocuments'] && req.files['experienceDocuments'].length > 0) {
+        for (const file of req.files['experienceDocuments']) {
+          const uploadResult = await uploadOnS3(file.path, "employees/documents", getCompanyLoginId(req));
+          if (uploadResult) experienceDocumentsUrls.push(uploadResult.secure_url);
+        }
       }
     }
 
@@ -161,17 +195,23 @@ export const createEmployee = async (req, res) => {
       department,
       employeeType: employeeType || "Full-Time",
       designation,
-      skills: skills || [],
       joiningDate: joiningDate || new Date(),
       status: status || "Active",
       photo: photoUrl,
+      idDocuments: idDocumentsUrls,
       faceEncoding,
       experience,
+      experienceDocuments: experienceDocumentsUrls,
       degree,
+      degreeDocuments: degreeDocumentsUrls,
       paymentDetails: paymentDetails || {},
       salary: salary || {},
       leaves: leaves || { casualLeave: 0, sickLeave: 0 },
+      weeklyOff: parsedWeeklyOff,
       compOffBalance: compOffBalance || 0,
+      isOTApplicable: isOTApplicable === 'true',
+      otCompensateForAbsent: otCompensateForAbsent === 'true',
+      absentOTRate: Number(absentOTRate) || 0,
     });
 
     res.status(201).json({

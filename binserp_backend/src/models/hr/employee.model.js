@@ -19,12 +19,12 @@ export const employeeSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      required: true,
       lowercase: true,
+      default: "",
     },
     contact: {
       type: String,
-      required: true,
+      default: "",
     },
     department: {
       type: String,
@@ -38,12 +38,9 @@ export const employeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    skills: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Skill",
-      },
-    ],
+    idDocuments: [{
+      type: String, // URLs for uploaded ID documents
+    }],
     joiningDate: {
       type: Date,
       required: true,
@@ -71,10 +68,16 @@ export const employeeSchema = new mongoose.Schema(
       type: String, // e.g. "3 Years"
       default: "",
     },
+    experienceDocuments: [{
+      type: String, // URLs for experience certificates/documents
+    }],
     degree: {
       type: String,
       default: "",
     },
+    degreeDocuments: [{
+      type: String, // URLs for degree certificates/documents
+    }],
     paymentDetails: {
       accountNumber: String,
       bankName: String,
@@ -99,10 +102,13 @@ export const employeeSchema = new mongoose.Schema(
       sickLeave: { type: Number, default: 0 }
     },
     standardWorkingHours: { type: Number, default: 9 },
-    weeklyOff: { type: String, default: 'Sunday' },
+    weeklyOff: { type: [String], default: ['Sunday'] },
     holidayWorkPolicy: { type: String, enum: ['Overtime', 'CompOff'], default: 'Overtime' },
     weekOffWorkPolicy: { type: String, enum: ['Overtime', 'CompOff'], default: 'Overtime' },
     compOffBalance: { type: Number, default: 0 },
+    isOTApplicable: { type: Boolean, default: false },
+    otCompensateForAbsent: { type: Boolean, default: true },
+    absentOTRate: { type: Number, default: 0 },
     leaveHistory: [{
       date: String,
       type: { type: String }, // 'CL' or 'SL'

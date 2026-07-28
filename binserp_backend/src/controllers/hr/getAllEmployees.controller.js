@@ -37,8 +37,6 @@ export const getAllEmployees = async (req, res) => {
     const Employee = req.getModel('Employee', employeeSchema);
     if (!Employee) throw new Error("Failed to load Employee model from tenant connection");
 
-    // Pre-register Skill model for populate
-    req.getModel('Skill', skillSchema);
 
     const companyId = getCompanyId(req);
     console.log(">>> [getAllEmployees] Company ID:", companyId);
@@ -50,7 +48,6 @@ export const getAllEmployees = async (req, res) => {
     if (status) query.status = status;
 
     const employees = await Employee.find(query)
-      .populate('skills', 'name')
       .sort({ createdAt: -1 });
 
     // Sign photos for preview

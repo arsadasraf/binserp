@@ -37,10 +37,7 @@ export const updateEmployee = async (req, res) => {
     const companyId = getCompanyId(req);
     let updateData = req.body;
 
-    // Parse complex fields if they come as strings
-    if (typeof updateData.skills === "string") {
-      try { updateData.skills = JSON.parse(updateData.skills); } catch (e) { }
-    }
+
     if (typeof updateData.paymentDetails === "string") {
       try { updateData.paymentDetails = JSON.parse(updateData.paymentDetails); } catch (e) { }
     }
@@ -50,12 +47,70 @@ export const updateEmployee = async (req, res) => {
     if (typeof updateData.leaves === "string") {
       try { updateData.leaves = JSON.parse(updateData.leaves); } catch (e) { }
     }
+    if (typeof updateData.weeklyOff === "string") {
+      try { updateData.weeklyOff = JSON.parse(updateData.weeklyOff); } catch (e) { updateData.weeklyOff = [updateData.weeklyOff]; }
+    }
+    if (updateData.isOTApplicable !== undefined) {
+      updateData.isOTApplicable = updateData.isOTApplicable === 'true' || updateData.isOTApplicable === true;
+    }
+    if (updateData.otCompensateForAbsent !== undefined) {
+      updateData.otCompensateForAbsent = updateData.otCompensateForAbsent === 'true' || updateData.otCompensateForAbsent === true;
+    }
+    if (updateData.absentOTRate !== undefined) {
+      updateData.absentOTRate = Number(updateData.absentOTRate) || 0;
+    }
 
-    // Handle photo upload if provided
-    if (req.file) {
-      const uploadResult = await uploadOnS3(req.file.path, "employees", companyId);
-      if (uploadResult) {
-        updateData.photo = uploadResult.secure_url;
+    // Parse existing document arrays if they come as strings
+    if (typeof updateData.existingIdDocuments === "string") {
+      try { updateData.idDocuments = JSON.parse(updateData.existingIdDocuments); } catch (e) { updateData.idDocuments = [updateData.existingIdDocuments]; }
+    } else if (Array.isArray(updateData.existingIdDocuments)) {
+      updateData.idDocuments = updateData.existingIdDocuments;
+    } else {
+      updateData.idDocuments = [];
+    }
+
+    if (typeof updateData.existingDegreeDocuments === "string") {
+      try { updateData.degreeDocuments = JSON.parse(updateData.existingDegreeDocuments); } catch (e) { updateData.degreeDocuments = [updateData.existingDegreeDocuments]; }
+    } else if (Array.isArray(updateData.existingDegreeDocuments)) {
+      updateData.degreeDocuments = updateData.existingDegreeDocuments;
+    } else {
+      updateData.degreeDocuments = [];
+    }
+
+    if (typeof updateData.existingExperienceDocuments === "string") {
+      try { updateData.experienceDocuments = JSON.parse(updateData.existingExperienceDocuments); } catch (e) { updateData.experienceDocuments = [updateData.existingExperienceDocuments]; }
+    } else if (Array.isArray(updateData.existingExperienceDocuments)) {
+      updateData.experienceDocuments = updateData.existingExperienceDocuments;
+    } else {
+      updateData.experienceDocuments = [];
+    }
+
+    // Handle file uploads if provided
+    if (req.files) {
+      if (req.files['photo'] && req.files['photo'].length > 0) {
+        const uploadResult = await uploadOnS3(req.files['photo'][0].path, "employees", getCompanyLoginId(req));
+        if (uploadResult) updateData.photo = uploadResult.secure_url;
+      }
+      
+      if (req.files['idDocuments'] && req.files['idDocuments'].length > 0) {
+        for (const file of req.files['idDocuments']) {
+          const uploadResult = await uploadOnS3(file.path, "employees/documents", getCompanyLoginId(req));
+          if (uploadResult) updateData.idDocuments.push(uploadResult.secure_url);
+        }
+      }
+      
+      if (req.files['degreeDocuments'] && req.files['degreeDocuments'].length > 0) {
+        for (const file of req.files['degreeDocuments']) {
+          const uploadResult = await uploadOnS3(file.path, "employees/documents", getCompanyLoginId(req));
+          if (uploadResult) updateData.degreeDocuments.push(uploadResult.secure_url);
+        }
+      }
+      
+      if (req.files['experienceDocuments'] && req.files['experienceDocuments'].length > 0) {
+        for (const file of req.files['experienceDocuments']) {
+          const uploadResult = await uploadOnS3(file.path, "employees/documents", getCompanyLoginId(req));
+          if (uploadResult) updateData.experienceDocuments.push(uploadResult.secure_url);
+        }
       }
     }
 

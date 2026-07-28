@@ -64,7 +64,9 @@ export interface Employee {
     photo?: string;
     faceEncoding?: string;
     experience?: string;
+    experienceDocuments?: string[];
     degree?: string;
+    degreeDocuments?: string[];
     salary?: {
         basic: number;
         hra: number;
@@ -85,10 +87,13 @@ export interface Employee {
         sickLeave: number;
     };
     standardWorkingHours?: number;
-    weeklyOff?: string;
+    weeklyOff?: string[];
     holidayWorkPolicy?: string;
     weekOffWorkPolicy?: string;
     compOffBalance?: number;
+    isOTApplicable?: boolean;
+    otCompensateForAbsent?: boolean;
+    absentOTRate?: number;
     leaveHistory?: {
         date: string;
         type: string;
@@ -102,11 +107,7 @@ export interface Employee {
         month: string;
         year: number;
     }[];
-    skills: {
-        name: string;
-        level: number;
-        certified: boolean;
-    }[];
+    idDocuments?: string[];
     createdAt: string;
     updatedAt: string;
 }
