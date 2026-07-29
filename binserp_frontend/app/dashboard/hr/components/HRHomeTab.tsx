@@ -208,40 +208,7 @@ export default function HRHomeTab() {
         </div>
     );
 
-    // Clickable Detail Table
-    const DetailTable = ({ data, title, onItemClick }: { data: any[], title: string, onItemClick: (name: string) => void }) => (
-        <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-col h-full p-6 rounded-xl shadow-sm">
-            <h4 className="dark:text-gray-100 flex font-bold gap-2 items-center mb-4 text-gray-800">
-                <PieChart size={18} /> {title} Breakdown
-            </h4>
-            <div className="custom-scrollbar overflow-x-auto">
-                <table className="text-left text-sm w-full">
-                    <thead className="bg-gray-50 dark:bg-slate-800/50 dark:text-gray-400 text-gray-500 text-xs uppercase">
-                        <tr>
-                            <th className="px-4 py-3 rounded-l-lg">Name</th>
-                            <th className="px-4 py-3 text-center">Total</th>
-                            <th className="px-4 py-3 text-center text-green-600">Present</th>
-                            <th className="px-4 py-3 rounded-r-lg text-center text-red-500">Absent</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-gray-100 divide-y">
-                        {data.map((item, idx) => (
-                            <tr
-                                key={idx}
-                                className="cursor-pointer group hover:bg-blue-50/50 transition-colors"
-                                onClick={() => onItemClick(item.name)}
-                            >
-                                <td className="dark:text-white font-medium group-hover:text-blue-600 px-4 py-3 text-gray-900">{item.name || 'Unknown'}</td>
-                                <td className="dark:text-gray-300 font-bold px-4 py-3 text-center text-gray-600">{item.total}</td>
-                                <td className="font-bold px-4 py-3 text-center text-green-600">{item.present}</td>
-                                <td className="font-bold px-4 py-3 text-center text-red-500">{item.absent}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
+
 
     const attendanceRate = stats.totalEmployees > 0
         ? Math.round((stats.presentToday / stats.totalEmployees) * 100)
@@ -307,8 +274,8 @@ export default function HRHomeTab() {
                     data={stats.departmentWise}
                     onItemClick={(name) => handleListClick('department', name)}
                 />
-                <DetailTable
-                    title="Designation-wise"
+                <BarChart
+                    title="Designation-wise Attendance"
                     data={stats.designationWise}
                     onItemClick={(name) => handleListClick('designation', name)}
                 />

@@ -47,6 +47,10 @@ export interface Employee {
     _id: string;
     employeeId: string;
     name: string;
+    gender?: string;
+    bloodGroup?: string;
+    dob?: string;
+    idType?: string;
     email: string;
     contact: string;
     department: string;
@@ -73,13 +77,22 @@ export interface Employee {
         conveyance: number;
         medical: number;
         specialAllowance: number;
-        pf: number;
+        pf?: number;
+        isPFApplicable?: boolean;
+        pfUanNumber?: string;
+        isESIApplicable?: boolean;
+        esiNumber?: string;
+        esi?: number;
+        isPTApplicable?: boolean;
         professionalTax: number;
         grossSalary: number;
         netSalary: number;
         deductions?: number;
         incentives?: number;
-        perDayCalculationBasis?: string;
+        perDayCalculationBasis?: 'Basic' | 'Gross' | 'Net';
+        dailyDivisorBasis?: 'TotalMonthDays' | 'ApplicableWorkingDays';
+        otCalculationBasis?: 'Basic' | 'Gross' | 'Net';
+        otDivisorBasis?: 'TotalMonthDays' | 'ApplicableWorkingDays';
         otRate?: number;
     };
     leaves?: {

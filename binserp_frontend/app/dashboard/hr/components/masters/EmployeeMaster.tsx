@@ -27,6 +27,8 @@ export default function EmployeeMaster() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [typeFilter, setTypeFilter] = useState("");
+    const [statusFilter, setStatusFilter] = useState("");
+    const [roleFilter, setRoleFilter] = useState("");
     const [showModal, setShowModal] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [currentId, setCurrentId] = useState<string | null>(null);
@@ -48,11 +50,15 @@ export default function EmployeeMaster() {
 
     interface FormData {
         name: string;
+        gender: string;
+        bloodGroup: string;
+        dob: string;
         email: string;
         contact: string;
         department: string;
         employeeType: string;
         designation: string;
+        idType: string;
         joiningDate: string;
         status: string;
         experience: string;
@@ -67,12 +73,21 @@ export default function EmployeeMaster() {
         medical: number;
         specialAllowance: number;
         pf: number;
+        isPFApplicable: boolean;
+        pfUanNumber: string;
+        isESIApplicable: boolean;
+        esiNumber: string;
+        esi: number;
+        isPTApplicable: boolean;
         professionalTax: number;
         grossSalary: number;
         netSalary: number;
         casualLeave: number;
         sickLeave: number;
         perDayCalculationBasis: string;
+        dailyDivisorBasis: string;
+        otCalculationBasis: string;
+        otDivisorBasis: string;
         otRate: number;
         standardWorkingHours: number;
         weeklyOff: string[];
@@ -86,11 +101,15 @@ export default function EmployeeMaster() {
 
     const [formData, setFormData] = useState<FormData>({
         name: "",
+        gender: "",
+        bloodGroup: "",
+        dob: "",
         email: "",
         contact: "",
         department: "",
         employeeType: "Full-Time",
         designation: "",
+        idType: "",
         joiningDate: new Date().toISOString().split("T")[0],
         status: "Active",
         experience: "",
@@ -105,12 +124,21 @@ export default function EmployeeMaster() {
         medical: 0,
         specialAllowance: 0,
         pf: 0,
+        isPFApplicable: false,
+        pfUanNumber: "",
+        isESIApplicable: false,
+        esiNumber: "",
+        esi: 0,
+        isPTApplicable: false,
         professionalTax: 0,
         grossSalary: 0,
         netSalary: 0,
         casualLeave: 0,
         sickLeave: 0,
-        perDayCalculationBasis: "Basic",
+        perDayCalculationBasis: "Gross",
+        dailyDivisorBasis: "TotalMonthDays",
+        otCalculationBasis: "Basic",
+        otDivisorBasis: "TotalMonthDays",
         otRate: 0,
         standardWorkingHours: 9,
         weeklyOff: ["Sunday"],
@@ -164,12 +192,16 @@ export default function EmployeeMaster() {
             Number(formData.medical || 0) +
             Number(formData.specialAllowance || 0);
 
-        const net = gross - Number(formData.pf || 0) - Number(formData.professionalTax || 0);
+        const computedPf = formData.pf > 0 ? formData.pf : (formData.isPFApplicable ? Math.round(Number(formData.basic || 0) * 0.12) : 0);
+        const computedEsi = formData.esi > 0 ? formData.esi : (formData.isESIApplicable ? Math.round(gross * 0.0075) : 0);
+        const computedPt = formData.professionalTax > 0 ? formData.professionalTax : (formData.isPTApplicable ? 200 : 0);
+
+        const net = gross - computedPf - computedPt - computedEsi;
 
         if (gross !== formData.grossSalary || net !== formData.netSalary) {
             setFormData(prev => ({ ...prev, grossSalary: gross, netSalary: net }));
         }
-    }, [formData.basic, formData.hra, formData.conveyance, formData.medical, formData.specialAllowance, formData.pf, formData.professionalTax]);
+    }, [formData.basic, formData.hra, formData.conveyance, formData.medical, formData.specialAllowance, formData.pf, formData.esi, formData.professionalTax, formData.isPFApplicable, formData.isESIApplicable, formData.isPTApplicable]);
 
     useEffect(() => {
         return () => {
@@ -223,13 +255,14 @@ export default function EmployeeMaster() {
 
     const handleOpenAdd = () => {
         setFormData({
-            name: "", email: "", contact: "", department: "", employeeType: "Full-Time", designation: "",
+            name: "", gender: "", bloodGroup: "", dob: "", idType: "", email: "", contact: "", department: "", employeeType: "Full-Time", designation: "",
             joiningDate: new Date().toISOString().split("T")[0], status: "Active",
             experience: "", degree: "",
             accountNumber: "", bankName: "", ifscCode: "", branchName: "",
             basic: 0, hra: 0, conveyance: 0, medical: 0, specialAllowance: 0,
-            pf: 0, professionalTax: 0, grossSalary: 0, netSalary: 0,
-            casualLeave: 0, sickLeave: 0, perDayCalculationBasis: "Basic", otRate: 0,
+            pf: 0, isPFApplicable: false, pfUanNumber: "", isESIApplicable: false, esiNumber: "", esi: 0,
+            isPTApplicable: false, professionalTax: 0, grossSalary: 0, netSalary: 0,
+            casualLeave: 0, sickLeave: 0, perDayCalculationBasis: "Gross", dailyDivisorBasis: "TotalMonthDays", otCalculationBasis: "Basic", otDivisorBasis: "TotalMonthDays", otRate: 0,
             standardWorkingHours: 9, weeklyOff: ["Sunday"], holidayWorkPolicy: "Overtime", weekOffWorkPolicy: "Overtime", compOffBalance: 0,
             isOTApplicable: false, otCompensateForAbsent: true, absentOTRate: 0
         });
@@ -248,6 +281,10 @@ export default function EmployeeMaster() {
     const handleOpenEdit = (emp: Employee) => {
         setFormData({
             name: emp.name,
+            gender: emp.gender || "",
+            bloodGroup: emp.bloodGroup || "",
+            dob: emp.dob ? new Date(emp.dob).toISOString().split("T")[0] : "",
+            idType: emp.idType || "",
             email: emp.email,
             contact: emp.contact,
             department: emp.department,
@@ -268,10 +305,19 @@ export default function EmployeeMaster() {
             medical: emp.salary?.medical ?? 0,
             specialAllowance: emp.salary?.specialAllowance ?? 0,
             pf: emp.salary?.pf ?? 0,
+            isPFApplicable: emp.salary?.isPFApplicable ?? false,
+            pfUanNumber: emp.salary?.pfUanNumber || "",
+            isESIApplicable: emp.salary?.isESIApplicable ?? false,
+            esiNumber: emp.salary?.esiNumber || "",
+            esi: emp.salary?.esi ?? 0,
+            isPTApplicable: emp.salary?.isPTApplicable ?? false,
             professionalTax: emp.salary?.professionalTax ?? 0,
             grossSalary: emp.salary?.grossSalary ?? 0,
             netSalary: emp.salary?.netSalary ?? 0,
-            perDayCalculationBasis: emp.salary?.perDayCalculationBasis || "Basic",
+            perDayCalculationBasis: emp.salary?.perDayCalculationBasis || "Gross",
+            dailyDivisorBasis: emp.salary?.dailyDivisorBasis || "TotalMonthDays",
+            otCalculationBasis: emp.salary?.otCalculationBasis || "Basic",
+            otDivisorBasis: emp.salary?.otDivisorBasis || "TotalMonthDays",
             otRate: emp.salary?.otRate ?? 0,
             casualLeave: (emp as any).leaves?.casualLeave ?? 0,
             sickLeave: (emp as any).leaves?.sickLeave ?? 0,
@@ -363,7 +409,7 @@ export default function EmployeeMaster() {
             const data = new FormData();
             Object.entries(formData).forEach(([key, value]) => {
                 if (!['accountNumber', 'bankName', 'ifscCode', 'branchName',
-                    'basic', 'hra', 'conveyance', 'medical', 'specialAllowance', 'grossSalary', 'pf', 'professionalTax', 'netSalary',
+                    'basic', 'hra', 'conveyance', 'medical', 'specialAllowance', 'grossSalary', 'pf', 'esi', 'professionalTax', 'netSalary',
                     'casualLeave', 'sickLeave', 'perDayCalculationBasis', 'otRate',
                     'standardWorkingHours', 'weeklyOff', 'holidayWorkPolicy', 'weekOffWorkPolicy', 'compOffBalance',
                     'isOTApplicable', 'otCompensateForAbsent', 'absentOTRate'].includes(key)) {
@@ -386,9 +432,18 @@ export default function EmployeeMaster() {
                 specialAllowance: formData.specialAllowance,
                 grossSalary: formData.grossSalary,
                 pf: formData.pf,
+                isPFApplicable: formData.isPFApplicable,
+                pfUanNumber: formData.pfUanNumber,
+                isESIApplicable: formData.isESIApplicable,
+                esiNumber: formData.esiNumber,
+                esi: formData.esi,
+                isPTApplicable: formData.isPTApplicable,
                 professionalTax: formData.professionalTax,
                 netSalary: formData.netSalary,
                 perDayCalculationBasis: formData.perDayCalculationBasis,
+                dailyDivisorBasis: formData.dailyDivisorBasis,
+                otCalculationBasis: formData.otCalculationBasis,
+                otDivisorBasis: formData.otDivisorBasis,
                 otRate: formData.otRate
             }));
             data.append("leaves", JSON.stringify({
@@ -488,11 +543,18 @@ export default function EmployeeMaster() {
         return perDay / hours;
     };
 
+    const filteredEmployees = employees.filter(e => 
+        e.name.toLowerCase().includes(searchTerm.toLowerCase()) && 
+        (typeFilter === "" || e.employeeType === typeFilter) &&
+        (roleFilter === "" || e.designation === roleFilter) &&
+        (statusFilter === "" || e.status === statusFilter)
+    );
+
     return (
         <div className="space-y-6">
             {/* Header Actions */}
             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-row gap-3 items-center justify-between md:gap-4 md:p-5 p-4 rounded-2xl shadow-sm">
-                <div className="flex flex-1 md:flex-none gap-3 items-center">
+                <div className="flex flex-1 md:flex-none flex-wrap gap-3 items-center">
                     <div className="relative w-full md:w-72">
                         <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2" size={18} />
                         <input
@@ -503,16 +565,6 @@ export default function EmployeeMaster() {
                             className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none pl-10 pr-4 py-2.5 rounded-xl text-sm transition-all w-full"
                         />
                     </div>
-                    <select
-                        value={typeFilter}
-                        onChange={(e) => setTypeFilter(e.target.value)}
-                        className="bg-gray-50 border border-gray-200 dark:border-slate-700 dark:bg-slate-800/50 focus:border-blue-500 outline-none px-3 py-2.5 rounded-xl text-sm transition-all w-32 md:w-40 dark:text-gray-200"
-                    >
-                        <option value="">All Types</option>
-                        {employeeTypes.map(t => (
-                            <option key={t._id} value={t.name}>{t.name}</option>
-                        ))}
-                    </select>
                 </div>
                 <button
                     onClick={handleOpenAdd}
@@ -530,21 +582,77 @@ export default function EmployeeMaster() {
                     <table className="text-left w-full">
                         <thead className="bg-gray-50/50 border-b border-gray-100 dark:border-slate-700">
                             <tr>
-                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Employee</th>
-                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Role</th>
-                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Type</th>
-                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Leave Balances</th>
-                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700">Status</th>
-                                <th className="dark:text-gray-200 font-semibold px-6 py-4 text-gray-700 text-right">Actions</th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-3 text-gray-700 align-top">
+                                    <div className="flex flex-col gap-2">
+                                        <span>Employee</span>
+                                        <div className="h-6"></div>
+                                    </div>
+                                </th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-3 text-gray-700 align-top">
+                                    <div className="flex flex-col gap-2">
+                                        <span>Role</span>
+                                        <select
+                                            value={roleFilter}
+                                            onChange={(e) => setRoleFilter(e.target.value)}
+                                            className="bg-white border border-gray-200 dark:border-slate-600 dark:bg-slate-900 focus:border-blue-500 outline-none px-2 py-1 rounded-lg font-normal text-xs transition-all w-full dark:text-gray-300"
+                                        >
+                                            <option value="">All Roles</option>
+                                            {designations.map(d => (
+                                                <option key={d._id} value={d.name}>{d.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-3 text-gray-700 align-top">
+                                    <div className="flex flex-col gap-2">
+                                        <span>Type</span>
+                                        <select
+                                            value={typeFilter}
+                                            onChange={(e) => setTypeFilter(e.target.value)}
+                                            className="bg-white border border-gray-200 dark:border-slate-600 dark:bg-slate-900 focus:border-blue-500 outline-none px-2 py-1 rounded-lg font-normal text-xs transition-all w-full dark:text-gray-300"
+                                        >
+                                            <option value="">All Types</option>
+                                            {employeeTypes.map(t => (
+                                                <option key={t._id} value={t.name}>{t.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-3 text-gray-700 align-top">
+                                    <div className="flex flex-col gap-2">
+                                        <span>Leave Balances</span>
+                                        <div className="h-6"></div> {/* Spacer for alignment */}
+                                    </div>
+                                </th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-3 text-gray-700 align-top">
+                                    <div className="flex flex-col gap-2">
+                                        <span>Status</span>
+                                        <select
+                                            value={statusFilter}
+                                            onChange={(e) => setStatusFilter(e.target.value)}
+                                            className="bg-white border border-gray-200 dark:border-slate-600 dark:bg-slate-900 focus:border-blue-500 outline-none px-2 py-1 rounded-lg font-normal text-xs transition-all w-full dark:text-gray-300"
+                                        >
+                                            <option value="">All Statuses</option>
+                                            <option value="Active">Active</option>
+                                            <option value="Inactive">Inactive</option>
+                                        </select>
+                                    </div>
+                                </th>
+                                <th className="dark:text-gray-200 font-semibold px-6 py-3 text-gray-700 text-right align-top">
+                                    <div className="flex flex-col gap-2">
+                                        <span>Actions</span>
+                                        <div className="h-6"></div>
+                                    </div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-gray-100 divide-y">
                             {loading ? (
                                 <tr><td colSpan={6} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">Loading...</td></tr>
-                            ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) && (typeFilter === "" || e.employeeType === typeFilter)).length === 0 ? (
+                            ) : filteredEmployees.length === 0 ? (
                                 <tr><td colSpan={6} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">No employees found.</td></tr>
                             ) : (
-                                employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) && (typeFilter === "" || e.employeeType === typeFilter)).map((emp) => (
+                                filteredEmployees.map((emp) => (
                                     <tr key={emp._id} onClick={() => handleOpenEdit(emp)} className="dark:hover:bg-slate-700 group hover:bg-gray-50 transition-colors cursor-pointer">
                                         <td className="px-6 py-4">
                                             <div className="flex gap-4 items-center">
@@ -611,7 +719,7 @@ export default function EmployeeMaster() {
                 <div className="divide-gray-100 divide-y md:hidden">
                     {loading ? (
                         <div className="dark:text-gray-400 p-6 text-center text-gray-500">Loading...</div>
-                    ) : employees.filter(e => e.name.toLowerCase().includes(searchTerm.toLowerCase()) && (typeFilter === "" || e.employeeType === typeFilter)).map((emp) => (
+                    ) : filteredEmployees.map((emp) => (
                         <div key={emp._id} onClick={() => handleOpenEdit(emp)} className="flex flex-col gap-4 p-4 dark:hover:bg-slate-700/50 hover:bg-gray-50 cursor-pointer transition-colors">
                             <div className="flex items-start justify-between">
                                 <div className="flex gap-3 items-center">
@@ -767,22 +875,39 @@ export default function EmployeeMaster() {
                                             {/* Info Section */}
                                             <div className="lg:col-span-2 space-y-4">
                                                 <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm space-y-4">
-                                                    <div className="gap-4 grid grid-cols-2">
-                                                        <div className="col-span-2">
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Full Name</label>
+                                                    <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Full Name <span className="text-red-500">*</span></label>
                                                             <input required type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. Rahul Sharma" />
                                                         </div>
                                                         <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Email Address (Optional)</label>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Gender</label>
+                                                            <select value={formData.gender} onChange={e => setFormData({ ...formData, gender: e.target.value })} className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                                <option value="">Select Gender</option>
+                                                                <option value="Male">Male</option>
+                                                                <option value="Female">Female</option>
+                                                                <option value="Other">Other</option>
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Blood Group</label>
+                                                            <input type="text" value={formData.bloodGroup} onChange={e => setFormData({ ...formData, bloodGroup: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. O+" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Date of Birth</label>
+                                                            <input type="date" value={formData.dob} onChange={e => setFormData({ ...formData, dob: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Email Address</label>
                                                             <input type="email" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="rahul@example.com" />
                                                         </div>
                                                         <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Contact Number (Optional)</label>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Contact Number</label>
                                                             <input type="text" value={formData.contact} onChange={e => setFormData({ ...formData, contact: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="+91 9876543210" />
                                                         </div>
                                                     </div>
 
-                                                    <div className="border-gray-100 border-t dark:border-slate-700 gap-4 grid grid-cols-2 pt-4">
+                                                    <div className="border-gray-100 border-t dark:border-slate-700 gap-4 grid grid-cols-1 md:grid-cols-2 pt-4">
                                                         <div>
                                                             <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Status</label>
                                                             <div className="mt-2">
@@ -810,16 +935,16 @@ export default function EmployeeMaster() {
                                         <div className="animate-in duration-300 gap-6 grid grid-cols-1 md:grid-cols-2 slide-in-from-right-4">
                                             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 md:col-span-2 p-6 rounded-xl shadow-sm space-y-4">
                                                 <h4 className="border-b dark:text-white font-semibold mb-2 pb-2 text-gray-900 text-sm">Role & Department</h4>
-                                                <div className="gap-4 grid grid-cols-2">
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
                                                     <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Department</label>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Department <span className="text-red-500">*</span></label>
                                                         <select required value={formData.department} onChange={e => setFormData({ ...formData, department: e.target.value })} className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
                                                             <option value="">Select Department</option>
                                                             {departments.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}
                                                         </select>
                                                     </div>
                                                     <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Designation</label>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Designation <span className="text-red-500">*</span></label>
                                                         <select required value={formData.designation} onChange={e => setFormData({ ...formData, designation: e.target.value })} className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
                                                             <option value="">Select Designation</option>
                                                             {designations.map(d => <option key={d._id} value={d.name}>{d.name}</option>)}
@@ -833,7 +958,7 @@ export default function EmployeeMaster() {
                                                         </select>
                                                     </div>
                                                     <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Date of Joining</label>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Date of Joining <span className="text-red-500">*</span></label>
                                                         <input required type="date" value={formData.joiningDate} onChange={e => setFormData({ ...formData, joiningDate: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
                                                     </div>
                                                 </div>
@@ -846,12 +971,21 @@ export default function EmployeeMaster() {
                                                     {/* Identity Documents Section */}
                                                     <div className="space-y-4">
                                                         <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Identity Documents (Max 5)</label>
-                                                            <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800/50 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-600">
-                                                                <Upload size={16} />
-                                                                <span className="text-sm font-medium">Select Files</span>
-                                                                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setIdFiles, setIdPreviews)} />
-                                                            </label>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Identity Card Type</label>
+                                                            <div className="flex gap-2 items-center">
+                                                                <select value={formData.idType} onChange={e => setFormData({ ...formData, idType: e.target.value })} className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full flex-1">
+                                                                    <option value="">Select ID Type</option>
+                                                                    <option value="Aadhar Card">Aadhar Card</option>
+                                                                    <option value="PAN Card">PAN Card</option>
+                                                                    <option value="Voter ID">Voter ID</option>
+                                                                    <option value="Driving License">Driving License</option>
+                                                                    <option value="Passport">Passport</option>
+                                                                </select>
+                                                                <label className="bg-blue-50 text-blue-600 hover:bg-blue-100 p-2.5 rounded-lg cursor-pointer transition-colors border border-blue-100 flex items-center justify-center shrink-0" title="Upload ID Documents">
+                                                                    <Upload size={20} />
+                                                                    <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setIdFiles, setIdPreviews)} />
+                                                                </label>
+                                                            </div>
                                                             {idPreviews.length > 0 && (
                                                                 <div className="flex flex-wrap gap-2 mt-3">
                                                                     {idPreviews.map((preview, idx) => {
@@ -887,15 +1021,20 @@ export default function EmployeeMaster() {
                                                     <div className="space-y-4">
                                                         <div>
                                                             <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Degree / Qualification</label>
-                                                            <input type="text" value={formData.degree} onChange={e => setFormData({ ...formData, degree: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. B.Tech Computer Science" />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Upload Degree Documents (Max 5)</label>
-                                                            <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800/50 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-600">
-                                                                <Upload size={16} />
-                                                                <span className="text-sm font-medium">Select Files</span>
-                                                                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setDegreeFiles, setDegreePreviews)} />
-                                                            </label>
+                                                            <div className="flex gap-2 items-center">
+                                                                <select value={formData.degree} onChange={e => setFormData({ ...formData, degree: e.target.value })} className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full flex-1">
+                                                                    <option value="">Select Degree</option>
+                                                                    <option value="High School">High School</option>
+                                                                    <option value="Diploma">Diploma</option>
+                                                                    <option value="Bachelors">Bachelor's</option>
+                                                                    <option value="Masters">Master's</option>
+                                                                    <option value="PhD">Ph.D.</option>
+                                                                </select>
+                                                                <label className="bg-blue-50 text-blue-600 hover:bg-blue-100 p-2.5 rounded-lg cursor-pointer transition-colors border border-blue-100 flex items-center justify-center shrink-0" title="Upload Degree Documents">
+                                                                    <Upload size={20} />
+                                                                    <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setDegreeFiles, setDegreePreviews)} />
+                                                                </label>
+                                                            </div>
                                                             {degreePreviews.length > 0 && (
                                                                 <div className="flex flex-wrap gap-2 mt-3">
                                                                     {degreePreviews.map((preview, idx) => {
@@ -931,15 +1070,20 @@ export default function EmployeeMaster() {
                                                     <div className="space-y-4">
                                                         <div>
                                                             <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Experience</label>
-                                                            <input type="text" value={formData.experience} onChange={e => setFormData({ ...formData, experience: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. 3 Years" />
-                                                        </div>
-                                                        <div>
-                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Upload Experience Documents (Max 5)</label>
-                                                            <label className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800/50 text-gray-700 dark:text-gray-300 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors border border-gray-200 dark:border-slate-600">
-                                                                <Upload size={16} />
-                                                                <span className="text-sm font-medium">Select Files</span>
-                                                                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setExperienceFiles, setExperiencePreviews)} />
-                                                            </label>
+                                                            <div className="flex gap-2 items-center">
+                                                                <select value={formData.experience} onChange={e => setFormData({ ...formData, experience: e.target.value })} className="bg-gray-50 border border-transparent cursor-pointer dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full flex-1">
+                                                                    <option value="">Select Experience</option>
+                                                                    <option value="Fresher">Fresher</option>
+                                                                    <option value="1-3 Years">1-3 Years</option>
+                                                                    <option value="3-5 Years">3-5 Years</option>
+                                                                    <option value="5-10 Years">5-10 Years</option>
+                                                                    <option value="10+ Years">10+ Years</option>
+                                                                </select>
+                                                                <label className="bg-blue-50 text-blue-600 hover:bg-blue-100 p-2.5 rounded-lg cursor-pointer transition-colors border border-blue-100 flex items-center justify-center shrink-0" title="Upload Experience Documents">
+                                                                    <Upload size={20} />
+                                                                    <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={(e) => handleMultiFileChange(e, setExperienceFiles, setExperiencePreviews)} />
+                                                                </label>
+                                                            </div>
                                                             {experiencePreviews.length > 0 && (
                                                                 <div className="flex flex-wrap gap-2 mt-3">
                                                                     {experiencePreviews.map((preview, idx) => {
@@ -984,8 +1128,8 @@ export default function EmployeeMaster() {
 
 
 
-                                                {/* Earnings Ref */}
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6">
+                                                {/* Payment Structure */}
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 mb-6">
                                                     <div>
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Basic</label>
                                                         <input type="number" value={formData.basic} onChange={e => setFormData({ ...formData, basic: Number(e.target.value) })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
@@ -1006,40 +1150,127 @@ export default function EmployeeMaster() {
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Special Allowance</label>
                                                         <input type="number" value={formData.specialAllowance} onChange={e => setFormData({ ...formData, specialAllowance: Number(e.target.value) })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="0.00" />
                                                     </div>
-                                                </div>
-
-                                                {/* Deductions */}
-                                                <h5 className="font-bold mb-3 text-red-500 text-xs tracking-wider uppercase">Deductions</h5>
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6">
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">PF</label>
-                                                        <input type="number" value={formData.pf} onChange={e => setFormData({ ...formData, pf: Number(e.target.value) })} className="bg-red-50/50 border border-transparent focus:bg-white focus:border-red-500 outline-none px-4 py-2.5 rounded-lg text-red-600 transition-all w-full" placeholder="0.00" />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Professional Tax</label>
-                                                        <input type="number" value={formData.professionalTax} onChange={e => setFormData({ ...formData, professionalTax: Number(e.target.value) })} className="bg-red-50/50 border border-transparent focus:bg-white focus:border-red-500 outline-none px-4 py-2.5 rounded-lg text-red-600 transition-all w-full" placeholder="0.00" />
-                                                    </div>
-                                                </div>
-
-
-                                                {/* Totals */}
-                                                <div className="bg-gray-50 border-gray-100 border-t dark:bg-slate-800/50 dark:border-slate-700 gap-4 grid grid-cols-2 p-4 pt-4 rounded-lg mb-6">
+                                                    
                                                     <div>
                                                         <label className="block dark:text-gray-300 font-semibold mb-1 text-gray-600 text-xs tracking-wider uppercase">Gross Salary</label>
-                                                        <div className="dark:text-white font-bold text-gray-900 text-xl">₹ {formData.grossSalary.toLocaleString()}</div>
+                                                        <div className="dark:text-white font-bold text-gray-900 text-xl px-4 py-1.5">₹ {formData.grossSalary.toLocaleString()}</div>
                                                     </div>
+                                                    
+                                                    {/* Display Auto-Calculated Deductions if applicable */}
+                                                    {formData.isPFApplicable && (
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">PF Deduction {formData.pf > 0 ? '(Manual)' : '(Auto)'}</label>
+                                                            <div className="text-red-500 font-semibold text-lg px-4 py-1.5">₹ {(formData.pf > 0 ? formData.pf : Math.round(Number(formData.basic || 0) * 0.12)).toLocaleString()}</div>
+                                                        </div>
+                                                    )}
+                                                    {formData.isESIApplicable && (
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">ESI Deduction {formData.esi > 0 ? '(Manual)' : '(Auto)'}</label>
+                                                            <div className="text-red-500 font-semibold text-lg px-4 py-1.5">₹ {(formData.esi > 0 ? formData.esi : Math.round(formData.grossSalary * 0.0075)).toLocaleString()}</div>
+                                                        </div>
+                                                    )}
+                                                    {formData.isPTApplicable && (
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Prof. Tax {formData.professionalTax > 0 ? '(Manual)' : '(Auto)'}</label>
+                                                            <div className="text-red-500 font-semibold text-lg px-4 py-1.5">₹ {(formData.professionalTax > 0 ? formData.professionalTax : 200).toLocaleString()}</div>
+                                                        </div>
+                                                    )}
+
                                                     <div>
                                                         <label className="block font-semibold mb-1 text-green-600 text-xs tracking-wider uppercase">Net Salary</label>
-                                                        <div className="font-bold text-green-600 text-xl">₹ {formData.netSalary.toLocaleString()}</div>
+                                                        <div className="font-bold text-green-600 text-xl px-4 py-1.5">₹ {formData.netSalary.toLocaleString()}</div>
                                                     </div>
                                                 </div>
 
+                                                {/* Calculation Settings */}
+                                                <h5 className="dark:text-gray-300 font-semibold mt-4 mb-3 text-gray-700 text-xs tracking-widest uppercase">Wage Calculation Basis</h5>
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 mb-6">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Per Day Salary Basis</label>
+                                                        <select value={formData.perDayCalculationBasis} onChange={e => setFormData({ ...formData, perDayCalculationBasis: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                            <option value="Basic">Basic</option>
+                                                            <option value="Gross">Gross</option>
+                                                            <option value="Net">Net</option>
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Daily Divisor For Absences</label>
+                                                        <select value={formData.dailyDivisorBasis} onChange={e => setFormData({ ...formData, dailyDivisorBasis: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
+                                                            <option value="TotalMonthDays">Total Month Days (30/31)</option>
+                                                            <option value="ApplicableWorkingDays">Applicable Working Days (e.g. 26)</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                <h5 className="font-bold mb-3 mt-6 text-indigo-500 text-xs tracking-wider uppercase">Statutory Compliance</h5>
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 mb-6">
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">PF Applicable</label>
+                                                        <div className="mt-3">
+                                                            <Switch
+                                                                checked={formData.isPFApplicable}
+                                                                onChange={(c) => setFormData({ ...formData, isPFApplicable: c })}
+                                                                label={formData.isPFApplicable ? "Yes" : "No"}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    {formData.isPFApplicable && (
+                                                        <>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">PF UAN Number</label>
+                                                                <input type="text" value={formData.pfUanNumber} onChange={e => setFormData({ ...formData, pfUanNumber: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="UAN Number" />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Manual PF (0 for Auto)</label>
+                                                                <input type="number" value={formData.pf} onChange={e => setFormData({ ...formData, pf: Number(e.target.value) })} className="bg-red-50/50 border border-transparent focus:bg-white focus:border-red-500 outline-none px-4 py-2.5 rounded-lg text-red-600 transition-all w-full" placeholder="0.00" />
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">ESI Applicable</label>
+                                                        <div className="mt-3">
+                                                            <Switch
+                                                                checked={formData.isESIApplicable}
+                                                                onChange={(c) => setFormData({ ...formData, isESIApplicable: c })}
+                                                                label={formData.isESIApplicable ? "Yes" : "No"}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    {formData.isESIApplicable && (
+                                                        <>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">ESI Number</label>
+                                                                <input type="text" value={formData.esiNumber} onChange={e => setFormData({ ...formData, esiNumber: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="ESI Number" />
+                                                            </div>
+                                                            <div>
+                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Manual ESI (0 for Auto)</label>
+                                                                <input type="number" value={formData.esi} onChange={e => setFormData({ ...formData, esi: Number(e.target.value) })} className="bg-red-50/50 border border-transparent focus:bg-white focus:border-red-500 outline-none px-4 py-2.5 rounded-lg text-red-600 transition-all w-full" placeholder="0.00" />
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    <div>
+                                                        <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Prof. Tax Applicable</label>
+                                                        <div className="mt-3">
+                                                            <Switch
+                                                                checked={formData.isPTApplicable}
+                                                                onChange={(c) => setFormData({ ...formData, isPTApplicable: c })}
+                                                                label={formData.isPTApplicable ? "Yes" : "No"}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    {formData.isPTApplicable && (
+                                                        <div>
+                                                            <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Manual PT (0 for Auto=200)</label>
+                                                            <input type="number" value={formData.professionalTax} onChange={e => setFormData({ ...formData, professionalTax: Number(e.target.value) })} className="bg-red-50/50 border border-transparent focus:bg-white focus:border-red-500 outline-none px-4 py-2.5 rounded-lg text-red-600 transition-all w-full" placeholder="0.00" />
+                                                        </div>
+                                                    )}
+                                                </div>
 
                                             </div>
 
                                             <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 p-6 rounded-xl shadow-sm">
                                                 <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Coins size={16} /> Banking Details</h4>
-                                                <div className="gap-4 grid grid-cols-2">
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
                                                     <div>
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Bank Name</label>
                                                         <input type="text" value={formData.bankName} onChange={e => setFormData({ ...formData, bankName: e.target.value })} className="bg-gray-50 border border-transparent dark:bg-slate-800/50 focus:bg-white focus:border-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="e.g. HDFC Bank" />
@@ -1068,7 +1299,7 @@ export default function EmployeeMaster() {
                                                 <h4 className="border-b dark:text-white flex font-semibold gap-2 items-center mb-4 pb-2 text-gray-900 text-sm"><Clock size={16} /> Leave & OT Policies</h4>
 
                                                 {/* Salary Config */}
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-4 mb-6 bg-blue-50/50 p-4 rounded-lg border border-blue-100 dark:bg-slate-800 dark:border-slate-700">
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 mb-6 bg-blue-50/50 p-4 rounded-lg border border-blue-100 dark:bg-slate-800 dark:border-slate-700">
                                                     <div>
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">OT Applicable</label>
                                                         <div className="mt-3">
@@ -1097,14 +1328,7 @@ export default function EmployeeMaster() {
                                                                     />
                                                                 </div>
                                                             </div>
-                                                            <div>
-                                                                <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Per Day Salary Basis</label>
-                                                                <select value={formData.perDayCalculationBasis} onChange={e => setFormData({ ...formData, perDayCalculationBasis: e.target.value })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full">
-                                                                    <option value="Basic">Basic</option>
-                                                                    <option value="Gross">Gross</option>
-                                                                    <option value="Net">Net</option>
-                                                                </select>
-                                                            </div>
+
                                                             <div>
                                                                 <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Main OT Rate (Multiplier, e.g. 1.5x)</label>
                                                                 <input type="number" step="0.1" value={formData.otRate} onChange={e => setFormData({ ...formData, otRate: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" placeholder="1.5" />
@@ -1126,7 +1350,7 @@ export default function EmployeeMaster() {
                                                 </div>
 
                                                 {/* Working Policies Config */}
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-4 mb-6 bg-purple-50/50 p-4 rounded-lg border border-purple-100 dark:bg-slate-800 dark:border-slate-700">
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 mb-6 bg-purple-50/50 p-4 rounded-lg border border-purple-100 dark:bg-slate-800 dark:border-slate-700">
                                                     <div>
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-700 text-xs tracking-wider uppercase">Standard Hrs/Day</label>
                                                         <input type="number" value={formData.standardWorkingHours} onChange={e => setFormData({ ...formData, standardWorkingHours: Number(e.target.value) })} className="bg-white border border-gray-200 dark:bg-slate-900 dark:border-slate-600 focus:ring-2 focus:ring-blue-500 outline-none px-4 py-2.5 rounded-lg transition-all w-full" />
@@ -1178,7 +1402,7 @@ export default function EmployeeMaster() {
 
                                                 {/* Company Paid Leaves */}
                                                 <h5 className="font-bold mb-3 text-indigo-500 text-xs tracking-wider uppercase">Company Paid Leaves (Annual Quota)</h5>
-                                                <div className="gap-4 grid grid-cols-2 lg:grid-cols-3 mb-6">
+                                                <div className="gap-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 mb-6">
                                                     <div>
                                                         <label className="block dark:text-gray-400 font-semibold mb-1.5 text-gray-500 text-xs tracking-wider uppercase">Casual Leaves (CL)</label>
                                                         <input type="number" value={formData.casualLeave} onChange={e => setFormData({ ...formData, casualLeave: Number(e.target.value) })} className="bg-indigo-50/50 border border-transparent focus:bg-white focus:border-indigo-500 outline-none px-4 py-2.5 rounded-lg text-indigo-600 transition-all w-full" placeholder="0" />

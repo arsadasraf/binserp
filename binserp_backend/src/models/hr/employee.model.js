@@ -17,6 +17,16 @@ export const employeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    gender: {
+      type: String,
+      enum: ["Male", "Female", "Other", ""],
+    },
+    bloodGroup: {
+      type: String,
+    },
+    dob: {
+      type: Date,
+    },
     email: {
       type: String,
       lowercase: true,
@@ -37,6 +47,10 @@ export const employeeSchema = new mongoose.Schema(
     designation: {
       type: String,
       required: true,
+    },
+    idType: {
+      type: String,
+      default: "",
     },
     idDocuments: [{
       type: String, // URLs for uploaded ID documents
@@ -91,10 +105,18 @@ export const employeeSchema = new mongoose.Schema(
       medical: { type: Number, default: 0 },
       specialAllowance: { type: Number, default: 0 },
       grossSalary: { type: Number, default: 0 },
-      pf: { type: Number, default: 0 },
+      isPFApplicable: { type: Boolean, default: false },
+      pfUanNumber: { type: String, default: "" },
+      pf: { type: Number, default: 0 }, // Manual override for PF
+      isESIApplicable: { type: Boolean, default: false },
+      esiNumber: { type: String, default: "" },
+      esi: { type: Number, default: 0 }, // Manual override for ESI
+      isPTApplicable: { type: Boolean, default: false },
       professionalTax: { type: Number, default: 0 },
-      netSalary: { type: Number, default: 0 },
-      perDayCalculationBasis: { type: String, enum: ['Basic', 'Gross', 'Net'], default: 'Basic' },
+      perDayCalculationBasis: { type: String, enum: ['Basic', 'Gross', 'Net'], default: 'Gross' },
+      dailyDivisorBasis: { type: String, enum: ['TotalMonthDays', 'ApplicableWorkingDays'], default: 'TotalMonthDays' },
+      otCalculationBasis: { type: String, enum: ['Basic', 'Gross', 'Net'], default: 'Basic' },
+      otDivisorBasis: { type: String, enum: ['TotalMonthDays', 'ApplicableWorkingDays'], default: 'TotalMonthDays' },
       otRate: { type: Number, default: 0 },
     },
     leaves: {

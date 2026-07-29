@@ -36,6 +36,13 @@ export const updateSalary = async (req, res) => {
         if (req.body.grossPay !== undefined) updates.grossSalary = req.body.grossPay;
         if (req.body.netPay !== undefined) updates.netSalary = req.body.netPay;
         if (req.body.compOffAccrued !== undefined) updates.compOffAccrued = req.body.compOffAccrued;
+        
+        if (req.body.salaryComponents) {
+            updates.salaryComponents = {
+                ...existingSalary.salaryComponents,
+                ...req.body.salaryComponents
+            };
+        }
 
         if (updates.status === 'Paid' && !updates.paymentDate) {
             updates.paymentDate = new Date();
@@ -160,8 +167,12 @@ export const updateSalary = async (req, res) => {
             }
         }
 
-        if (!salary) return res.status(404).json({ message: "Salary record not found" });
-        res.status(200).json(salary);
+        const populatedSalary = await Salary.findById(salary._id)
+            .populate('employee', 'name employeeId department designation paymentDetails isOTApplicable')
+            .populate('generatedBy', 'name')
+            .populate('updatedBy', 'name');
+
+        res.status(200).json(populatedSalary);
     } catch (error) {
         console.error("Error updating salary:", error);
         res.status(500).json({ message: `Error updating salary: ${error.message}` });

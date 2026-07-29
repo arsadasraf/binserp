@@ -25,7 +25,7 @@ export const getSalaries = async (req, res) => {
         if (employeeId) query.employee = employeeId;
 
         const salaries = await Salary.find(query)
-            .populate('employee', 'name employeeId department designation paymentDetails')
+            .populate('employee', 'name employeeId department designation paymentDetails isOTApplicable')
             .populate('generatedBy', 'name')
             .populate('updatedBy', 'name')
             .sort({ createdAt: -1 });

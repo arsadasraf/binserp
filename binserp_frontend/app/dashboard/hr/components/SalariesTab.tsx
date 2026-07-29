@@ -258,6 +258,9 @@ export default function SalariesTab() {
 
         let weeklyOffsCount = 0;
 
+        let actualAbsentDays = 0;
+        let workedDays = 0;
+
         calendarData.forEach(day => {
             const dateObj = new Date(day.date);
             const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -271,10 +274,14 @@ export default function SalariesTab() {
 
             const isPublicHoliday = day.originalStatus === 'Holiday';
 
-            // Base Present Days logic
-            if (status === 'Present' || status === 'CL' || status === 'SL' || status === 'CO') presentDays += 1;
-            else if (status === 'HalfDay') presentDays += 0.5;
-            else if (status === 'Holiday') presentDays += 1; // Unedited public holidays are paid
+            // Tracking absences and worked days
+            if (!isWeeklyOff && !isPublicHoliday) {
+                if (status === 'Absent') actualAbsentDays += 1;
+                else if (status === 'HalfDay') actualAbsentDays += 0.5;
+            }
+            
+            if (status === 'Present') workedDays += 1;
+            else if (status === 'HalfDay') workedDays += 0.5;
 
             // Overtime & CompOff Accrual logic
             if (isWeeklyOff) {
@@ -295,11 +302,14 @@ export default function SalariesTab() {
         });
 
         const effectiveWorkingDays = calendarData.length - weeklyOffsCount;
-        const cappedPresentDays = Math.min(presentDays, effectiveWorkingDays);
         
-        // Absent hours strictly based on missing full/half days
-        const absentDays = Math.max(0, effectiveWorkingDays - cappedPresentDays);
-        const absentHours = absentDays * standardHours;
+        const dailyDivisorBasis = emp?.salary?.dailyDivisorBasis || 'TotalMonthDays';
+        const totalMonthDays = calendarData.length;
+        const divisor = dailyDivisorBasis === 'TotalMonthDays' ? totalMonthDays : effectiveWorkingDays;
+
+        // Payable days
+        const payableDays = Math.max(0, divisor - actualAbsentDays);
+        const absentHours = actualAbsentDays * standardHours;
 
         // OT Multiplier Logic
         const otCompensateForAbsent = emp?.otCompensateForAbsent ?? true;
@@ -310,45 +320,105 @@ export default function SalariesTab() {
         let mainOtHours = 0;
         let absentOtHours = 0;
         let otPay = 0;
+        let otCompensatedPay = 0;
+        let mainOtPay = 0;
 
-        const baseHourlyRate = effectiveWorkingDays > 0 && standardHours > 0 ? (baseSalary / effectiveWorkingDays) / standardHours : 0;
 
-        if (otCompensateForAbsent) {
-            compensatedHours = Math.min(totalOtHours, absentHours);
-            mainOtHours = totalOtHours - compensatedHours;
-            // Add compensated hours value directly to OT pay to restore docked base pay
-            otPay = (mainOtHours * baseHourlyRate * mainOTRateMultiplier) + (compensatedHours * baseHourlyRate * 1.0);
+        const baseHourlyRate = divisor > 0 && standardHours > 0 ? (baseSalary / divisor) / standardHours : 0;
+        
+        // --- Decoupled OT Calculation ---
+        const otCalcBasis = emp?.salary?.otCalculationBasis || 'Basic';
+        let otBaseSalary = 0;
+        if (otCalcBasis === 'Basic') otBaseSalary = emp?.salary?.basic || 0;
+        else if (otCalcBasis === 'Gross') otBaseSalary = emp?.salary?.grossSalary || 0;
+        else if (otCalcBasis === 'Net') otBaseSalary = emp?.salary?.netSalary || 0;
+        
+        const otDivBasis = emp?.salary?.otDivisorBasis || 'TotalMonthDays';
+        const otDivisor = otDivBasis === 'TotalMonthDays' ? totalMonthDays : effectiveWorkingDays;
+        
+        const otHourlyRate = otDivisor > 0 && standardHours > 0 ? (otBaseSalary / otDivisor) / standardHours : 0;
+        // --------------------------------
+
+        if (emp?.isOTApplicable) {
+            if (otCompensateForAbsent) {
+                compensatedHours = Math.min(totalOtHours, absentHours);
+                mainOtHours = totalOtHours - compensatedHours;
+                // Add compensated hours value directly to OT pay to restore docked base pay
+                otCompensatedPay = compensatedHours * otHourlyRate * 1.0;
+                mainOtPay = mainOtHours * otHourlyRate * mainOTRateMultiplier;
+                otPay = otCompensatedPay + mainOtPay;
+            } else {
+                absentOtHours = Math.min(totalOtHours, absentHours);
+                mainOtHours = totalOtHours - absentOtHours;
+                otCompensatedPay = absentOtHours * otHourlyRate * absentOTRateMultiplier;
+                mainOtPay = mainOtHours * otHourlyRate * mainOTRateMultiplier;
+                otPay = otCompensatedPay + mainOtPay;
+            }
         } else {
-            absentOtHours = Math.min(totalOtHours, absentHours);
-            mainOtHours = totalOtHours - absentOtHours;
-            otPay = (absentOtHours * baseHourlyRate * absentOTRateMultiplier) + (mainOtHours * baseHourlyRate * mainOTRateMultiplier);
+            otPay = 0;
         }
 
         let casualLeaveConsumed = 0;
         let sickLeaveConsumed = 0;
         let compOffConsumed = 0;
+        let holidaysCount = 0;
 
         calendarData.forEach(day => {
             const status = day.useManual ? day.manualStatus : day.originalStatus;
             if (status === 'CL') casualLeaveConsumed += 1;
             if (status === 'SL') sickLeaveConsumed += 1;
             if (status === 'CO') compOffConsumed += 1;
+            if (status === 'Holiday') holidaysCount += 1;
         });
 
-        const grossPay = effectiveWorkingDays > 0 ? (baseSalary / effectiveWorkingDays) * cappedPresentDays : 0;
-        const netPay = grossPay + otPay;
+        const ratio = divisor > 0 ? (payableDays / divisor) : 0;
+        const earnedBasic = (emp?.salary?.basic || 0) * ratio;
+        const earnedGross = (emp?.salary?.grossSalary || 0) * ratio;
+
+        const isPFApplicable = emp?.salary?.isPFApplicable || false;
+        const isESIApplicable = emp?.salary?.isESIApplicable || false;
+
+        const isPTApplicable = emp?.salary?.isPTApplicable || false;
+
+        // Manual PF overrides auto-calc
+        let pfDeduction = (emp?.salary?.pf && emp.salary.pf > 0) 
+            ? emp.salary.pf 
+            : (isPFApplicable ? earnedBasic * 0.12 : 0);
+
+        let esiDeduction = (emp?.salary?.esi && emp.salary.esi > 0)
+            ? emp.salary.esi
+            : (isESIApplicable ? earnedGross * 0.0075 : 0);
+        
+        let employerPF = isPFApplicable ? earnedBasic * 0.12 : 0;
+        let employerESI = isESIApplicable ? earnedGross * 0.0325 : 0;
+        
+        const pt = (emp?.salary?.professionalTax && emp.salary.professionalTax > 0)
+            ? emp.salary.professionalTax
+            : (isPTApplicable ? 200 : 0);
+
+        const grossPay = divisor > 0 ? (baseSalary / divisor) * payableDays : 0;
+        const netPay = grossPay + otPay - (pfDeduction + esiDeduction + pt);
 
         return { 
-            presentDays: cappedPresentDays, 
+            presentDays: payableDays, 
+            workedDays,
             totalOtHours, 
             totalDutyHours, 
             grossPay, 
+            pfDeduction,
+            esiDeduction,
+            employerPF,
+            employerESI,
+            professionalTax: pt,
             otPay, 
+            otCompensatedPay,
+            mainOtPay, 
             netPay, 
             casualLeaveConsumed, 
             sickLeaveConsumed,
             compOffConsumed,
             compOffAccrued,
+            holidaysCount,
             effectiveWorkingDays,
             weeklyOffsCount,
             absentHours,
@@ -409,7 +479,16 @@ export default function SalariesTab() {
                     sickLeave: totals.sickLeaveConsumed,
                     compOff: totals.compOffConsumed
                 },
-                compOffAccrued: totals.compOffAccrued
+                compOffAccrued: totals.compOffAccrued,
+                salaryComponents: {
+                    pf: totals.pfDeduction,
+                    esi: totals.esiDeduction,
+                    professionalTax: totals.professionalTax
+                },
+                employerContributions: {
+                    pf: totals.employerPF,
+                    esi: totals.employerESI
+                }
             };
 
             if (existingSalaryId) {
@@ -460,7 +539,9 @@ export default function SalariesTab() {
 
     const handleDownloadSavedPDF = (salary: any, slipType: 'Combined' | 'Salary' | 'Overtime') => {
         const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        const emp = salary.employee;
+        const empId = typeof salary.employee === 'string' ? salary.employee : salary.employee?._id;
+        const fullEmpData = employees.find(e => e._id === empId);
+        const emp = fullEmpData || salary.employee;
         const pageW = doc.internal.pageSize.getWidth();
         const pageH = doc.internal.pageSize.getHeight();
         const margin = 10;
@@ -536,53 +617,119 @@ export default function SalariesTab() {
         
         const displayNetPay = displayGrossPay + displayOtPay;
 
-        const summaryItems = [
-            { label: 'Present Days', value: String(salary.presentDays || 0) },
-            { label: 'Duty Hours',   value: String(salary.totalDutyHours || 0) },
-            { label: 'OT Hours',     value: Number(salary.overtime?.hours || salary.totalOtHours || 0).toFixed(2) },
-            { label: 'Basic Pay',    value: `${cur} ${displayGrossPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
-            { label: 'OT Pay',       value: `${cur} ${displayOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
-            { label: 'Net Payable',  value: `${cur} ${displayNetPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}` },
-        ];
-        const sw = (pageW - 2 * margin) / summaryItems.length;
-        summaryItems.forEach((item, i) => {
-            const cx = margin + sw * i + sw / 2;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(9);
-            doc.setTextColor(30, 30, 30);
-            doc.text(item.value, cx, 39, { align: 'center' });
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(6.5);
-            doc.setTextColor(100, 116, 139);
-            doc.text(item.label, cx, 45, { align: 'center' });
+        const isOT = emp?.isOTApplicable;
+        
+        const basicPay = emp?.salary?.basic || 0;
+        const hra = emp?.salary?.hra || 0;
+        const conv = emp?.salary?.conveyance || 0;
+        const med = emp?.salary?.medical || 0;
+        const spl = emp?.salary?.specialAllowance || 0;
+
+        const pfDeduction = salary.salaryComponents?.pf || 0;
+        const esiDeduction = salary.salaryComponents?.esi || 0;
+        const pt = salary.salaryComponents?.professionalTax || 0;
+
+        const employerPF = salary.employerContributions?.pf || 0;
+        const employerESI = salary.employerContributions?.esi || 0;
+
+        autoTable(doc, {
+            startY: 38,
+            margin: { left: margin, right: margin },
+            head: [['Earnings', 'Amount', 'Deductions', 'Amount']],
+            body: [
+                ['Basic Pay', `${cur} ${basicPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Provident Fund (PF)', `${cur} ${pfDeduction.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
+                ['HRA', `${cur} ${hra.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'ESI', `${cur} ${esiDeduction.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
+                ['Conveyance', `${cur} ${conv.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Professional Tax', `${cur} ${pt.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
+                ['Medical', `${cur} ${med.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, '', ''],
+                ['Special Allowance', `${cur} ${spl.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, '', ''],
+                ['Overtime Pay', `${cur} ${displayOtPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, '', ''],
+                ['Total Earnings', `${cur} ${(displayGrossPay + displayOtPay).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, 'Total Deductions', `${cur} ${(pfDeduction + esiDeduction + pt).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
+            ],
+            theme: 'grid',
+            headStyles: { fillColor: [241, 245, 249], textColor: [55, 65, 81], fontStyle: 'bold', fontSize: 8 },
+            styles: { fontSize: 7, cellPadding: 1.5, valign: 'middle' },
+            columnStyles: {
+                0: { fontStyle: 'bold' },
+                1: { halign: 'right' },
+                2: { fontStyle: 'bold' },
+                3: { halign: 'right' },
+            },
+            didParseCell: (data) => {
+                if (data.row.index === 6) { // Total row
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.fillColor = [248, 250, 252];
+                }
+            }
         });
+
+        const nextY = (doc as any).lastAutoTable.finalY + 5;
+
+        // Employer Contributions (CTC View)
+        if (employerPF > 0 || employerESI > 0) {
+            autoTable(doc, {
+                startY: nextY,
+                margin: { left: margin, right: margin },
+                head: [['Employer Contributions (Not Deducted from Net Pay)', 'Amount']],
+                body: [
+                    ['Employer PF (12%)', `${cur} ${employerPF.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
+                    ['Employer ESI (3.25%)', `${cur} ${employerESI.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`],
+                ],
+                theme: 'grid',
+                headStyles: { fillColor: [248, 250, 252], textColor: [100, 116, 139], fontStyle: 'bold', fontSize: 7 },
+                styles: { fontSize: 7, cellPadding: 1.2, valign: 'middle' },
+                columnStyles: {
+                    0: { cellWidth: 140 },
+                    1: { halign: 'right' }
+                }
+            });
+        }
+
+        const netY = (doc as any).lastAutoTable.finalY + 5;
+        
+        doc.setFillColor(37, 99, 235);
+        doc.rect(margin, netY, pageW - 2 * margin, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(`Net Salary Payable: ${cur} ${displayNetPay.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`, pageW - margin - 2, netY + 5, { align: 'right' });
+        
         doc.setTextColor(30, 30, 30);
 
         const tableBody = (salary.dailyLogs || []).map((d: any) => {
             const finalStatus = d.useManual ? d.manualStatus : d.originalStatus;
             const finalHours  = d.useManual ? d.manualHours  : (d.originalHours ?? 0);
-            return [
+            return isOT ? [
                 d.date,
                 d.dayName,
                 d.originalStatus || 'Absent',
                 d.originalHours != null ? `${d.originalHours}h` : '-',
                 d.useManual ? `${d.manualStatus} (M)` : finalStatus,
                 finalHours != null ? `${finalHours}h` : '-',
+            ] : [
+                d.date,
+                d.dayName,
+                d.originalStatus || 'Absent',
+                d.useManual ? `${d.manualStatus} (M)` : finalStatus,
             ];
         });
 
         autoTable(doc, {
-            startY: 50,
+            startY: netY + 14,
             margin: { left: margin, right: margin },
-            head: [['Date', 'Day', 'DB Status', 'DB Hrs', 'Final Status', 'Final Hrs']],
+            head: isOT 
+                ? [['Date', 'Day', 'DB Status', 'DB Hrs', 'Final Status', 'Final Hrs']]
+                : [['Date', 'Day', 'DB Status', 'Final Status']],
             body: tableBody,
             theme: 'grid',
             pageBreak: 'avoid',
             styles: { fontSize: 6.5, cellPadding: 1.2, halign: 'center', valign: 'middle', overflow: 'linebreak' },
             headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold', fontSize: 7, cellPadding: 1.5 },
-            columnStyles: {
+            columnStyles: isOT ? {
                 0: { cellWidth: 26 }, 1: { cellWidth: 12 }, 2: { cellWidth: 32 },
                 3: { cellWidth: 18 }, 4: { cellWidth: 56 }, 5: { cellWidth: 46 },
+            } : {
+                0: { cellWidth: 35 }, 1: { cellWidth: 20 }, 2: { cellWidth: 60 },
+                3: { cellWidth: 75 },
             },
             didParseCell: (data) => {
                 if (data.section === 'body') {
@@ -590,7 +737,8 @@ export default function SalariesTab() {
                     if (day && (day.dayName === 'Sun' || day.originalStatus === 'Holiday')) {
                         data.cell.styles.fillColor = [254, 242, 242];
                     }
-                    if (data.column.index === 4) {
+                    const statusCol = isOT ? 4 : 3;
+                    if (data.column.index === statusCol) {
                         const s = day?.useManual ? day.manualStatus : day?.originalStatus;
                         if (s === 'Present')  data.cell.styles.textColor = [22, 163, 74];
                         else if (s === 'HalfDay') data.cell.styles.textColor = [217, 119, 6];
@@ -792,76 +940,198 @@ export default function SalariesTab() {
                                 Detailed Calculation Summary
                             </h3>
                             
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                                {/* Days Column */}
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Applicable Days</span>
-                                        <span className="font-bold text-slate-700 dark:text-slate-300">{totals.effectiveWorkingDays}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Working Days</span>
-                                        <span className="font-bold text-blue-600 dark:text-blue-400">{totals.presentDays}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Absent Days</span>
-                                        <span className="font-bold text-red-600 dark:text-red-400">{totals.effectiveWorkingDays - totals.presentDays}</span>
-                                    </div>
-                                </div>
+                            {(() => {
+                                const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                const isOT = emp?.isOTApplicable;
 
-                                {/* Hours Column */}
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Applicable Hrs</span>
-                                        <span className="font-bold text-slate-700 dark:text-slate-300">
+                                if (!isOT) {
+                                    return (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="text-slate-500 font-medium">Total Month Days</span>
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">{calendarData.length}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500 font-medium">Applicable Days</span>
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">{totals.effectiveWorkingDays}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500 font-medium">Worked Days</span>
+                                                    <span className="font-bold text-slate-600 dark:text-slate-400">{totals.workedDays}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500 font-medium">Payable Days</span>
+                                                    <span className="font-bold text-blue-600 dark:text-blue-400">{totals.presentDays}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="text-slate-500 font-medium">Absent Days</span>
+                                                    <span className="font-bold text-red-600 dark:text-red-400">{totals.effectiveWorkingDays - totals.presentDays}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                {totals.casualLeaveConsumed > 0 && (
+                                                    <div className="flex justify-between items-center text-sm">
+                                                        <span className="text-slate-500 font-medium">CL Applied</span>
+                                                        <span className="font-bold text-purple-600 dark:text-purple-400">{totals.casualLeaveConsumed}</span>
+                                                    </div>
+                                                )}
+                                                {totals.sickLeaveConsumed > 0 && (
+                                                    <div className="flex justify-between items-center text-sm">
+                                                        <span className="text-slate-500 font-medium">SL Applied</span>
+                                                        <span className="font-bold text-purple-600 dark:text-purple-400">{totals.sickLeaveConsumed}</span>
+                                                    </div>
+                                                )}
+                                                {totals.compOffConsumed > 0 && (
+                                                    <div className="flex justify-between items-center text-sm">
+                                                        <span className="text-slate-500 font-medium">CO Applied</span>
+                                                        <span className="font-bold text-teal-600 dark:text-teal-400">{totals.compOffConsumed}</span>
+                                                    </div>
+                                                )}
+                                                {totals.compOffAccrued > 0 && (
+                                                    <div className="flex justify-between items-center text-sm">
+                                                        <span className="text-slate-500 font-medium">CO Accrued</span>
+                                                        <span className="font-bold text-teal-600 dark:text-teal-400">{totals.compOffAccrued.toFixed(1)}</span>
+                                                    </div>
+                                                )}
+                                                {totals.holidaysCount > 0 && (
+                                                    <div className="flex justify-between items-center text-sm">
+                                                        <span className="text-slate-500 font-medium">Holidays</span>
+                                                        <span className="font-bold text-sky-600 dark:text-sky-400">{totals.holidaysCount}</span>
+                                                    </div>
+                                                )}
+                                                {totals.casualLeaveConsumed === 0 && totals.sickLeaveConsumed === 0 && totals.compOffConsumed === 0 && totals.compOffAccrued === 0 && totals.holidaysCount === 0 && (
+                                                    <div className="text-slate-400 text-xs italic text-center py-2">No leaves or holidays</div>
+                                                )}
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                <div className="flex justify-between items-center text-sm">
+                                                    <span className="text-slate-500 font-medium">Gross Salary</span>
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">₹ {Math.round(totals.grossPay).toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-sm font-bold pt-1 border-t border-slate-100 dark:border-slate-700 mt-1">
+                                                    <span className="text-slate-700 dark:text-slate-200">Net Payable</span>
+                                                    <span className="text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.netPay).toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div className={`grid grid-cols-1 sm:grid-cols-2 ${(() => {
+                                        const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                        return emp?.isOTApplicable ? 'lg:grid-cols-4' : 'lg:grid-cols-2';
+                                    })()} gap-6`}>
+                                        {/* Days Column */}
+                                        <div className="space-y-3">
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500 font-medium">Applicable Divisor</span>
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                                                        {(() => {
+                                                            const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                                            return emp?.salary?.dailyDivisorBasis === 'TotalMonthDays' ? calendarData.length : totals.effectiveWorkingDays;
+                                                        })()}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500 font-medium">Worked Days</span>
+                                                    <span className="font-bold text-slate-600 dark:text-slate-400">{totals.workedDays}</span>
+                                                </div>
+                                                <div className="flex justify-between items-center text-xs">
+                                                    <span className="text-slate-500 font-medium">Payable Days</span>
+                                                    <span className="font-bold text-blue-600 dark:text-blue-400">{totals.presentDays}</span>
+                                                </div>
+                                        </div>
+
+                                        {/* Hours Column - Conditionally shown */}
+                                        {(() => {
+                                            const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                            if (emp?.isOTApplicable) {
+                                                return (
+                                                    <div className="space-y-3">
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <span className="text-slate-500 font-medium">Applicable Hrs</span>
+                                                            <span className="font-bold text-slate-700 dark:text-slate-300">
+                                                                {(totals.effectiveWorkingDays * (emp?.standardWorkingHours || 9)).toFixed(1)}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <span className="text-slate-500 font-medium">Total Work Hrs</span>
+                                                            <span className="font-bold text-blue-600 dark:text-blue-400">{totals.totalDutyHours.toFixed(1)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <span className="text-slate-500 font-medium">Total Absent Hrs</span>
+                                                            <span className="font-bold text-red-600 dark:text-red-400">{totals.absentHours.toFixed(1)}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
+                                        {/* OT Column - Conditionally shown */}
+                                        {(() => {
+                                            const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                            if (emp?.isOTApplicable) {
+                                                return (
+                                                    <div className="space-y-3">
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <span className="text-slate-500 font-medium">Total OT Hrs</span>
+                                                            <span className="font-bold text-purple-600 dark:text-purple-400">{totals.totalOtHours.toFixed(1)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <span className="text-slate-500 font-medium">OT Compensated</span>
+                                                            <span className="font-bold text-orange-600 dark:text-orange-400">{totals.compensatedHours.toFixed(1)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between items-center text-sm">
+                                                            <span className="text-slate-500 font-medium">Main OT Hrs</span>
+                                                            <span className="font-bold text-indigo-600 dark:text-indigo-400">{totals.mainOtHours.toFixed(1)}</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
+                                        {/* Pay Column */}
+                                        <div className="space-y-3">
+                                            <div className="flex justify-between items-center text-sm">
+                                                <span className="text-slate-500 font-medium">Gross Salary</span>
+                                                <span className="font-bold text-slate-700 dark:text-slate-300">₹ {Math.round(totals.grossPay).toLocaleString()}</span>
+                                            </div>
                                             {(() => {
                                                 const emp = employees.find(e => e._id === selectedEmployeeId) as any;
-                                                return (totals.effectiveWorkingDays * (emp?.standardWorkingHours || 9)).toFixed(1);
+                                                if (emp?.isOTApplicable) {
+                                                    return (
+                                                        <>
+                                                            <div className="flex justify-between items-center text-xs">
+                                                                <span className="text-slate-500 font-medium">OT Compensate Pay</span>
+                                                                <span className="font-bold text-orange-600 dark:text-orange-400">₹ {Math.round(totals.otCompensatedPay).toLocaleString()}</span>
+                                                            </div>
+                                                            <div className="flex justify-between items-center text-xs">
+                                                                <span className="text-slate-500 font-medium">Main OT Pay</span>
+                                                                <span className="font-bold text-indigo-600 dark:text-indigo-400">₹ {Math.round(totals.mainOtPay).toLocaleString()}</span>
+                                                            </div>
+                                                            <div className="flex justify-between items-center text-sm pt-1">
+                                                                <span className="text-slate-500 font-medium">Total OT Pay</span>
+                                                                <span className="font-bold text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.otPay).toLocaleString()}</span>
+                                                            </div>
+                                                        </>
+                                                    );
+                                                }
+                                                return null;
                                             })()}
-                                        </span>
+                                            <div className="flex justify-between items-center text-base font-bold pt-2 border-t border-slate-100 dark:border-slate-700 mt-2">
+                                                <span className="text-slate-700 dark:text-slate-200">Net Payable</span>
+                                                <span className="text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.netPay).toLocaleString()}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Total Work Hrs</span>
-                                        <span className="font-bold text-blue-600 dark:text-blue-400">{totals.totalDutyHours.toFixed(1)}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Total Absent Hrs</span>
-                                        <span className="font-bold text-red-600 dark:text-red-400">{totals.absentHours.toFixed(1)}</span>
-                                    </div>
-                                </div>
-
-                                {/* OT Column */}
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Total OT Hrs</span>
-                                        <span className="font-bold text-purple-600 dark:text-purple-400">{totals.totalOtHours.toFixed(1)}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">OT Compensated</span>
-                                        <span className="font-bold text-orange-600 dark:text-orange-400">{totals.compensatedHours.toFixed(1)}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Main OT Hrs</span>
-                                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{totals.mainOtHours.toFixed(1)}</span>
-                                    </div>
-                                </div>
-
-                                {/* Pay Column */}
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Gross Salary</span>
-                                        <span className="font-bold text-slate-700 dark:text-slate-300">₹ {Math.round(totals.grossPay).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-sm">
-                                        <span className="text-slate-500 font-medium">Total OT Pay</span>
-                                        <span className="font-bold text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.otPay).toLocaleString()}</span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-base font-bold pt-2 border-t border-slate-100 dark:border-slate-700 mt-2">
-                                        <span className="text-slate-700 dark:text-slate-200">Net Payable</span>
-                                        <span className="text-emerald-600 dark:text-emerald-400">₹ {Math.round(totals.netPay).toLocaleString()}</span>
-                                    </div>
-                                </div>
-                            </div>
+                                );
+                            })()}
 
                             <div className="mt-6 flex justify-end items-center gap-4 border-t border-slate-100 dark:border-slate-700 pt-4">
                                 <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 rounded-md">
@@ -897,10 +1167,16 @@ export default function SalariesTab() {
                                         <th className="px-4 py-3">Date</th>
                                         <th className="px-4 py-3">Day</th>
                                         <th className="px-4 py-3">DB Status</th>
-                                        <th className="px-4 py-3">DB Hours</th>
+                                        {(() => {
+                                            const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                            return emp?.isOTApplicable ? <th className="px-4 py-3">DB Hours</th> : null;
+                                        })()}
                                         <th className="px-4 py-3 text-center">Edit</th>
                                         <th className="px-4 py-3">Manual Status</th>
-                                        <th className="px-4 py-3">Manual Hours</th>
+                                        {(() => {
+                                            const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                            return emp?.isOTApplicable ? <th className="px-4 py-3">Manual Hours</th> : null;
+                                        })()}
                                     </tr>
                                 </thead>
                                 <tbody className="divide-gray-100 divide-y">
@@ -923,9 +1199,14 @@ export default function SalariesTab() {
                                                     {day.originalStatus}
                                                 </span>
                                             </td>
-                                            <td className="dark:text-gray-300 font-mono px-4 py-3 text-gray-600 text-xs">
-                                                {day.originalHours ? `${day.originalHours}h` : '-'}
-                                            </td>
+                                            {(() => {
+                                                const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                                return emp?.isOTApplicable ? (
+                                                    <td className="dark:text-gray-300 font-mono px-4 py-3 text-gray-600 text-xs">
+                                                        {day.originalHours ? `${day.originalHours}h` : '-'}
+                                                    </td>
+                                                ) : null;
+                                            })()}
 
                                             {/* Toggle Switch */}
                                             <td className="px-4 py-3 text-center">
@@ -962,16 +1243,21 @@ export default function SalariesTab() {
                                                     })()}
                                                 </select>
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <input
-                                                    type="number"
-                                                    step="0.5"
-                                                    disabled={!day.useManual}
-                                                    value={day.manualHours}
-                                                    onChange={(e) => updateManualField(idx, 'manualHours', Number(e.target.value))}
-                                                    className={`w-16 px-2 py-1 rounded border text-xs outline-none focus:ring-1 focus:ring-blue-500 ${day.useManual ? 'bg-white border-gray-300 dark:bg-slate-900 dark:border-slate-700 dark:text-white' : 'bg-gray-100 border-transparent opacity-50 dark:bg-slate-800'}`}
-                                                />
-                                            </td>
+                                            {(() => {
+                                                const emp = employees.find(e => e._id === selectedEmployeeId) as any;
+                                                return emp?.isOTApplicable ? (
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="number"
+                                                            step="0.5"
+                                                            disabled={!day.useManual}
+                                                            value={day.manualHours}
+                                                            onChange={(e) => updateManualField(idx, 'manualHours', Number(e.target.value))}
+                                                            className={`w-16 px-2 py-1 rounded border text-xs outline-none focus:ring-1 focus:ring-blue-500 ${day.useManual ? 'bg-white border-gray-300 dark:bg-slate-900 dark:border-slate-700 dark:text-white' : 'bg-gray-100 border-transparent opacity-50 dark:bg-slate-800'}`}
+                                                        />
+                                                    </td>
+                                                ) : null;
+                                            })()}
                                         </tr>
                                     ))}
                                 </tbody>
@@ -1041,7 +1327,12 @@ export default function SalariesTab() {
                                             </td>
                                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{salary.presentDays}</td>
                                             <td className="px-4 py-3 text-gray-600 dark:text-gray-300">₹ {salary.grossSalary?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
-                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">₹ {salary.overtime?.amount?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
+                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                                                ₹ {(() => {
+                                                    const emp = employees.find(e => e._id === (salary.employee?._id || salary.employee)) as any;
+                                                    return (emp && !emp.isOTApplicable) ? '0' : (salary.overtime?.amount?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0');
+                                                })()}
+                                            </td>
                                             <td className="px-4 py-3 font-semibold text-gray-800 dark:text-gray-200">₹ {salary.netSalary?.toLocaleString(undefined, {maximumFractionDigits: 2}) || '0'}</td>
                                             <td className="px-4 py-3">
                                                 <div className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1060,27 +1351,43 @@ export default function SalariesTab() {
                                                 </button>
                                                 <div className="flex items-center gap-2 justify-end">
                                                     <span className="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500">PDF:</span>
-                                                    <button 
-                                                        onClick={() => handleDownloadSavedPDF(salary, 'Combined')}
-                                                        className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 text-xs font-medium px-1"
-                                                        title="Combined PDF"
-                                                    >
-                                                        Comb
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handleDownloadSavedPDF(salary, 'Salary')}
-                                                        className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 text-xs font-medium px-1 border-l border-gray-200 dark:border-gray-700"
-                                                        title="Standard Salary PDF"
-                                                    >
-                                                        Sal
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handleDownloadSavedPDF(salary, 'Overtime')}
-                                                        className="text-orange-600 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300 text-xs font-medium px-1 border-l border-gray-200 dark:border-gray-700"
-                                                        title="Overtime PDF"
-                                                    >
-                                                        OT
-                                                    </button>
+                                                    {(() => {
+                                                        const empId = typeof salary.employee === 'string' ? salary.employee : salary.employee?._id;
+                                                        const fullEmpData = employees.find(e => e._id === empId);
+                                                        return fullEmpData ? fullEmpData.isOTApplicable : salary.employee?.isOTApplicable;
+                                                    })() ? (
+                                                        <>
+                                                            <button 
+                                                                onClick={() => handleDownloadSavedPDF(salary, 'Combined')}
+                                                                className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 text-xs font-medium px-1"
+                                                                title="Combined PDF"
+                                                            >
+                                                                Comb
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDownloadSavedPDF(salary, 'Salary')}
+                                                                className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 text-xs font-medium px-1 border-l border-gray-200 dark:border-gray-700"
+                                                                title="Standard Salary PDF"
+                                                            >
+                                                                Sal
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDownloadSavedPDF(salary, 'Overtime')}
+                                                                className="text-orange-600 hover:text-orange-800 dark:text-orange-400 dark:hover:text-orange-300 text-xs font-medium px-1 border-l border-gray-200 dark:border-gray-700"
+                                                                title="Overtime PDF"
+                                                            >
+                                                                OT
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <button 
+                                                            onClick={() => handleDownloadSavedPDF(salary, 'Salary')}
+                                                            className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 text-xs font-medium px-1"
+                                                            title="Standard Salary PDF"
+                                                        >
+                                                            Download
+                                                        </button>
+                                                    )}
                                                 </div>
                                                 <button 
                                                     onClick={() => handleDeleteSavedSalary(salary._id)}

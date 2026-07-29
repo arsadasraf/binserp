@@ -52,8 +52,13 @@ export const createSalarySlip = async (req, res) => {
                 conveyance: employee.salary?.conveyance || 0,
                 medical: employee.salary?.medical || 0,
                 specialAllowance: employee.salary?.specialAllowance || 0,
-                pf: employee.salary?.pf || 0,
-                professionalTax: employee.salary?.professionalTax || 0
+                pf: req.body.salaryComponents?.pf || employee.salary?.pf || 0,
+                esi: req.body.salaryComponents?.esi || 0,
+                professionalTax: req.body.salaryComponents?.professionalTax || employee.salary?.professionalTax || 0
+            },
+            employerContributions: {
+                pf: req.body.employerContributions?.pf || 0,
+                esi: req.body.employerContributions?.esi || 0
             },
             overtime: {
                 hours: totalOtHours || 0,
@@ -163,7 +168,12 @@ export const createSalarySlip = async (req, res) => {
             );
         }
 
-        res.status(201).json(newSalary);
+        const populatedSalary = await Salary.findById(newSalary._id)
+            .populate('employee', 'name employeeId department designation paymentDetails isOTApplicable')
+            .populate('generatedBy', 'name')
+            .populate('updatedBy', 'name');
+
+        res.status(201).json(populatedSalary);
 
     } catch (error) {
         console.error("Error generating salary:", error);

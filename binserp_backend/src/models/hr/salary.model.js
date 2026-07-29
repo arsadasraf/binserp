@@ -38,7 +38,12 @@ export const salarySchema = new mongoose.Schema(
       medical: { type: Number, default: 0 },
       specialAllowance: { type: Number, default: 0 },
       pf: { type: Number, default: 0 },
+      esi: { type: Number, default: 0 },
       professionalTax: { type: Number, default: 0 },
+    },
+    employerContributions: {
+      pf: { type: Number, default: 0 },
+      esi: { type: Number, default: 0 },
     },
     overtime: {
       hours: { type: Number, default: 0 },
