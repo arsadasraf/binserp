@@ -268,8 +268,8 @@ function LayoutContent({ children }: { children: ReactNode }) {
         pathname === item.href || pathname.startsWith(item.href + "/")
       );
 
-      // Allow some global routes just in case they exist
-      const isGlobalRoute = pathname === "/dashboard/profile" || pathname === "/dashboard/settings";
+      // Allow some global routes just in case they exist, including login to prevent redirect loops during logout
+      const isGlobalRoute = pathname === "/dashboard/profile" || pathname === "/dashboard/settings" || pathname === "/login" || pathname === "/" || pathname?.startsWith("/auth");
 
       if (!isAuthorized && !isGlobalRoute && pathname !== "/dashboard") {
         console.warn(`Unauthorized access attempt to ${pathname}. Redirecting...`);
@@ -320,9 +320,9 @@ function LayoutContent({ children }: { children: ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleLogout = () => {
-    clearSession();
-    router.push("/login");
+  const handleLogout = async () => {
+    await clearSession();
+    window.location.href = "/login";
   };
 
   // Mobile Bottom Nav Logic

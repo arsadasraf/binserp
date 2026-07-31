@@ -19,7 +19,11 @@ export const googleAuthCallback = (req, res) => {
     }
 
     const company = userOrCompany;
-    const { accessToken, refreshToken } = generateTokens(company._id, "company");
+    
+    // Increment token version for strict single-device login
+    company.tokenVersion = (company.tokenVersion || 0) + 1;
+
+    const { accessToken, refreshToken } = generateTokens(company._id, "company", null, company.tokenVersion);
     
     // Save refresh token asynchronously (don't block redirect unnecessarily, but better to wait)
     company.refreshToken = refreshToken;

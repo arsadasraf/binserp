@@ -63,8 +63,10 @@ export default function AxiosInterceptorProvider({ children }: { children: React
               
               const errorData = error.response.data;
               const isDeactivated = errorData?.message?.toLowerCase().includes("deactivated");
+              const isAnotherDevice = errorData?.message?.toLowerCase().includes("another device");
 
               // We'll also call clearSession if we can import it, but let's just do standard cleanup here
+              localStorage.removeItem("token");
               localStorage.removeItem("userType");
               localStorage.removeItem("userInfo");
               
@@ -72,12 +74,21 @@ export default function AxiosInterceptorProvider({ children }: { children: React
               document.cookie = "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
               document.cookie = "refreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
 
+              let alertTitle = 'Session Expired';
+              let alertText = 'Your session has expired or is invalid. Please log in again.';
+              
+              if (isDeactivated) {
+                alertTitle = 'Account Deactivated';
+                alertText = 'Your account has been deactivated. Please contact an administrator.';
+              } else if (isAnotherDevice) {
+                alertTitle = 'Logged in from another device';
+                alertText = 'You have been logged out because your account was logged into from another device.';
+              }
+
               await Swal.fire({
                 icon: 'error',
-                title: isDeactivated ? 'Account Deactivated' : 'Session Expired',
-                text: isDeactivated
-                  ? 'Your account has been deactivated. Please contact an administrator.'
-                  : 'Your session has expired or is invalid. Please log in again.',
+                title: alertTitle,
+                text: alertText,
                 confirmButtonColor: '#4f46e5',
                 confirmButtonText: 'Go to Login',
                 allowOutsideClick: false,

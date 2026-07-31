@@ -59,6 +59,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         throw new ApiError(401, "Account deactivated. Please contact an administrator.");
       }
 
+      // STRICT SINGLE-DEVICE CHECK
+      if ((decoded.tokenVersion || 0) !== (user.tokenVersion || 0)) {
+        throw new ApiError(401, "Session expired. You logged in from another device.");
+      }
+
       const now = new Date();
       if (!user.lastActiveAt || now - user.lastActiveAt > 5 * 60 * 1000) {
         UserModel.updateOne({ _id: user._id }, { $set: { lastActiveAt: now } }).catch(err => console.error("Error updating user lastActiveAt:", err));
@@ -103,6 +108,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         throw new ApiError(401, "Account deactivated. Please contact an administrator.");
       }
 
+      // STRICT SINGLE-DEVICE CHECK
+      if ((decoded.tokenVersion || 0) !== (employee.tokenVersion || 0)) {
+        throw new ApiError(401, "Session expired. You logged in from another device.");
+      }
+
       const now = new Date();
       if (!employee.lastActiveAt || now - employee.lastActiveAt > 5 * 60 * 1000) {
         EmployeeModel.updateOne({ _id: employee._id }, { $set: { lastActiveAt: now } }).catch(err => console.error("Error updating employee lastActiveAt:", err));
@@ -120,6 +130,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       const company = await Company.findById(decoded.id).select("-password");
       if (!company) {
         throw new ApiError(404, "Company not found");
+      }
+
+      // STRICT SINGLE-DEVICE CHECK
+      if ((decoded.tokenVersion || 0) !== (company.tokenVersion || 0)) {
+        throw new ApiError(401, "Session expired. You logged in from another device.");
       }
 
       // Also setup tenant connection for Company Admin actions

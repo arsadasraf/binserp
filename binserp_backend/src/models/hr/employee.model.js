@@ -154,6 +154,10 @@ export const employeeSchema = new mongoose.Schema(
     lastActiveAt: {
       type: Date,
     },
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
   },
   { timestamps: true }
 );

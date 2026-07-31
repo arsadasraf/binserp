@@ -92,8 +92,11 @@ export const loginUser = async (req, res) => {
         }
       }
 
+      // Increment token version for strict single-device login
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
+
       // Generate tokens
-      const { accessToken, refreshToken } = generateTokens(user._id, "user", company.companyId);
+      const { accessToken, refreshToken } = generateTokens(user._id, "user", company.companyId, user.tokenVersion);
 
       // Save refresh token to user
       user.refreshToken = refreshToken;
@@ -146,8 +149,11 @@ export const loginUser = async (req, res) => {
         return res.status(403).json({ message: "Account is not active." });
       }
 
+      // Increment token version for strict single-device login
+      employee.tokenVersion = (employee.tokenVersion || 0) + 1;
+
       // Generate tokens
-      const { accessToken, refreshToken } = generateTokens(employee._id, "employee", company.companyId);
+      const { accessToken, refreshToken } = generateTokens(employee._id, "employee", company.companyId, employee.tokenVersion);
 
       // Save refresh token to employee
       employee.refreshToken = refreshToken;

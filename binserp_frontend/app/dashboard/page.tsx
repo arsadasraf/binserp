@@ -91,9 +91,9 @@ export default function Dashboard() {
     }
   }, [data, isFetching, fetchingUsers, shouldFetchProfile]);
 
-  const handleLogout = () => {
-    clearSession();
-    router.push("/login");
+  const handleLogout = async () => {
+    await clearSession();
+    window.location.href = "/login";
   };
 
   const dashboardCards = [

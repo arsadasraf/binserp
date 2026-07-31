@@ -104,7 +104,8 @@ export const markAttendance = async (req, res) => {
                 date: now, // Stores full timestamp, but queried by range
                 checkIn: {
                     time: now,
-                    location: "Office"
+                    location: "Office",
+                    markedBy: req.user?._id || req.user?.id
                 },
                 status: "Present",
                 hoursWorked: 0
@@ -139,7 +140,8 @@ export const markAttendance = async (req, res) => {
             // Perform Check-out
             attendance.checkOut = {
                 time: now,
-                location: "Office"
+                location: "Office",
+                markedBy: req.user?._id || req.user?.id
             };
             attendance.hoursWorked = parseFloat(diffHours.toFixed(2));
 

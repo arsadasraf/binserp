@@ -48,21 +48,23 @@ const BarChart = ({ data, title, onItemClick }: { data: any[], title: string, on
                             className="cursor-pointer dark:hover:bg-slate-700 group hover:bg-gray-50 p-2 rounded-lg space-y-1 transition-colors"
                             onClick={() => onItemClick(item.name)}
                         >
-                            <div className="flex group-hover:text-blue-600 justify-between text-sm">
-                                <span className="dark:text-gray-200 font-semibold group-hover:text-blue-600 text-gray-700">{item.name || 'Unknown'}</span>
-                                <span className="dark:text-gray-400 text-gray-500 text-xs">{item.present}/{item.total} Present</span>
-                            </div>
-                            <div className="bg-gray-100 dark:bg-slate-700 flex h-3 overflow-hidden rounded-full w-full">
-                                <div
-                                    className="bg-blue-500 duration-500 group-hover:bg-blue-600 h-full rounded-l-full transition-all"
-                                    style={{ width: `${(item.total > 0 ? (item.present / item.total) * 100 : 0)}%` }}
-                                    title={`Present: ${item.present}`}
-                                ></div>
-                                <div
-                                    className="bg-red-200 duration-500 group-hover:bg-red-300 h-full rounded-r-full transition-all"
-                                    style={{ width: `${(item.total > 0 ? (item.absent / item.total) * 100 : 0)}%` }}
-                                    title={`Absent: ${item.absent}`}
-                                ></div>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between text-sm w-full gap-2 sm:gap-4">
+                                <div className="flex justify-between sm:w-1/3 shrink-0">
+                                    <span className="dark:text-gray-200 font-semibold group-hover:text-blue-600 text-gray-700 truncate mr-2" title={item.name || 'Unknown'}>{item.name || 'Unknown'}</span>
+                                    <span className="dark:text-gray-400 text-gray-500 text-xs whitespace-nowrap">{item.present}/{item.total} Present</span>
+                                </div>
+                                <div className="bg-gray-100 dark:bg-slate-700 flex h-3 overflow-hidden rounded-full flex-1 w-full sm:w-auto">
+                                    <div
+                                        className="bg-blue-500 duration-500 group-hover:bg-blue-600 h-full rounded-l-full transition-all"
+                                        style={{ width: `${(item.total > 0 ? (item.present / item.total) * 100 : 0)}%` }}
+                                        title={`Present: ${item.present}`}
+                                    ></div>
+                                    <div
+                                        className="bg-red-200 duration-500 group-hover:bg-red-300 h-full rounded-r-full transition-all"
+                                        style={{ width: `${(item.total > 0 ? (item.absent / item.total) * 100 : 0)}%` }}
+                                        title={`Absent: ${item.absent}`}
+                                    ></div>
+                                </div>
                             </div>
                         </div>
                     ))

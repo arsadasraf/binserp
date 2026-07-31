@@ -117,6 +117,10 @@ export const companySchema = new mongoose.Schema({
   },
   refreshToken: {
     type: String,
+  },
+  tokenVersion: {
+    type: Number,
+    default: 0,
   }
 }, { timestamps: true });
 

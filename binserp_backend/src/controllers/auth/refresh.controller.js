@@ -59,7 +59,7 @@ export const refreshTokens = async (req, res, next) => {
     }
 
     // Generate new access token
-    const newTokens = generateTokens(id, type, companyId);
+    const newTokens = generateTokens(id, type, companyId, userInstance.tokenVersion || 0);
 
     // Keep the existing refresh token to avoid race conditions with multiple tabs/requests
     const newAccessToken = newTokens.accessToken;

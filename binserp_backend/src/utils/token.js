@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 
-export const generateTokens = (id, type, companyId = null) => {
-  const payload = { id, type };
+export const generateTokens = (id, type, companyId = null, tokenVersion = 0) => {
+  const payload = { id, type, tokenVersion };
   if (companyId) {
     payload.companyId = companyId;
   }
@@ -11,7 +11,7 @@ export const generateTokens = (id, type, companyId = null) => {
   });
 
   const refreshToken = jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET, {
-    expiresIn: "7d", // Long-lived refresh token
+    expiresIn: "30d", // 30 days refresh token
   });
 
   return { accessToken, refreshToken };
@@ -29,6 +29,6 @@ export const setTokenCookies = (res, accessToken, refreshToken) => {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
   });
 };
