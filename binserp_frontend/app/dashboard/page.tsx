@@ -361,7 +361,7 @@ export default function Dashboard() {
                 {dashboardCards
                   .filter(c => c.title !== "User Management")
                   .filter(c => {
-                    if (["CEO", "MD", "Manager"].includes(userRole)) {
+                    if (["CEO", "MD", "Company Management", "Manager"].includes(userRole)) {
                       // Executives see Reports AND CRM
                       return c.departmentKey === "Reports" || c.departmentKey === "CRM";
                     }

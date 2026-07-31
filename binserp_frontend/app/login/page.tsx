@@ -97,7 +97,7 @@ export default function LoginPage() {
               router.push("/dashboard/ppc");
             } else if (department === "Accounts") {
               router.push("/dashboard/accounts");
-            } else if (department === "MD") {
+            } else if (department === "Company Management" || department === "MD") {
               router.push("/dashboard/reports");
             } else {
               router.push("/dashboard"); // Default for user with department

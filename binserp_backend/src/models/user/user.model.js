@@ -32,6 +32,7 @@ export const userSchema = new mongoose.Schema(
       enum: [
         "CEO",
         "MD",
+        "Company Management",
         "Manager",
         "Admin",
         "Store",

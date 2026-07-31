@@ -18,20 +18,17 @@ export const companySchema = new mongoose.Schema({
     required: [true, "Company type is required"]
   },
   service: {
-    type: String,
-    enum: [
-      "Sheet Metal Fabrication",
-      "CNC Machining",
-      "Foundry / Casting",
-      "Forging",
-      "Plastic Injection Molding",
-      "Rubber Molding",
-      "Electrical & Electronics Manufacturing",
-      "Packaging Manufacturing",
-      "Textile & Garment Manufacturing",
-      "Surface Treatment & Coating"
-    ],
-    required: [true, "Service type is required"]
+    type: [String],
+    default: [],
+    validate: {
+      validator: function(v) {
+        if (this.companyType === "OEM (Own Product Manufacturer)") {
+          return true; // Optional for OEM
+        }
+        return v && v.length > 0;
+      },
+      message: "Please select at least one service"
+    }
   },
   companyId: {
     type: String,

@@ -19,8 +19,8 @@ export const registerCompany = async (req, res) => {
     const { companyName, companyType, service, contactNumber, email, state, city, pincode } = req.body;
 
     // Validate input
-    if (!companyName || !companyType || !service || !contactNumber || !email || !state || !city) {
-      return res.status(400).json({ message: "Company name, company type, service, contact number, email, state, and city are required" });
+    if (!companyName || !companyType || !contactNumber || !email || !state || !city) {
+      return res.status(400).json({ message: "Company name, company type, contact number, email, state, and city are required" });
     }
 
     // Check if email or company name already exists
@@ -77,7 +77,7 @@ export const registerCompany = async (req, res) => {
           userId: adminUserId,
           email: newCompany.email,
           password: password, // Will be hashed automatically by user schema
-          department: "MD",
+          department: "Company Management",
           roleLevel: 10,
           allowedIP: "",
           allowedLocation: { lat: 0, lng: 0 }

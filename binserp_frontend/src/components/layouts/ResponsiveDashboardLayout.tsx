@@ -159,7 +159,7 @@ function resolveNavItems(userType: string | null, department: string | null) {
   ];
 
   const upperDept = department?.toUpperCase();
-  if (upperDept === "CEO" || upperDept === "MD" || upperDept === "MANAGER") {
+  if (upperDept === "CEO" || upperDept === "MD" || upperDept === "COMPANY MANAGEMENT" || upperDept === "MANAGER") {
     return [...allModulesNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 

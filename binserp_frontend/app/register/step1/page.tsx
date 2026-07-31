@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import Navbar from "@/src/components/Navbar";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
@@ -26,7 +27,7 @@ export default function RegisterStep1() {
     const [form, setForm] = useState({
         companyName: "",
         companyType: "", // Default empty
-        service: "", // Default empty
+        service: [] as string[], // Default empty array
         email: "",
         contactNumber: "",
         state: "",
@@ -61,15 +62,34 @@ export default function RegisterStep1() {
         const { name, value } = e.target;
         if (name === "state") {
             setForm({ ...form, state: value, city: "" });
+        } else if (name === "companyType") {
+            setForm({ ...form, companyType: value, service: [] }); // Reset services on type change
         } else {
             setForm({ ...form, [name]: value });
         }
+    };
+
+    const handleServiceToggle = (serviceName: string) => {
+        setForm(prev => {
+            const currentServices = prev.service || [];
+            if (currentServices.includes(serviceName)) {
+                return { ...prev, service: currentServices.filter(s => s !== serviceName) };
+            } else {
+                return { ...prev, service: [...currentServices, serviceName] };
+            }
+        });
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError("");
         setSuccess("");
+
+        if (form.companyType !== "OEM (Own Product Manufacturer)" && form.service.length === 0) {
+            setError("Please select at least one service provided by your company.");
+            return;
+        }
+
         setIsLoading(true);
 
         try {
@@ -117,27 +137,22 @@ export default function RegisterStep1() {
         <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-purple-50">
             {/* <Navbar /> */}
             <main className="flex items-center justify-center py-12 px-6">
-                <div className="bg-white shadow-2xl rounded-2xl p-8 w-full max-w-2xl border border-gray-100">
+                <div className="bg-white shadow-2xl rounded-2xl p-8 w-full max-w-5xl border border-gray-100">
                     <div className="text-center mb-6">
-                        <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl mb-4 shadow-lg">
-                            <svg
-                                className="w-8 h-8 text-white"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                        <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl mb-4 shadow-lg shadow-indigo-500/30">
+                            <div className="w-10 h-10 relative cursor-pointer" onClick={() => router.push("/")}>
+                                <Image
+                                    src="/icon.svg"
+                                    alt="BinsErp Logo"
+                                    fill
+                                    className="object-contain"
                                 />
-                            </svg>
+                            </div>
                         </div>
-                        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-                            Register Your Company
+                        <h2 className="text-3xl font-bold text-gray-900 mb-2 cursor-pointer" onClick={() => router.push("/")}>
+                            BinsErp
                         </h2>
-                        <p className="text-gray-600">Enter your details below to create an account.</p>
+                        <p className="text-gray-600">Register your company details below.</p>
                     </div>
 
                     {!isGoogleAuth ? (
@@ -172,8 +187,8 @@ export default function RegisterStep1() {
 
                     {isGoogleAuth && (
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="md:col-span-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Company Name *
                                 </label>
@@ -188,8 +203,7 @@ export default function RegisterStep1() {
                                 />
                             </div>
 
-
-                            <div className="md:col-span-2">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Company Type *
                                 </label>
@@ -207,32 +221,44 @@ export default function RegisterStep1() {
                                 </select>
                             </div>
 
-                            <div className="md:col-span-2">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Service *
-                                </label>
-                                <select
-                                    name="service"
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition bg-white text-sm md:text-base"
-                                    value={form.service}
-                                    onChange={handleChange}
-                                    required
-                                >
-                                    <option value="" disabled>Select Service</option>
-                                    <option className="text-xs md:text-sm" value="Sheet Metal Fabrication">Sheet Metal Fabrication</option>
-                                    <option className="text-xs md:text-sm" value="CNC Machining">CNC Machining</option>
-                                    <option className="text-xs md:text-sm" value="Foundry / Casting">Foundry / Casting</option>
-                                    <option className="text-xs md:text-sm" value="Forging">Forging</option>
-                                    <option className="text-xs md:text-sm" value="Plastic Injection Molding">Plastic Injection Molding</option>
-                                    <option className="text-xs md:text-sm" value="Rubber Molding">Rubber Molding</option>
-                                    <option className="text-xs md:text-sm" value="Electrical & Electronics Manufacturing">Electrical & Electronics Manufacturing</option>
-                                    <option className="text-xs md:text-sm" value="Packaging Manufacturing">Packaging Manufacturing</option>
-                                    <option className="text-xs md:text-sm" value="Textile & Garment Manufacturing">Textile & Garment Manufacturing</option>
-                                    <option className="text-xs md:text-sm" value="Surface Treatment & Coating">Surface Treatment & Coating</option>
-                                </select>
-                            </div>
+                            {form.companyType && form.companyType !== "OEM (Own Product Manufacturer)" && (
+                                <div className="md:col-span-2 lg:col-span-3">
+                                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                                        Services Provided * <span className="text-gray-400 font-normal ml-1">(Select all that apply)</span>
+                                    </label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                        {[
+                                            "Sheet Metal Fabrication",
+                                            "CNC Machining",
+                                            "Foundry / Casting",
+                                            "Forging",
+                                            "Plastic Injection Molding",
+                                            "Rubber Molding",
+                                            "Electrical & Electronics Manufacturing",
+                                            "Packaging Manufacturing",
+                                            "Textile & Garment Manufacturing",
+                                            "Surface Treatment & Coating"
+                                        ].map(service => (
+                                            <label 
+                                                key={service} 
+                                                className={`flex items-start p-3 border rounded-lg cursor-pointer transition-all ${form.service.includes(service) ? 'bg-indigo-50 border-indigo-500 ring-1 ring-indigo-500 shadow-sm' : 'bg-white border-gray-200 hover:bg-gray-50'}`}
+                                            >
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="mt-0.5 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded cursor-pointer" 
+                                                    checked={form.service.includes(service)}
+                                                    onChange={() => handleServiceToggle(service)}
+                                                />
+                                                <span className={`ml-3 text-sm ${form.service.includes(service) ? 'font-semibold text-indigo-900' : 'text-gray-700'}`}>
+                                                    {service}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
 
-                            <div className="md:col-span-2">
+                            <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-2">
                                     Email *
                                 </label>
