@@ -22,11 +22,13 @@ export const attendanceSchema = new mongoose.Schema(
       time: Date,
       photo: String, // URL of check-in photo
       location: String,
+      markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
     },
     checkOut: {
       time: Date,
       photo: String, // URL of check-out photo
       location: String,
+      markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
     },
     status: {
       type: String,

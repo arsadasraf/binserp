@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
 
-import { LayoutDashboard, ScanFace, Users, Truck } from "lucide-react";
+import { LayoutDashboard, ScanFace, Users, Truck, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface GateEntryTabsProps {
@@ -17,6 +17,7 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
         { id: "kiosk", label: "Kiosk Mode", icon: ScanFace, href: "/dashboard/gate-entry?tab=kiosk" },
         { id: "visitor", label: "Visitor Log", icon: Users, href: "/dashboard/gate-entry?tab=visitor" },
         { id: "vehicle", label: "Vehicle Log", icon: Truck, href: "/dashboard/gate-entry?tab=vehicle" },
+        { id: "employee-movement", label: "Employee Movement", icon: LogOut, href: "/dashboard/gate-entry?tab=employee-movement" },
     ];
 
     return (

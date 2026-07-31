@@ -7,13 +7,14 @@ import GateOverviewTab from "./components/GateOverviewTab";
 import GateKioskTab from "./components/GateKioskTab";
 import GateVisitorTab from "./components/GateVisitorTab";
 import GateVehicleTab from "./components/GateVehicleTab";
+import GateEmployeeMovementTab from "./components/GateEmployeeMovementTab";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import { useHeader } from "@/src/context/HeaderContext";
 
 function GateEntryContent() {
     const searchParams = useSearchParams();
     const { setHeader } = useHeader();
-    const activeTab = (searchParams.get("tab") as "overview" | "kiosk" | "visitor" | "vehicle") || "overview";
+    const activeTab = (searchParams.get("tab") as "overview" | "kiosk" | "visitor" | "vehicle" | "employee-movement") || "overview";
 
     useEffect(() => {
         setHeader("Gate Entry", "Manage visitors, vehicles, and security logs");
@@ -30,6 +31,7 @@ function GateEntryContent() {
                     {activeTab === "kiosk" && <GateKioskTab />}
                     {activeTab === "visitor" && <GateVisitorTab />}
                     {activeTab === "vehicle" && <GateVehicleTab />}
+                    {activeTab === "employee-movement" && <GateEmployeeMovementTab />}
                 </div>
             </div>
         </div>

@@ -234,10 +234,16 @@ export default function ManualAttendanceTab() {
                                     {/* Display punch times if any */}
                                     <div className="flex flex-col text-right text-xs font-mono text-gray-500 dark:text-gray-400 min-w-[80px]">
                                         {attendanceMap[emp._id.toString()]?.checkIn?.time && (
-                                            <span className="text-green-600 dark:text-green-400">IN: {new Date(attendanceMap[emp._id.toString()].checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            <div className="flex flex-col">
+                                                <span className="text-green-600 dark:text-green-400">IN: {new Date(attendanceMap[emp._id.toString()].checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                {attendanceMap[emp._id.toString()]?.checkIn?.markedBy && <span className="text-[9px] text-gray-400 dark:text-gray-500 font-sans tracking-wide">by {attendanceMap[emp._id.toString()].checkIn.markedBy.name}</span>}
+                                            </div>
                                         )}
                                         {attendanceMap[emp._id.toString()]?.checkOut?.time && (
-                                            <span className="text-red-600 dark:text-red-400">OUT: {new Date(attendanceMap[emp._id.toString()].checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            <div className="flex flex-col mt-1">
+                                                <span className="text-red-600 dark:text-red-400">OUT: {new Date(attendanceMap[emp._id.toString()].checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                {attendanceMap[emp._id.toString()]?.checkOut?.markedBy && <span className="text-[9px] text-gray-400 dark:text-gray-500 font-sans tracking-wide">by {attendanceMap[emp._id.toString()].checkOut.markedBy.name}</span>}
+                                            </div>
                                         )}
                                     </div>
                                     

@@ -92,6 +92,7 @@ export const recordAttendance = async (req, res) => {
         time: currentTime,
         photo: photoUrl,
         location: location || "",
+        markedBy: req.user?._id || req.user?.id
       };
       attendance.status = "Present";
     } else if (type === "checkOut") {
@@ -99,6 +100,7 @@ export const recordAttendance = async (req, res) => {
         time: currentTime,
         photo: photoUrl,
         location: location || "",
+        markedBy: req.user?._id || req.user?.id
       };
 
       // Calculate hours worked

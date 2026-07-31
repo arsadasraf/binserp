@@ -20,9 +20,11 @@ interface AttendanceRecord {
     checkIn?: {
         time: string;
         location?: string;
+        markedBy?: { name: string };
     };
     checkOut?: {
         time: string;
+        markedBy?: { name: string };
     };
     status: string;
     hoursWorked?: number;
@@ -33,6 +35,7 @@ export default function PresentTab() {
     const [filteredAttendance, setFilteredAttendance] = useState<AttendanceRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
+    const [statusFilter, setStatusFilter] = useState("all");
 
     // Default to current month YYYY-MM
     const getCurrentMonth = () => {
@@ -77,18 +80,24 @@ export default function PresentTab() {
     }, [selectedMonth, selectedDate, filterType]);
 
     useEffect(() => {
+        let filtered = attendance;
+
+        if (statusFilter === "in_only") {
+            filtered = filtered.filter(record => record.checkIn?.time && !record.checkOut?.time);
+        } else if (statusFilter === "completed") {
+            filtered = filtered.filter(record => record.checkOut?.time);
+        }
+
         if (searchTerm) {
             const lowerTerm = searchTerm.toLowerCase();
-            const filtered = attendance.filter(
+            filtered = filtered.filter(
                 (record) =>
                     record.employee?.name.toLowerCase().includes(lowerTerm) ||
                     record.employee?.employeeId.toLowerCase().includes(lowerTerm)
             );
-            setFilteredAttendance(filtered);
-        } else {
-            setFilteredAttendance(attendance);
         }
-    }, [searchTerm, attendance]);
+        setFilteredAttendance(filtered);
+    }, [searchTerm, statusFilter, attendance]);
 
     const fetchAttendance = async () => {
         try {
@@ -348,6 +357,22 @@ export default function PresentTab() {
                         />
                     )}
 
+                    {/* Status Filter */}
+                    <div className="relative">
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-3 py-2 rounded-lg shadow-sm text-sm appearance-none bg-white dark:bg-slate-700 dark:text-white pr-8 h-[38px]"
+                        >
+                            <option value="all">All Status</option>
+                            <option value="in_only">Checked In (No Out)</option>
+                            <option value="completed">Completed</option>
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                            <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                        </div>
+                    </div>
+
                     {/* Search */}
                     <div className="md:w-64 relative w-full">
                         <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2" size={16} />
@@ -429,16 +454,22 @@ export default function PresentTab() {
                                                 </span>
                                             </td>
                                             <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
-                                                <div className="bg-green-50 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-green-700 w-fit">
-                                                    <div className="bg-green-500 h-1.5 rounded-full w-1.5"></div>
-                                                    {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="bg-green-50 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-green-700 w-fit">
+                                                        <div className="bg-green-500 h-1.5 rounded-full w-1.5"></div>
+                                                        {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                                                    </div>
+                                                    {record.checkIn?.markedBy && <div className="text-[10px] text-gray-500 ml-1 mt-0.5">by {record.checkIn.markedBy.name}</div>}
                                                 </div>
                                             </td>
                                             <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
                                                 {record.checkOut?.time ? (
-                                                    <div className="bg-red-50 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-red-700 w-fit">
-                                                        <div className="bg-red-500 h-1.5 rounded-full w-1.5"></div>
-                                                        {new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="bg-red-50 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-red-700 w-fit">
+                                                            <div className="bg-red-500 h-1.5 rounded-full w-1.5"></div>
+                                                            {new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </div>
+                                                        {record.checkOut?.markedBy && <div className="text-[10px] text-gray-500 ml-1 mt-0.5">by {record.checkOut.markedBy.name}</div>}
                                                     </div>
                                                 ) : (
                                                     <span className="dark:text-gray-500 italic text-gray-400 text-xs">Active</span>
@@ -498,12 +529,14 @@ export default function PresentTab() {
                                             <span className="font-medium font-mono text-green-700 text-sm">
                                                 {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
                                             </span>
+                                            {record.checkIn?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkIn.markedBy.name}</span>}
                                         </div>
                                         <div className="flex flex-col text-right">
                                             <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check Out</span>
                                             <span className="font-medium font-mono text-red-700 text-sm">
                                                 {record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}
                                             </span>
+                                            {record.checkOut?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkOut.markedBy.name}</span>}
                                         </div>
                                     </div>
                                 </div>

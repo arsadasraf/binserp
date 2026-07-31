@@ -1,4 +1,5 @@
 import { visitorSchema } from "../../models/visitor/index.js";
+import { userSchema } from "../../models/user/index.js";
 
 // Helper to get company from request (middleware usually attaches it)
 const getCompanyId = (req) => {
@@ -10,6 +11,7 @@ export const getAllVisitors = async (req, res) => {
     try {
         const companyId = getCompanyId(req);
         const Visitor = req.getModel('Visitor', visitorSchema);
+        req.getModel('User', userSchema);
         const { start, end } = req.query;
 
         const query = { company: companyId };
@@ -18,6 +20,8 @@ export const getAllVisitors = async (req, res) => {
         }
 
         const visitors = await Visitor.find(query)
+            .populate('createdBy', 'name')
+            .populate('checkedOutBy', 'name')
             .sort({ checkInTime: -1 });
 
         res.status(200).json({ visitors });

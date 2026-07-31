@@ -7,3 +7,4 @@ export { employeeTypeSchema } from './employeeType.model.js';
 export { salarySchema } from './salary.model.js';
 export { employeeJobSchema } from './employeeJob.model.js';
 export { holidaySchema } from './holiday.model.js';
+export { employeeMovementSchema } from './employeeMovement.model.js';

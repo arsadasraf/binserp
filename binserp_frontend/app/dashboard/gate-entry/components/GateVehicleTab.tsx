@@ -86,8 +86,8 @@ export default function GateVehicleTab() {
         if (direction === 'Inward') {
             if (!companyName) missingFields.push("Origin Company");
             if (!goodsType) missingFields.push("Goods Type");
-            if (!documentType) missingFields.push("Document Type");
-            if (!documentNumber) missingFields.push("Document Number");
+            // if (!documentType) missingFields.push("Document Type");
+            // if (!documentNumber) missingFields.push("Document Number");
         }
 
         if (missingFields.length > 0) {
@@ -242,8 +242,8 @@ export default function GateVehicleTab() {
         const missingFields = [];
         if (!companyName) missingFields.push("Destination Company");
         if (!goodsType) missingFields.push("Goods Type");
-        if (!documentType) missingFields.push("Document Type");
-        if (!documentNumber) missingFields.push("Document Number");
+        // if (!documentType) missingFields.push("Document Type");
+        // if (!documentNumber) missingFields.push("Document Number");
         if (documentPhotos.length === 0) missingFields.push("Document Photo");
 
         if (missingFields.length > 0) {
@@ -491,12 +491,18 @@ export default function GateVehicleTab() {
                                     <div className="flex items-center gap-2 text-xs"><FileText size={12} className="text-gray-400" /> Doc: <span className="font-medium text-gray-900 dark:text-white uppercase">{v.documentType} - {v.documentNumber}</span></div>
                                 )}
                                 <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50 dark:border-slate-700">
-                                    <div className="flex items-center gap-1.5">
-                                        <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <div className="flex flex-col gap-0.5">
+                                        <div className="flex items-center gap-1.5">
+                                            <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </div>
+                                        {v.createdBy && <div className="text-[10px] text-gray-400 ml-4">by {v.createdBy.name}</div>}
                                     </div>
                                     {v.checkOutTime && (
-                                        <div className="flex items-center gap-1.5 text-orange-500">
-                                            <LogOut size={12} /> OUT: {new Date(v.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        <div className="flex flex-col gap-0.5 items-end text-orange-500">
+                                            <div className="flex items-center gap-1.5">
+                                                <LogOut size={12} /> OUT: {new Date(v.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            {v.checkedOutBy && <div className="text-[10px] text-gray-400 mr-1">by {v.checkedOutBy.name}</div>}
                                         </div>
                                     )}
                                 </div>
@@ -619,8 +625,18 @@ export default function GateVehicleTab() {
                                                 <span className="uppercase text-xs font-semibold">{v.documentNumber}</span>
                                             ) : '-'}
                                         </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">{v.checkOutTime ? new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                            {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">
+                                            {v.checkOutTime ? (
+                                                <>
+                                                    <div className="font-medium">{new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                    {v.checkedOutBy && <div className="text-xs text-gray-500">by {v.checkedOutBy.name}</div>}
+                                                </>
+                                            ) : '-'}
+                                        </td>
                                         <td className="px-4 py-3">
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
                                                 {v.status}
@@ -682,16 +698,16 @@ export default function GateVehicleTab() {
                                                 <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Raw Material, FG, Machinery" />
                                             </div>
                                             <div className="md:col-span-1 lg:col-span-1">
-                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Type <span className="text-red-500">*</span></label>
-                                                <select required value={documentType} onChange={e => setDocumentType(e.target.value as any)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800">
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Type</label>
+                                                <select value={documentType} onChange={e => setDocumentType(e.target.value as any)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800">
                                                     <option value="">Select...</option>
                                                     <option value="dc">Delivery Challan (DC)</option>
                                                     <option value="invoice">Invoice</option>
                                                 </select>
                                             </div>
                                             <div className="md:col-span-1 lg:col-span-1">
-                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Number <span className="text-red-500">*</span></label>
-                                                <input required type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Doc #..." />
+                                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Number</label>
+                                                <input type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Doc #..." />
                                             </div>
                                             </>
                                         )}
@@ -857,16 +873,16 @@ export default function GateVehicleTab() {
                                             <input required type="text" value={goodsType} onChange={e => setGoodsType(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Finished Goods, Machinery" />
                                         </div>
                                         <div className="md:col-span-1 lg:col-span-1">
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Type <span className="text-red-500">*</span></label>
-                                            <select required value={documentType} onChange={e => setDocumentType(e.target.value as any)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800">
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Type</label>
+                                            <select value={documentType} onChange={e => setDocumentType(e.target.value as any)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800">
                                                 <option value="">Select...</option>
                                                 <option value="dc">Delivery Challan (DC)</option>
                                                 <option value="invoice">Invoice</option>
                                             </select>
                                         </div>
                                         <div className="md:col-span-1 lg:col-span-1">
-                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Number <span className="text-red-500">*</span></label>
-                                            <input required type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Doc #..." />
+                                            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Document Number</label>
+                                            <input type="text" value={documentNumber} onChange={e => setDocumentNumber(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="Doc #..." />
                                         </div>
                                         <div className="md:col-span-3 lg:col-span-4">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Destination Address</label>
@@ -955,9 +971,9 @@ export default function GateVehicleTab() {
             {/* Vehicle Details Modal */}
             {selectedVehicle && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md md:max-w-4xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
                         {/* Photo Slider Header */}
-                        <div className="relative h-64 bg-gray-900 border-b border-gray-100 dark:border-slate-700 flex items-center justify-center group overflow-hidden">
+                        <div className="relative h-64 md:h-auto md:w-1/2 bg-gray-900 border-b md:border-b-0 md:border-r border-gray-100 dark:border-slate-700 flex items-center justify-center group overflow-hidden">
                             {allPhotos.length > 0 ? (
                                 <>
                                     <img src={allPhotos[currentPhotoIndex]} alt="Vehicle Preview" className="w-full h-full object-cover transition-opacity duration-300" />
@@ -1002,7 +1018,7 @@ export default function GateVehicleTab() {
                         </div>
 
                         {/* Details Body */}
-                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left md:w-1/2">
                             {/* Check-In Status */}
                             <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800 /50 p-3 rounded-xl border border-gray-100 dark:border-slate-700 ">
                                 <div className="text-left">

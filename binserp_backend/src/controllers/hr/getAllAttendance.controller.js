@@ -3,6 +3,7 @@ import { hrPrefixSettingsSchema } from "../../models/hrPrefix/index.js";
 import { jobSchema, manpowerSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import mongoose from "mongoose";
+import { userSchema } from "../../models/user/index.js";
 
 // Helper to get company ID from request
 // Helper to get company ID from request
@@ -33,6 +34,7 @@ export const getAllAttendance = async (req, res) => {
   try {
     const Employee = req.getModel('Employee', employeeSchema);
       const Attendance = req.getModel('Attendance', attendanceSchema);
+      req.getModel('User', userSchema);
 
     const companyId = getCompanyId(req);
     const { startDate, endDate, employeeId, status } = req.query;
@@ -85,6 +87,8 @@ export const getAllAttendance = async (req, res) => {
 
     const attendance = await Attendance.find(query)
       .populate("employee", "employeeId name department designation")
+      .populate("checkIn.markedBy", "name")
+      .populate("checkOut.markedBy", "name")
       .sort({ date: -1, createdAt: -1 });
 
     res.status(200).json({

@@ -16,6 +16,62 @@ interface DashboardStats {
     designationWise: { name: string; total: number; present: number; absent: number }[];
 }
 
+// Clickable Bar Chart Component
+const BarChart = ({ data, title, onItemClick }: { data: any[], title: string, onItemClick: (name: string) => void }) => {
+    const [searchTerm, setSearchTerm] = React.useState("");
+    const filteredData = data.filter(d => (d.name || 'Unknown').toLowerCase().includes(searchTerm.toLowerCase()));
+
+    return (
+        <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-col h-full p-4 md:p-6 rounded-xl shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 border-b border-gray-100 dark:border-slate-700/50 pb-4">
+                <h4 className="dark:text-gray-100 flex font-bold gap-2 items-center text-gray-800 whitespace-nowrap">
+                    <BarChart3 size={18} className="text-blue-500" /> {title}
+                </h4>
+                <div className="relative w-full md:w-48 lg:w-56">
+                    <input
+                        type="text"
+                        placeholder="Search..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-8 pr-3 py-1.5 border border-gray-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-gray-50 dark:bg-slate-700 dark:text-white transition-all"
+                    />
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="absolute left-2.5 top-2 text-gray-400"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </div>
+            </div>
+            <div className="custom-scrollbar flex-1 overflow-y-auto pr-2 space-y-3">
+                {filteredData.length === 0 ? (
+                    <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-4">No results found.</div>
+                ) : (
+                    filteredData.map((item, idx) => (
+                        <div
+                            key={idx}
+                            className="cursor-pointer dark:hover:bg-slate-700 group hover:bg-gray-50 p-2 rounded-lg space-y-1 transition-colors"
+                            onClick={() => onItemClick(item.name)}
+                        >
+                            <div className="flex group-hover:text-blue-600 justify-between text-sm">
+                                <span className="dark:text-gray-200 font-semibold group-hover:text-blue-600 text-gray-700">{item.name || 'Unknown'}</span>
+                                <span className="dark:text-gray-400 text-gray-500 text-xs">{item.present}/{item.total} Present</span>
+                            </div>
+                            <div className="bg-gray-100 dark:bg-slate-700 flex h-3 overflow-hidden rounded-full w-full">
+                                <div
+                                    className="bg-blue-500 duration-500 group-hover:bg-blue-600 h-full rounded-l-full transition-all"
+                                    style={{ width: `${(item.total > 0 ? (item.present / item.total) * 100 : 0)}%` }}
+                                    title={`Present: ${item.present}`}
+                                ></div>
+                                <div
+                                    className="bg-red-200 duration-500 group-hover:bg-red-300 h-full rounded-r-full transition-all"
+                                    style={{ width: `${(item.total > 0 ? (item.absent / item.total) * 100 : 0)}%` }}
+                                    title={`Absent: ${item.absent}`}
+                                ></div>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
 export default function HRHomeTab() {
     const getLocalDateString = () => {
         const now = new Date();
@@ -111,6 +167,8 @@ export default function HRHomeTab() {
                         status: hasRecord ? record.status : 'Absent',
                         checkIn: record?.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
                         checkOut: record?.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
+                        checkInBy: record?.checkIn?.markedBy?.name,
+                        checkOutBy: record?.checkOut?.markedBy?.name,
                     });
                 }
             });
@@ -173,43 +231,6 @@ export default function HRHomeTab() {
         </div>
     );
 
-    // Clickable Bar Chart Component
-    const BarChart = ({ data, title, onItemClick }: { data: any[], title: string, onItemClick: (name: string) => void }) => (
-        <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-col h-full p-6 rounded-xl shadow-sm">
-            <h4 className="dark:text-gray-100 flex font-bold gap-2 items-center mb-6 text-gray-800">
-                <BarChart3 size={18} /> {title}
-            </h4>
-            <div className="custom-scrollbar flex-1 overflow-y-auto pr-2 space-y-4">
-                {data.map((item, idx) => (
-                    <div
-                        key={idx}
-                        className="cursor-pointer dark:hover:bg-slate-700 group hover:bg-gray-50 p-2 rounded-lg space-y-1 transition-colors"
-                        onClick={() => onItemClick(item.name)}
-                    >
-                        <div className="flex group-hover:text-blue-600 justify-between text-sm">
-                            <span className="dark:text-gray-200 font-semibold group-hover:text-blue-600 text-gray-700">{item.name || 'Unknown'}</span>
-                            <span className="dark:text-gray-400 text-gray-500 text-xs">{item.present}/{item.total} Present</span>
-                        </div>
-                        <div className="bg-gray-100 dark:bg-slate-700 flex h-3 overflow-hidden rounded-full w-full">
-                            <div
-                                className="bg-blue-500 duration-500 group-hover:bg-blue-600 h-full rounded-l-full transition-all"
-                                style={{ width: `${(item.total > 0 ? (item.present / item.total) * 100 : 0)}%` }}
-                                title={`Present: ${item.present}`}
-                            ></div>
-                            <div
-                                className="bg-red-200 duration-500 group-hover:bg-red-300 h-full rounded-r-full transition-all"
-                                style={{ width: `${(item.total > 0 ? (item.absent / item.total) * 100 : 0)}%` }}
-                                title={`Absent: ${item.absent}`}
-                            ></div>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        </div>
-    );
-
-
-
     const attendanceRate = stats.totalEmployees > 0
         ? Math.round((stats.presentToday / stats.totalEmployees) * 100)
         : 0;
@@ -270,12 +291,12 @@ export default function HRHomeTab() {
             {/* Charts Section */}
             <div className={`grid grid-cols-1 lg:grid-cols-2 gap-6 h-96 transition-opacity ${loading ? 'opacity-50' : 'opacity-100'}`}>
                 <BarChart
-                    title="Department-wise Attendance"
+                    title="Department-wise"
                     data={stats.departmentWise}
                     onItemClick={(name) => handleListClick('department', name)}
                 />
                 <BarChart
-                    title="Designation-wise Attendance"
+                    title="Designation-wise"
                     data={stats.designationWise}
                     onItemClick={(name) => handleListClick('designation', name)}
                 />

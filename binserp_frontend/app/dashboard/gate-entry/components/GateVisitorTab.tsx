@@ -417,12 +417,18 @@ export default function GateVisitorTab() {
                                 <div className="flex items-center gap-2 text-xs"><Users size={12} className="text-gray-400" /> To Meet: <span className="font-medium text-gray-900 dark:text-white ">{v.whomToMeet}</span></div>
                                 <div className="flex items-center gap-2 text-xs"><Activity size={12} className="text-gray-400" /> Purpose: <span className="font-medium text-gray-900 dark:text-white ">{v.purpose}</span></div>
                                 <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50 dark:border-slate-700">
-                                    <div className="flex items-center gap-1.5">
-                                        <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    <div className="flex flex-col gap-0.5">
+                                        <div className="flex items-center gap-1.5">
+                                            <History size={12} /> IN: {new Date(v.checkInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </div>
+                                        {v.createdBy && <div className="text-[10px] text-gray-400 ml-4">by {v.createdBy.name}</div>}
                                     </div>
                                     {v.checkOutTime && (
-                                        <div className="flex items-center gap-1.5 text-orange-500">
-                                            <LogOut size={12} /> OUT: {new Date(v.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        <div className="flex flex-col gap-0.5 items-end text-orange-500">
+                                            <div className="flex items-center gap-1.5">
+                                                <LogOut size={12} /> OUT: {new Date(v.checkOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            {v.checkedOutBy && <div className="text-[10px] text-gray-400 mr-1">by {v.checkedOutBy.name}</div>}
                                         </div>
                                     )}
                                 </div>
@@ -524,8 +530,18 @@ export default function GateVisitorTab() {
                                         <td className="px-4 py-3">{v.phone}</td>
                                         <td className="px-4 py-3">{v.whomToMeet}</td>
                                         <td className="px-4 py-3">{v.purpose}</td>
-                                        <td className="px-4 py-3 whitespace-nowrap">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">{v.checkOutTime ? new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                                        <td className="px-4 py-3 whitespace-nowrap">
+                                            <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                            {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
+                                        </td>
+                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">
+                                            {v.checkOutTime ? (
+                                                <>
+                                                    <div className="font-medium">{new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                    {v.checkedOutBy && <div className="text-xs text-gray-500">by {v.checkedOutBy.name}</div>}
+                                                </>
+                                            ) : '-'}
+                                        </td>
                                         <td className="px-4 py-3">
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
                                                 {v.status}
@@ -700,9 +716,9 @@ export default function GateVisitorTab() {
             {/* Visitor Details Modal */}
             {selectedVisitor && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md md:max-w-4xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]">
                         {/* Photo Header */}
-                        <div className="relative h-64 bg-gray-900 border-b border-gray-100 dark:border-slate-700 ">
+                        <div className="relative h-64 md:h-auto md:w-1/2 bg-gray-900 border-b md:border-b-0 md:border-r border-gray-100 dark:border-slate-700 ">
                             <img src={selectedVisitor.visitorPhoto || '/placeholder-user.jpg'} alt={selectedVisitor.name} className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
                             <button onClick={() => setSelectedVisitor(null)} className="absolute top-4 right-4 bg-black/30 hover:bg-black/50 dark:bg-black/70 text-white p-2 rounded-full backdrop-blur-sm transition-all focus:outline-none focus:ring-2 focus:ring-white/50">
@@ -715,7 +731,7 @@ export default function GateVisitorTab() {
                         </div>
 
                         {/* Details Body */}
-                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
+                        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left md:w-1/2">
                             {/* Check-In Status */}
                             <div className="flex items-center justify-between bg-gray-50 dark:bg-slate-800 /50 p-3 rounded-xl border border-gray-100 dark:border-slate-700 ">
                                 <div className="text-left">

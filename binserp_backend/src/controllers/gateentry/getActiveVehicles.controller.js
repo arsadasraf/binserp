@@ -1,4 +1,5 @@
 import { vehicleSchema } from "../../models/vehicle/index.js";
+import { userSchema } from "../../models/user/index.js";
 
 // Helper to get company from request (middleware usually attaches it)
 const getCompanyId = (req) => {
@@ -10,7 +11,10 @@ export const getActiveVehicles = async (req, res) => {
     try {
         const companyId = getCompanyId(req);
         const Vehicle = req.getModel('Vehicle', vehicleSchema);
+        req.getModel('User', userSchema);
         const vehicles = await Vehicle.find({ company: companyId, status: "Inside" })
+            .populate('createdBy', 'name')
+            .populate('checkedOutBy', 'name')
             .sort({ checkInTime: -1 });
 
         res.status(200).json({ vehicles });
