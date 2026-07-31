@@ -1,5 +1,6 @@
 import { userSchema } from "../../models/user/index.js";
 import { employeeSchema } from "../../models/hr/index.js";
+import { sessionHistorySchema } from "../../models/user/sessionHistory.model.js";
 import { Company } from "../../models/company/index.js";
 import { getTenantConnection, getTenantModel } from "../../db/tenant.js";
 import jwt from "jsonwebtoken";
@@ -105,6 +106,20 @@ export const loginUser = async (req, res) => {
       // Set cookies
       setTokenCookies(res, accessToken, refreshToken);
 
+      // Track Session History
+      const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
+      const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || "Unknown";
+      await SessionHistoryModel.create({
+        userId: user.userId,
+        userType: "user",
+        action: "login",
+        ipAddress: clientIP,
+        location: {
+          lat: req.body.latitude ? Number(req.body.latitude) : null,
+          lng: req.body.longitude ? Number(req.body.longitude) : null,
+        }
+      });
+
       return res.status(200).json({
         message: "Login successful",
         user: {
@@ -164,6 +179,20 @@ export const loginUser = async (req, res) => {
 
       // Set cookies
       setTokenCookies(res, accessToken, refreshToken);
+
+      // Track Session History
+      const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
+      const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || "Unknown";
+      await SessionHistoryModel.create({
+        userId: employee.employeeId,
+        userType: "employee",
+        action: "login",
+        ipAddress: clientIP,
+        location: {
+          lat: req.body.latitude ? Number(req.body.latitude) : null,
+          lng: req.body.longitude ? Number(req.body.longitude) : null,
+        }
+      });
 
       return res.status(200).json({
         message: "Employee Login successful",

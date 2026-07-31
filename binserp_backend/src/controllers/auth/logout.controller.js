@@ -4,6 +4,7 @@ import { userSchema } from "../../models/user/index.js";
 import { employeeSchema } from "../../models/hr/index.js";
 import { Company } from "../../models/company/index.js";
 import { SaasAdmin } from "../../models/saasadmin/index.js";
+import { sessionHistorySchema } from "../../models/user/sessionHistory.model.js";
 
 export const logout = async (req, res, next) => {
   try {
@@ -32,6 +33,21 @@ export const logout = async (req, res, next) => {
           if (userInstance) {
             userInstance.refreshToken = null;
             await userInstance.save({ validateBeforeSave: false });
+
+            // Track Logout History for tenant users
+            if ((type === "user" || type === "employee") && companyId) {
+              const company = await Company.findOne({ companyId });
+              if (company) {
+                const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
+                const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || "Unknown";
+                await SessionHistoryModel.create({
+                  userId: type === "user" ? userInstance.userId : userInstance.employeeId,
+                  userType: type,
+                  action: "logout",
+                  ipAddress: clientIP,
+                });
+              }
+            }
           }
         }
       } catch (err) {

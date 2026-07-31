@@ -2,6 +2,7 @@ import { useState } from "react";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import { useGetActiveSessionsQuery } from "@/src/store/services/userService";
 import Image from "next/image";
+import SessionHistoryModal from "./SessionHistoryModal";
 
 function formatTimeAgo(dateString: string) {
   const date = new Date(dateString);
@@ -22,6 +23,7 @@ function formatTimeAgo(dateString: string) {
 export default function ActiveSessionsTable() {
   const { data: sessions = [], isFetching } = useGetActiveSessionsQuery(undefined, { pollingInterval: 60000 }); // Poll every minute
   const [search, setSearch] = useState("");
+  const [selectedUser, setSelectedUser] = useState<{ id: string; name: string } | null>(null);
 
   const filteredSessions = sessions.filter((s: any) => 
     s.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -79,7 +81,11 @@ export default function ActiveSessionsTable() {
                 </tr>
               ) : (
                 filteredSessions.map((session: any) => (
-                  <tr key={session.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                  <tr 
+                    key={session.id} 
+                    className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
+                    onClick={() => setSelectedUser({ id: session.userId, name: session.name })}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         <div className="flex-shrink-0 h-10 w-10 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center relative shadow-sm border border-gray-200">
@@ -120,6 +126,13 @@ export default function ActiveSessionsTable() {
           </table>
         </div>
       </div>
+
+      <SessionHistoryModal 
+        isOpen={!!selectedUser}
+        onClose={() => setSelectedUser(null)}
+        userId={selectedUser?.id || null}
+        userName={selectedUser?.name || ""}
+      />
     </div>
   );
 }

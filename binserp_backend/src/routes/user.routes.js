@@ -12,6 +12,7 @@ import {
   updateUserProfile,
   uploadUserPhoto,
   getActiveSessions,
+  getSessionHistory,
 } from "../controllers/user/index.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/upload.middleware.js";
@@ -29,6 +30,7 @@ router.post("/upload-photo", verifyJWT, upload.single("photo"), uploadUserPhoto)
 
 // Admin routes (protected)
 router.get("/active-sessions", verifyJWT, getActiveSessions);
+router.get("/session-history/:userId", verifyJWT, getSessionHistory);
 router.post("/create", verifyJWT, createUser);
 router.get("/all", verifyJWT, getAllUsers);
 router.get("/:id", verifyJWT, getUserById);
