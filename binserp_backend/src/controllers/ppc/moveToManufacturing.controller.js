@@ -25,7 +25,7 @@ export const moveProductionToManufacturing = asyncHandler(async (req, res) => {
   let fullyMoved = true;
 
   for (const item of productionOrder.items) {
-    const moveReq = itemsToMove?.find(i => i.productId === item.product.toString());
+    const moveReq = itemsToMove?.find(i => i.productId === item.product?.toString());
     const moveQty = moveReq ? Number(moveReq.quantity) : 0;
     
     if (moveQty > 0) {

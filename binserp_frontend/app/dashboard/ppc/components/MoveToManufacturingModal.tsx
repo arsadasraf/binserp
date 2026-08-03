@@ -14,7 +14,7 @@ export default function MoveToManufacturingModal({ isOpen, onClose, order, onMov
       const initial: Record<string, number> = {};
       order.items?.forEach((item: any) => {
         // Default to moving the full quantity minus what was already moved
-        initial[item.product._id || item.product] = Math.max(0, item.quantity - (item.movedQuantity || 0));
+        initial[item.product?._id || item.product] = Math.max(0, item.quantity - (item.movedQuantity || 0));
       });
       setQuantities(initial);
     }
@@ -85,7 +85,7 @@ export default function MoveToManufacturingModal({ isOpen, onClose, order, onMov
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {order.items?.map((item: any) => {
-                  const productId = item.product._id || item.product;
+                  const productId = item.product?._id || item.product;
                   const stock = getStock(productId);
                   const requested = item.quantity;
                   const moved = item.movedQuantity || 0;
