@@ -68,7 +68,7 @@ export interface StoreFormData {
     categoryId?: string;  // For material master
 
     locationId?: string;  // For material master
-    type?: 'Component' | 'SubAssembly' | 'Assembly'; // For PPC Master Products
+    type?: string; // For PPC Master Products and Location type
     revisionNumber?: string; // For FG items
     bom?: Array<{
         itemType?: string;
@@ -191,6 +191,7 @@ export interface Location {
     _id: string;
     name: string;
     code?: string;
+    type?: string;
     description?: string;
 }
 

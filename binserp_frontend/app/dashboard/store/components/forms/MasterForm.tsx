@@ -116,7 +116,22 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </div>
                     )}
 
-
+                    {/* Location Type Selection */}
+                    {masterTab === "location" && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                            <select
+                                value={formData.type || "Rack"}
+                                onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            >
+                                <option value="Rack">Rack</option>
+                                <option value="Pallet">Pallet</option>
+                                <option value="Table">Table</option>
+                                <option value="Almirah">Almirah</option>
+                            </select>
+                        </div>
+                    )}
 
                     {/* Vendor Type Selection */}
                     {masterTab === "vendor" && (
@@ -162,8 +177,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         />
                     </div>
 
-                    {/* Code Field (Hidden for Inhouse, Customer, Vendor, & RM/BO Items) */}
-                    {masterTab !== "inhouse-items" && masterTab !== "customer" && masterTab !== "vendor" && masterTab !== "rm-bo-item" && (
+                    {/* Code Field (Hidden for Inhouse, Customer, Vendor, Location, & RM/BO Items) */}
+                    {masterTab !== "inhouse-items" && masterTab !== "customer" && masterTab !== "vendor" && masterTab !== "location" && masterTab !== "rm-bo-item" && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Code <span className="text-red-500"> *</span>

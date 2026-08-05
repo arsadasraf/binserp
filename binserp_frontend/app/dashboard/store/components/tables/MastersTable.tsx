@@ -478,7 +478,12 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                     />
                                 </th>
                             )}
-                            {masterTab === "location" && <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>}
+                            {masterTab === "location" && (
+                                <>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Type</th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>
+                                </>
+                            )}
                             {masterTab === "category" && <><th className="px-6 py-3 text-left font-semibold text-gray-900">HSN Code</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th></>}
                             {masterTab === "rm-bo-item" && (<><th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Min Stock</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Unit</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Category</th><th className="px-6 py-3 text-left font-semibold text-gray-900">Location</th></>)}
                             {masterTab === "fg-items" && (
@@ -571,7 +576,12 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                         <td className="px-6 py-4 font-medium text-gray-900">{item.name}</td>
                                         {masterTab !== "fg-items" && masterTab !== "rm-bo-item" && <td className="px-6 py-4 text-gray-600">{item.code}</td>}
                                         {masterTab === "fg-items" && <td className="px-6 py-4 text-gray-600">{item.description || '-'}</td>}
-                                        {masterTab === "location" && <td className="px-6 py-4 text-gray-600">{item.description || '-'}</td>}
+                                        {masterTab === "location" && (
+                                            <>
+                                                <td className="px-6 py-4 text-gray-600">{item.type || 'Rack'}</td>
+                                                <td className="px-6 py-4 text-gray-600">{item.description || '-'}</td>
+                                            </>
+                                        )}
                                         {masterTab === "category" && <><td className="px-6 py-4 text-gray-600">{item.hsnCode || '-'}</td><td className="px-6 py-4 text-gray-600">{item.unit || '-'}</td></>}
 
                                         {(masterTab === "vendor" || masterTab === "customer") && (<><td className="px-6 py-4 text-gray-600">{item.contactPerson}</td><td className="px-6 py-4 text-gray-600">{item.email}</td></>)}
@@ -717,7 +727,10 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                  </>
                              )}
                              {masterTab === "location" && (
-                                 <div className="flex justify-between"><span className="text-gray-500">Description:</span> <span className="font-medium">{item.description || '-'}</span></div>
+                                 <>
+                                     <div className="flex justify-between"><span className="text-gray-500">Type:</span> <span className="font-medium">{item.type || 'Rack'}</span></div>
+                                     <div className="flex justify-between"><span className="text-gray-500">Description:</span> <span className="font-medium">{item.description || '-'}</span></div>
+                                 </>
                              )}
 
                             {masterTab === "category" && (
