@@ -47,13 +47,7 @@ export const clearSession = async () => {
   localStorage.removeItem("userType");
   localStorage.removeItem("userInfo");
 
-  ["token", "userType", "department", "displayName"].forEach(deleteCookie);
-  
-  // Extra safety for new token names
-  document.cookie = "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-  document.cookie = "refreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-  document.cookie = "saasAdminToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-
+  ["token", "userType", "department", "displayName", "accessToken", "refreshToken", "saasAdminToken"].forEach(deleteCookie);
   try {
     // Attempt to log out from backend (silently)
     // We use fetch directly since we just need a simple POST with credentials

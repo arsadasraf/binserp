@@ -71,8 +71,11 @@ export default function AxiosInterceptorProvider({ children }: { children: React
               localStorage.removeItem("userInfo");
               
               // Clear cookies
-              document.cookie = "accessToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-              document.cookie = "refreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+              const isSecure = window.location.protocol === "https:";
+              const cookieFlags = `path=/; SameSite=Lax; ${isSecure ? "Secure" : ""}`;
+              document.cookie = `accessToken=; max-age=0; ${cookieFlags}`;
+              document.cookie = `refreshToken=; max-age=0; ${cookieFlags}`;
+              document.cookie = `saasAdminToken=; max-age=0; ${cookieFlags}`;
 
               let alertTitle = 'Session Expired';
               let alertText = 'Your session has expired or is invalid. Please log in again.';
