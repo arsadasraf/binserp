@@ -543,7 +543,6 @@ function StoreContent() {
         </div>
 
         {/* Main Navigation Tabs */}
-        <StoreTabs activeTab={activeTab} />
 
         <div className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
 
@@ -1127,47 +1126,19 @@ function StoreContent() {
                   loading={loading}
                 />
               ) : (activeTab === "wip" || activeTab === "material-issue") ? (
-                <MaterialIssueTab storeData={{
-                  data,
-                  materialRequests,
-                  createMaterialRequest,
-                  updateMaterialRequest,
-                  createMaterialIssue,
-                  updateMaterialIssue,
-                  materials,
-                  loading,
-                  inventoryList,
-                  fgItems,
-                  inHouseComponents: fgItems,
-                }} token={token} />
-
+                (() => {
+                  if (typeof window !== "undefined") {
+                    window.location.href = "/dashboard/store/wip/requests";
+                  }
+                  return <LoadingSpinner />;
+                })()
               ) : activeTab === "home" ? (
-                <InventoryTab
-                  storeData={{
-                    data,
-                    fgItems,
-                    inHouseComponents: fgItems,
-                    inventoryList,
-                    loading,
-                    handleGRNSubmit,
-                    handleGRNUpdate,
-                    handleDelete,
-                    handleEdit,
-                    vendors,
-                    locations,
-                    categories,
-                    materials,
-                    customers,
-                    refetch,
-                    setError,
-                    setSuccess,
-                    setFormData,
-                    setShowForm
-                  }}
-                  token={token}
-                  masterTab={masterTab}
-                  setMasterTab={setMasterTab}
-                />
+                (() => {
+                  if (typeof window !== "undefined") {
+                    window.location.href = "/dashboard/store/inventory";
+                  }
+                  return <LoadingSpinner />;
+                })()
               ) : activeTab === "job-work" ? (
                 <JobWorkStore
                   vendors={vendors}
