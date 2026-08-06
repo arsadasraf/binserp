@@ -16,7 +16,7 @@
 import React from 'react';
 import { Database } from 'lucide-react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
-import { TabType, MasterType } from '../../types/store.types';
+import { TabType, MasterType } from "@/src/features/store/types/store.types";
 import InventoryTable from './InventoryTable';
 import MastersTable from './MastersTable';
 import TransactionsTable from './TransactionsTable';

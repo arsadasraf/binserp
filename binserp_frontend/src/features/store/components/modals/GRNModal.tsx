@@ -13,7 +13,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, FileText, Camera } from 'lucide-react';
-import { GRNModalProps, RmBoItem } from '../../types/store.types';
+import { GRNModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
 
 interface MaterialEntry {

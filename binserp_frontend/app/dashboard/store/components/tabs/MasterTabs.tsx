@@ -8,7 +8,7 @@
  * @param setMasterTab - Function to change the active master tab
  */
 
-import { MasterType } from '../../types/store.types';
+import { MasterType } from "@/src/features/store/types/store.types";
 
 interface MasterTabsProps {
     masterTab: MasterType;

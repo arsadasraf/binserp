@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, Factory, Calendar, Truck, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
-import { JobWorkChallan, Vendor, JobWorkSupplier } from '../../types/store.types';
+import { JobWorkChallan, Vendor, JobWorkSupplier } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
 

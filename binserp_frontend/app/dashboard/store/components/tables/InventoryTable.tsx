@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { InventoryItem } from '../../types/store.types';
+import { InventoryItem } from "@/src/features/store/types/store.types";
 import { Package, Factory, Download, Search, Edit2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';

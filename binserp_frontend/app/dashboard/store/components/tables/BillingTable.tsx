@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { Edit2, Trash2, Download, Truck, FileText } from 'lucide-react';
-import { CompanyInfo } from '../../types/store.types';
+import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { generateDocument } from '@/src/utils/documentHelper';
 
 interface BillingTableProps {

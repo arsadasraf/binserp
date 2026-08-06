@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Check } from 'lucide-react';
-import { JobWorkChallan } from '../../types/store.types';
+import { JobWorkChallan } from "@/src/features/store/types/store.types";
 import { apiPut } from '@/src/lib/api';
 
 interface JobWorkReceiveModalProps {

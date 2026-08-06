@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Download, MapPin, Phone, Mail, Globe, Hash, Building2, CreditCard } from 'lucide-react';
-import { MasterType } from '../../types/store.types';
+import { MasterType } from "@/src/features/store/types/store.types";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 

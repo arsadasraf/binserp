@@ -7,7 +7,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { BillingModalProps, BillingFormData, RmBoItem } from "../../types/store.types";
+import { BillingModalProps, BillingFormData, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from "../SearchableSelect";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
 import Swal from "sweetalert2";

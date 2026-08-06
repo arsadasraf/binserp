@@ -1,16 +1,33 @@
 "use client";
 
-import React from 'react';
-import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from '@/src/store/services/storeService';
+import React, { useState } from 'react';
+import { useGetStoreDataQuery, useDeleteStoreRecordMutation, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from '@/src/store/services/storeService';
 import FinishedGoodsTable from '@/src/features/store/components/tables/FinishedGoodsTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import FGItemForm from '@/src/features/store/components/forms/FGItemForm';
+import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function FinishedGoodsPage() {
   const { data: finishedGoods = [], isLoading } = useGetStoreDataQuery("fg-item");
+  const { data: categories = [] } = useGetStoreDataQuery("category");
+  const { data: locations = [] } = useGetStoreDataQuery("location");
+  const { data: customers = [] } = useGetStoreDataQuery("customer");
+  const { data: materials = [] } = useGetStoreDataQuery("rm-bo-item");
+
   const [deleteRecord] = useDeleteStoreRecordMutation();
+  const [createRecord, { isLoading: isCreating }] = useCreateStoreRecordMutation();
+  const [updateRecord, { isLoading: isUpdating }] = useUpdateStoreRecordMutation();
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [formData, setFormData] = useState<StoreFormData>({});
+  const [photos, setPhotos] = useState<File[]>([]);
 
   const handleEdit = (item: any) => {
-    console.log("Edit fg", item);
+    setEditingItem(item);
+    setFormData(item);
+    setPhotos([]);
+    setIsModalOpen(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -23,30 +40,67 @@ export default function FinishedGoodsPage() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const submitData = new FormData();
+      Object.keys(formData).forEach((key) => {
+        if (key === 'bom') {
+          submitData.append('bom', JSON.stringify(formData.bom));
+        } else if (formData[key as keyof StoreFormData] !== undefined && formData[key as keyof StoreFormData] !== null) {
+          submitData.append(key, String(formData[key as keyof StoreFormData]));
+        }
+      });
+      photos.forEach(photo => submitData.append('photos', photo));
+
+      if (editingItem) {
+        await updateRecord({ tab: "fg-item", id: editingItem._id, body: submitData, isFormData: true }).unwrap();
+      } else {
+        await createRecord({ tab: "fg-item", body: submitData, isFormData: true }).unwrap();
+      }
+      setIsModalOpen(false);
+      setFormData({});
+      setPhotos([]);
+      setEditingItem(null);
+    } catch (error) {
+      console.error("Failed to save finished good", error);
+      alert("Failed to save finished good");
+    }
+  };
+
   if (isLoading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Finished Goods</h2>
-          <p className="text-sm text-gray-500">Manage finished goods items</p>
-        </div>
-        <button 
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          onClick={() => console.log("Create FG Item")}
-        >
-          + Add Finished Good
-        </button>
-      </div>
-
-      <div className="h-[calc(100vh-220px)]">
-        <FinishedGoodsTable 
+      <div className="h-[calc(100vh-160px)]">
+        <FinishedGoodsTable
+          onAdd={() => {
+            setEditingItem(null);
+            setFormData({});
+            setIsModalOpen(true);
+          }} 
           data={finishedGoods} 
           onEdit={handleEdit} 
           onDelete={handleDelete} 
         />
       </div>
+
+      <FGItemForm
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleSubmit}
+        formData={formData}
+        setFormData={setFormData}
+        categories={categories}
+        locations={locations}
+        customers={customers}
+        materials={materials}
+        fgItems={finishedGoods}
+        photos={photos}
+        setPhotos={setPhotos}
+        loading={isCreating || isUpdating}
+        isEditing={!!editingItem}
+      />
     </div>
   );
 }

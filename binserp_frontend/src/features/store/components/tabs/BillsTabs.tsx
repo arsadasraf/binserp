@@ -5,7 +5,7 @@
  */
 
 import Link from "next/link";
-import { TabType } from "../../types/store.types";
+import { TabType } from "@/src/features/store/types/store.types";
 
 interface BillsTabsProps {
   activeTab: TabType;

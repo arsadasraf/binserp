@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Save, Upload, Building2, Phone, Mail, FileText, MapPin, Edit2, CreditCard } from 'lucide-react';
-import { CompanyInfo } from '../../types/store.types';
+import { CompanyInfo } from "@/src/features/store/types/store.types";
 
 interface CompanyInfoFormProps {
     initialData?: CompanyInfo;

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import InventoryTable from './InventoryTable';
-import { InventoryItem } from '../../types/store.types';
+import { InventoryItem } from "@/src/features/store/types/store.types";
 
 interface SharedInventoryViewProps {
     data: InventoryItem[];

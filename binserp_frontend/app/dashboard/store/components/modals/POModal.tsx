@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from 'lucide-react';
-import { POModalProps, RmBoItem } from '../../types/store.types';
+import { POModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
 
 interface MaterialEntry {

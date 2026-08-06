@@ -97,10 +97,10 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         try {
             const payload = grnData instanceof FormData
                 ? grnData
-                : { ...grnData, type: subTab === 'inhouse' ? 'inhouse' : 'bo' };
+                : { ...grnData, type: activeSubTab === 'inhouse' ? 'inhouse' : 'bo' };
 
             if (payload instanceof FormData) {
-                payload.set('type', subTab === 'inhouse' ? 'inhouse' : 'bo');
+                payload.set('type', activeSubTab === 'inhouse' ? 'inhouse' : 'bo');
             }
 
             if (editingGRN && editingGRN._id) {

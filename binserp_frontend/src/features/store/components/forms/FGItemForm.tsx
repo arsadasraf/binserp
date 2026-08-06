@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Customer, Category, Location } from '../../types/store.types';
+import { Customer, Category, Location } from "@/src/features/store/types/store.types";
 import { Package, X, Plus, Trash2 } from 'lucide-react';
 import SearchableSelect from '../SearchableSelect';
 

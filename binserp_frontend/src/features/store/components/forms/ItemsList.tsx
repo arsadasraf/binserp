@@ -13,7 +13,7 @@
 
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import { Item, TabType } from '../../types/store.types';
+import { Item, TabType } from "@/src/features/store/types/store.types";
 
 interface ItemsListProps {
     items: Item[];

@@ -8,9 +8,10 @@ interface MaterialTableProps {
   data: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onAdd?: () => void;
 }
 
-export default function MaterialTable({ data, onEdit, onDelete }: MaterialTableProps) {
+export default function MaterialTable({ data, onEdit, onDelete, onAdd }: MaterialTableProps) {
   const columns: ColumnDef<any>[] = [
     { id: 'name', label: 'Material Name' },
     { id: 'description', label: 'Description', render: (item) => item.descriptions || '-' },
@@ -48,6 +49,17 @@ export default function MaterialTable({ data, onEdit, onDelete }: MaterialTableP
       data={data}
       searchPlaceholder="Search materials..."
       searchableKeys={['name', 'descriptions']}
+    
+      actionButton={
+        onAdd && (
+          <button
+            onClick={onAdd}
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-sm font-medium transition-colors"
+          >
+            + Add Material
+          </button>
+        )
+      }
     />
   );
 }

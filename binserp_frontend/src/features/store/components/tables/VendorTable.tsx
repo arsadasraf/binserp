@@ -8,9 +8,10 @@ interface VendorTableProps {
   data: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onAdd?: () => void;
 }
 
-export default function VendorTable({ data, onEdit, onDelete }: VendorTableProps) {
+export default function VendorTable({ data, onEdit, onDelete, onAdd }: VendorTableProps) {
   const columns: ColumnDef<any>[] = [
     { id: 'name', label: 'Vendor Name' },
     { id: 'code', label: 'Code' },
@@ -47,6 +48,16 @@ export default function VendorTable({ data, onEdit, onDelete }: VendorTableProps
       data={data}
       searchPlaceholder="Search vendors..."
       searchableKeys={['name', 'code', 'contactPerson', 'email']}
+      actionButton={
+        onAdd && (
+          <button
+            onClick={onAdd}
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-sm font-medium transition-colors"
+          >
+            + Add Vendor
+          </button>
+        )
+      }
     />
   );
 }

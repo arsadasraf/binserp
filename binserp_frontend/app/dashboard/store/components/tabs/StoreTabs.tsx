@@ -5,7 +5,7 @@ import { useHeader } from "@/src/context/HeaderContext";
 
 import { Package, Layers, FileText, Settings, IndianRupee, Factory, ShoppingCart, ClipboardList } from "lucide-react";
 import { motion } from "framer-motion";
-import { TabType } from "../../types/store.types";
+import { TabType } from "@/src/features/store/types/store.types";
 
 interface StoreTabsProps {
     activeTab: TabType;

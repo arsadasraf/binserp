@@ -10,7 +10,7 @@
  */
 
 import React from 'react';
-import { StoreFormData, Vendor } from '../../types/store.types';
+import { StoreFormData, Vendor } from "@/src/features/store/types/store.types";
 
 interface GRNFormProps {
     formData: StoreFormData;

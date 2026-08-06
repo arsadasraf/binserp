@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, Printer, AlignLeft, AlignCenter, AlignRight, FileText, CheckSquare, Type } from 'lucide-react';
-import { CompanyInfo, PrintConfig } from '../../types/store.types';
+import { CompanyInfo, PrintConfig } from "@/src/features/store/types/store.types";
 
 interface PrintSettingsFormProps {
     initialData?: CompanyInfo;

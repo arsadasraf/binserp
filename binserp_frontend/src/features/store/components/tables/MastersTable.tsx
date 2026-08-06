@@ -4,7 +4,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Edit2, Trash2, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Search, Image as ImageIcon } from 'lucide-react';
-import { MasterType } from '../../types/store.types';
+import { MasterType } from "@/src/features/store/types/store.types";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Calendar, User, Package, Layers, Info, Check, AlertCircle } from 'lucide-react';
-import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier } from '../../types/store.types';
+import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier } from "@/src/features/store/types/store.types";
 import { apiPost, apiPut } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
 import SearchableSelect from '../SearchableSelect';

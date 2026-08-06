@@ -25,7 +25,7 @@ import {
     useDeleteStoreRecordMutation 
 } from "@/src/store/services/storeService";
 import { useGetPpcComponentsQuery } from "@/src/store/services/ppcService";
-import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Category, RmBoItem, GRNFormData, POFormData, CompanyInfo, DCFormData, BillingFormData, JobWorkSupplier, Process } from "../../types/store.types";
+import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Category, RmBoItem, GRNFormData, POFormData, CompanyInfo, DCFormData, BillingFormData, JobWorkSupplier, Process } from "@/src/features/store/types/store.types";
 
 export function useStoreData(activeTab: TabType, masterTab: MasterType, token: string | null, queryParams?: string) {
     // --- Queries ---

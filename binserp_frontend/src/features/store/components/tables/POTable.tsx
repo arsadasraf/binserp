@@ -12,7 +12,7 @@
 import React from 'react';
 import { Edit2, Trash2, Download, FileSpreadsheet } from 'lucide-react';
 import { generateDocument } from '@/src/utils/documentHelper';
-import { CompanyInfo } from '../../types/store.types';
+import { CompanyInfo } from "@/src/features/store/types/store.types";
 
 interface POTableProps {
     data: any[];

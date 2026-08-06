@@ -7,7 +7,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { QuotationModalProps, QuotationFormData } from "../../types/store.types";
+import { QuotationModalProps, QuotationFormData } from "@/src/features/store/types/store.types";
 import { API_BASE_URL } from "@/src/utils/config";
 import SearchableSelect from "../SearchableSelect";
 

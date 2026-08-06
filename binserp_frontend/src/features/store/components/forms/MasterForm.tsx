@@ -15,7 +15,7 @@
  */
 
 import React from 'react';
-import { StoreFormData, MasterType, Category, Location, Process } from '../../types/store.types';
+import { StoreFormData, MasterType, Category, Location, Process } from "@/src/features/store/types/store.types";
 import { X } from 'lucide-react'; // Import X for tags
 
 const COUNTRIES = ["India", "Other"];

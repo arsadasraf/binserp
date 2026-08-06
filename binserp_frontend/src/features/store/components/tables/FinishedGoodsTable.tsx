@@ -8,9 +8,10 @@ interface FinishedGoodsTableProps {
   data: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onAdd?: () => void;
 }
 
-export default function FinishedGoodsTable({ data, onEdit, onDelete }: FinishedGoodsTableProps) {
+export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: FinishedGoodsTableProps) {
   const columns: ColumnDef<any>[] = [
     { id: 'name', label: 'Item Name' },
     { id: 'description', label: 'Description', render: (item) => item.description || '-' },
@@ -47,6 +48,17 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete }: FinishedG
       data={data}
       searchPlaceholder="Search finished goods..."
       searchableKeys={['name', 'description', 'type']}
+    
+      actionButton={
+        onAdd && (
+          <button
+            onClick={onAdd}
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-sm font-medium transition-colors"
+          >
+            + Add Finished Good
+          </button>
+        )
+      }
     />
   );
 }

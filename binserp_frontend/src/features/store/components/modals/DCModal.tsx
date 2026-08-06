@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from "lucide-react";
-import { DCModalProps, DCFormData, RmBoItem } from "../../types/store.types";
+import { DCModalProps, DCFormData, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from "../SearchableSelect";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
 import Swal from "sweetalert2";

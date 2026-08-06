@@ -22,7 +22,7 @@
  */
 
 import React from 'react';
-import { TabType, MasterType, StoreFormData, Vendor, Customer, Category, Location, Process } from '../../types/store.types';
+import { TabType, MasterType, StoreFormData, Vendor, Customer, Category, Location, Process } from "@/src/features/store/types/store.types";
 import MasterForm from './MasterForm';
 import GRNForm from './GRNForm';
 import DCForm from './DCForm';

@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { StoreFormData } from '../../types/store.types';
+import { StoreFormData } from "@/src/features/store/types/store.types";
 
 interface MaterialIssueFormProps {
     formData: StoreFormData;

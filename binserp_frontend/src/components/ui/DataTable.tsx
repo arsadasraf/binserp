@@ -16,6 +16,7 @@ interface DataTableProps<T> {
   searchableKeys?: (keyof T)[];
   itemsPerPage?: number;
   enableColumnToggle?: boolean;
+  actionButton?: React.ReactNode;
 }
 
 export default function DataTable<T extends Record<string, any>>({
@@ -25,7 +26,8 @@ export default function DataTable<T extends Record<string, any>>({
   searchPlaceholder = "Search...",
   searchableKeys = [],
   itemsPerPage = 10,
-  enableColumnToggle = true
+  enableColumnToggle = true,
+  actionButton
 }: DataTableProps<T>) {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -80,19 +82,22 @@ export default function DataTable<T extends Record<string, any>>({
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
       {/* Top Bar: Search and Settings */}
-      <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50/50 gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <input
-            type="text"
-            placeholder={searchPlaceholder}
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1); // Reset to page 1 on search
-            }}
-            className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-          />
+      <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gray-50/50 gap-4">
+        <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+          {actionButton && <div>{actionButton}</div>}
+          <div className="relative flex-1 sm:max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder={searchPlaceholder}
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1); // Reset to page 1 on search
+              }}
+              className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            />
+          </div>
         </div>
         
         {enableColumnToggle && (

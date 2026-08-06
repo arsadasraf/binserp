@@ -8,9 +8,10 @@ interface CategoryTableProps {
   data: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onAdd?: () => void;
 }
 
-export default function CategoryTable({ data, onEdit, onDelete }: CategoryTableProps) {
+export default function CategoryTable({ data, onEdit, onDelete, onAdd }: CategoryTableProps) {
   const columns: ColumnDef<any>[] = [
     { id: 'name', label: 'Category Name' },
     { id: 'code', label: 'Code' },
@@ -46,6 +47,17 @@ export default function CategoryTable({ data, onEdit, onDelete }: CategoryTableP
       data={data}
       searchPlaceholder="Search categories..."
       searchableKeys={['name', 'code', 'hsnCode']}
+    
+      actionButton={
+        onAdd && (
+          <button
+            onClick={onAdd}
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-sm font-medium transition-colors"
+          >
+            + Add Category
+          </button>
+        )
+      }
     />
   );
 }

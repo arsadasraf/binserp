@@ -10,7 +10,7 @@
  */
 
 import React from 'react';
-import { StoreFormData, Customer } from '../../types/store.types';
+import { StoreFormData, Customer } from "@/src/features/store/types/store.types";
 
 interface BillingFormProps {
     formData: StoreFormData;

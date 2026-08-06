@@ -15,7 +15,7 @@
 
 import React from 'react';
 import { Edit2, Trash2 } from 'lucide-react';
-import { Transaction } from '../../types/store.types';
+import { Transaction } from "@/src/features/store/types/store.types";
 
 interface TransactionsTableProps {
     data: Transaction[];

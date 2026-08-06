@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RmBoItem } from "../../types/store.types";
+import { RmBoItem } from "@/src/features/store/types/store.types";
 import { X, Plus, Trash2, Package } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 

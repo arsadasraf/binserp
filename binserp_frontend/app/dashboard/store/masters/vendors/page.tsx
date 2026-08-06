@@ -1,17 +1,27 @@
 "use client";
 
 import React, { useState } from 'react';
-import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from '@/src/store/services/storeService';
+import { useGetStoreDataQuery, useDeleteStoreRecordMutation, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from '@/src/store/services/storeService';
 import VendorTable from '@/src/features/store/components/tables/VendorTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import Modal from '@/src/components/Modal';
+import MasterForm from '@/src/features/store/components/forms/MasterForm';
+import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function VendorsPage() {
   const { data: vendors = [], isLoading } = useGetStoreDataQuery("vendor");
   const [deleteRecord] = useDeleteStoreRecordMutation();
+  const [createRecord, { isLoading: isCreating }] = useCreateStoreRecordMutation();
+  const [updateRecord, { isLoading: isUpdating }] = useUpdateStoreRecordMutation();
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [formData, setFormData] = useState<StoreFormData>({});
 
   const handleEdit = (vendor: any) => {
-    // We will implement form editing in the next step
-    console.log("Edit vendor", vendor);
+    setEditingItem(vendor);
+    setFormData(vendor);
+    setIsModalOpen(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -24,30 +34,70 @@ export default function VendorsPage() {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingItem) {
+        await updateRecord({ tab: "vendor", id: editingItem._id, body: formData }).unwrap();
+      } else {
+        await createRecord({ tab: "vendor", body: formData }).unwrap();
+      }
+      setIsModalOpen(false);
+      setFormData({});
+      setEditingItem(null);
+    } catch (error) {
+      console.error("Failed to save vendor", error);
+      alert("Failed to save vendor");
+    }
+  };
+
   if (isLoading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Vendors</h2>
-          <p className="text-sm text-gray-500">Manage your supplier network</p>
-        </div>
-        <button 
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          onClick={() => console.log("Create Vendor")}
-        >
-          + Add Vendor
-        </button>
-      </div>
-
-      <div className="h-[calc(100vh-220px)]">
-        <VendorTable 
-          data={vendors} 
-          onEdit={handleEdit} 
-          onDelete={handleDelete} 
+      <div className="h-[calc(100vh-160px)]">
+        <VendorTable
+          data={vendors}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          onAdd={() => {
+            setEditingItem(null);
+            setFormData({});
+            setIsModalOpen(true);
+          }}
         />
       </div>
+
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingItem ? "Edit Vendor" : "Add Vendor"}
+        maxWidth="3xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <MasterForm
+            formData={formData}
+            setFormData={setFormData}
+            masterTab="vendor"
+          />
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isCreating || isUpdating}
+              className="px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {isCreating || isUpdating ? "Saving..." : "Save Vendor"}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

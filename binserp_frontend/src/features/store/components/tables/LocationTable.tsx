@@ -8,9 +8,10 @@ interface LocationTableProps {
   data: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onAdd?: () => void;
 }
 
-export default function LocationTable({ data, onEdit, onDelete }: LocationTableProps) {
+export default function LocationTable({ data, onEdit, onDelete, onAdd }: LocationTableProps) {
   const columns: ColumnDef<any>[] = [
     { id: 'name', label: 'Name' },
     { id: 'code', label: 'Code' },
@@ -46,6 +47,17 @@ export default function LocationTable({ data, onEdit, onDelete }: LocationTableP
       data={data}
       searchPlaceholder="Search locations..."
       searchableKeys={['name', 'code', 'type', 'description']}
+    
+      actionButton={
+        onAdd && (
+          <button
+            onClick={onAdd}
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-sm font-medium transition-colors"
+          >
+            + Add Location
+          </button>
+        )
+      }
     />
   );
 }
