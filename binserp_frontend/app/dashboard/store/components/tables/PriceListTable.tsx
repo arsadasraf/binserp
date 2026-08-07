@@ -4,16 +4,21 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 
 interface PriceListTableProps {
-  priceLists: any[];
-  fgItems: any[];
+  priceLists?: any[];
+  fgItems?: any[];
+  data?: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
 }
 
-export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }: PriceListTableProps) {
+export default function PriceListTable({ priceLists, fgItems = [], data, onEdit, onDelete }: PriceListTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredItems = fgItems.filter((item) => {
+  const actualPriceLists = priceLists || data || [];
+  const actualFgItems = fgItems || [];
+
+  const filteredItems = (actualFgItems || []).filter((item) => {
+    if (!item) return false;
     const searchLower = searchTerm.toLowerCase();
     const fgItemName = item.name?.toLowerCase() || "";
     const fgItemCode = item.code?.toLowerCase() || "";
@@ -21,7 +26,7 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
   });
 
   // Map to easily find assigned price configs for each FG Item
-  const priceListMap = (priceLists || []).reduce((acc, curr) => {
+  const priceListMap = (actualPriceLists || []).reduce((acc, curr) => {
     const fgItemId = (curr.fgItem?._id || curr.fgItem)?.toString();
     if (fgItemId) acc[fgItemId] = curr;
     return acc;

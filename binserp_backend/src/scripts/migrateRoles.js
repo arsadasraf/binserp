@@ -13,6 +13,8 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '../../.env') });
 
+import { seedDefaultRoles } from "../utils/seedDefaultRoles.js";
+
 const migrate = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI, { dbName: DB_NAME });
@@ -28,36 +30,11 @@ const migrate = async () => {
       const EmployeeModel = getTenantModel(company.dbName, "Employee", employeeSchema);
       const RoleModel = getTenantModel(company.dbName, "Role", roleSchema);
 
-      const defaultRoles = [
-        { name: "Store Default Role", department: "Store", policies: [{ module: "Store", tabs: [{ name: "inventory", actions: ["all"] }, { name: "masters", actions: ["all"] }, { name: "job-work", actions: ["all"] }, { name: "material-issue", actions: ["all"] }, { name: "dc", actions: ["all"] }] }] },
-        { name: "HR Default Role", department: "HR", policies: [{ module: "HR", tabs: [{ name: "home", actions: ["all"] }, { name: "attendance", actions: ["all"] }, { name: "salaries", actions: ["all"] }, { name: "master", actions: ["all"] }, { name: "present", actions: ["all"] }] }] },
-        { name: "PPC Default Role", department: "PPC", policies: [{ module: "PPC", tabs: [{ name: "overview", actions: ["all"] }, { name: "orders", actions: ["all"] }, { name: "planning", actions: ["all"] }, { name: "master", actions: ["all"] }] }] },
-        { name: "Admin Default Role", department: "Admin", policies: [{ module: "Admin", tabs: [{ name: "all", actions: ["all"] }] }] },
-        { name: "Security Default Role", department: "Security", policies: [{ module: "Security", tabs: [{ name: "overview", actions: ["all"] }, { name: "kiosk", actions: ["all"] }, { name: "visitor", actions: ["all"] }, { name: "vehicle", actions: ["all"] }] }] },
-        { name: "CRM Default Role", department: "CRM", policies: [{ module: "CRM", tabs: [{ name: "all", actions: ["all"] }] }] },
-      ];
-
-      const roleMap = {};
-
-      for (const dr of defaultRoles) {
-        let role = await RoleModel.findOne({ name: dr.name });
-        if (!role) {
-          role = await RoleModel.create({
-            company: company._id,
-            name: dr.name,
-            description: `Auto-generated default role for ${dr.department} department`,
-            policies: dr.policies,
-            isDefault: true
-          });
-        } else {
-          // If already exists but doesn't have isDefault, set it
-          if (!role.isDefault) {
-            role.isDefault = true;
-            await role.save({ validateBeforeSave: false });
-          }
-        }
-        roleMap[dr.department] = role._id;
-      }
+      const gmRole = await seedDefaultRoles(RoleModel, company._id);
+      const roleMap = {
+        Admin: gmRole?._id,
+        GM: gmRole?._id
+      };
 
       // Update Users
       const users = await UserModel.find({ roles: { $exists: false } }); // Handle newly added array

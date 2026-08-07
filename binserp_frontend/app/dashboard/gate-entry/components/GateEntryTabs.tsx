@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
 
@@ -7,17 +8,19 @@ import { LayoutDashboard, ScanFace, Users, Truck, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface GateEntryTabsProps {
-    activeTab: string;
+    activeTab?: string;
 }
 
 export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
     const { showBottomNav } = useHeader();
+    const pathname = usePathname();
+
     const tabs = [
-        { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/gate-entry?tab=overview" },
-        { id: "kiosk", label: "Kiosk Mode", icon: ScanFace, href: "/dashboard/gate-entry?tab=kiosk" },
-        { id: "visitor", label: "Visitor Log", icon: Users, href: "/dashboard/gate-entry?tab=visitor" },
-        { id: "vehicle", label: "Vehicle Log", icon: Truck, href: "/dashboard/gate-entry?tab=vehicle" },
-        { id: "employee-movement", label: "Employee Movement", icon: LogOut, href: "/dashboard/gate-entry?tab=employee-movement" },
+        { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/gate-entry/overview" },
+        { id: "kiosk", label: "Kiosk Mode", icon: ScanFace, href: "/dashboard/gate-entry/kiosk" },
+        { id: "visitor", label: "Visitor Log", icon: Users, href: "/dashboard/gate-entry/visitor" },
+        { id: "vehicle", label: "Vehicle Log", icon: Truck, href: "/dashboard/gate-entry/vehicle" },
+        { id: "employee-movement", label: "Employee Movement", icon: LogOut, href: "/dashboard/gate-entry/employee-movement" },
     ];
 
     return (
@@ -25,7 +28,7 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
             {/* Desktop View: Modern Floating Tabs */}
             <div className="hidden md:flex mb-8 items-center bg-white dark:bg-slate-800 dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 dark:border-gray-800 w-fit">
                 {tabs.map((tab) => {
-                    const isActive = activeTab === tab.id;
+                    const isActive = pathname.startsWith(tab.href) || (pathname === "/dashboard/gate-entry" && tab.id === "overview") || activeTab === tab.id;
                     const Icon = tab.icon;
                     return (
                         <Link

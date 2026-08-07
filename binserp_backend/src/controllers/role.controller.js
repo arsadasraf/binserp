@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { roleSchema } from "../models/user/index.js";
 import { SYSTEM_PERMISSIONS } from "../config/permissions.config.js";
+import { seedDefaultRoles } from "../utils/seedDefaultRoles.js";
 
 // @desc    Get system permissions schema
 // @route   GET /api/roles/schema
@@ -43,6 +44,9 @@ export const createRole = asyncHandler(async (req, res) => {
 // @access  Private
 export const getRoles = asyncHandler(async (req, res) => {
   const RoleModel = req.getModel("Role", roleSchema);
+  if (req.company && req.company._id) {
+    await seedDefaultRoles(RoleModel, req.company._id);
+  }
   const roles = await RoleModel.find({ company: req.company._id }).sort({ createdAt: -1 });
 
   res.status(200).json(new ApiResponse(200, roles, "Roles fetched successfully"));
@@ -97,8 +101,8 @@ export const deleteRole = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Role not found");
   }
 
-  if (role.isDefault && (role.name === "Admin Default Role" || role.name === "Company Management")) {
-    throw new ApiError(403, "The Admin Default Role is required for company management and cannot be deleted.");
+  if (role.isDefault && (role.name === "GM" || role.name === "Admin Default Role" || role.name === "Company Management")) {
+    throw new ApiError(403, "The GM default role is required for company management and cannot be deleted.");
   }
 
   await RoleModel.findOneAndDelete({ _id: req.params.id, company: req.company._id });

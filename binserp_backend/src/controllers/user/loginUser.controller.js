@@ -54,7 +54,7 @@ export const loginUser = async (req, res) => {
     getTenantModel(company.dbName, "Role", roleSchema);
 
     // 3. Try Finding User first
-    const user = await UserModel.findOne({ userId }).populate("role");
+    const user = await UserModel.findOne({ userId }).populate("role").populate("roles");
 
     if (user) {
       // --- USER FOUND ---
@@ -130,7 +130,7 @@ export const loginUser = async (req, res) => {
           email: user.email,
           department: user.department,
           roleLevel: user.roleLevel,
-          roles: user.roles || [], // For backwards compatibility
+          roles: (user.roles && user.roles.length > 0) ? user.roles : (user.role ? [user.role] : []),
           role: user.role || null,
           photo: (await signPhotos([user.photo]))[0],
           company: {

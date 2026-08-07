@@ -148,20 +148,24 @@ function resolveNavItems(userType: string | null, department: string | null, rol
     const allowedTabsByModule = new Map<string, Set<string>>();
 
     roles.forEach(role => {
-      if (!role.isActive) return;
+      if (!role || typeof role === "string") return;
+      if (role.isActive === false) return;
       role.policies?.forEach((policy: any) => {
-        allowedModules.add(policy.module.toUpperCase());
-        let tabsSet = allowedTabsByModule.get(policy.module.toUpperCase());
+        if (!policy || !policy.module) return;
+        const modUpper = policy.module.toUpperCase();
+        allowedModules.add(modUpper);
+        let tabsSet = allowedTabsByModule.get(modUpper);
         if (!tabsSet) {
           tabsSet = new Set<string>();
-          allowedTabsByModule.set(policy.module.toUpperCase(), tabsSet);
+          allowedTabsByModule.set(modUpper, tabsSet);
         }
         policy.tabs?.forEach((tab: any) => {
           if (typeof tab === "string") {
             tabsSet.add(tab.toLowerCase());
-          } else if (tab && tab.name) {
+          } else if (tab && (tab.id || tab.name)) {
+            const tabName = (tab.id || tab.name).toLowerCase();
             if (!tab.actions || tab.actions.length > 0) {
-              tabsSet.add(tab.name.toLowerCase());
+              tabsSet.add(tabName);
             }
           }
         });
@@ -326,7 +330,19 @@ function LayoutContent({ children }: { children: ReactNode }) {
           roles = [];
         }
         resolvedName = parsed?.name || parsed?.companyName || resolvedName;
-        resolvedSubtitle = parsed?.department || (userType === "company" ? "Company Admin" : resolvedSubtitle);
+        
+        let roleName = "";
+        if (userType === "company") {
+          roleName = "Company Admin";
+        } else if (userType === "saasadmin") {
+          roleName = "SaaS Admin";
+        } else if (parsed?.role) {
+          roleName = typeof parsed.role === "string" ? parsed.role : (parsed.role.name || "");
+        } else if (Array.isArray(parsed?.roles) && parsed.roles.length > 0) {
+          roleName = typeof parsed.roles[0] === "string" ? parsed.roles[0] : (parsed.roles[0].name || "");
+        }
+
+        resolvedSubtitle = roleName || parsed?.department || "User";
       } catch (err) {
         console.warn("Failed to parse user info from storage", err);
       }
@@ -608,7 +624,15 @@ function LayoutContent({ children }: { children: ReactNode }) {
             {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">{subtitle}</p>}
           </div>
 
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex items-center gap-3">
+            {/* User Name & Role Badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+              <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">{userName}</span>
+              <span className="text-[11px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 rounded-md border border-indigo-200 dark:border-indigo-800 uppercase tracking-wider">
+                {userSubtitle}
+              </span>
+            </div>
+
             <div
               className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-full border border-gray-200 dark:border-gray-700 cursor-help transition-all hover:bg-gray-100 dark:hover:bg-gray-700"
               title={pythonOnline === null ? "Checking AI Status..." : pythonOnline ? "AI Service is Online" : "AI Service is Offline"}
@@ -645,7 +669,10 @@ function LayoutContent({ children }: { children: ReactNode }) {
               <div className={`w-2.5 h-2.5 rounded-full ${pythonOnline === null ? "bg-gray-400" : pythonOnline ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"}`}></div>
             </div>
 
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{userName}</span>
+            <div className="flex flex-col items-end">
+              <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">{userName}</span>
+              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">{userSubtitle}</span>
+            </div>
             <button
               onClick={handleLogout}
               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"

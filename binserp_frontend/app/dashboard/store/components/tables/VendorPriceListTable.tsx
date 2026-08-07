@@ -4,16 +4,21 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 
 interface VendorPriceListTableProps {
-  vendorPriceLists: any[];
-  materials: any[];
+  vendorPriceLists?: any[];
+  materials?: any[];
+  data?: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
 }
 
-export default function VendorPriceListTable({ vendorPriceLists, materials, onEdit, onDelete }: VendorPriceListTableProps) {
+export default function VendorPriceListTable({ vendorPriceLists, materials = [], data, onEdit, onDelete }: VendorPriceListTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredItems = materials.filter((item) => {
+  const actualVendorPriceLists = vendorPriceLists || data || [];
+  const actualMaterials = materials || [];
+
+  const filteredItems = (actualMaterials || []).filter((item) => {
+    if (!item) return false;
     const searchLower = searchTerm.toLowerCase();
     const materialName = item.name?.toLowerCase() || "";
     const materialCode = item.code?.toLowerCase() || "";
@@ -22,7 +27,7 @@ export default function VendorPriceListTable({ vendorPriceLists, materials, onEd
 
   // Map to easily find assigned price configs for each Material
   // Grouping by material ID
-  const priceListMap = (vendorPriceLists || []).reduce((acc, curr) => {
+  const priceListMap = (actualVendorPriceLists || []).reduce((acc, curr) => {
     const materialId = (curr.material?._id || curr.material)?.toString();
     if (materialId) {
       if (!acc[materialId]) acc[materialId] = [];

@@ -40,7 +40,7 @@ export default function StoreTabs({ activeTab }: StoreTabsProps) {
     const tabs = [
         { id: "home", label: "Inventory", icon: Package, href: "/dashboard/store?tab=home", isActive: isHomeActive },
         { id: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store?tab=wip", isActive: isWipActive },
-        { id: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store?tab=sales", isActive: isSalesActive },
+        { id: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
         { id: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store?tab=purchase", isActive: isPurchaseActive },
         { id: "masters", label: "Masters", icon: Settings, href: "/dashboard/store?tab=masters", isActive: isMastersActive },
     ].filter(tab => !(tab.id === "masters" && isExecutive));

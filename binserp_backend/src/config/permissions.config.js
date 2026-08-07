@@ -13,10 +13,23 @@ export const SYSTEM_PERMISSIONS = [
     module: "Store",
     label: "Store & Inventory",
     tabs: [
-      { id: "home", label: "Inventory Overview", route: "/dashboard/store?tab=home" },
-      { id: "material-issue", label: "Material Issue", route: "/dashboard/store?tab=material-issue" },
-      { id: "job-work", label: "Job Work", route: "/dashboard/store?tab=job-work" },
-      { id: "dc", label: "Bills / DC", route: "/dashboard/store?tab=dc" },
+      { id: "inventory/rm-bo-stock", label: "Inventory RM & BO Stock", route: "/dashboard/store/inventory/rm-bo-stock" },
+      { id: "inventory/inhouse-stock", label: "Inventory InHouse Stock", route: "/dashboard/store/inventory/inhouse-stock" },
+      { id: "inventory/grn-history", label: "Inventory GRN History", route: "/dashboard/store/inventory/grn-history" },
+      { id: "inventory/fg-grn-history", label: "Inventory FG GRN History", route: "/dashboard/store/inventory/fg-grn-history" },
+      { id: "wip/requests", label: "WIP Material Requests", route: "/dashboard/store/wip/requests" },
+      { id: "wip/history", label: "WIP Material Issue History", route: "/dashboard/store/wip/history" },
+      { id: "sales/orders", label: "Sales Orders", route: "/dashboard/store/sales/orders" },
+      { id: "sales/quotations", label: "Sales Quotations", route: "/dashboard/store/sales/quotations" },
+      { id: "sales/billing", label: "Sales Billing / Invoices", route: "/dashboard/store/sales/billing" },
+      { id: "sales/dc", label: "Sales Delivery Challans (DC)", route: "/dashboard/store/sales/dc" },
+      { id: "sales/price-list", label: "Sales Price List", route: "/dashboard/store/sales/price-list" },
+      { id: "sales/rfq", label: "Sales Incoming RFQ", route: "/dashboard/store/sales/rfq" },
+      { id: "purchase/po", label: "Purchase Orders (PO)", route: "/dashboard/store/purchase/po" },
+      { id: "purchase/mrp", label: "Purchase MRP & Planning", route: "/dashboard/store/purchase/mrp" },
+      { id: "purchase/vendor-quotation", label: "Purchase Vendor Quotations", route: "/dashboard/store/purchase/vendor-quotation" },
+      { id: "purchase/purchase-bill", label: "Purchase Bills & Invoices", route: "/dashboard/store/purchase/purchase-bill" },
+      { id: "purchase/vendor-price-list", label: "Purchase Vendor Price List", route: "/dashboard/store/purchase/vendor-price-list" },
       { id: "masters/materials", label: "Materials Master", route: "/dashboard/store/masters/materials" },
       { id: "masters/vendors", label: "Vendors Master", route: "/dashboard/store/masters/vendors" },
       { id: "masters/customers", label: "Customers Master", route: "/dashboard/store/masters/customers" },
@@ -50,10 +63,11 @@ export const SYSTEM_PERMISSIONS = [
     module: "Security",
     label: "Gate Security & Entry",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/gate-entry?tab=overview" },
-      { id: "kiosk", label: "Kiosk Mode", route: "/dashboard/gate-entry?tab=kiosk" },
-      { id: "visitor", label: "Visitor Log", route: "/dashboard/gate-entry?tab=visitor" },
-      { id: "vehicle", label: "Vehicle Log", route: "/dashboard/gate-entry?tab=vehicle" }
+      { id: "security/overview", label: "Overview", route: "/dashboard/gate-entry/overview" },
+      { id: "security/kiosk", label: "Kiosk Mode", route: "/dashboard/gate-entry/kiosk" },
+      { id: "security/visitor", label: "Visitor Log", route: "/dashboard/gate-entry/visitor" },
+      { id: "security/vehicle", label: "Vehicle Log", route: "/dashboard/gate-entry/vehicle" },
+      { id: "security/employee-movement", label: "Employee Movement", route: "/dashboard/gate-entry/employee-movement" }
     ]
   },
   {

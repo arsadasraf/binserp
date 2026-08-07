@@ -12,12 +12,11 @@ export default function StoreTabs() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
 
-    const isSalesActive = pathname === "/dashboard/store" && searchParams.get("tab") === "sales";
-    const isPurchaseActive = pathname === "/dashboard/store" && searchParams.get("tab") === "purchase";
+    const isSalesActive = pathname.startsWith("/dashboard/store/sales");
+    const isPurchaseActive = pathname.startsWith("/dashboard/store/purchase");
     const isMastersActive = pathname.startsWith("/dashboard/store/masters");
     const isWipActive = pathname.startsWith("/dashboard/store/wip");
-    // Default to home/inventory if we are exactly at /dashboard/store or /dashboard/store/inventory
-    const isHomeActive = (pathname === "/dashboard/store" && !searchParams.get("tab")) || pathname.startsWith("/dashboard/store/inventory");
+    const isHomeActive = pathname.startsWith("/dashboard/store/inventory") || pathname === "/dashboard/store";
 
     const [department, setDepartment] = useState<string>("");
 
@@ -40,8 +39,8 @@ export default function StoreTabs() {
     const tabs = [
         { id: "home", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-bo-stock", isActive: isHomeActive },
         { id: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store/wip/requests", isActive: isWipActive },
-        { id: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store?tab=sales", isActive: isSalesActive },
-        { id: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store?tab=purchase", isActive: isPurchaseActive },
+        { id: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
+        { id: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store/purchase/po", isActive: isPurchaseActive },
         { id: "masters", label: "Masters", icon: Settings, href: "/dashboard/store/masters/vendors", isActive: isMastersActive },
     ].filter(tab => !(tab.id === "masters" && isExecutive));
 

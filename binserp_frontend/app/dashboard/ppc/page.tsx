@@ -128,9 +128,19 @@ export default function PPCPage() {
 
     if (userType === "user" && userInfoStr) {
       const user = JSON.parse(userInfoStr);
-      // Allow access if department is PPC, PPC Executive, CEO, MD, Manager or if user is Company Admin
-      const allowedDepartments = ["ppc", "ppc executive", "ceo", "md", "manager", "admin"];
-      if (!user.department || !allowedDepartments.includes(user.department.trim().toLowerCase())) {
+      const roleObj = user.role || (Array.isArray(user.roles) ? user.roles[0] : null);
+      const roleName = String(roleObj?.name || user.role || "").toLowerCase();
+      const dept = String(user.department || "").trim().toLowerCase();
+      
+      const hasPpcPolicy = 
+        roleObj?.isDefault ||
+        roleObj?.policies?.some((p: any) => p.module?.toUpperCase() === "PPC") ||
+        user.roles?.some((r: any) => r.isDefault || r.policies?.some((p: any) => p.module?.toUpperCase() === "PPC"));
+
+      const isAllowedRole = ["gm", "admin", "ppc", "super admin", "general manager"].some(r => roleName.includes(r));
+      const allowedDepartments = ["ppc", "ppc executive", "ceo", "md", "manager", "admin", "gm", "management"];
+      
+      if (!hasPpcPolicy && !isAllowedRole && !allowedDepartments.includes(dept)) {
         setError("Access denied. You don't have permission to access PPC module.");
         setTimeout(() => {
           router.push("/dashboard");

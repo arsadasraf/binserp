@@ -99,8 +99,8 @@ export default function RolesPage() {
                         {role.isActive ? 'Active' : 'Inactive'}
                       </span>
                       {role.isDefault && (
-                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200">
-                          System Default
+                        <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-800">
+                          System Default (Full Access)
                         </span>
                       )}
                     </div>
@@ -110,7 +110,7 @@ export default function RolesPage() {
                       <Link href={`/dashboard/admin/roles/${role._id}`} className="text-gray-400 hover:text-indigo-600 transition-colors">
                         <Edit size={18} />
                       </Link>
-                      {(!role.isDefault || role.name !== "Admin Default Role") && (
+                      {(!role.isDefault && role.name !== "GM" && role.name !== "Admin Default Role") && (
                         <button onClick={() => handleDelete(role._id)} className="text-gray-400 hover:text-red-600 transition-colors">
                           <Trash2 size={18} />
                         </button>
