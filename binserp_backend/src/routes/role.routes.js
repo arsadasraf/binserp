@@ -6,13 +6,16 @@ import {
   getRoleById,
   updateRole,
   deleteRole,
+  getPermissionSchema,
 } from "../controllers/role.controller.js";
 
 const router = Router();
 
 router.use(verifyJWT);
 
+router.get("/schema", getPermissionSchema);
 router.route("/").post(createRole).get(getRoles);
 router.route("/:id").get(getRoleById).put(updateRole).delete(deleteRole);
 
 export default router;
+

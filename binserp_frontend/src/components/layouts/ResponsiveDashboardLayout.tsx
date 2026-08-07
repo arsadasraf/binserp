@@ -157,8 +157,12 @@ function resolveNavItems(userType: string | null, department: string | null, rol
           allowedTabsByModule.set(policy.module.toUpperCase(), tabsSet);
         }
         policy.tabs?.forEach((tab: any) => {
-          if (tab.actions.length > 0) {
-             tabsSet.add(tab.name.toLowerCase());
+          if (typeof tab === "string") {
+            tabsSet.add(tab.toLowerCase());
+          } else if (tab && tab.name) {
+            if (!tab.actions || tab.actions.length > 0) {
+              tabsSet.add(tab.name.toLowerCase());
+            }
           }
         });
       });
@@ -175,7 +179,11 @@ function resolveNavItems(userType: string | null, department: string | null, rol
                     const url = new URL(sub.href, "http://dummy");
                     const tabParam = url.searchParams.get("tab");
                     if (tabParam) {
-                       return allowedTabs.has(tabParam.toLowerCase());
+                       return allowedTabs.has(tabParam.toLowerCase()) || allowedTabs.has("masters") || allowedTabs.has("master");
+                    }
+                    const routePath = url.pathname.replace("/dashboard/", "").toLowerCase();
+                    if (routePath) {
+                       return allowedTabs.has(routePath) || Array.from(allowedTabs).some(t => t.startsWith(routePath) || routePath.startsWith(t));
                     }
                     return true; 
                   } catch(e) { return true; }
@@ -310,7 +318,13 @@ function LayoutContent({ children }: { children: ReactNode }) {
       try {
         const parsed = JSON.parse(userInfoStr);
         department = parsed?.department || null;
-        roles = parsed?.roles || [];
+        if (parsed?.role) {
+          roles = [parsed.role];
+        } else if (Array.isArray(parsed?.roles) && parsed.roles.length > 0) {
+          roles = parsed.roles;
+        } else {
+          roles = [];
+        }
         resolvedName = parsed?.name || parsed?.companyName || resolvedName;
         resolvedSubtitle = parsed?.department || (userType === "company" ? "Company Admin" : resolvedSubtitle);
       } catch (err) {

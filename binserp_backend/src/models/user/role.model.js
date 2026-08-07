@@ -2,10 +2,7 @@ import mongoose from "mongoose";
 
 const policySchema = new mongoose.Schema({
   module: { type: String, required: true },
-  tabs: [{
-    name: { type: String, required: true },
-    actions: [{ type: String, enum: ['read', 'create', 'update', 'delete', 'all'] }]
-  }]
+  tabs: [{ type: mongoose.Schema.Types.Mixed }]
 });
 
 export const roleSchema = new mongoose.Schema(

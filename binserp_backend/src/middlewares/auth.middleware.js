@@ -228,47 +228,93 @@ export const restrictExecutive = asyncHandler(async (req, res, next) => {
   next();
 });
 
-// ✅ IAM-Style Authorization Middleware
+// Helper to build O(1) permission hashtable map from array of role objects
+export const buildPermissionMap = (roles = []) => {
+  const rolesArray = Array.isArray(roles) ? roles : [roles];
+  const map = {};
+
+  for (const role of rolesArray) {
+    if (!role || role.isActive === false || !Array.isArray(role.policies)) continue;
+    for (const policy of role.policies) {
+      if (!policy.module || !Array.isArray(policy.tabs)) continue;
+      for (const tab of policy.tabs) {
+        if (typeof tab === "string") {
+          // Simplified Tab Permission Model
+          map[`${policy.module}:${tab}`] = true;
+          map[`${policy.module}:${tab}:read`] = true;
+          map[`${policy.module}:${tab}:create`] = true;
+          map[`${policy.module}:${tab}:update`] = true;
+          map[`${policy.module}:${tab}:delete`] = true;
+          map[`${policy.module}:${tab}:all`] = true;
+        } else if (tab && typeof tab === "object") {
+          // Legacy object format
+          const tabName = tab.name;
+          if (tabName) {
+            map[`${policy.module}:${tabName}`] = true;
+            if (Array.isArray(tab.actions)) {
+              for (const action of tab.actions) {
+                map[`${policy.module}:${tabName}:${action}`] = true;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return map;
+};
+
+// ✅ IAM-Style Authorization Middleware with O(1) performance lookup
 export const requirePermission = (moduleName, tabName, action) => {
   return asyncHandler(async (req, res, next) => {
-    // 1. Company Admin and SaaS Admin have full access
-    if (req.userType === "company" || req.userType === "saasadmin") {
+    // 1. SaaS Admin has full system access
+    if (req.userType === "saasadmin") {
       return next();
     }
 
+    // 2. Company Admin (Owner) has full access to Admin/User/Role management
+    if (req.userType === "company") {
+      if (moduleName === "Admin" || moduleName === "Company") {
+        return next();
+      }
+      // If company admin has a role populated, evaluate it
+      if (req.user && req.user.role) {
+        const permMap = buildPermissionMap([req.user.role]);
+        if (
+          permMap[`${moduleName}:${tabName}`] ||
+          permMap[`${moduleName}:${tabName}:${action}`] ||
+          permMap[`${moduleName}:${tabName}:all`]
+        ) {
+          return next();
+        }
+      }
+      throw new ApiError(403, `Access denied. Company Admin requires permission for '${moduleName} -> ${tabName}'.`);
+    }
+
     const user = req.user;
-    
     const rolesToCheck = [];
-    if (user.role) {
-      rolesToCheck.push(user.role);
-    }
-    if (Array.isArray(user.roles)) {
-      rolesToCheck.push(...user.roles);
-    }
+    if (user?.role) rolesToCheck.push(user.role);
+    if (Array.isArray(user?.roles)) rolesToCheck.push(...user.roles);
 
     if (rolesToCheck.length === 0) {
       throw new ApiError(403, "Access denied. No roles assigned.");
     }
 
-    let hasPermission = false;
-    
-    for (const role of rolesToCheck) {
-      if (!role || !role.isActive) continue;
-
-      const policy = role.policies?.find((p) => p.module === moduleName);
-      if (policy) {
-        const tab = policy.tabs?.find((t) => t.name === tabName);
-        if (tab && (tab.actions.includes(action) || tab.actions.includes("all"))) {
-          hasPermission = true;
-          break;
-        }
-      }
+    // Build or reuse O(1) permission map on request context
+    if (!req.permissionMap) {
+      req.permissionMap = buildPermissionMap(rolesToCheck);
     }
 
-    if (!hasPermission) {
-      throw new ApiError(403, `Access denied. Requires '${action}' permission for '${moduleName} -> ${tabName}'.`);
+    if (
+      req.permissionMap[`${moduleName}:${tabName}`] ||
+      req.permissionMap[`${moduleName}:${tabName}:${action}`] ||
+      req.permissionMap[`${moduleName}:${tabName}:all`]
+    ) {
+      return next();
     }
 
-    next();
+    throw new ApiError(403, `Access denied for '${moduleName} -> ${tabName}'.`);
   });
 };
+
+

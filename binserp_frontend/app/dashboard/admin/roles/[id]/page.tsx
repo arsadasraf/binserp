@@ -3,65 +3,125 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Swal from "sweetalert2";
-import { Save, ArrowLeft, Check, X, ChevronDown, ChevronRight } from "lucide-react";
+import { Save, ArrowLeft, Check, ChevronDown, ChevronRight, CheckSquare, Square } from "lucide-react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/src/utils/config";
 
-const AVAILABLE_MODULES = [
+interface TabItem {
+  id: string;
+  label: string;
+  route?: string;
+}
+
+interface ModuleSchema {
+  name: string;
+  label: string;
+  tabs: TabItem[];
+}
+
+const FALLBACK_MODULES: ModuleSchema[] = [
+  {
+    name: "Admin",
+    label: "Admin & User Management",
+    tabs: [
+      { id: "overview", label: "Overview" },
+      { id: "users", label: "User Management" },
+      { id: "roles", label: "Role Management" }
+    ]
+  },
   {
     name: "Store",
-    tabs: ["home", "inventory", "masters", "job-work", "material-issue", "dc"]
+    label: "Store & Inventory",
+    tabs: [
+      { id: "home", label: "Inventory Overview" },
+      { id: "material-issue", label: "Material Issue" },
+      { id: "job-work", label: "Job Work" },
+      { id: "dc", label: "Bills / DC" },
+      { id: "masters/materials", label: "Materials Master" },
+      { id: "masters/vendors", label: "Vendors Master" },
+      { id: "masters/customers", label: "Customers Master" },
+      { id: "masters/categories", label: "Categories Master" },
+      { id: "masters/locations", label: "Locations Master" },
+      { id: "masters/finished-goods", label: "Finished Goods Master" }
+    ]
   },
   {
     name: "HR",
-    tabs: ["home", "attendance", "salaries", "master", "present"]
+    label: "Human Resources",
+    tabs: [
+      { id: "home", label: "Overview" },
+      { id: "attendance", label: "Attendance Kiosk" },
+      { id: "present", label: "Present Log" },
+      { id: "salaries", label: "Salaries & Payroll" },
+      { id: "master", label: "HR Masters" }
+    ]
   },
   {
     name: "PPC",
-    tabs: ["overview", "orders", "planning", "master"]
+    label: "PPC (Production Planning)",
+    tabs: [
+      { id: "overview", label: "Overview" },
+      { id: "orders", label: "Orders List" },
+      { id: "planning", label: "Planning" },
+      { id: "master", label: "PPC Masters" }
+    ]
   },
   {
     name: "Security",
-    tabs: ["overview", "kiosk", "visitor", "vehicle"]
-  },
-  {
-    name: "Maintenance",
-    tabs: ["overview", "tickets", "assets", "schedule"] // Placeholder tabs
+    label: "Gate Security & Entry",
+    tabs: [
+      { id: "overview", label: "Overview" },
+      { id: "kiosk", label: "Kiosk Mode" },
+      { id: "visitor", label: "Visitor Log" },
+      { id: "vehicle", label: "Vehicle Log" }
+    ]
   },
   {
     name: "CRM",
-    tabs: ["all"]
+    label: "CRM & Sales",
+    tabs: [{ id: "overview", label: "Overview" }]
   },
   {
     name: "Accounts",
-    tabs: ["all"]
+    label: "Accounts & Finance",
+    tabs: [{ id: "overview", label: "Overview" }]
   },
   {
-    name: "Admin",
-    tabs: ["all"]
+    name: "Maintenance",
+    label: "Maintenance",
+    tabs: [{ id: "overview", label: "Overview" }]
+  },
+  {
+    name: "Quality",
+    label: "Quality Control",
+    tabs: [{ id: "overview", label: "Overview" }]
+  },
+  {
+    name: "Reports",
+    label: "Reports & Analytics",
+    tabs: [{ id: "overview", label: "Overview" }]
   }
 ];
-
-const AVAILABLE_ACTIONS = ["read", "create", "update", "delete", "all"];
 
 export default function RoleEditorPage() {
   const params = useParams();
   const router = useRouter();
   const isNew = params.id === "new";
 
-  const [loading, setLoading] = useState(!isNew);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
+
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isActive, setIsActive] = useState(true);
-  
-  // Format: { "Store": { "inventory": ["read", "create"], ... } }
-  const [permissions, setPermissions] = useState<Record<string, Record<string, string[]>>>({});
-  
+
+  const [modulesList, setModulesList] = useState<ModuleSchema[]>(FALLBACK_MODULES);
+
+  // Format: { "Store": ["home", "material-issue", "masters/materials"], "HR": ["home"] }
+  const [permissions, setPermissions] = useState<Record<string, string[]>>({});
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
 
-  const toggleModule = (moduleName: string) => {
+  const toggleModuleAccordion = (moduleName: string) => {
     setExpandedModules(prev => ({
       ...prev,
       [moduleName]: !prev[moduleName]
@@ -69,10 +129,48 @@ export default function RoleEditorPage() {
   };
 
   useEffect(() => {
-    if (!isNew) {
-      fetchRole();
+    fetchSchemaAndRole();
+  }, [params.id]);
+
+  const fetchSchemaAndRole = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      // 1. Fetch backend central permissions schema
+      const schemaRes = await fetch(`${API_BASE_URL}/api/roles/schema`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (schemaRes.ok) {
+        const schemaData = await schemaRes.json();
+        if (Array.isArray(schemaData.data)) {
+          const formatted: ModuleSchema[] = schemaData.data.map((mod: any) => ({
+            name: mod.module,
+            label: mod.label || mod.module,
+            tabs: mod.tabs.map((t: any) => 
+              typeof t === "string" 
+                ? { id: t, label: t } 
+                : { id: t.id || t.name, label: t.label || t.name, route: t.route }
+            )
+          }));
+          setModulesList(formatted);
+          
+          // Expand all module cards by default
+          const expanded: Record<string, boolean> = {};
+          formatted.forEach(m => { expanded[m.name] = true; });
+          setExpandedModules(expanded);
+        }
+      }
+
+      // 2. Fetch role if editing
+      if (!isNew) {
+        await fetchRole();
+      }
+    } catch (err) {
+      console.error("Error fetching schema or role:", err);
+    } finally {
+      setLoading(false);
     }
-  }, [isNew]);
+  };
 
   const fetchRole = async () => {
     try {
@@ -84,15 +182,16 @@ export default function RoleEditorPage() {
         setName(data.data.name);
         setDescription(data.data.description);
         setIsActive(data.data.isActive);
-        
-        // Map backend policies array to frontend state object
-        const perms: Record<string, Record<string, string[]>> = {};
-        data.data.policies.forEach((policy: any) => {
-          perms[policy.module] = {};
-          policy.tabs.forEach((tab: any) => {
-            perms[policy.module][tab.name] = tab.actions;
+
+        // Map backend policies array to simple frontend object { "Store": ["home", "masters/materials"] }
+        const perms: Record<string, string[]> = {};
+        if (Array.isArray(data.data.policies)) {
+          data.data.policies.forEach((policy: any) => {
+            if (policy.module && Array.isArray(policy.tabs)) {
+              perms[policy.module] = policy.tabs.map((t: any) => typeof t === "string" ? t : (t.id || t.name));
+            }
           });
-        });
+        }
         setPermissions(perms);
       } else {
         Swal.fire("Error", "Failed to load role", "error");
@@ -100,44 +199,37 @@ export default function RoleEditorPage() {
       }
     } catch (err) {
       Swal.fire("Error", "Error loading role", "error");
-    } finally {
-      setLoading(false);
     }
   };
 
-  const handleActionToggle = (moduleName: string, tabName: string, action: string) => {
+  const handleTabToggle = (moduleName: string, tabId: string) => {
+    setPermissions(prev => {
+      const currentTabs = prev[moduleName] || [];
+      const exists = currentTabs.includes(tabId);
+      const updatedTabs = exists ? currentTabs.filter(id => id !== tabId) : [...currentTabs, tabId];
+
+      const newPerms = { ...prev };
+      if (updatedTabs.length === 0) {
+        delete newPerms[moduleName];
+      } else {
+        newPerms[moduleName] = updatedTabs;
+      }
+      return newPerms;
+    });
+  };
+
+  const handleSelectAllModule = (moduleSchema: ModuleSchema) => {
+    const allTabIds = moduleSchema.tabs.map(t => t.id);
+    const currentTabs = permissions[moduleSchema.name] || [];
+    const isAllSelected = allTabIds.every(id => currentTabs.includes(id));
+
     setPermissions(prev => {
       const newPerms = { ...prev };
-      if (!newPerms[moduleName]) newPerms[moduleName] = {};
-      if (!newPerms[moduleName][tabName]) newPerms[moduleName][tabName] = [];
-      
-      const currentActions = newPerms[moduleName][tabName];
-      
-      if (action === "all") {
-        if (currentActions.includes("all")) {
-           newPerms[moduleName][tabName] = [];
-        } else {
-           newPerms[moduleName][tabName] = ["all"];
-        }
+      if (isAllSelected) {
+        delete newPerms[moduleSchema.name];
       } else {
-         if (currentActions.includes("all")) {
-            // Remove 'all', add specific
-            newPerms[moduleName][tabName] = [action];
-         } else if (currentActions.includes(action)) {
-            newPerms[moduleName][tabName] = currentActions.filter(a => a !== action);
-         } else {
-            newPerms[moduleName][tabName] = [...currentActions, action];
-         }
+        newPerms[moduleSchema.name] = allTabIds;
       }
-      
-      // Clean up empty objects
-      if (newPerms[moduleName][tabName].length === 0) {
-        delete newPerms[moduleName][tabName];
-      }
-      if (Object.keys(newPerms[moduleName]).length === 0) {
-        delete newPerms[moduleName];
-      }
-      
       return newPerms;
     });
   };
@@ -149,14 +241,11 @@ export default function RoleEditorPage() {
     }
 
     setSaving(true);
-    
-    // Convert permissions object back to backend policies array
+
+    // Convert permissions object to backend policies array
     const policies = Object.entries(permissions).map(([moduleName, tabs]) => ({
       module: moduleName,
-      tabs: Object.entries(tabs).map(([tabName, actions]) => ({
-        name: tabName,
-        actions
-      }))
+      tabs
     }));
 
     const payload = {
@@ -169,7 +258,7 @@ export default function RoleEditorPage() {
     try {
       const url = isNew ? `${API_BASE_URL}/api/roles` : `${API_BASE_URL}/api/roles/${params.id}`;
       const method = isNew ? "POST" : "PUT";
-      
+
       const res = await fetch(url, {
         method,
         headers: {
@@ -178,7 +267,7 @@ export default function RoleEditorPage() {
         },
         body: JSON.stringify(payload)
       });
-      
+
       const data = await res.json();
       if (res.ok) {
         Swal.fire("Success", isNew ? "Role created successfully" : "Role updated successfully", "success");
@@ -187,14 +276,18 @@ export default function RoleEditorPage() {
         Swal.fire("Error", data.message || "Failed to save role", "error");
       }
     } catch (err) {
-      Swal.fire("Error", "An error occurred", "error");
+      Swal.fire("Error", "An error occurred while saving", "error");
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) {
-    return <div className="p-12 flex justify-center"><div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div></div>;
+    return (
+      <div className="p-12 flex justify-center">
+        <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
   }
 
   return (
@@ -209,10 +302,10 @@ export default function RoleEditorPage() {
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
               {isNew ? "Create Role" : "Edit Role"}
             </h1>
-            <p className="text-gray-500">Configure access policies for this role</p>
+            <p className="text-gray-500">Configure real module tabs and sub-route permissions</p>
           </div>
         </div>
-        <button 
+        <button
           onClick={handleSave}
           disabled={saving}
           className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors disabled:opacity-70"
@@ -227,91 +320,127 @@ export default function RoleEditorPage() {
         <h2 className="text-lg font-bold">Role Details</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Role Name</label>
-            <input 
-              type="text" 
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Role Name *</label>
+            <input
+              type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Inventory Manager"
-              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+              placeholder="e.g. Store Executive, HR Manager"
+              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-            <input 
-              type="text" 
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</label>
+            <input
+              type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Brief description of responsibilities"
-              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-600 outline-none"
+              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
         </div>
-        <div className="flex items-center gap-3 pt-2">
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="sr-only peer" />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-indigo-600"></div>
+
+        <div className="flex items-center gap-2 pt-2">
+          <input
+            type="checkbox"
+            id="isActive"
+            checked={isActive}
+            onChange={(e) => setIsActive(e.target.checked)}
+            className="w-4 h-4 text-indigo-600 rounded"
+          />
+          <label htmlFor="isActive" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Active Role
           </label>
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Role is Active</span>
         </div>
       </div>
 
-      {/* Permissions Matrix */}
+      {/* Permissions Checkbox Matrix */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
-        <div className="p-6 border-b border-gray-100 dark:border-gray-800">
-          <h2 className="text-lg font-bold">Permissions Policies</h2>
-          <p className="text-sm text-gray-500">Select the modules and specific tabs this role can access.</p>
+        <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center">
+          <div>
+            <h2 className="text-lg font-bold">Real Module Tabs & Sub-Routes</h2>
+            <p className="text-sm text-gray-500">Check the registered tabs and master sub-routes this role can access.</p>
+          </div>
         </div>
-        
+
         <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {AVAILABLE_MODULES.map((module) => (
-            <div key={module.name} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/10 transition-colors">
-              <button
-                onClick={() => toggleModule(module.name)}
-                className="w-full p-6 flex items-center justify-between text-left focus:outline-none"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
-                  <h3 className="font-bold text-gray-900 dark:text-white">
-                    {module.name}
-                  </h3>
-                </div>
-                <div className="text-gray-400">
-                  {expandedModules[module.name] ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
-                </div>
-              </button>
-              
-              {expandedModules[module.name] && (
-                <div className="px-6 pb-6 pt-0 ml-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {module.tabs.map(tab => (
-                    <div key={tab} className="flex flex-col gap-4 p-4 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
-                      <span className="font-medium text-sm text-gray-700 dark:text-gray-300 capitalize">{tab} Tab</span>
-                      
-                      <div className="flex flex-wrap gap-2">
-                        {AVAILABLE_ACTIONS.map(action => {
-                          const isSelected = permissions[module.name]?.[tab]?.includes(action) || permissions[module.name]?.[tab]?.includes("all");
-                          return (
-                            <button
-                              key={action}
-                              onClick={() => handleActionToggle(module.name, tab, action)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-all ${
-                                isSelected 
-                                  ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-400' 
-                                  : 'bg-white border-gray-200 text-gray-600 hover:border-indigo-300 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:border-indigo-700'
-                              }`}
-                            >
-                              {isSelected ? <Check size={14} /> : <div className="w-3.5" />}
-                              <span className="capitalize">{action}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+          {modulesList.map((mod) => {
+            const currentTabs = permissions[mod.name] || [];
+            const allTabIds = mod.tabs.map(t => t.id);
+            const isAllSelected = allTabIds.length > 0 && allTabIds.every(id => currentTabs.includes(id));
+            const isSomeSelected = currentTabs.length > 0;
+
+            return (
+              <div key={mod.name} className="hover:bg-gray-50/30 dark:hover:bg-gray-800/10 transition-colors">
+                <div className="p-6 flex items-center justify-between">
+                  <button
+                    onClick={() => toggleModuleAccordion(mod.name)}
+                    className="flex items-center gap-3 text-left focus:outline-none"
+                  >
+                    <div className={`w-2.5 h-2.5 rounded-full ${isSomeSelected ? 'bg-indigo-600' : 'bg-gray-300 dark:bg-gray-700'}`}></div>
+                    <div>
+                      <h3 className="font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        {mod.label}
+                        {isSomeSelected && (
+                          <span className="text-xs bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 px-2 py-0.5 rounded-full font-normal">
+                            {currentTabs.length} / {allTabIds.length} tabs
+                          </span>
+                        )}
+                      </h3>
                     </div>
-                  ))}
+                  </button>
+
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectAllModule(mod)}
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5"
+                    >
+                      {isAllSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                      {isAllSelected ? "Deselect All" : "Select All Tabs"}
+                    </button>
+                    <button onClick={() => toggleModuleAccordion(mod.name)} className="text-gray-400">
+                      {expandedModules[mod.name] ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+
+                {expandedModules[mod.name] && (
+                  <div className="px-6 pb-6 pt-0 ml-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {mod.tabs.map(tab => {
+                      const isChecked = currentTabs.includes(tab.id);
+                      return (
+                        <label
+                          key={tab.id}
+                          onClick={() => handleTabToggle(mod.name, tab.id)}
+                          className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none ${
+                            isChecked
+                              ? 'bg-indigo-50/70 border-indigo-200 text-indigo-900 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-300 font-medium'
+                              : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300 dark:bg-gray-800/50 dark:border-gray-700 dark:text-gray-400'
+                          }`}
+                        >
+                          <div className={`w-4 h-4 rounded flex items-center justify-center border transition-all ${
+                            isChecked
+                              ? 'bg-indigo-600 border-indigo-600 text-white'
+                              : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
+                          }`}>
+                            {isChecked && <Check size={12} strokeWidth={3} />}
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-sm">{tab.label}</span>
+                            {tab.route && (
+                              <span className="text-[11px] text-gray-400 dark:text-gray-500 font-mono">{tab.route}</span>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

@@ -28,30 +28,12 @@ export const userSchema = new mongoose.Schema(
     },
     department: {
       type: String,
-      enum: [
-        "CEO",
-        "MD",
-        "Company Management",
-        "Manager",
-        "Admin",
-        "Store",
-        "Store Executive",
-        "PPC",
-        "PPC Executive",
-        "HR",
-        "HR Executive",
-        "Accounts",
-        "Quality",
-        "Maintenance",
-        "CRM",
-        "Security",
-        "Employee",
-      ],
-      required: true,
+      default: "",
     },
     role: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Role"
+      ref: "Role",
+      required: true,
     },
     roleLevel: {
       type: Number,

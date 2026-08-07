@@ -26,7 +26,7 @@ const getCompanyLoginId = (req) => {
 
 export const createUser = async (req, res) => {
   try {
-    const { name, userId, email, password, role, roleLevel, allowedIP, allowedLocation } = req.body;
+    const { name, userId, email, password, role, department, roleLevel, allowedIP, allowedLocation } = req.body;
     // Get company ID - if company token, use req.user.id, if user token, use req.user.company._id
     const companyId = req.userType === "company" ? req.user.id : req.user.company._id;
 
@@ -60,6 +60,7 @@ export const createUser = async (req, res) => {
       userId,
       email: email || "",
       password,
+      department: department || "",
       role,
       allowedIP,
       allowedLocation,

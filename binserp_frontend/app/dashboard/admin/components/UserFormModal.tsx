@@ -165,7 +165,23 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
                                     />
                                 </div>
                             </div>
-
+                            {/* Password */}
+                            <div>
+                                <label className={labelClass}>Password {editingUser && "(Optional)"}</label>
+                                <div className="relative">
+                                    <input
+                                        type="password"
+                                        className={inputClass}
+                                        value={formData.password}
+                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                                        required={!editingUser}
+                                        placeholder={editingUser ? "Check to keep current" : "Set password"}
+                                    />
+                                    <div className="absolute left-3 top-3.5 text-gray-400">
+                                        <Lock size={18} />
+                                    </div>
+                                </div>
+                            </div>
 
 
                             {/* Roles Selection */}
@@ -204,23 +220,7 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
                                 )}
                             </div>
 
-                            {/* Password */}
-                            <div>
-                                <label className={labelClass}>Password {editingUser && "(Optional)"}</label>
-                                <div className="relative">
-                                    <input
-                                        type="password"
-                                        className={inputClass}
-                                        value={formData.password}
-                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                        required={!editingUser}
-                                        placeholder={editingUser ? "Check to keep current" : "Set password"}
-                                    />
-                                    <div className="absolute left-3 top-3.5 text-gray-400">
-                                        <Lock size={18} />
-                                    </div>
-                                </div>
-                            </div>
+
                         </div>
 
                         {/* Divider */}

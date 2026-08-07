@@ -2,6 +2,15 @@ import asyncHandler from "express-async-handler";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { roleSchema } from "../models/user/index.js";
+import { SYSTEM_PERMISSIONS } from "../config/permissions.config.js";
+
+// @desc    Get system permissions schema
+// @route   GET /api/roles/schema
+// @access  Private
+export const getPermissionSchema = asyncHandler(async (req, res) => {
+  res.status(200).json(new ApiResponse(200, SYSTEM_PERMISSIONS, "Permission schema fetched successfully"));
+});
+
 
 // @desc    Create a new role
 // @route   POST /api/roles
