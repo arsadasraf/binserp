@@ -20,8 +20,7 @@ export const userSchema = new mongoose.Schema(
     },
     email: {
       type: String,
-      required: true,
-      unique: true,
+      default: "",
     },
     password: {
       type: String,
@@ -49,6 +48,10 @@ export const userSchema = new mongoose.Schema(
         "Employee",
       ],
       required: true,
+    },
+    role: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role"
     },
     roleLevel: {
       type: Number,

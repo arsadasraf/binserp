@@ -1,4 +1,4 @@
-import { userSchema } from "../../models/user/index.js";
+import { userSchema, roleSchema } from "../../models/user/index.js";
 import { employeeSchema } from "../../models/hr/index.js";
 import { sessionHistorySchema } from "../../models/user/sessionHistory.model.js";
 import { Company } from "../../models/company/index.js";
@@ -51,9 +51,10 @@ export const loginUser = async (req, res) => {
     // 2. Get Tenant Models
     const UserModel = getTenantModel(company.dbName, "User", userSchema);
     const EmployeeModel = getTenantModel(company.dbName, "Employee", employeeSchema);
+    getTenantModel(company.dbName, "Role", roleSchema);
 
     // 3. Try Finding User first
-    const user = await UserModel.findOne({ userId });
+    const user = await UserModel.findOne({ userId }).populate("role");
 
     if (user) {
       // --- USER FOUND ---
@@ -129,6 +130,8 @@ export const loginUser = async (req, res) => {
           email: user.email,
           department: user.department,
           roleLevel: user.roleLevel,
+          roles: user.roles || [], // For backwards compatibility
+          role: user.role || null,
           photo: (await signPhotos([user.photo]))[0],
           company: {
             id: company._id,
@@ -141,7 +144,7 @@ export const loginUser = async (req, res) => {
     }
 
     // 4. Try Finding Employee if User not found
-    const employee = await EmployeeModel.findOne({ employeeId: userId });
+    const employee = await EmployeeModel.findOne({ employeeId: userId }).populate("roles");
 
     if (employee) {
       // --- EMPLOYEE FOUND ---
@@ -204,6 +207,7 @@ export const loginUser = async (req, res) => {
           department: employee.department, // Use real department
           designation: employee.designation,
           roleLevel: roleLevel, // For frontend checks
+          roles: employee.roles || [],
           photo: (await signPhotos([employee.photo]))[0],
           type: 'employee',
           company: {

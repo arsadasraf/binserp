@@ -66,6 +66,24 @@ export const registerCompany = async (req, res) => {
     try {
       console.log(`Seeding Tenant DB: ${newCompany.dbName} with Admin User...`);
       const TenantUser = getTenantModel(newCompany.dbName, "User", userSchema);
+      const RoleModel = getTenantModel(newCompany.dbName, "Role", require("../../models/user/index.js").roleSchema);
+
+      // Create Company Management Default Role
+      const cmRole = new RoleModel({
+        company: newCompany._id,
+        name: 'Company Management',
+        description: 'Super Admin Role with full access across all modules.',
+        isDefault: true,
+        policies: [
+            { module: 'Store', tabs: [{ name: 'inventory', actions: ['all'] }, { name: 'masters', actions: ['all'] }, { name: 'job-work', actions: ['all'] }, { name: 'material-issue', actions: ['all'] }, { name: 'dc', actions: ['all'] }] },
+            { module: 'HR', tabs: [{ name: 'home', actions: ['all'] }, { name: 'attendance', actions: ['all'] }, { name: 'salaries', actions: ['all'] }, { name: 'master', actions: ['all'] }, { name: 'present', actions: ['all'] }] },
+            { module: 'PPC', tabs: [{ name: 'overview', actions: ['all'] }, { name: 'orders', actions: ['all'] }, { name: 'planning', actions: ['all'] }, { name: 'master', actions: ['all'] }] },
+            { module: 'Admin', tabs: [{ name: 'all', actions: ['all'] }] },
+            { module: 'Security', tabs: [{ name: 'overview', actions: ['all'] }, { name: 'kiosk', actions: ['all'] }, { name: 'visitor', actions: ['all'] }, { name: 'vehicle', actions: ['all'] }] },
+            { module: 'CRM', tabs: [{ name: 'all', actions: ['all'] }] }
+        ]
+      });
+      await cmRole.save();
 
       const adminUserId = email.split('@')[0] + Math.floor(100 + Math.random() * 900);
       const existingTenantUser = await TenantUser.findOne({ userId: adminUserId });
@@ -78,6 +96,7 @@ export const registerCompany = async (req, res) => {
           email: newCompany.email,
           password: password, // Will be hashed automatically by user schema
           department: "Company Management",
+          role: cmRole._id,
           roleLevel: 10,
           allowedIP: "",
           allowedLocation: { lat: 0, lng: 0 }

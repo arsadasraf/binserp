@@ -26,14 +26,14 @@ const getCompanyLoginId = (req) => {
 
 export const createUser = async (req, res) => {
   try {
-    const { name, userId, email, password, department, roleLevel, allowedIP, allowedLocation } = req.body;
+    const { name, userId, email, password, role, roleLevel, allowedIP, allowedLocation } = req.body;
     // Get company ID - if company token, use req.user.id, if user token, use req.user.company._id
     const companyId = req.userType === "company" ? req.user.id : req.user.company._id;
 
     // Validate input
-    if (!name || !userId || !email || !password || !department) {
+    if (!name || !userId || !password || !role) {
       return res.status(400).json({
-        message: "All fields are required: name, userId, email, password, department"
+        message: "All fields are required: name, userId, password, role"
       });
     }
 
@@ -45,13 +45,11 @@ export const createUser = async (req, res) => {
 
     // Check if userId or email already exists
     const UserModel = req.getModel('User', userSchema);
-    const existingUser = await UserModel.findOne({
-      $or: [{ userId }, { email }],
-    });
+    const existingUser = await UserModel.findOne({ userId });
 
     if (existingUser) {
       return res.status(400).json({
-        message: "User ID or email already exists"
+        message: "User ID already exists"
       });
     }
 
@@ -60,9 +58,9 @@ export const createUser = async (req, res) => {
       company: companyId,
       name,
       userId,
-      email,
+      email: email || "",
       password,
-      department,
+      role,
       allowedIP,
       allowedLocation,
       roleLevel: roleLevel || 1,
@@ -77,14 +75,9 @@ export const createUser = async (req, res) => {
         name: newUser.name,
         userId: newUser.userId,
         email: newUser.email,
-        department: newUser.department,
+        role: newUser.role,
         allowedIP: newUser.allowedIP,
         allowedLocation: newUser.allowedLocation,
-        roleLevel: newUser.roleLevel,
-        name: newUser.name,
-        userId: newUser.userId,
-        email: newUser.email,
-        department: newUser.department,
         roleLevel: newUser.roleLevel,
       },
     });

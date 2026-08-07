@@ -3,6 +3,8 @@ import { User, Mail, Lock, Briefcase, MapPin, Globe, Shield, X, Save } from "luc
 
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import { useGetCompanyProfileQuery } from "@/src/store/services/companyService";
+import { API_BASE_URL } from "@/src/utils/config";
+import Swal from "sweetalert2";
 
 interface UserFormModalProps {
     isOpen: boolean;
@@ -19,22 +21,46 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
         name: "",
         userId: "",
         email: "",
+        role: "",
         password: "",
-        department: "",
         allowedIP: "",
         allowedLat: "",
         allowedLng: "",
         allowedRadius: "500",
     });
 
+    const [availableRoles, setAvailableRoles] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (isOpen) {
+            fetchRoles();
+        }
+    }, [isOpen]);
+
+    const fetchRoles = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/roles?_t=${Date.now()}`, {
+                headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+                cache: 'no-store'
+            });
+            const data = await res.json();
+            if (res.ok) {
+                console.log("Fetched roles for modal:", data.data);
+                setAvailableRoles(data.data || []);
+            }
+        } catch (err) {
+            console.error("Failed to fetch roles");
+        }
+    };
+
     useEffect(() => {
         if (editingUser) {
             setFormData({
                 name: editingUser.name,
                 userId: editingUser.userId,
-                email: editingUser.email,
+                email: editingUser.email || "",
                 password: "",
-                department: editingUser.department,
+                role: editingUser.role?._id || editingUser.role || "",
                 allowedIP: editingUser.allowedIP || "",
                 allowedLat: editingUser.allowedLocation?.lat?.toString() || "",
                 allowedLng: editingUser.allowedLocation?.lng?.toString() || "",
@@ -42,7 +68,7 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
             });
         } else {
             setFormData({
-                name: "", userId: "", email: "", password: "", department: "",
+                name: "", userId: "", email: "", password: "", role: "",
                 allowedIP: "", allowedLat: "", allowedLng: "", allowedRadius: "500"
             });
         }
@@ -52,13 +78,12 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!formData.role) {
+            Swal.fire("Error", "Please select a role.", "error");
+            return;
+        }
         await onSubmit(formData);
     };
-
-    const departments = [
-        "CEO", "MD", "Company Management", "Admin", "Store", "Store Executive", "PPC", "PPC Executive", "HR", "HR Executive", "Accounts", 
-        "Quality", "Maintenance", "CRM", "Security"
-    ];
 
     const inputClass = "w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-slate-800/50 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all outline-none text-gray-700 dark:text-gray-300 placeholder:text-gray-400";
     const labelClass = "block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 ml-1";
@@ -141,43 +166,42 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
                                 </div>
                             </div>
 
-                            {/* Email */}
-                            <div>
-                                <label className={labelClass}>Email Address</label>
-                                <div className="relative">
-                                    <input
-                                        type="email"
-                                        className={inputClass}
-                                        value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                        required
-                                        placeholder="user@example.com"
-                                    />
-                                    <div className="absolute left-3 top-3.5 text-gray-400">
-                                        <Mail size={18} />
-                                    </div>
-                                </div>
-                            </div>
 
-                            {/* Department */}
-                            <div>
-                                <label className={labelClass}>Department / Role</label>
+
+                            {/* Roles Selection */}
+                            <div className="md:col-span-2">
+                                <label className={labelClass}>Assign Role</label>
                                 <div className="relative">
                                     <select
                                         className={`${inputClass} appearance-none cursor-pointer`}
-                                        value={formData.department}
-                                        onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                                        value={formData.role}
+                                        onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                                         required
                                     >
-                                        <option value="">Select Role</option>
-                                        {departments.map((dept) => (
-                                            <option key={dept} value={dept}>{dept}</option>
+                                        <option value="" disabled>Select a role...</option>
+                                        {availableRoles.map(role => (
+                                            <option key={role._id} value={role._id}>
+                                                {role.name}
+                                            </option>
                                         ))}
                                     </select>
-                                    <div className="absolute left-3 top-3.5 text-gray-400 pointer-events-none">
-                                        <Briefcase size={18} />
+                                    <div className="absolute right-3 top-3.5 pointer-events-none text-gray-500">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                        </svg>
                                     </div>
                                 </div>
+                                {formData.role && (
+                                    <p className="mt-2 text-xs text-gray-500 flex flex-col gap-0.5">
+                                        <span className="font-semibold text-gray-700 dark:text-gray-300">Role Description:</span>
+                                        {availableRoles.find(r => r._id === formData.role)?.description || "No description provided."}
+                                    </p>
+                                )}
+                                {availableRoles.length === 0 && (
+                                    <p className="mt-2 text-xs text-red-500 font-medium">
+                                        No roles found. Please create roles in Role Management first.
+                                    </p>
+                                )}
                             </div>
 
                             {/* Password */}

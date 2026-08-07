@@ -22,7 +22,7 @@ interface User {
   name: string;
   userId: string;
   email: string;
-  department: string;
+  role?: { _id: string, name: string };
   roleLevel: number;
   allowedIP?: string;
   allowedLocation?: {
@@ -148,15 +148,14 @@ export default function AdminDashboard() {
     name: [],
     userId: [],
     email: [],
-    department: []
+    role: []
   });
 
   // Extract unique options for columns
   const filterOptions = {
     name: Array.from(new Set(users.map((u: User) => u.name))),
     userId: Array.from(new Set(users.map((u: User) => u.userId))),
-    email: Array.from(new Set(users.map((u: User) => u.email))),
-    department: Array.from(new Set(users.map((u: User) => u.department)))
+    role: Array.from(new Set(users.map((u: User) => u.role?.name).filter(Boolean)))
   };
 
   const filteredUsers = users.filter((u: User) => {
@@ -165,15 +164,13 @@ export default function AdminDashboard() {
     const matchGlobal = s === "" || 
       u.name.toLowerCase().includes(s) || 
       u.userId.toLowerCase().includes(s) || 
-      u.email.toLowerCase().includes(s) || 
-      u.department.toLowerCase().includes(s);
+      (u.role?.name.toLowerCase().includes(s) ?? false);
     
     // 2. Excel-like column filters Logic
     const matchCol = 
       (filters.name.length === 0 || filters.name.includes(u.name)) &&
       (filters.userId.length === 0 || filters.userId.includes(u.userId)) &&
-      (filters.email.length === 0 || filters.email.includes(u.email)) &&
-      (filters.department.length === 0 || filters.department.includes(u.department));
+      (filters.role.length === 0 || (u.role?.name ? filters.role.includes(u.role.name) : false));
       
     return matchGlobal && matchCol;
   });
@@ -201,8 +198,7 @@ export default function AdminDashboard() {
     try {
       const updateData: any = {
         name: formData.name,
-        email: formData.email,
-        department: formData.department,
+        role: formData.role,
         allowedIP: formData.allowedIP,
         allowedLocation: {
           lat: Number(formData.allowedLat),
@@ -372,16 +368,11 @@ export default function AdminDashboard() {
                         <ColumnFilter options={filterOptions.userId} selected={filters.userId} onChange={val => setFilters({...filters, userId: val})} />
                       </div>
                     </th>
+
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider relative group">
                       <div className="flex items-center">
-                        Email
-                        <ColumnFilter options={filterOptions.email} selected={filters.email} onChange={val => setFilters({...filters, email: val})} />
-                      </div>
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider relative group">
-                      <div className="flex items-center">
-                        Department/Role
-                        <ColumnFilter options={filterOptions.department} selected={filters.department} onChange={val => setFilters({...filters, department: val})} />
+                        Roles
+                        <ColumnFilter options={filterOptions.role} selected={filters.role} onChange={val => setFilters({...filters, role: val})} />
                       </div>
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
@@ -411,17 +402,17 @@ export default function AdminDashboard() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">
                           {user.userId}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 ">
-                          {user.email}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 ">
-                          <span className={`px-2.5 py-1 text-xs font-bold rounded-full ${user.department === "HR" ? "bg-blue-100 text-blue-800 border border-blue-200" :
-                            user.department === "Store" ? "bg-green-100 text-green-800 border border-green-200" :
-                              user.department === "PPC" ? "bg-orange-100 text-orange-800 border border-orange-200" :
-                                "bg-indigo-100 text-indigo-800 border border-indigo-200"
-                            }`}>
-                            {user.department}
-                          </span>
+
+                        <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 ">
+                          <div className="flex flex-wrap gap-1">
+                            {user.role ? (
+                              <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                {user.role.name}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400 italic">No Role</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
                           <button
@@ -482,18 +473,16 @@ export default function AdminDashboard() {
                             <span className="font-medium mr-1">ID:</span> <span className="font-mono">{user.userId}</span>
                           </p>
                         </div>
-                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${user.department === "HR" ? "bg-blue-100 text-blue-800" :
-                          user.department === "Store" ? "bg-green-100 text-green-800" :
-                            user.department === "PPC" ? "bg-orange-100 text-orange-800" :
-                              "bg-indigo-100 text-indigo-800"
-                          }`}>
-                          {user.department}
-                        </span>
+                        <div className="flex flex-wrap gap-1 justify-end max-w-[50%]">
+                          {user.role ? (
+                            <span className="px-2 py-1 text-[10px] font-semibold rounded-full bg-indigo-100 text-indigo-800 text-right">
+                              {user.role.name}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
 
-                      <div className="mb-4">
-                        <p className="text-sm text-gray-500 dark:text-gray-400 break-all">{user.email}</p>
-                      </div>
+
 
                       <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100 dark:border-slate-700 ">
                         <button

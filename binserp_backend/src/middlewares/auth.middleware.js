@@ -2,7 +2,7 @@ import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
 import { ApiError } from "../utils/ApiError.js";
 import { Company } from "../models/company/index.js";
-import { userSchema } from "../models/user/index.js";
+import { userSchema, roleSchema } from "../models/user/index.js";
 import { employeeSchema } from "../models/hr/index.js";
 import { SaasAdmin } from "../models/saasadmin/index.js";
 import { getTenantConnection, getTenantModel } from "../db/tenant.js";
@@ -46,10 +46,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       // Pre-register common models for population queries
       req.getModel("User", userSchema);
       req.getModel("Employee", employeeSchema);
+      req.getModel("Role", roleSchema);
 
       // 3. Find User
       const UserModel = req.getModel("User", userSchema);
-      const user = await UserModel.findById(decoded.id).select("-password");
+      const user = await UserModel.findById(decoded.id).select("-password").populate("role");
 
       if (!user) {
         throw new ApiError(404, "User not found");
@@ -95,10 +96,11 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       // Pre-register common models for population queries
       req.getModel("User", userSchema);
       req.getModel("Employee", employeeSchema);
+      req.getModel("Role", roleSchema);
 
       // Find Employee
       const EmployeeModel = req.getModel("Employee", employeeSchema);
-      const employee = await EmployeeModel.findById(decoded.id);
+      const employee = await EmployeeModel.findById(decoded.id).populate("roles");
 
       if (!employee) {
         throw new ApiError(404, "Employee not found");
@@ -146,6 +148,7 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
         // Pre-register common models for population queries
         req.getModel("User", userSchema);
         req.getModel("Employee", employeeSchema);
+        req.getModel("Role", roleSchema);
         req.company = company;
       }
 
@@ -224,3 +227,48 @@ export const restrictExecutive = asyncHandler(async (req, res, next) => {
   }
   next();
 });
+
+// ✅ IAM-Style Authorization Middleware
+export const requirePermission = (moduleName, tabName, action) => {
+  return asyncHandler(async (req, res, next) => {
+    // 1. Company Admin and SaaS Admin have full access
+    if (req.userType === "company" || req.userType === "saasadmin") {
+      return next();
+    }
+
+    const user = req.user;
+    
+    const rolesToCheck = [];
+    if (user.role) {
+      rolesToCheck.push(user.role);
+    }
+    if (Array.isArray(user.roles)) {
+      rolesToCheck.push(...user.roles);
+    }
+
+    if (rolesToCheck.length === 0) {
+      throw new ApiError(403, "Access denied. No roles assigned.");
+    }
+
+    let hasPermission = false;
+    
+    for (const role of rolesToCheck) {
+      if (!role || !role.isActive) continue;
+
+      const policy = role.policies?.find((p) => p.module === moduleName);
+      if (policy) {
+        const tab = policy.tabs?.find((t) => t.name === tabName);
+        if (tab && (tab.actions.includes(action) || tab.actions.includes("all"))) {
+          hasPermission = true;
+          break;
+        }
+      }
+    }
+
+    if (!hasPermission) {
+      throw new ApiError(403, `Access denied. Requires '${action}' permission for '${moduleName} -> ${tabName}'.`);
+    }
+
+    next();
+  });
+};

@@ -8,7 +8,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { logAuditAction } from "../../utils/auditLogger.js";
 import { getTenantModel } from "../../db/tenant.js";
-import { userSchema } from "../../models/user/index.js";
+import { userSchema, roleSchema } from "../../models/user/index.js";
 import crypto from "crypto";
 
 // 🔑 Generate JWT for SaaS Admin
@@ -84,6 +84,41 @@ export const createCompanyBySaasAdmin = asyncHandler(async (req, res) => {
             });
             await newAdmin.save();
             console.log(`✅ Tenant DB '${dbName}' seeded with admin user.`);
+
+            // Seed default roles
+            const TenantRole = getTenantModel(dbName, "Role", roleSchema);
+            const defaultRoles = [
+                { name: "Store Default Role", description: "Default role for Store department", policies: [{ module: "Store", tabs: [{ name: "inventory", actions: ["all"] }, { name: "masters", actions: ["all"] }, { name: "job-work", actions: ["all"] }, { name: "material-issue", actions: ["all"] }, { name: "dc", actions: ["all"] }] }] },
+                { name: "HR Default Role", description: "Default role for HR department", policies: [{ module: "HR", tabs: [{ name: "home", actions: ["all"] }, { name: "attendance", actions: ["all"] }, { name: "salaries", actions: ["all"] }, { name: "master", actions: ["all"] }, { name: "present", actions: ["all"] }] }] },
+                { name: "PPC Default Role", description: "Default role for PPC department", policies: [{ module: "PPC", tabs: [{ name: "overview", actions: ["all"] }, { name: "orders", actions: ["all"] }, { name: "planning", actions: ["all"] }, { name: "master", actions: ["all"] }] }] },
+                { name: "Admin Default Role", description: "Default role for Admin department", policies: [{ module: "Admin", tabs: [{ name: "all", actions: ["all"] }] }] },
+                { name: "Security Default Role", description: "Default role for Security department", policies: [{ module: "Security", tabs: [{ name: "overview", actions: ["all"] }, { name: "kiosk", actions: ["all"] }, { name: "visitor", actions: ["all"] }, { name: "vehicle", actions: ["all"] }] }] },
+                { name: "CRM Default Role", description: "Default role for CRM department", policies: [{ module: "CRM", tabs: [{ name: "all", actions: ["all"] }] }] },
+            ];
+
+            const adminRole = await TenantRole.create({
+                company: newCompany._id,
+                name: "Admin Default Role",
+                description: "Default role for Admin department",
+                policies: [{ module: "Admin", tabs: [{ name: "all", actions: ["all"] }] }],
+                isDefault: true
+            });
+
+            // Assign Admin role to the new admin user
+            newAdmin.roles = [adminRole._id];
+            await newAdmin.save();
+
+            for (const dr of defaultRoles) {
+                if (dr.name === "Admin Default Role") continue; // Already created
+                await TenantRole.create({
+                    company: newCompany._id,
+                    name: dr.name,
+                    description: dr.description,
+                    policies: dr.policies,
+                    isDefault: true
+                });
+            }
+            console.log(`✅ Tenant DB '${dbName}' seeded with default roles.`);
         }
     } catch (seedError) {
         console.error("⚠️ Tenant DB seeding failed:", seedError);

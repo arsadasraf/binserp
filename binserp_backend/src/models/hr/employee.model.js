@@ -40,6 +40,10 @@ export const employeeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    roles: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role"
+    }],
     employeeType: {
       type: String,
       default: "Full-Time",

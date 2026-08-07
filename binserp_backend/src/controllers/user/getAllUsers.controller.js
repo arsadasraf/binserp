@@ -1,4 +1,4 @@
-import { userSchema } from "../../models/user/index.js";
+import { userSchema, roleSchema } from "../../models/user/index.js";
 import { employeeSchema } from "../../models/hr/index.js";
 import { Company } from "../../models/company/index.js";
 import { getTenantConnection, getTenantModel } from "../../db/tenant.js";
@@ -27,7 +27,9 @@ const getCompanyLoginId = (req) => {
 export const getAllUsers = async (req, res) => {
   try {
     const UserModel = req.getModel('User', userSchema);
+    req.getModel('Role', roleSchema); // Ensure role schema is registered on tenant
     const users = await UserModel.find({}) // Tenant DB is already scoped
+      .populate("role")
       .select("-password")
       .sort({ createdAt: -1 });
 

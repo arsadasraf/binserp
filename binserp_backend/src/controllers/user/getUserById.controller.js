@@ -29,6 +29,7 @@ export const getUserById = async (req, res) => {
     const { id } = req.params;
     const UserModel = req.getModel('User', userSchema);
     const user = await UserModel.findOne({ _id: id })
+      .populate("role")
       .select("-password");
 
     if (!user) {

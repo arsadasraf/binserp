@@ -85,6 +85,7 @@ const employeeSubItems: NavItem[] = [
 const companyNav: NavItem[] = [
   { href: "/dashboard/admin/overview", label: "Overview", icon: LayoutDashboard, priority: 1 },
   { href: "/dashboard/admin", label: "User Mgmt", icon: Users, priority: 2 },
+  { href: "/dashboard/admin/roles", label: "Roles", icon: Shield, priority: 3 },
 ];
 
 const departmentNavMap: Record<string, NavItem[]> = {
@@ -136,7 +137,66 @@ const employeeNav: NavItem[] = [
   { href: "/dashboard/employee", label: "Dashboard", icon: LayoutDashboard, priority: 1, subItems: employeeSubItems },
 ];
 
-function resolveNavItems(userType: string | null, department: string | null) {
+function resolveNavItems(userType: string | null, department: string | null, roles: any[]) {
+  if (userType === "company") {
+    return companyNav;
+  }
+
+  if (roles && roles.length > 0) {
+    let allowedItems: NavItem[] = [];
+    const allowedModules = new Set<string>();
+    const allowedTabsByModule = new Map<string, Set<string>>();
+
+    roles.forEach(role => {
+      if (!role.isActive) return;
+      role.policies?.forEach((policy: any) => {
+        allowedModules.add(policy.module.toUpperCase());
+        let tabsSet = allowedTabsByModule.get(policy.module.toUpperCase());
+        if (!tabsSet) {
+          tabsSet = new Set<string>();
+          allowedTabsByModule.set(policy.module.toUpperCase(), tabsSet);
+        }
+        policy.tabs?.forEach((tab: any) => {
+          if (tab.actions.length > 0) {
+             tabsSet.add(tab.name.toLowerCase());
+          }
+        });
+      });
+    });
+
+    for (const [moduleName, items] of Object.entries(departmentNavMap)) {
+      if (allowedModules.has(moduleName.toUpperCase())) {
+        const itemCopy = { ...items[0] };
+        if (itemCopy.subItems) {
+          const allowedTabs = allowedTabsByModule.get(moduleName.toUpperCase());
+          if (allowedTabs && !allowedTabs.has('all')) {
+              itemCopy.subItems = itemCopy.subItems.filter(sub => {
+                  try {
+                    const url = new URL(sub.href, "http://dummy");
+                    const tabParam = url.searchParams.get("tab");
+                    if (tabParam) {
+                       return allowedTabs.has(tabParam.toLowerCase());
+                    }
+                    return true; 
+                  } catch(e) { return true; }
+              });
+          }
+        }
+        allowedItems.push(itemCopy);
+      }
+    }
+    
+    if (allowedModules.has('ADMIN')) {
+       allowedItems.push({ href: "/dashboard/admin", label: "Admin", icon: Users, priority: 2 });
+    }
+
+    if (allowedItems.length === 0) {
+       return fallbackNav;
+    }
+
+    return allowedItems.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  }
+
   if (userType === "employee") {
     return employeeNav;
   }
@@ -244,10 +304,13 @@ function LayoutContent({ children }: { children: ReactNode }) {
     let resolvedName = "BinsAnalytics";
     let resolvedSubtitle = "Dashboard";
 
+    let roles: any[] = [];
+
     if (userInfoStr) {
       try {
         const parsed = JSON.parse(userInfoStr);
         department = parsed?.department || null;
+        roles = parsed?.roles || [];
         resolvedName = parsed?.name || parsed?.companyName || resolvedName;
         resolvedSubtitle = parsed?.department || (userType === "company" ? "Company Admin" : resolvedSubtitle);
       } catch (err) {
@@ -257,7 +320,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
       resolvedSubtitle = "Company Admin";
     }
 
-    const items = resolveNavItems(userType, department);
+    const items = resolveNavItems(userType, department, roles);
     setNavItems(items);
     setUserName(resolvedName);
     setUserSubtitle(resolvedSubtitle);
