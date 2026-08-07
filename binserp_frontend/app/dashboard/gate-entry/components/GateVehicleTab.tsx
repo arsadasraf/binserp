@@ -9,7 +9,18 @@ import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { useHeader } from '@/src/context/HeaderContext';
 
-export default function GateVehicleTab() {
+import { useRouter } from "next/navigation";
+
+interface GateVehicleTabProps {
+    initialViewMode?: 'active' | 'history';
+    initialDirectionTab?: 'Inward' | 'Outward';
+}
+
+export default function GateVehicleTab({
+    initialViewMode = 'active',
+    initialDirectionTab = 'Inward'
+}: GateVehicleTabProps) {
+    const router = useRouter();
     const { setShowBottomNav } = useHeader();
     const [visitors, setVisitors] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
@@ -25,8 +36,20 @@ export default function GateVehicleTab() {
     };
 
     // View Mode: 'active' | 'history'
-    const [viewMode, setViewMode] = useState<'active' | 'history'>('active');
-    const [directionTab, setDirectionTab] = useState<'Inward' | 'Outward'>('Inward');
+    const [viewMode, setViewMode] = useState<'active' | 'history'>(initialViewMode);
+    const [directionTab, setDirectionTab] = useState<'Inward' | 'Outward'>(initialDirectionTab);
+
+    useEffect(() => {
+        if (initialViewMode) {
+            setViewMode(initialViewMode);
+        }
+    }, [initialViewMode]);
+
+    useEffect(() => {
+        if (initialDirectionTab) {
+            setDirectionTab(initialDirectionTab);
+        }
+    }, [initialDirectionTab]);
     
     const [historyFilterType, setHistoryFilterType] = useState<'daywise' | 'monthwise'>('daywise');
     const [historyDate, setHistoryDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
@@ -354,15 +377,21 @@ export default function GateVehicleTab() {
 
                 {/* Left: Title & Toggles */}
                 <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 w-full md:w-auto">
-                    <div className="flex w-full md:w-auto bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
+                    <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg w-full">
                         <button
-                            onClick={() => setViewMode('active')}
+                            onClick={() => {
+                                setViewMode('active');
+                                router.push(directionTab === 'Inward' ? '/dashboard/gate-entry/vehicle/active/unloading' : '/dashboard/gate-entry/vehicle/active/loading');
+                            }}
                             className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${viewMode === 'active' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                             <Activity size={16} /> Active
                         </button>
                         <button
-                            onClick={() => setViewMode('history')}
+                            onClick={() => {
+                                setViewMode('history');
+                                router.push(directionTab === 'Inward' ? '/dashboard/gate-entry/vehicle/history/unloading' : '/dashboard/gate-entry/vehicle/history/loading');
+                            }}
                             className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${viewMode === 'history' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                             <History size={16} /> History
@@ -371,13 +400,19 @@ export default function GateVehicleTab() {
 
                     <div className="flex w-full md:w-auto bg-gray-100 dark:bg-slate-700 p-1 rounded-lg">
                         <button
-                            onClick={() => setDirectionTab('Inward')}
+                            onClick={() => {
+                                setDirectionTab('Inward');
+                                router.push(viewMode === 'active' ? '/dashboard/gate-entry/vehicle/active/unloading' : '/dashboard/gate-entry/vehicle/history/unloading');
+                            }}
                             className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${directionTab === 'Inward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                              <ArrowDown size={16} /> For Unloading
                         </button>
                         <button
-                            onClick={() => setDirectionTab('Outward')}
+                            onClick={() => {
+                                setDirectionTab('Outward');
+                                router.push(viewMode === 'active' ? '/dashboard/gate-entry/vehicle/active/loading' : '/dashboard/gate-entry/vehicle/history/loading');
+                            }}
                             className={`flex-1 md:flex-none md:px-5 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${directionTab === 'Outward' ? 'bg-white dark:bg-slate-800 shadow text-indigo-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                              <ArrowUp size={16} /> For Loading

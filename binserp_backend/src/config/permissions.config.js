@@ -64,10 +64,16 @@ export const SYSTEM_PERMISSIONS = [
     label: "Gate Security & Entry",
     tabs: [
       { id: "security/overview", label: "Overview", route: "/dashboard/gate-entry/overview" },
-      { id: "security/kiosk", label: "Kiosk Mode", route: "/dashboard/gate-entry/kiosk" },
-      { id: "security/visitor", label: "Visitor Log", route: "/dashboard/gate-entry/visitor" },
-      { id: "security/vehicle", label: "Vehicle Log", route: "/dashboard/gate-entry/vehicle" },
-      { id: "security/employee-movement", label: "Employee Movement", route: "/dashboard/gate-entry/employee-movement" }
+      { id: "security/kiosk/manual", label: "Manual Attendance Kiosk", route: "/dashboard/gate-entry/kiosk/manual" },
+      { id: "security/kiosk/face", label: "Face Kiosk", route: "/dashboard/gate-entry/kiosk/face" },
+      { id: "security/visitor/active", label: "Active Visitor Log", route: "/dashboard/gate-entry/visitor/active" },
+      { id: "security/visitor/history", label: "Visitor History Log", route: "/dashboard/gate-entry/visitor/history" },
+      { id: "security/vehicle/active/unloading", label: "Vehicle Log (Unloading)", route: "/dashboard/gate-entry/vehicle/active/unloading" },
+      { id: "security/vehicle/active/loading", label: "Vehicle Log (Loading)", route: "/dashboard/gate-entry/vehicle/active/loading" },
+      { id: "security/vehicle/history/unloading", label: "Vehicle History (Unloading)", route: "/dashboard/gate-entry/vehicle/history/unloading" },
+      { id: "security/vehicle/history/loading", label: "Vehicle History (Loading)", route: "/dashboard/gate-entry/vehicle/history/loading" },
+      { id: "security/employee-movement/active", label: "Active Employee Movement", route: "/dashboard/gate-entry/employee-movement/active" },
+      { id: "security/employee-movement/history", label: "Employee Movement History", route: "/dashboard/gate-entry/employee-movement/history" }
     ]
   },
   {

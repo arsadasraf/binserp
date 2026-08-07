@@ -3,11 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function EmployeeMovementRootPage() {
+export default function VehicleActiveRootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard/gate-entry/employee-movement/active");
+    router.replace("/dashboard/gate-entry/vehicle/active/unloading");
   }, [router]);
 
   return (

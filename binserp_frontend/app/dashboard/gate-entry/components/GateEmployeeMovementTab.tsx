@@ -9,7 +9,10 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { useHeader } from '@/src/context/HeaderContext';
 import { X, Save } from 'lucide-react';
 
-export default function GateEmployeeMovementTab() {
+import { useRouter } from "next/navigation";
+
+export default function GateEmployeeMovementTab({ initialViewMode = 'active' }: { initialViewMode?: 'active' | 'history' }) {
+    const router = useRouter();
     const { setShowBottomNav } = useHeader();
     const [movements, setMovements] = useState<any[]>([]);
     const [employees, setEmployees] = useState<any[]>([]);
@@ -26,7 +29,13 @@ export default function GateEmployeeMovementTab() {
     };
 
     // View Mode: 'active' | 'history'
-    const [viewMode, setViewMode] = useState<'active' | 'history'>('active');
+    const [viewMode, setViewMode] = useState<'active' | 'history'>(initialViewMode);
+
+    useEffect(() => {
+        if (initialViewMode) {
+            setViewMode(initialViewMode);
+        }
+    }, [initialViewMode]);
     const [historyFilterType, setHistoryFilterType] = useState<'daywise' | 'monthwise'>('daywise');
     const [historyDate, setHistoryDate] = useState(new Date().toISOString().split('T')[0]); // YYYY-MM-DD
     const [historyMonth, setHistoryMonth] = useState(() => {
@@ -205,13 +214,19 @@ export default function GateEmployeeMovementTab() {
                 <div className="flex items-center gap-4 w-full md:w-auto">
                     <div className="flex bg-gray-100 dark:bg-slate-700 p-1 rounded-lg w-full">
                         <button
-                            onClick={() => setViewMode('active')}
+                            onClick={() => {
+                                setViewMode('active');
+                                router.push('/dashboard/gate-entry/employee-movement/active');
+                            }}
                             className={`flex-1 md:flex-none md:px-6 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${viewMode === 'active' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                             <Activity size={16} /> Active
                         </button>
                         <button
-                            onClick={() => setViewMode('history')}
+                            onClick={() => {
+                                setViewMode('history');
+                                router.push('/dashboard/gate-entry/employee-movement/history');
+                            }}
                             className={`flex-1 md:flex-none md:px-6 py-3 rounded-md text-sm font-semibold flex justify-center items-center gap-2 transition-all ${viewMode === 'history' ? 'bg-white dark:bg-slate-800 shadow text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:text-gray-300'}`}
                         >
                             <History size={16} /> History
