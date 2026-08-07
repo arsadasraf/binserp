@@ -35,6 +35,12 @@ export const userSchema = new mongoose.Schema(
       ref: "Role",
       required: true,
     },
+    roles: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Role",
+      },
+    ],
     roleLevel: {
       type: Number,
       default: 1, // 1 = low-level, 10 = top admin (for flexibility)

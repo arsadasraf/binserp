@@ -1,19 +1,19 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
 
 import { Home, Database, UserCheck, Banknote, ScanFace, ClipboardList } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface HRTabsProps {
-    activeTab: "home" | "master" | "attendance" | "present" | "salaries";
+    activeTab?: string;
 }
 
 export default function HRTabs({ activeTab }: HRTabsProps) {
     const { showBottomNav } = useHeader();
-    const isHomeActive = activeTab === "home";
-    const isMasterActive = activeTab === "master";
+    const pathname = usePathname();
 
     const [department, setDepartment] = useState<string>("");
 
@@ -34,11 +34,11 @@ export default function HRTabs({ activeTab }: HRTabsProps) {
     const isExecutive = department === "HR Executive";
 
     const tabs = [
-        { id: "home", label: "Overview", icon: Home, href: "/dashboard/hr?tab=home" },
-        { id: "attendance", label: "Kiosk", icon: ScanFace, href: "/dashboard/hr?tab=attendance" },
-        { id: "present", label: "Present", icon: ClipboardList, href: "/dashboard/hr?tab=present" },
-        { id: "salaries", label: "Salaries", icon: Banknote, href: "/dashboard/hr?tab=salaries" },
-        { id: "master", label: "Masters", icon: Database, href: "/dashboard/hr?tab=master" },
+        { id: "home", label: "Overview", icon: Home, href: "/dashboard/hr/overview" },
+        { id: "attendance", label: "Kiosk", icon: ScanFace, href: "/dashboard/hr/kiosk" },
+        { id: "present", label: "Present", icon: ClipboardList, href: "/dashboard/hr/present" },
+        { id: "salaries", label: "Salaries", icon: Banknote, href: "/dashboard/hr/salaries" },
+        { id: "master", label: "Masters", icon: Database, href: "/dashboard/hr/master/employee" },
     ].filter(tab => !(tab.id === "master" && isExecutive));
 
     return (
@@ -46,7 +46,7 @@ export default function HRTabs({ activeTab }: HRTabsProps) {
             {/* Desktop View: Modern Floating Tabs */}
             <div className="hidden md:flex mb-8 items-center bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 w-fit">
                 {tabs.map((tab) => {
-                    const isActive = activeTab === tab.id;
+                    const isActive = (tab.id === "master" ? pathname.startsWith("/dashboard/hr/master") : pathname.startsWith(tab.href)) || (pathname === "/dashboard/hr" && tab.id === "home") || activeTab === tab.id;
                     const Icon = tab.icon;
                     return (
                         <Link
@@ -75,7 +75,7 @@ export default function HRTabs({ activeTab }: HRTabsProps) {
             {/* Mobile View: Glassmorphic Bottom Bar */}
             <div className={`md:hidden fixed bottom-4 left-4 right-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-white/20 dark:border-gray-700/30 shadow-2xl rounded-2xl z-[100] flex justify-around py-3 px-6 safe-area-pb transition-all duration-300 ${showBottomNav ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'}`}>
                 {tabs.map((tab) => {
-                    const isActive = activeTab === tab.id;
+                    const isActive = (tab.id === "master" ? pathname.startsWith("/dashboard/hr/master") : pathname.startsWith(tab.href)) || (pathname === "/dashboard/hr" && tab.id === "home") || activeTab === tab.id;
                     const Icon = tab.icon;
                     return (
                         <Link

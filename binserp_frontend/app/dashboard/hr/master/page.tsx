@@ -3,11 +3,11 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-export default function HRRootPage() {
+export default function HRMasterRootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard/hr/overview");
+    router.replace("/dashboard/hr/master/employee");
   }, [router]);
 
   return (

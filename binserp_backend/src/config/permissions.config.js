@@ -42,11 +42,17 @@ export const SYSTEM_PERMISSIONS = [
     module: "HR",
     label: "Human Resources",
     tabs: [
-      { id: "home", label: "Overview", route: "/dashboard/hr?tab=home" },
-      { id: "attendance", label: "Attendance Kiosk", route: "/dashboard/hr?tab=attendance" },
-      { id: "present", label: "Present Log", route: "/dashboard/hr?tab=present" },
-      { id: "salaries", label: "Salaries & Payroll", route: "/dashboard/hr?tab=salaries" },
-      { id: "master", label: "HR Masters", route: "/dashboard/hr?tab=master" }
+      { id: "hr/overview", label: "Overview", route: "/dashboard/hr/overview" },
+      { id: "hr/kiosk", label: "Attendance Kiosk", route: "/dashboard/hr/kiosk" },
+      { id: "hr/present", label: "Present Log", route: "/dashboard/hr/present" },
+      { id: "hr/salaries", label: "Salaries & Payroll", route: "/dashboard/hr/salaries" },
+      { id: "hr/master/employee", label: "Employee Master", route: "/dashboard/hr/master/employee" },
+      { id: "hr/master/employee-type", label: "Employee Type Master", route: "/dashboard/hr/master/employee-type" },
+      { id: "hr/master/department", label: "Department Master", route: "/dashboard/hr/master/department" },
+      { id: "hr/master/designation", label: "Designation Master", route: "/dashboard/hr/master/designation" },
+      { id: "hr/master/face-data", label: "Face Data Master", route: "/dashboard/hr/master/face-data" },
+      { id: "hr/master/holiday", label: "Holiday Master", route: "/dashboard/hr/master/holiday" },
+      { id: "hr/master/settings", label: "HR Prefix Settings", route: "/dashboard/hr/master/settings" }
     ]
   },
   {
