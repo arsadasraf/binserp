@@ -1,61 +1,129 @@
 "use client";
 
 import React, { useState } from 'react';
-import POTable from "../../components/tables/POTable";
-import POModal from "../../components/modals/POModal";
+import { SalesOrderTable } from "../../components/SalesOrderTable";
+import { SalesOrderForm } from "../../components/SalesOrderForm";
+import { SalesOrderDetailsModal } from "../../components/SalesOrderDetailsModal";
 import { useStoreData } from "../../components/hooks/useStoreData";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
-import { Plus } from "lucide-react";
+import {
+  useCreateStoreRecordMutation,
+  useUpdateStoreRecordMutation,
+  useDeleteStoreRecordMutation,
+} from "@/src/store/services/storeService";
 
 export default function SalesOrdersPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: poList, vendors, customers, materials, fgItems, loading, refetch, handlePOSubmit, handlePOUpdate, handleDelete } = useStoreData("order-entry", "vendor", token);
+  const { data: orderList, customers, fgItems, priceLists, companyInfo, loading, refetch } = useStoreData("order", "vendor", token);
 
-  const [showModal, setShowModal] = useState(false);
-  const [editingPO, setEditingPO] = useState<any>(null);
+  const [createStoreRecord] = useCreateStoreRecordMutation();
+  const [updateStoreRecord] = useUpdateStoreRecordMutation();
+  const [deleteStoreRecord] = useDeleteStoreRecordMutation();
+
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<any>(null);
+  const [viewingOrder, setViewingOrder] = useState<any>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (loading) return <LoadingSpinner />;
 
+  const handleDelete = async (id: string) => {
+    if (confirm("Are you sure you want to delete this Sales Order?")) {
+      try {
+        await deleteStoreRecord({ tab: "order", id }).unwrap();
+        refetch();
+      } catch (error: any) {
+        console.error("Failed to delete Sales Order:", error);
+        alert(error?.data?.message || error?.message || "Failed to delete Sales Order");
+      }
+    }
+  };
+
+  const handleFormSubmit = async (formData: FormData) => {
+    setIsSubmitting(true);
+    try {
+      if (editingOrder?._id) {
+        await updateStoreRecord({
+          tab: "order",
+          id: editingOrder._id,
+          body: formData,
+          isFormData: true,
+        }).unwrap();
+      } else {
+        await createStoreRecord({
+          tab: "order",
+          body: formData,
+          isFormData: true,
+        }).unwrap();
+      }
+
+      setShowFormModal(false);
+      setEditingOrder(null);
+      refetch();
+    } catch (error: any) {
+      console.error("Failed to save Sales Order:", error);
+      alert(error?.data?.message || error?.message || "Failed to save Sales Order");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Sales Orders</h1>
-          <p className="text-xs text-gray-500">Manage customer purchase orders and sales entries</p>
-        </div>
-        <button
-          onClick={() => { setEditingPO(null); setShowModal(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors"
-        >
-          <Plus size={16} />
-          Create Order
-        </button>
-      </div>
-
-      <POTable
-        data={poList || []}
-        onEdit={(po) => { setEditingPO(po); setShowModal(true); }}
-        onDelete={(id) => handleDelete("order-entry", id)}
+      {/* Main Table Component */}
+      <SalesOrderTable
+        orders={orderList || []}
+        customers={customers || []}
+        companyInfo={companyInfo}
+        onCreate={() => {
+          setEditingOrder(null);
+          setShowFormModal(true);
+        }}
+        onEdit={(order) => {
+          setEditingOrder(order);
+          setShowFormModal(true);
+        }}
+        onView={(order) => {
+          setViewingOrder(order);
+        }}
+        onDelete={handleDelete}
       />
 
-      {showModal && (
-        <POModal
-          isOpen={showModal}
-          onClose={() => { setShowModal(false); setEditingPO(null); }}
-          vendors={vendors?.length ? vendors : (customers || [])}
-          materials={materials || []}
-          inHouseItems={fgItems || []}
-          onSubmit={async (formData) => {
-            if (editingPO) {
-              await handlePOUpdate(editingPO._id, formData);
-            } else {
-              await handlePOSubmit(formData);
-            }
-            setShowModal(false);
-            setEditingPO(null);
-            refetch();
+      {/* Form Modal (Create / Edit) */}
+      {showFormModal && (
+        <SalesOrderForm
+          isOpen={showFormModal}
+          initialData={editingOrder}
+          fgItems={fgItems || []}
+          customers={customers || []}
+          priceLists={priceLists || []}
+          companyInfo={companyInfo}
+          onSubmit={handleFormSubmit}
+          onCancel={() => {
+            setShowFormModal(false);
+            setEditingOrder(null);
           }}
-          initialData={editingPO}
+          onClose={() => {
+            setShowFormModal(false);
+            setEditingOrder(null);
+          }}
+          isSubmitting={isSubmitting}
+        />
+      )}
+
+      {/* Read-Only Informative Details Modal */}
+      {viewingOrder && (
+        <SalesOrderDetailsModal
+          isOpen={!!viewingOrder}
+          order={viewingOrder}
+          companyInfo={companyInfo}
+          customers={customers || []}
+          onClose={() => setViewingOrder(null)}
+          onEdit={() => {
+            setEditingOrder(viewingOrder);
+            setViewingOrder(null);
+            setShowFormModal(true);
+          }}
         />
       )}
     </div>
