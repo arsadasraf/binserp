@@ -19,6 +19,15 @@ export const createIncomingPO = asyncHandler(async (req, res) => {
     req.body.items = JSON.parse(req.body.items);
   }
 
+  if (Array.isArray(req.body.items)) {
+    req.body.items = req.body.items.map(item => {
+      const cleaned = { ...item };
+      if (!cleaned.fgItem || cleaned.fgItem === "") delete cleaned.fgItem;
+      if (!cleaned.expectedDeliveryDate || cleaned.expectedDeliveryDate === "") delete cleaned.expectedDeliveryDate;
+      return cleaned;
+    });
+  }
+
   let photoUrls = [];
   let pdfUrl = null;
 
@@ -33,6 +42,18 @@ export const createIncomingPO = asyncHandler(async (req, res) => {
       const file = req.files['pdf'][0];
       const result = await uploadOnS3(file.path, "CustomerPOs", companyId);
       if (result?.url) pdfUrl = result.url;
+    }
+    if (req.files['document'] && req.files['document'].length > 0) {
+      const file = req.files['document'][0];
+      const isPdf = file.originalname.toLowerCase().endsWith('.pdf') || file.mimetype === 'application/pdf';
+      const result = await uploadOnS3(file.path, "CustomerPOs", companyId);
+      if (result?.url) {
+        if (isPdf) {
+          pdfUrl = result.url;
+        } else {
+          photoUrls.push(result.url);
+        }
+      }
     }
   }
 
@@ -80,6 +101,7 @@ export const generateSalesOrderFromPO = asyncHandler(async (req, res) => {
   const salesOrder = await SalesOrder.create({
     company: companyId,
     orderNumber,
+    orderType: "PO_BASED",
     poReference: incomingPO.poNumber,
     customer: incomingPO.customer,
     targetDate: incomingPO.items[0]?.expectedDeliveryDate || incomingPO.date,
@@ -132,6 +154,15 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
     req.body.items = JSON.parse(req.body.items);
   }
 
+  if (Array.isArray(req.body.items)) {
+    req.body.items = req.body.items.map(item => {
+      const cleaned = { ...item };
+      if (!cleaned.fgItem || cleaned.fgItem === "") delete cleaned.fgItem;
+      if (!cleaned.expectedDeliveryDate || cleaned.expectedDeliveryDate === "") delete cleaned.expectedDeliveryDate;
+      return cleaned;
+    });
+  }
+
   const existingPO = await IncomingPO.findOne({ _id: id, company: companyId });
   if (!existingPO) {
     return res.status(404).json({ message: "Incoming PO not found" });
@@ -152,6 +183,18 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
       const file = req.files['pdf'][0];
       const result = await uploadOnS3(file.path, "CustomerPOs", companyId);
       if (result?.url) req.body.pdf = result.url;
+    }
+    if (req.files['document'] && req.files['document'].length > 0) {
+      const file = req.files['document'][0];
+      const isPdf = file.originalname.toLowerCase().endsWith('.pdf') || file.mimetype === 'application/pdf';
+      const result = await uploadOnS3(file.path, "CustomerPOs", companyId);
+      if (result?.url) {
+        if (isPdf) {
+          req.body.pdf = result.url;
+        } else {
+          photoUrls.push(result.url);
+        }
+      }
     }
   }
 

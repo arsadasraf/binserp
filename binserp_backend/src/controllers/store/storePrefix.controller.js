@@ -38,14 +38,20 @@ export const updateStorePrefixSettings = async (req, res) => {
 
         const updateData = {
             grnPrefix: req.body.grnPrefix,
+            rmBoGrnPrefix: req.body.rmBoGrnPrefix,
+            fgGrnPrefix: req.body.fgGrnPrefix,
             poPrefix: req.body.poPrefix,
+            incomingPoPrefix: req.body.incomingPoPrefix,
+            outgoingPoPrefix: req.body.outgoingPoPrefix,
             dcPrefix: req.body.dcPrefix,
             invoicePrefix: req.body.invoicePrefix,
             partPrefix: req.body.partPrefix,
+            categoryPrefix: req.body.categoryPrefix,
             vendorPrefix: req.body.vendorPrefix,
             customerPrefix: req.body.customerPrefix,
             jobWorkSupplierPrefix: req.body.jobWorkSupplierPrefix,
             incomingRfqPrefix: req.body.incomingRfqPrefix,
+            outgoingRfqPrefix: req.body.outgoingRfqPrefix,
             quotationOutwardPrefix: req.body.quotationOutwardPrefix,
             quotationInwardPrefix: req.body.quotationInwardPrefix,
         };

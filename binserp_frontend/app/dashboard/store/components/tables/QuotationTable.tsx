@@ -1,142 +1,327 @@
 /**
  * QuotationTable Component
- * Displays Quotation history
+ * Displays Outward Quotations history with search & month filter
  */
 
 import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download } from 'lucide-react';
+import { Edit2, Trash2, Download, Search, Plus, FileText, Eye } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
-import { generateDocument } from '@/src/utils/documentHelper';
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface QuotationTableProps {
     data: any[];
     companyInfo?: CompanyInfo;
+    onCreate?: () => void;
     onEdit: (item: any) => void;
     onDelete: (id: string) => void;
     onView?: (item: any) => void;
 }
 
-export default function QuotationTable({ data, companyInfo, onEdit, onDelete, onView }: QuotationTableProps) {
+export default function QuotationTable({ data = [], companyInfo, onCreate, onEdit, onDelete, onView }: QuotationTableProps) {
     const [selectedMonth, setSelectedMonth] = useState<string>('');
+    const [searchTerm, setSearchTerm] = useState<string>('');
 
-    // Filter by selected month
+    // Filter by month & search term
     const filteredData = useMemo(() => {
-        if (!selectedMonth) return data;
-        return data.filter(item => {
+        return (data || []).filter(item => {
+            if (!item) return false;
+            const matchesSearch = 
+                (item.quotationNumber?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                (item.customerName?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+            
+            if (!selectedMonth) return matchesSearch;
             const date = new Date(item.date);
             const itemMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-            return itemMonth === selectedMonth;
+            return matchesSearch && itemMonth === selectedMonth;
         });
-    }, [data, selectedMonth]);
+    }, [data, selectedMonth, searchTerm]);
 
-    const handleDownloadPDF = async (quotation: any) => {
-        await generateDocument('pdf', 'quotation', { doc: quotation, companyInfo });
+    const handleDownloadPDFClientSide = (quotation: any) => {
+        try {
+            const doc = new jsPDF();
+
+            const compName = companyInfo?.companyName || companyInfo?.name || "COMPANY MASTER";
+            const compAddress = companyInfo?.address || companyInfo?.location || "";
+            const compEmail = companyInfo?.email || "";
+            const compPhone = companyInfo?.phone || companyInfo?.contactNumber || "";
+            const compGst = companyInfo?.gstin || companyInfo?.gstNumber || companyInfo?.gst || "";
+
+            // Top Clean Header (Monochrome Dark Slate Text)
+            doc.setTextColor(15, 23, 42);
+            doc.setFontSize(16);
+            doc.setFont("helvetica", "bold");
+            doc.text(compName.toUpperCase(), 14, 16);
+
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(71, 85, 105);
+            const compHeaderSub = [compAddress, compPhone && `Ph: ${compPhone}`, compEmail && `Email: ${compEmail}`, compGst && `GSTIN: ${compGst}`].filter(Boolean).join(" | ");
+            doc.text(compHeaderSub.substring(0, 110), 14, 22);
+
+            doc.setFontSize(14);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(15, 23, 42);
+            doc.text("OUTWARD QUOTATION", 196, 16, { align: "right" });
+
+            // Fine Divider Line
+            doc.setDrawColor(226, 232, 240);
+            doc.setLineWidth(0.5);
+            doc.line(14, 26, 196, 26);
+
+            // Metadata & Customer Section
+            doc.setFontSize(8);
+            doc.setTextColor(71, 85, 105);
+            doc.setFont("helvetica", "bold");
+            doc.text("QUOTATION DETAILS", 14, 33);
+            doc.text("BILLED TO / CUSTOMER", 110, 33);
+
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(15, 23, 42);
+            doc.text(`Quotation No: ${quotation.quotationNumber || 'N/A'}`, 14, 39);
+            doc.text(`Date: ${quotation.date ? new Date(quotation.date).toLocaleDateString() : ''}`, 14, 44);
+            doc.text(`Status: ${quotation.status || 'Draft'}`, 14, 49);
+
+            doc.setFont("helvetica", "bold");
+            doc.text(quotation.customerName || 'N/A', 110, 39);
+
+            doc.setFont("helvetica", "normal");
+            let custLineY = 44;
+            if (quotation.customerAddress) {
+                const splitAddr = doc.splitTextToSize(quotation.customerAddress, 85);
+                doc.text(splitAddr, 110, custLineY);
+                custLineY += (splitAddr.length * 4);
+            }
+            const custContact = [quotation.customerEmail, quotation.customerPhone].filter(Boolean).join(" | ");
+            if (custContact) {
+                doc.text(custContact, 110, Math.min(custLineY, 52));
+            }
+
+            const tableStartY = Math.max(56, custLineY + 4);
+
+            // Table Columns: SI.No, Product & Description, Qty, Unit, Rate, Tax Rate, Total Price
+            const tableData = (quotation.items || []).map((item: any, idx: number) => {
+                const prodName = item.productName || "Product";
+                const specText = item.description ? `\n${item.description}` : "";
+                return [
+                    idx + 1,
+                    `${prodName}${specText}`,
+                    item.quantity || 0,
+                    item.unit || "PCS",
+                    `₹${Number(item.rate || 0).toFixed(2)}`,
+                    `${item.taxRate || 0}%`,
+                    `₹${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
+                ];
+            });
+
+            autoTable(doc, {
+                startY: tableStartY,
+                head: [["SI.No", "Product & Description", "Qty", "Unit", "Rate", "Tax Rate", "Total Price"]],
+                body: tableData,
+                headStyles: {
+                    fillColor: [241, 245, 249],
+                    textColor: [15, 23, 42],
+                    fontStyle: "bold",
+                    fontSize: 8.5,
+                    lineColor: [226, 232, 240],
+                    lineWidth: 0.2
+                },
+                styles: {
+                    fontSize: 8,
+                    cellPadding: 3.5,
+                    textColor: [30, 41, 59],
+                    lineColor: [226, 232, 240],
+                    lineWidth: 0.1
+                },
+                columnStyles: {
+                    0: { cellWidth: 14, halign: 'center' },
+                    1: { cellWidth: 76 },
+                    2: { cellWidth: 16, halign: 'right' },
+                    3: { cellWidth: 16, halign: 'center' },
+                    4: { cellWidth: 22, halign: 'right' },
+                    5: { cellWidth: 18, halign: 'right' },
+                    6: { cellWidth: 20, halign: 'right' },
+                },
+                alternateRowStyles: { fillColor: [250, 250, 250] },
+            });
+
+            const finalY = (doc as any).lastAutoTable?.finalY || 120;
+
+            // Clean Modern Calculation Summary
+            doc.setDrawColor(226, 232, 240);
+            doc.setFillColor(250, 250, 250);
+            doc.roundedRect(114, finalY + 6, 82, 44, 1.5, 1.5, "FD");
+
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(71, 85, 105);
+
+            doc.text("Items Subtotal:", 118, finalY + 13);
+            doc.text(`₹${Number(quotation.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
+
+            doc.text(`Transport (${quotation.transportationType || 'Included'}):`, 118, finalY + 19);
+            doc.text(`+ ₹${Number(quotation.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
+
+            doc.text(`Packaging (${quotation.packagingType || 'Standard'}):`, 118, finalY + 25);
+            doc.text(`+ ₹${Number(quotation.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
+
+            doc.text("Total Tax (GST):", 118, finalY + 31);
+            doc.text(`+ ₹${Number(quotation.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
+
+            if (Number(quotation.discount || 0) > 0) {
+                doc.text("Discount:", 118, finalY + 36);
+                doc.text(`- ₹${Number(quotation.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
+            }
+
+            doc.setFontSize(9.5);
+            doc.setFont("helvetica", "bold");
+            doc.setTextColor(15, 23, 42);
+            doc.text("Total Price:", 118, finalY + 44);
+            doc.text(`₹${Number(quotation.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
+
+            // Remarks / Terms Section
+            if (quotation.remarks) {
+                doc.setFontSize(8);
+                doc.setFont("helvetica", "bold");
+                doc.setTextColor(15, 23, 42);
+                doc.text("REMARKS / TERMS & CONDITIONS", 14, finalY + 13);
+
+                doc.setFont("helvetica", "normal");
+                doc.setTextColor(71, 85, 105);
+                const splitRemarks = doc.splitTextToSize(quotation.remarks, 90);
+                doc.text(splitRemarks, 14, finalY + 19);
+            }
+
+            doc.save(`Outward_Quotation_${quotation.quotationNumber || Date.now()}.pdf`);
+        } catch (err) {
+            console.error("PDF generation error", err);
+        }
     };
 
-    if (!data || data.length === 0) {
-        return (
-            <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                <p className="text-gray-500 text-lg">No Quotations found</p>
-                <p className="text-gray-400 text-sm mt-2">Create a new Quotation to get started</p>
-            </div>
-        );
-    }
-
     return (
-        <div className="w-full">
-            {/* Month Filter */}
-            <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
-                <h3 className="text-lg font-bold text-gray-800">Quotations History</h3>
-                <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium text-gray-600">Filter by Month:</label>
+        <div className="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
+            {/* Header with Search & Filter */}
+            <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-500" />
+                    Outward Quotations
+                </h2>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+                    <div className="w-full sm:w-56 relative">
+                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                            type="text"
+                            placeholder="Search Quotations..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                    </div>
+
                     <input 
                         type="month" 
                         value={selectedMonth}
                         onChange={(e) => setSelectedMonth(e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white shadow-sm"
+                        className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
                     {selectedMonth && (
-                        <button 
-                            onClick={() => setSelectedMonth('')} 
-                            className="text-sm text-red-500 hover:underline"
-                        >
+                        <button onClick={() => setSelectedMonth('')} className="text-xs text-red-500 font-medium hover:underline">
                             Clear
+                        </button>
+                    )}
+
+                    {onCreate && (
+                        <button
+                            onClick={onCreate}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm ml-auto sm:ml-0"
+                        >
+                            <Plus size={16} />
+                            Create Quotation
                         </button>
                     )}
                 </div>
             </div>
 
             {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-                <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-indigo-50 border-b border-indigo-100">
+            <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800 text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400">
                         <tr>
-                            <th className="px-6 py-3 text-left font-semibold text-indigo-900">Quotation No</th>
-                            <th className="px-6 py-3 text-left font-semibold text-indigo-900">Date</th>
-                            <th className="px-6 py-3 text-left font-semibold text-indigo-900">Customer</th>
-                            <th className="px-6 py-3 text-left font-semibold text-indigo-900">Amount</th>
-                            <th className="px-6 py-3 text-left font-semibold text-indigo-900">Status</th>
-                            <th className="px-6 py-3 text-right font-semibold text-indigo-900">Actions</th>
+                            <th className="px-6 py-3 text-left font-semibold">Quotation No</th>
+                            <th className="px-6 py-3 text-left font-semibold">Date</th>
+                            <th className="px-6 py-3 text-left font-semibold">Customer</th>
+                            <th className="px-6 py-3 text-left font-semibold">Transport / Packing</th>
+                            <th className="px-6 py-3 text-right font-semibold">Total Amount</th>
+                            <th className="px-6 py-3 text-center font-semibold">Status</th>
+                            <th className="px-6 py-3 text-right font-semibold">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                        {filteredData.map((item) => (
-                            <tr key={item._id} className="hover:bg-indigo-50 transition-colors cursor-pointer" onClick={() => onView && onView(item)}>
-                                <td className="px-6 py-4 font-medium text-gray-900">{item.quotationNumber}</td>
-                                <td className="px-6 py-4 text-gray-600">{new Date(item.date).toLocaleDateString()}</td>
-                                <td className="px-6 py-4 text-gray-600">{item.customerName}</td>
-                                <td className="px-6 py-4 text-indigo-600 font-semibold">₹ {(item.totalAmount || 0).toFixed(2)}</td>
-                                <td className="px-6 py-4">
-                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                        item.status === 'Accepted' ? 'bg-green-100 text-green-800' :
-                                        item.status === 'Sent' ? 'bg-blue-100 text-blue-800' : 
-                                        item.status === 'Rejected' ? 'bg-red-100 text-red-800' :
-                                        'bg-gray-100 text-gray-800'
-                                    }`}>
-                                        {item.status}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                    <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                                        <button onClick={() => handleDownloadPDF(item)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Download PDF"><Download size={16} /></button>
-                                        <button onClick={() => onEdit(item)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Edit"><Edit2 size={16} /></button>
-                                        <button onClick={() => onDelete(item._id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={16} /></button>
-                                    </div>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-800 bg-white dark:bg-gray-900">
+                        {filteredData.length === 0 ? (
+                            <tr>
+                                <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                    <FileText className="w-10 h-10 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                                    No Outward Quotations found.
                                 </td>
                             </tr>
-                        ))}
+                        ) : (
+                            filteredData.map((item) => (
+                                <tr
+                                    key={item._id}
+                                    className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer group"
+                                    onClick={() => onView ? onView(item) : onEdit(item)}
+                                >
+                                    <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">{item.quotationNumber}</td>
+                                    <td className="px-6 py-4 text-gray-500 dark:text-gray-400">{new Date(item.date).toLocaleDateString()}</td>
+                                    <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{item.customerName}</td>
+                                    <td className="px-6 py-4 text-xs text-gray-500">
+                                        <div>{item.transportationType || 'Included'} {item.transportationCharges ? `(₹${item.transportationCharges})` : ''}</div>
+                                        <div>{item.packagingType || 'Standard'} {item.packagingCharges ? `(₹${item.packagingCharges})` : ''}</div>
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-bold text-indigo-600 dark:text-indigo-400">
+                                        ₹ {Number(item.totalAmount || 0).toFixed(2)}
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                            item.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' :
+                                            item.status === 'Sent' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' : 
+                                            item.status === 'Rejected' ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400' :
+                                            'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300'
+                                        }`}>
+                                            {item.status || 'Draft'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                onClick={() => handleDownloadPDFClientSide(item)}
+                                                className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 rounded-lg transition-colors"
+                                                title="Download PDF"
+                                            >
+                                                <Download size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => onEdit(item)}
+                                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/40 rounded-lg transition-colors"
+                                                title="Edit"
+                                            >
+                                                <Edit2 size={16} />
+                                            </button>
+                                            <button
+                                                onClick={() => onDelete(item._id)}
+                                                className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/40 rounded-lg transition-colors"
+                                                title="Delete"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
-                {filteredData.length === 0 && (
-                     <div className="text-center py-6 text-gray-500 bg-white">No quotations found for the selected month.</div>
-                )}
-            </div>
-
-            {/* Mobile Card View */}
-            <div className="md:hidden flex flex-col gap-3">
-                {filteredData.map((item) => (
-                    <div key={item._id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-3 cursor-pointer hover:border-indigo-200" onClick={() => onView && onView(item)}>
-                        <div className="flex justify-between items-start border-b border-gray-50 pb-2">
-                            <div>
-                                <span className="text-xs font-medium text-gray-500 block mb-1">Quote #{item.quotationNumber}</span>
-                                <h4 className="font-bold text-gray-900">{item.customerName}</h4>
-                            </div>
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.status === 'Accepted' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>{item.status}</span>
-                        </div>
-                        <div className="text-sm space-y-2">
-                            <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(item.date).toLocaleDateString()}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-500">Amount:</span> <span className="font-bold text-indigo-600">₹ {(item.totalAmount || 0).toFixed(2)}</span></div>
-                        </div>
-                        <div className="flex items-center gap-2 pt-3 border-t border-gray-50 mt-1" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={() => handleDownloadPDF(item)} className="flex-1 flex justify-center py-2 text-indigo-600 bg-indigo-50 rounded-lg"><Download size={16} /></button>
-                            <button onClick={() => onEdit(item)} className="flex-1 flex items-center justify-center gap-2 py-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"><Edit2 size={16} /></button>
-                            <button onClick={() => onDelete(item._id)} className="flex-1 flex items-center justify-center gap-2 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"><Trash2 size={16} /></button>
-                        </div>
-                    </div>
-                ))}
-                {filteredData.length === 0 && (
-                     <div className="text-center py-6 text-gray-500">No quotations found for the selected month.</div>
-                )}
             </div>
         </div>
     );

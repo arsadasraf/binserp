@@ -15,6 +15,7 @@ export default function CategoryTable({ data, onEdit, onDelete, onAdd }: Categor
   const columns: ColumnDef<any>[] = [
     { id: 'name', label: 'Category Name' },
     { id: 'code', label: 'Code' },
+    { id: 'description', label: 'Description', render: (item) => item.description || '-' },
     { id: 'hsnCode', label: 'HSN Code', render: (item) => item.hsnCode || '-' },
     { id: 'unit', label: 'Unit', render: (item) => item.unit || '-' },
     {
@@ -46,7 +47,7 @@ export default function CategoryTable({ data, onEdit, onDelete, onAdd }: Categor
       columns={columns}
       data={data}
       searchPlaceholder="Search categories..."
-      searchableKeys={['name', 'code', 'hsnCode']}
+      searchableKeys={['name', 'code', 'description', 'hsnCode']}
     
       actionButton={
         onAdd && (
@@ -54,7 +55,7 @@ export default function CategoryTable({ data, onEdit, onDelete, onAdd }: Categor
             onClick={onAdd}
             className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-sm font-medium transition-colors"
           >
-            + Add Category
+            + Add Rm/Bo Category
           </button>
         )
       }

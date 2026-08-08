@@ -49,6 +49,7 @@ router.delete("/incoming-rfq/:id", deleteIncomingRFQ);
 
 // Price List routes
 router.post("/price-list", createOrUpdatePriceList);
+router.put("/price-list/:id", createOrUpdatePriceList);
 router.get("/price-list", getAllPriceLists);
 router.delete("/price-list/:id", deletePriceList);
 
@@ -59,9 +60,9 @@ router.put("/quotation/:id", updateQuotation);
 router.delete("/quotation/:id", deleteQuotation);
 
 // Incoming PO routes
-router.post("/incoming-po", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createIncomingPO);
+router.post("/incoming-po", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }, { name: 'document', maxCount: 1 }]), createIncomingPO);
 router.get("/incoming-po", getAllIncomingPOs);
-router.put("/incoming-po/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), updateIncomingPO);
+router.put("/incoming-po/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }, { name: 'document', maxCount: 1 }]), updateIncomingPO);
 router.delete("/incoming-po/:id", deleteIncomingPO);
 router.get("/incoming-po/:id/dispatch-history", getIncomingPODispatchHistory);
 router.post("/incoming-po/:id/generate-order", generateSalesOrderFromPO);

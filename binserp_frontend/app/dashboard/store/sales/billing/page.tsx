@@ -20,7 +20,7 @@ export default function SalesBillingPage() {
     <div className="space-y-4">
       <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Billing & Invoices</h1>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Invoice</h1>
           <p className="text-xs text-gray-500">Manage sales billing and tax invoices</p>
         </div>
         <button

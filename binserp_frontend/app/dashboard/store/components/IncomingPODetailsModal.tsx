@@ -19,8 +19,8 @@ export const IncomingPODetailsModal: React.FC<IncomingPODetailsModalProps> = ({
   isOpen,
   onClose,
   po,
-  customers,
-  fgItems,
+  customers = [],
+  fgItems = [],
   companyInfo,
   onGenerateOrder,
   isGeneratingOrder

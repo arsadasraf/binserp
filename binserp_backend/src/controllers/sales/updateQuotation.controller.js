@@ -1,62 +1,43 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
-import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
-import { storePrefixSchema } from "../../models/store/index.js";
-import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
-import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
-import fs from 'fs';
-import path from 'path';
+import { quotationSchema } from "../../models/sales/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
-
-const getCompanyLoginId = (req) => {
-  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
-};
-
-// Helper function to update COMPONENT stock (InHouse)
-const updateComponentStock = async (req, componentId, quantity) => {
-  try {
-    const companyId = getCompanyId(req); // Derive companyId from req
-    const Component = req.getModel("Component", componentSchema);
-    const component = await Component.findById(componentId);
-    if (!component) {
-      console.error(`Component not found: ${componentId}`);
-      return null;
-    }
-
-    // Update quantity
-    await Component.findByIdAndUpdate(componentId, {
-      $inc: { quantity: quantity }
-    });
-
-    return true;
-  } catch (error) {
-    console.error("Error updating component stock:", error);
-    throw error;
-  }
-};
-
-
-
-// ========== GRN (Goods Receipt Note) ==========
-
 
 export const updateQuotation = async (req, res) => {
   try {
     const Quotation = req.getModel('Quotation', quotationSchema);
     const companyId = getCompanyId(req);
     const { id } = req.params;
+
+    const body = { ...req.body };
+    if (!body.customer || typeof body.customer !== 'string' || !body.customer.trim() || !mongoose.Types.ObjectId.isValid(body.customer)) {
+      delete body.customer;
+    }
+
+    if (Array.isArray(body.items)) {
+      body.items = body.items.map(item => {
+        const newItem = { ...item };
+        if (!newItem.component || typeof newItem.component !== 'string' || !newItem.component.trim() || !mongoose.Types.ObjectId.isValid(newItem.component)) {
+          delete newItem.component;
+        }
+        if (!newItem.material || typeof newItem.material !== 'string' || !newItem.material.trim() || !mongoose.Types.ObjectId.isValid(newItem.material)) {
+          delete newItem.material;
+        }
+        return newItem;
+      });
+    }
+
     const quotation = await Quotation.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      body,
       { new: true }
     );
     if (!quotation) return res.status(404).json({ message: "Quotation not found" });
     res.status(200).json({ message: "Quotation updated successfully", quotation });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Error updating quotation:", error);
+    res.status(500).json({ message: error.message || "Failed to update quotation" });
   }
 };
-

@@ -94,6 +94,162 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
         </h3>
     );
 
+    if (masterTab === "rm-bo-item") {
+        return (
+            <div className="space-y-6">
+                <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                    {renderSectionHeader("RM/BO Item Details")}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Row 1: Name, Description, Minimum Stock */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Name <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                value={formData.name || ""}
+                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Enter Item Name"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Description
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.descriptions || formData.description || ""}
+                                onChange={(e) => setFormData({ ...formData, descriptions: e.target.value, description: e.target.value })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Enter Description"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Minimum Stock
+                            </label>
+                            <input
+                                type="number"
+                                min="0"
+                                value={formData.minimumStock ?? ""}
+                                onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Enter Minimum Stock"
+                            />
+                        </div>
+
+                        {/* Row 2: Category, Location, Unit */}
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Category <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                required
+                                value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
+                                onChange={(e) => handleCategoryChange(e.target.value)}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            >
+                                <option value="">Select Category</option>
+                                {categories.map((category) => (
+                                    <option key={category._id} value={category._id}>
+                                        {category.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Location
+                            </label>
+                            <select
+                                value={typeof formData.locationId === 'object' ? (formData.locationId as any)?._id : formData.locationId || ""}
+                                onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            >
+                                <option value="">Select Location</option>
+                                {locations.map((location) => (
+                                    <option key={location._id} value={location._id}>
+                                        {location.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Unit
+                            </label>
+                            <input
+                                type="text"
+                                value={formData.unit || ""}
+                                readOnly
+                                className="w-full px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed"
+                                placeholder="Auto-filled from category"
+                            />
+                        </div>
+
+                        {/* Row 3: Document Attached & Previews */}
+                        <div className="md:col-span-3 pt-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Document Attached (Photos & PDFs, Max 2)
+                            </label>
+                            <input
+                                type="file"
+                                multiple
+                                accept="image/*,application/pdf"
+                                onChange={(e) => {
+                                    if (e.target.files && e.target.files.length > 2) {
+                                        alert("You can only upload up to 2 documents.");
+                                        e.target.value = "";
+                                        return;
+                                    }
+                                    const filesArray = Array.from(e.target.files || []);
+                                    const existing = Array.isArray(formData.photos) ? formData.photos : [];
+                                    setFormData({ ...formData, photos: [...existing, ...filesArray].slice(0, 2) });
+                                }}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            />
+                            {formData.photos && Array.isArray(formData.photos) && formData.photos.length > 0 && (
+                                <div className="flex flex-wrap gap-3 mt-3">
+                                    {(formData.photos as any[]).map((photo, i) => {
+                                        const photoUrl = typeof photo === 'string' ? photo : (photo instanceof File ? URL.createObjectURL(photo) : '');
+                                        const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo?.type === 'application/pdf';
+                                        return (
+                                            <div key={i} className="relative group w-24 h-24 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shadow-sm">
+                                                {isPdf ? (
+                                                    <a href={photoUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center p-2 text-center text-red-600 hover:underline">
+                                                        <span className="text-xs font-bold">PDF</span>
+                                                        <span className="text-[10px] text-gray-500 truncate max-w-[70px]">Preview</span>
+                                                    </a>
+                                                ) : (
+                                                    <a href={photoUrl} target="_blank" rel="noreferrer" className="w-full h-full">
+                                                        <img src={photoUrl} alt={`Attachment ${i + 1}`} className="w-full h-full object-cover" />
+                                                    </a>
+                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const newPhotos = (formData.photos as any[]).filter((_, idx) => idx !== i);
+                                                        setFormData({ ...formData, photos: newPhotos });
+                                                    }}
+                                                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow"
+                                                    title="Remove attachment"
+                                                >
+                                                    <X size={12} />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             {/* Basic Details Section */}
@@ -177,8 +333,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         />
                     </div>
 
-                    {/* Code Field (Hidden for Inhouse, Customer, Vendor, Location, & RM/BO Items) */}
-                    {masterTab !== "inhouse-items" && masterTab !== "customer" && masterTab !== "vendor" && masterTab !== "location" && masterTab !== "rm-bo-item" && (
+                    {/* Code Field (Hidden for Inhouse, Customer, Vendor, Location, RM/BO Items, & Category) */}
+                    {masterTab !== "inhouse-items" && masterTab !== "customer" && masterTab !== "vendor" && masterTab !== "location" && masterTab !== "rm-bo-item" && masterTab !== "category" && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Code <span className="text-red-500"> *</span>
@@ -224,9 +380,19 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </div>
                     )}
 
-                    {/* Category Specific: HSN Code & Unit */}
+                    {/* Category Specific: Description, HSN Code & Unit */}
                     {masterTab === "category" && (
                         <>
+                            <div className="md:col-span-2 lg:col-span-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                <textarea
+                                    value={formData.description || ""}
+                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    placeholder="Enter Description"
+                                    rows={2}
+                                />
+                            </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
                                 <input
@@ -264,14 +430,16 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             </div>
                     )}
 
-                    {/* Material/Inhouse Specific: Category & Loction */}
+                    {/* Material/Inhouse Specific: Category & Location */}
                     {(masterTab === "rm-bo-item" || masterTab === "inhouse-items") && (
                         <>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Category {masterTab === "rm-bo-item" && <span className="text-red-500">*</span>}
+                                </label>
                                 <select
-
-                                    value={formData.categoryId || ""}
+                                    required={masterTab === "rm-bo-item"}
+                                    value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
                                     onChange={(e) => handleCategoryChange(e.target.value)}
                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                 >
@@ -286,7 +454,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
                                 <select
-                                    value={formData.locationId || ""}
+                                    value={typeof formData.locationId === 'object' ? (formData.locationId as any)?._id : formData.locationId || ""}
                                     onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                 >
@@ -317,8 +485,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             <div className="md:col-span-2 lg:col-span-4">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Descriptions</label>
                                 <textarea
-                                    value={formData.descriptions || ""}
-                                    onChange={(e) => setFormData({ ...formData, descriptions: e.target.value })}
+                                    value={formData.descriptions || formData.description || ""}
+                                    onChange={(e) => setFormData({ ...formData, descriptions: e.target.value, description: e.target.value })}
                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                     placeholder="Enter Descriptions"
                                     rows={2}
@@ -328,7 +496,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Minimum Stock</label>
                                 <input
                                     type="number"
-                                    value={formData.minimumStock || ""}
+                                    value={formData.minimumStock ?? ""}
                                     onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) })}
                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                     placeholder="Enter Minimum Stock"
@@ -347,24 +515,36 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                             return;
                                         }
                                         const filesArray = Array.from(e.target.files || []);
-                                        setFormData({ ...formData, photos: filesArray });
+                                        const existing = Array.isArray(formData.photos) ? formData.photos : [];
+                                        setFormData({ ...formData, photos: [...existing, ...filesArray].slice(0, 2) });
                                     }}
                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                 />
-                                {formData.photos && typeof formData.photos[0] === 'string' && (
-                                    <div className="flex gap-2 mt-2">
+                                {formData.photos && Array.isArray(formData.photos) && formData.photos.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mt-2">
                                         {(formData.photos as any[]).map((photo, i) => {
-                                            if (typeof photo === 'string') {
-                                                const isPdf = photo.toLowerCase().includes('.pdf');
-                                                return isPdf ? (
-                                                    <div key={i} className="w-20 h-20 rounded border bg-gray-50 flex items-center justify-center">
+                                            const photoUrl = typeof photo === 'string' ? photo : (photo instanceof File ? URL.createObjectURL(photo) : '');
+                                            const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo?.type === 'application/pdf';
+                                            return (
+                                                <div key={i} className="relative group w-16 h-16 rounded border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+                                                    {isPdf ? (
                                                         <span className="text-xs font-bold text-red-500">PDF</span>
-                                                    </div>
-                                                ) : (
-                                                    <img key={i} src={photo} alt={`Photo ${i+1}`} className="w-20 h-20 object-cover rounded border" />
-                                                );
-                                            }
-                                            return null;
+                                                    ) : (
+                                                        <img src={photoUrl} alt={`Attachment ${i + 1}`} className="w-full h-full object-cover" />
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const newPhotos = (formData.photos as any[]).filter((_, idx) => idx !== i);
+                                                            setFormData({ ...formData, photos: newPhotos });
+                                                        }}
+                                                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
+                                                        title="Remove"
+                                                    >
+                                                        <X size={12} />
+                                                    </button>
+                                                </div>
+                                            );
                                         })}
                                     </div>
                                 )}

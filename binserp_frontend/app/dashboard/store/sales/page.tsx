@@ -7,7 +7,7 @@ export default function SalesRootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard/store/sales/orders");
+    router.replace("/dashboard/store/sales/rfq");
   }, [router]);
 
   return (

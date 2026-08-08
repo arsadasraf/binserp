@@ -72,7 +72,7 @@ export default function CustomersPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)}
         title={editingItem ? "Edit Customer" : "Add Customer"}
-        maxWidth="3xl"
+        maxWidth="6xl"
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <MasterForm

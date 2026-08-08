@@ -51,7 +51,7 @@ export const createCategory = async (req, res) => {
     let { code, name } = req.body;
 
     if (!code) {
-      const prefix = name.substring(0, 3).toUpperCase();
+      const prefix = name ? name.trim().substring(0, 3).toUpperCase() : 'CAT';
       const random = Math.floor(1000 + Math.random() * 9000);
       code = `CAT-${prefix}-${random}`;
     }

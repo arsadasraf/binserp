@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from '@/src/store/services/storeService';
 import FinishedGoodsTable from '@/src/features/store/components/tables/FinishedGoodsTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+import Modal from '@/src/components/Modal';
 import FGItemForm from '@/src/features/store/components/forms/FGItemForm';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
@@ -31,11 +32,13 @@ export default function FinishedGoodsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this item?")) {
+    if (confirm("Are you sure you want to delete this FG item?")) {
       try {
         await deleteRecord({ tab: "fg-item", id }).unwrap();
-      } catch (error) {
-        console.error("Failed to delete item", error);
+      } catch (error: any) {
+        console.error("Failed to delete FG item", error);
+        const errMsg = error?.data?.message || error?.message || "Failed to delete FG Item";
+        alert(`Error deleting FG Item: ${errMsg}`);
       }
     }
   };
@@ -45,10 +48,27 @@ export default function FinishedGoodsPage() {
     try {
       const submitData = new FormData();
       Object.keys(formData).forEach((key) => {
-        if (key === 'bom') {
-          submitData.append('bom', JSON.stringify(formData.bom));
+        if (key === 'bom' && Array.isArray(formData.bom)) {
+          const cleanedBOM = formData.bom.map((bItem: any) => ({
+            ...bItem,
+            item: typeof bItem.item === 'object' && bItem.item !== null ? bItem.item._id : bItem.item
+          }));
+          submitData.append('bom', JSON.stringify(cleanedBOM));
+        } else if (key === 'photos' && Array.isArray(formData.photos)) {
+          formData.photos.forEach((photo: any) => {
+            if (photo instanceof File) {
+              submitData.append('photos', photo);
+            } else if (typeof photo === 'string') {
+              submitData.append('photos', photo);
+            }
+          });
         } else if (formData[key as keyof StoreFormData] !== undefined && formData[key as keyof StoreFormData] !== null) {
-          submitData.append(key, String(formData[key as keyof StoreFormData]));
+          const val = formData[key as keyof StoreFormData];
+          if (typeof val === 'object' && val !== null && '_id' in val) {
+            submitData.append(key, (val as any)._id);
+          } else {
+            submitData.append(key, String(val));
+          }
         }
       });
       photos.forEach(photo => submitData.append('photos', photo));
@@ -62,9 +82,10 @@ export default function FinishedGoodsPage() {
       setFormData({});
       setPhotos([]);
       setEditingItem(null);
-    } catch (error) {
-      console.error("Failed to save finished good", error);
-      alert("Failed to save finished good");
+    } catch (error: any) {
+      console.error("Failed to save FG item", error);
+      const errMsg = error?.data?.message || error?.message || "Failed to save FG Item. Please check required fields.";
+      alert(`Error saving FG Item: ${errMsg}`);
     }
   };
 
@@ -77,6 +98,7 @@ export default function FinishedGoodsPage() {
           onAdd={() => {
             setEditingItem(null);
             setFormData({});
+            setPhotos([]);
             setIsModalOpen(true);
           }} 
           data={finishedGoods} 
@@ -85,22 +107,42 @@ export default function FinishedGoodsPage() {
         />
       </div>
 
-      <FGItemForm
+      <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onSubmit={handleSubmit}
-        formData={formData}
-        setFormData={setFormData}
-        categories={categories}
-        locations={locations}
-        customers={customers}
-        materials={materials}
-        fgItems={finishedGoods}
-        photos={photos}
-        setPhotos={setPhotos}
-        loading={isCreating || isUpdating}
-        isEditing={!!editingItem}
-      />
+        title={editingItem ? "Edit FG Item" : "Add FG Item"}
+        maxWidth="6xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <FGItemForm
+            formData={formData}
+            setFormData={setFormData}
+            categories={categories}
+            locations={locations}
+            customers={customers}
+            materials={materials}
+            fgItems={finishedGoods}
+            photos={photos}
+            setPhotos={setPhotos}
+          />
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isCreating || isUpdating}
+              className="px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {isCreating || isUpdating ? "Saving..." : "Save FG Item"}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

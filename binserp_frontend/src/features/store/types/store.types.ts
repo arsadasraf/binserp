@@ -421,8 +421,14 @@ export interface QuotationFormData {
     subtotal: number;
     discount?: number;
     taxAmount?: number;
+    transportationType?: string;
+    transportationCharges?: number;
+    packagingType?: string;
+    packagingCharges?: number;
     totalAmount: number;
     otherDetails?: string;
+    attachedDocument?: string;
+    attachedDocumentName?: string;
     status?: "Draft" | "Sent" | "Accepted" | "Rejected";
 }
 

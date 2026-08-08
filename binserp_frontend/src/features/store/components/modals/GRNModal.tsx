@@ -15,6 +15,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Plus, Trash2, FileText, Camera } from 'lucide-react';
 import { GRNModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
+import { API_BASE_URL } from '@/src/utils/config';
 
 interface MaterialEntry {
     material: string;
@@ -67,11 +68,32 @@ export default function GRNModal({
     const cameraInputRef = React.useRef<HTMLInputElement>(null);
     const galleryInputRef = React.useRef<HTMLInputElement>(null);
 
+    const [prefixSettings, setPrefixSettings] = useState<{ rmBoGrnPrefix?: string; fgGrnPrefix?: string; grnPrefix?: string } | null>(null);
+
+    useEffect(() => {
+        const fetchPrefixes = async () => {
+            try {
+                const token = localStorage.getItem('token');
+                const res = await fetch(`${API_BASE_URL}/api/store/prefix`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.settings) {
+                        setPrefixSettings(data.settings);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch prefix settings:", e);
+            }
+        };
+        fetchPrefixes();
+    }, []);
+
     /**
-     * Generates GRN number based on current date and time
-     * Format: GRN/YYYYMMDD-HHMMSS
+     * Generates GRN number based on type and prefix settings
      */
-    const generateGRNNumber = () => {
+    const generateGRNNumber = (grnType: 'bo' | 'inhouse', customPrefix?: string) => {
         const now = new Date();
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -80,12 +102,20 @@ export default function GRNModal({
         const minutes = String(now.getMinutes()).padStart(2, '0');
         const seconds = String(now.getSeconds()).padStart(2, '0');
 
-        return `GRN/${year}${month}${day}-${hours}${minutes}${seconds}`;
+        const prefix = customPrefix || (grnType === 'inhouse' 
+            ? (prefixSettings?.fgGrnPrefix || 'GRN-FG') 
+            : (prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM'));
+
+        return `${prefix}/${year}${month}${day}-${hours}${minutes}${seconds}`;
     };
 
     // Initialize form when modal opens
     useEffect(() => {
         if (isOpen) {
+            const activePrefix = type === 'inhouse' 
+                ? (prefixSettings?.fgGrnPrefix || 'GRN-FG') 
+                : (prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM');
+
             if (isEditing && initialData) {
                 setGrnNumber(initialData.grnNumber || '');
                 setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : '');
@@ -93,22 +123,19 @@ export default function GRNModal({
                 setCustomer(initialData.customerId || ''); // Assuming customerId in initialData
                 setPoReference(initialData.poReference || '');
                 setExistingPhotos(initialData.photos || []); // Load existing photos
-                // Note: PDF and photos from server are URLs, not files
 
-                // Populate material entries from items array if available
                 if (Array.isArray(initialData.items) && initialData.items.length > 0) {
                     const entries = initialData.items.map((item: any) => ({
-                        material: item.material?._id || item.material || '', // SAFE ACCESS
+                        material: item.material?._id || item.material || '', 
                         materialName: item.materialName || '',
                         quantity: item.quantity || 0,
                         unit: item.unit || '',
                         category: item.category || '',
                         locationId: item.locationId || '',
-                        rate: item.rate || 0,  // FIXED: Populate rate
+                        rate: item.rate || 0,  
                     }));
                     setMaterialEntries(entries);
                 } else {
-                    // Fallback to single material format
                     setMaterialEntries([{
                         material: initialData.material || '',
                         materialName: initialData.materialName || '',
@@ -116,17 +143,17 @@ export default function GRNModal({
                         unit: initialData.unit || '',
                         category: initialData.category || '',
                         locationId: initialData.locationId || '',
-                        rate: initialData.rate || 0,  // FIXED: Populate rate
+                        rate: initialData.rate || 0,  
                     }]);
-                    setQcRequired(initialData.qcRequired || false); // Load QC status if editing
+                    setQcRequired(initialData.qcRequired || false); 
                 }
             } else {
-                setGrnNumber(generateGRNNumber());
+                setGrnNumber(generateGRNNumber(type, activePrefix));
                 setDate(new Date().toISOString().split('T')[0]);
                 setSupplier('');
                 setCustomer('');
                 setPoReference('');
-                setQcRequired(false); // Reset QC status
+                setQcRequired(false); 
                 setPdfFile(null);
                 setPhotoFiles([]);
                 setExistingPhotos([]);

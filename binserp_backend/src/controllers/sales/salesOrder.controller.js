@@ -30,9 +30,34 @@ export const createSalesOrder = asyncHandler(async (req, res) => {
   const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const companyId = getCompanyId(req);
 
-  let { orderNumber, poReference, customer, targetDate, items, totalAmount, status, remarks } = req.body;
+  let { orderNumber, poReference, customer, targetDate, items, totalAmount, status, remarks, orderType } = req.body;
+
+  if (!customer || customer === "" || customer === "null" || customer === "undefined") {
+    customer = undefined;
+  }
+  if (poReference === "") {
+    poReference = undefined;
+  }
+
+  const resolvedOrderType = orderType || (poReference ? "PO_BASED" : "DIRECT");
+
   if (typeof items === 'string') {
     items = JSON.parse(items);
+  }
+
+  // Ensure totalAmount is calculated if not provided correctly and sanitize items
+  let calculatedTotalAmount = 0;
+  if (items && Array.isArray(items)) {
+    items = items.map(item => {
+      const itemCopy = { ...item };
+      if (!itemCopy.fgItem || itemCopy.fgItem === "") delete itemCopy.fgItem;
+      const itemTotal = (itemCopy.quantity || 0) * (itemCopy.pricePerQuantity || 0);
+      calculatedTotalAmount += itemTotal;
+      return {
+        ...itemCopy,
+        totalPrice: itemTotal
+      };
+    });
   }
 
   if (!orderNumber) {
@@ -41,19 +66,6 @@ export const createSalesOrder = asyncHandler(async (req, res) => {
     } else {
       orderNumber = await generateOrderNumber(req);
     }
-  }
-
-  // Ensure totalAmount is calculated if not provided correctly
-  let calculatedTotalAmount = 0;
-  if (items && Array.isArray(items)) {
-    items = items.map(item => {
-      const itemTotal = (item.quantity || 0) * (item.pricePerQuantity || 0);
-      calculatedTotalAmount += itemTotal;
-      return {
-        ...item,
-        totalPrice: itemTotal
-      };
-    });
   }
 
   let photoUrls = [];
@@ -77,12 +89,13 @@ export const createSalesOrder = asyncHandler(async (req, res) => {
     company: companyId,
     orderNumber,
     poReference,
+    orderType: resolvedOrderType,
     customer,
-    targetDate,
+    targetDate: targetDate || new Date(),
     items,
     totalAmount: totalAmount || calculatedTotalAmount,
     status: status || "Pending",
-    createdBy: req.user._id,
+    createdBy: req.user?._id,
     remarks,
     photos: photoUrls,
     pdf: pdfUrl

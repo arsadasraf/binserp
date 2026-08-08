@@ -37,10 +37,17 @@ export default function CategoriesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload = { ...formData };
+      if (!payload.code && payload.name) {
+        const prefix = payload.name.substring(0, 3).toUpperCase();
+        const random = Math.floor(1000 + Math.random() * 9000);
+        payload.code = `CAT-${prefix}-${random}`;
+      }
+
       if (editingItem) {
-        await updateRecord({ tab: "category", id: editingItem._id, body: formData }).unwrap();
+        await updateRecord({ tab: "category", id: editingItem._id, body: payload }).unwrap();
       } else {
-        await createRecord({ tab: "category", body: formData }).unwrap();
+        await createRecord({ tab: "category", body: payload }).unwrap();
       }
       setIsModalOpen(false);
       setFormData({});
@@ -71,8 +78,8 @@ export default function CategoriesPage() {
       <Modal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)}
-        title={editingItem ? "Edit Category" : "Add Category"}
-        maxWidth="3xl"
+        title={editingItem ? "Edit Rm/Bo Category" : "Add Rm/Bo Category"}
+        maxWidth="5xl"
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <MasterForm
@@ -93,7 +100,7 @@ export default function CategoriesPage() {
               disabled={isCreating || isUpdating}
               className="px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
             >
-              {isCreating || isUpdating ? "Saving..." : "Save Category"}
+              {isCreating || isUpdating ? "Saving..." : "Save Rm/Bo Category"}
             </button>
           </div>
         </form>

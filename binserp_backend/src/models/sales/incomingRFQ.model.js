@@ -55,6 +55,8 @@ export const incomingRFQSchema = new mongoose.Schema(
       ref: "User",
     },
     pdf: String,
+    attachedDocument: String,
+    attachedDocumentName: String,
   },
   { timestamps: true }
 );

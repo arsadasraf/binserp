@@ -54,7 +54,7 @@ export const IncomingPOTable: React.FC<IncomingPOTableProps> = ({
             className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white font-medium text-sm rounded-lg shadow-sm hover:bg-indigo-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Create PO</span>
+            <span>Create Inward PO</span>
           </button>
         </div>
       </div>

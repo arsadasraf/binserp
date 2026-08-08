@@ -72,7 +72,7 @@ export default function LocationsPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)}
         title={editingItem ? "Edit Location" : "Add Location"}
-        maxWidth="3xl"
+        maxWidth="5xl"
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <MasterForm

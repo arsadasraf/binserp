@@ -9,6 +9,7 @@ const getCompanyId = (req) => {
 
 export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
+  const FGItem = req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
   const { fgItem, price, taxRate, remarks } = req.body;
 
@@ -16,15 +17,19 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "FG Item, price, and tax rate are required." });
   }
 
-  // Ensure fgItem is an ObjectId
   const fgItemObjectId = new mongoose.Types.ObjectId(fgItem);
 
-  // Upsert the price list entry for this company and fgItem
   const priceListEntry = await PriceList.findOneAndUpdate(
     { company: companyId, fgItem: fgItemObjectId },
-    { price, taxRate, remarks },
+    { price: Number(price), taxRate: Number(taxRate), remarks },
     { new: true, upsert: true }
   );
+
+  try {
+    await FGItem.findByIdAndUpdate(fgItemObjectId, { sellingPrice: Number(price), taxRate: Number(taxRate) });
+  } catch (err) {
+    console.error("Failed to sync FGItem sellingPrice", err);
+  }
 
   res.status(200).json({
     message: "Price List saved successfully",
@@ -40,8 +45,6 @@ export const getAllPriceLists = asyncHandler(async (req, res) => {
   const priceLists = await PriceList.find({ company: companyId })
     .populate("fgItem")
     .sort({ updatedAt: -1 });
-
-  console.log("PRICE LISTS RETURNED:", JSON.stringify(priceLists, null, 2));
 
   res.status(200).json({ priceLists });
 });

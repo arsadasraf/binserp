@@ -19,10 +19,14 @@ export const salesOrderSchema = new mongoose.Schema(
     poReference: {
       type: String,
     },
+    orderType: {
+      type: String,
+      enum: ["PO_BASED", "DIRECT"],
+      default: "DIRECT",
+    },
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
-      required: true,
     },
     targetDate: {
       type: Date,
@@ -33,7 +37,6 @@ export const salesOrderSchema = new mongoose.Schema(
         fgItem: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "FGItem",
-          required: true,
         },
         type: { type: String, default: "FGItem" },
         name: { type: String, required: true },

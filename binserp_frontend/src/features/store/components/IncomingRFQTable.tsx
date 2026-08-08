@@ -74,7 +74,14 @@ export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItem
               </tr>
             ) : (
               filteredRfqs.map((rfq) => (
-                <tr key={rfq._id} onClick={() => onView(rfq)} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer">
+                <tr 
+                  key={rfq._id} 
+                  onClick={() => {
+                    if (onView) onView(rfq);
+                    else if (onEdit) onEdit(rfq);
+                  }} 
+                  className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors group cursor-pointer"
+                >
                   <td className="px-6 py-4">
                     <span className="font-medium text-gray-900 dark:text-white">{rfq.rfqNumber}</span>
                   </td>

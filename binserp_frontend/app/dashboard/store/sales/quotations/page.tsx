@@ -5,54 +5,77 @@ import QuotationTable from "../../components/tables/QuotationTable";
 import QuotationModal from "../../components/modals/QuotationModal";
 import { useStoreData } from "../../components/hooks/useStoreData";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
-import { Plus } from "lucide-react";
 
 export default function SalesQuotationsPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { quotations, loading, refetch, handleQuotationSubmit, handleQuotationUpdate, handleDelete } = useStoreData("quotation", "vendor", token);
+  const { quotations, fgItems, customers, priceLists, companyInfo, loading, refetch, handleQuotationSubmit, handleQuotationUpdate, handleDelete } = useStoreData("quotation", "vendor", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<any>(null);
+  const [viewingQuotation, setViewingQuotation] = useState<any>(null);
 
   if (loading) return <LoadingSpinner />;
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Quotations</h1>
-          <p className="text-xs text-gray-500">Create and manage customer quotations</p>
-        </div>
-        <button
-          onClick={() => { setEditingQuotation(null); setShowModal(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors"
-        >
-          <Plus size={16} />
-          Create Quotation
-        </button>
-      </div>
-
       <QuotationTable
         data={quotations || []}
+        companyInfo={companyInfo}
+        onCreate={() => { setEditingQuotation(null); setShowModal(true); }}
         onEdit={(q) => { setEditingQuotation(q); setShowModal(true); }}
-        onDelete={(id) => handleDelete("quotation", id)}
+        onView={(q) => { setViewingQuotation(q); }}
+        onDelete={async (id) => {
+          if (confirm("Are you sure you want to delete this Outward Quotation?")) {
+            await handleDelete("quotation", id);
+            refetch();
+          }
+        }}
       />
 
+      {/* Edit or Create Modal */}
       {showModal && (
         <QuotationModal
           isOpen={showModal}
+          isPreview={false}
           onClose={() => { setShowModal(false); setEditingQuotation(null); }}
+          components={fgItems || []}
+          customers={customers || []}
+          priceLists={priceLists || []}
+          companyInfo={companyInfo}
           onSubmit={async (formData) => {
-            if (editingQuotation) {
-              await handleQuotationUpdate(editingQuotation._id, formData);
-            } else {
-              await handleQuotationSubmit(formData);
+            try {
+              if (editingQuotation) {
+                await handleQuotationUpdate(editingQuotation._id, formData);
+                alert("Outward Quotation updated successfully!");
+              } else {
+                await handleQuotationSubmit(formData);
+                alert("Outward Quotation created successfully!");
+              }
+              setShowModal(false);
+              setEditingQuotation(null);
+              refetch();
+            } catch (error: any) {
+              console.error("Failed to save Quotation:", error);
+              const errMsg = error?.data?.message || error?.message || "Failed to save Outward Quotation";
+              alert(errMsg);
             }
-            setShowModal(false);
-            setEditingQuotation(null);
-            refetch();
           }}
           initialData={editingQuotation}
+        />
+      )}
+
+      {/* Read-Only Preview Modal */}
+      {viewingQuotation && (
+        <QuotationModal
+          isOpen={!!viewingQuotation}
+          isPreview={true}
+          onClose={() => setViewingQuotation(null)}
+          components={fgItems || []}
+          customers={customers || []}
+          priceLists={priceLists || []}
+          companyInfo={companyInfo}
+          initialData={viewingQuotation}
+          onSubmit={() => setViewingQuotation(null)}
         />
       )}
     </div>

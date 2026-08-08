@@ -55,6 +55,12 @@ export const quotationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    transportationType: { type: String, default: "Included" },
+    transportationCharges: { type: Number, default: 0 },
+    packagingType: { type: String, default: "Standard" },
+    packagingCharges: { type: Number, default: 0 },
+    attachedDocument: String,
+    attachedDocumentName: String,
     status: {
       type: String,
       enum: ["Draft", "Sent", "Accepted", "Rejected"],

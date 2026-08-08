@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Users, MapPin, Box, Briefcase } from 'lucide-react';
+import { Users, MapPin, Box, Briefcase, Hash, Building2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function MastersLayout({ children }: { children: React.ReactNode }) {
@@ -13,9 +13,11 @@ export default function MastersLayout({ children }: { children: React.ReactNode 
     { name: 'Vendors', href: '/dashboard/store/masters/vendors', icon: Briefcase },
     { name: 'Customers', href: '/dashboard/store/masters/customers', icon: Users },
     { name: 'Locations', href: '/dashboard/store/masters/locations', icon: MapPin },
-    { name: 'Categories', href: '/dashboard/store/masters/categories', icon: Box },
-    { name: 'Materials', href: '/dashboard/store/masters/materials', icon: Box },
-    { name: 'Finished Goods', href: '/dashboard/store/masters/finished-goods', icon: Box },
+    { name: 'Rm/Bo Categories', href: '/dashboard/store/masters/categories', icon: Box },
+    { name: 'Rm/Bo Items', href: '/dashboard/store/masters/materials', icon: Box },
+    { name: 'FG Items', href: '/dashboard/store/masters/finished-goods', icon: Box },
+    { name: 'Prefix Settings', href: '/dashboard/store/masters/prefix-settings', icon: Hash },
+    { name: 'Company Info', href: '/dashboard/store/masters/company-info', icon: Building2 },
   ];
 
   return (

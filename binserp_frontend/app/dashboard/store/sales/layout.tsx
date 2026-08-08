@@ -3,19 +3,20 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShoppingBag, FileText, Receipt, Truck, Tag, Inbox } from 'lucide-react';
+import { ShoppingBag, FileText, Receipt, Truck, Tag, Inbox, FileCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function SalesLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const tabs = [
-    { name: 'Sales Orders', href: '/dashboard/store/sales/orders', icon: ShoppingBag },
-    { name: 'Quotations', href: '/dashboard/store/sales/quotations', icon: FileText },
-    { name: 'Billing', href: '/dashboard/store/sales/billing', icon: Receipt },
-    { name: 'Delivery Challans (DC)', href: '/dashboard/store/sales/dc', icon: Truck },
-    { name: 'Price List', href: '/dashboard/store/sales/price-list', icon: Tag },
-    { name: 'Incoming RFQ', href: '/dashboard/store/sales/rfq', icon: Inbox },
+    { name: 'Inward RFQ', href: '/dashboard/store/sales/rfq', icon: Inbox },
+    { name: 'Outward Quotation', href: '/dashboard/store/sales/quotations', icon: FileText },
+    { name: 'Inward PO', href: '/dashboard/store/sales/po', icon: FileCheck },
+    { name: 'Sales Order', href: '/dashboard/store/sales/orders', icon: ShoppingBag },
+    { name: 'DC', href: '/dashboard/store/sales/dc', icon: Truck },
+    { name: 'Invoice', href: '/dashboard/store/sales/billing', icon: Receipt },
+    { name: 'FG Pricelist', href: '/dashboard/store/sales/price-list', icon: Tag },
   ];
 
   return (
