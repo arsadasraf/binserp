@@ -118,7 +118,7 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
 
 export const TAG_TYPES = [
   "Orders", "PpcOrders", "ProductionOrders", "RouteCards", "Jobs", "MaterialPlans", "Backlog", "PPCProduct", "FGItem",
-  "Machines", "MachineCategories", "MachineLocations", "MachineMaintenance", "MachineAssignments", "MachinePlans",
+  "Machines", "MachineCategories", "MachineLocations", "MachineMaintenance", "MachineAssignments", "MachinePlans", "Workstations",
   "Processes", "Shifts", "Manpower", "ManpowerMaster", "Skills", "Components",
   "ProcurementDashboard", "Allotments", "Boms",
   "StoreDc", "StoreInvoice", "StoreGrn", "StoreMaterialIssue", "StoreBom", "StoreInventory", "StoreMaterialRequest", "StoreMasters", "StorePo", "StoreQuotation", "StoreOrder", "StorePriceList", "IncomingRFQ",

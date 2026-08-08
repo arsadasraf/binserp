@@ -10,7 +10,7 @@ export const machineSchema = new mongoose.Schema(
     // ── Identity ──────────────────────────────────────
     machineCode:   { type: String, required: true },
     machineName:   { type: String, required: true },
-    machineType:   { type: String, required: true }, // e.g. Lathe, CNC
+    machineType:   { type: String, default: "General" }, // e.g. Lathe, CNC, General
     make:          String,
     model:         String,
     serialNumber:  String,

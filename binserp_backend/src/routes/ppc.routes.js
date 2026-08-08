@@ -221,8 +221,20 @@ router.route("/shift/:id").put(updateShift).delete(deleteShift);
 router.route("/machine-assignment").post(createMachineAssignment).get(getMachineAssignments);
 router.route("/machine-assignment/:id").put(updateMachineAssignment).delete(deleteMachineAssignment);
 
+import {
+  createWorkstation,
+  getWorkstations,
+  getWorkstationById,
+  updateWorkstation,
+  deleteWorkstation
+} from "../controllers/ppc/workstation.controller.js";
+
 // Machine Maintenance Routes
 router.route("/machine-maintenance").post(createMaintenanceRecord).get(getMaintenanceRecords);
 router.route("/machine-maintenance/:id").put(updateMaintenanceRecord);
+
+// Workstation Routes
+router.route("/workstation").post(createWorkstation).get(getWorkstations);
+router.route("/workstation/:id").get(getWorkstationById).put(updateWorkstation).delete(deleteWorkstation);
 
 export default router;

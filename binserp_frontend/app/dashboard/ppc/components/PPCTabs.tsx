@@ -1,20 +1,20 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
-
-import { LayoutDashboard, ShoppingCart, CalendarClock, Settings, Activity, FileText, Calendar, Sliders, Database, DollarSign, Truck } from "lucide-react"; // Added Truck
+import { LayoutDashboard, FileText, Calendar, Database, Activity } from "lucide-react";
 import { motion } from "framer-motion";
 
-type PPCTab = "overview" | "orders" | "planning" | "master";
+type PPCTab = "overview" | "orders" | "planning" | "tracing" | "master";
 
 interface PPCTabsProps {
-    activeTab: PPCTab;
+    activeTab?: PPCTab;
 }
 
 export default function PPCTabs({ activeTab }: PPCTabsProps) {
     const { showBottomNav } = useHeader();
-    
+    const pathname = usePathname();
     const [department, setDepartment] = useState<string>("");
 
     useEffect(() => {
@@ -33,19 +33,29 @@ export default function PPCTabs({ activeTab }: PPCTabsProps) {
 
     const isExecutive = department === "PPC Executive";
     
+    // Determine active tab from URL pathname if activeTab prop is omitted
+    const currentTab = activeTab || (
+        pathname?.includes("/dashboard/ppc/orders") ? "orders" :
+        pathname?.includes("/dashboard/ppc/planning") ? "planning" :
+        pathname?.includes("/dashboard/ppc/tracing") ? "tracing" :
+        pathname?.includes("/dashboard/ppc/master") ? "master" :
+        "overview"
+    );
+
     const tabs = [
-        { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/ppc?tab=overview" },
-        { id: "orders", label: "Orders", icon: FileText, href: "/dashboard/ppc?tab=orders&subTab=new-order" },
-        { id: "planning", label: "Planning", icon: Calendar, href: "/dashboard/ppc?tab=planning" },
-        { id: "master", label: "Master", icon: Database, href: "/dashboard/ppc?tab=master&subTab=machine-list" },
+        { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/ppc/overview" },
+        { id: "orders", label: "Orders", icon: FileText, href: "/dashboard/ppc/orders" },
+        { id: "planning", label: "Planning", icon: Calendar, href: "/dashboard/ppc/planning" },
+        { id: "tracing", label: "Traceability", icon: Activity, href: "/dashboard/ppc/tracing" },
+        { id: "master", label: "Master", icon: Database, href: "/dashboard/ppc/master/shop-floor/workstation" },
     ].filter(tab => !(tab.id === "master" && isExecutive));
 
     return (
         <>
             {/* Desktop View: Modern Floating Tabs */}
-            <div className="hidden md:flex mb-8 items-center bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 w-fit mx-auto md:mx-0">
+            <div className="hidden md:flex mb-6 items-center bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 w-fit mx-auto md:mx-0">
                 {tabs.map((tab) => {
-                    const isActive = activeTab === tab.id;
+                    const isActive = currentTab === tab.id;
                     const Icon = tab.icon;
                     return (
                         <Link
@@ -72,9 +82,9 @@ export default function PPCTabs({ activeTab }: PPCTabsProps) {
             </div>
 
             {/* Mobile View: Glassmorphic Bottom Bar */}
-            <div className={`md:hidden fixed bottom-4 left-4 right-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-white/20 dark:border-gray-700/30 shadow-2xl rounded-2xl z-[100] flex justify-between py-3 px-6 safe-area-pb transition-all duration-300 ${showBottomNav ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'}`}>
+            <div className={`md:hidden fixed bottom-4 left-4 right-4 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border border-white/20 dark:border-gray-700/30 shadow-2xl rounded-2xl z-[100] flex justify-between py-3 px-4 safe-area-pb transition-all duration-300 ${showBottomNav ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'}`}>
                 {tabs.map((tab) => {
-                    const isActive = activeTab === tab.id;
+                    const isActive = currentTab === tab.id;
                     const Icon = tab.icon;
                     return (
                         <Link

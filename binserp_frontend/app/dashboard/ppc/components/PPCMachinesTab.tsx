@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Search, Edit2, Trash2, MapPin, Camera, X, FileText, Download, Eye, Briefcase, User, Clock, ArrowRight, ClipboardList, CheckCircle, Cpu, Settings, Hash } from "lucide-react";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import Modal from "@/src/components/Modal";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useRouter } from "next/navigation";
 import {
   useGetMachinesQuery,
   useGetMachineCategoriesQuery,
   useGetMachineLocationsQuery,
   useGetProcessesQuery,
+  useGetWorkstationsQuery,
   useCreateMachineMutation,
   useUpdateMachineMutation,
   useDeleteMachineMutation,
@@ -90,166 +92,71 @@ function EmptyState({ message, onAction }: { message: string, onAction?: () => v
 // --- MachineDetailView sub-component ---
 interface MachineDetailViewProps {
     machine: any;
-    categories: MachineCategory[];
-    locations: MachineLocation[];
-    processes: Process[];
     onEdit: () => void;
     onDownloadPDF: () => void;
     onClose: () => void;
 }
 
-function MachineDetailView({ machine, categories, locations, processes, onEdit, onDownloadPDF, onClose }: MachineDetailViewProps) {
-    const [activeTab, setActiveTab] = useState<'details' | 'capabilities' | 'maintenance'>('details');
-    const [showMaintModal, setShowMaintModal] = useState(false);
-    const [maintForm, setMaintForm] = useState<any>({ type: 'Breakdown', severity: 'Medium', description: '' });
-    const [submittingMaint, setSubmittingMaint] = useState(false);
-
-    const { data: maintenanceRecords = [], isLoading: loadingMaint, refetch: refetchMaint } = useGetMachineMaintenanceQuery(
-      machine._id,
-      { skip: activeTab !== 'maintenance' }
-    );
-    const [createMaintenance] = useCreateMachineMaintenanceMutation();
-
-    const submitMaint = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSubmittingMaint(true);
-        try {
-            const res = await createMaintenance({ ...maintForm, machine: machine._id });
-            if (!('error' in res)) {
-                setShowMaintModal(false);
-                setMaintForm({ type: 'Breakdown', severity: 'Medium', description: '' });
-                refetchMaint();
-            }
-        } catch (e) { console.error(e); }
-        finally { setSubmittingMaint(false); }
-    };
-
-    const catName = categories.find(c => c._id === (typeof machine.category === 'string' ? machine.category : machine.category?._id))?.categoryName || '—';
-    const locName = locations.find(l => l._id === (typeof machine.location === 'string' ? machine.location : machine.location?._id))?.locationName || '—';
-
-    const maintStatusColor = (s: string) => ({ Open: 'bg-red-100 text-red-700', InProgress: 'bg-amber-100 text-amber-700', Resolved: 'bg-green-100 text-green-700', Closed: 'bg-gray-100 text-gray-600' }[s] || 'bg-gray-100 text-gray-500');
-    const maintTypeColor = (t: string) => ({ Breakdown: 'bg-red-50 text-red-600', Preventive: 'bg-blue-50 text-blue-600', Corrective: 'bg-orange-50 text-orange-600', Inspection: 'bg-teal-50 text-teal-600' }[t] || 'bg-gray-50 text-gray-500');
-
+function MachineDetailView({ machine, onEdit, onDownloadPDF, onClose }: MachineDetailViewProps) {
     return (
-        <div className="space-y-4">
+        <div className="space-y-5">
             {/* Header */}
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start border-b border-gray-100 dark:border-gray-800 pb-4">
                 <div>
                     <h3 className="text-xl font-bold text-gray-900 dark:text-white">{machine.machineName}</h3>
-                    <p className="text-sm text-gray-400 font-mono">{machine.machineCode}</p>
+                    <p className="text-sm text-gray-400 font-mono mt-0.5">{machine.machineCode}</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={onDownloadPDF} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100"><Download size={14} /> PDF</button>
-                    <button onClick={onEdit} className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"><Edit2 size={14} /> Edit</button>
+                    <button onClick={onDownloadPDF} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-colors">
+                        <Download size={14} /> PDF
+                    </button>
+                    <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors">
+                        <Edit2 size={14} /> Edit
+                    </button>
                 </div>
             </div>
 
-            {/* Tab Bar */}
-            <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
-                {(['details', 'capabilities', 'maintenance'] as const).map(t => (
-                    <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-all capitalize ${activeTab === t ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>{t}</button>
-                ))}
-            </div>
-
-            {/* Photos strip */}
+            {/* Photos Gallery */}
             {machine.photos && machine.photos.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                    {machine.photos.map((p: string, i: number) => (<img key={i} src={p} alt="" className="h-20 w-24 rounded-lg object-cover flex-shrink-0 border border-gray-100" />))}
-                </div>
-            )}
-
-            {/* DETAILS TAB */}
-            {activeTab === 'details' && (
-                <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                        {[['Make', machine.make], ['Model', machine.model], ['Serial No.', machine.serialNumber], ['Commission Year', machine.commissionYear], ['Category', catName], ['Location', locName], ['Status', machine.status], ['Hourly Rate', machine.hourlyRate ? `₹${machine.hourlyRate}` : null]].map(([k, v]) => (
-                            <div key={k as string} className="bg-gray-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">{k}</p><p className="text-gray-900 font-medium mt-0.5">{(v as any) || '—'}</p></div>
+                <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Camera size={13} className="text-blue-500" /> Equipment Photos
+                    </label>
+                    <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                        {machine.photos.map((p: string, i: number) => (
+                            <img key={i} src={p} alt={`Machine Photo ${i}`} className="h-24 w-32 rounded-xl object-cover flex-shrink-0 border border-gray-200 shadow-sm" />
                         ))}
                     </div>
-                    {machine.description && (<div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700">{machine.description}</div>)}
                 </div>
             )}
 
-            {/* CAPABILITIES TAB */}
-            {activeTab === 'capabilities' && (
-                <div>
-                    {(!machine.processes || machine.processes.length === 0) ? (
-                        <div className="text-center py-10 text-gray-400 text-sm">No capabilities assigned yet. Edit the machine to add processes.</div>
-                    ) : (
-                        <div className="space-y-2">
-                            {machine.processes.map((proc: any, i: number) => {
-                                const procId = typeof proc === 'string' ? proc : proc._id;
-                                const p = processes.find(x => x._id === procId) || proc;
-                                return (
-                                    <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
-                                        <span className="text-xs font-mono bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">{p?.processCode || '—'}</span>
-                                        <span className="text-sm font-medium text-gray-900 flex-1">{p?.processName || '—'}</span>
-                                        {p?.description && <span className="text-xs text-gray-400">{p.description}</span>}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
+            {/* Machine Physical Details Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-bold">Make</p>
+                    <p className="text-gray-900 dark:text-white font-medium mt-0.5">{machine.make || '—'}</p>
                 </div>
-            )}
-
-            {/* MAINTENANCE TAB */}
-            {activeTab === 'maintenance' && (
-                <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                        <p className="text-sm font-semibold text-gray-700">Maintenance History</p>
-                        <button onClick={() => setShowMaintModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"><Plus size={12} /> Report Issue</button>
-                    </div>
-                    {loadingMaint ? <div className="text-center py-6"><LoadingSpinner /></div> : maintenanceRecords.length === 0 ? (
-                        <div className="text-center py-10 text-gray-400 text-sm">No maintenance records found.</div>
-                    ) : (
-                        <div className="space-y-2 max-h-72 overflow-y-auto">
-                            {maintenanceRecords.map((r, i) => (
-                                <div key={i} className="p-3 border border-gray-100 rounded-xl bg-gray-50">
-                                    <div className="flex justify-between items-start">
-                                        <div className="flex gap-2 items-center">
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${maintTypeColor(r.type)}`}>{r.type}</span>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${maintStatusColor(r.status)}`}>{r.status}</span>
-                                        </div>
-                                        <span className="text-[10px] text-gray-400">{new Date(r.reportedAt).toLocaleDateString()}</span>
-                                    </div>
-                                    <p className="text-xs text-gray-700 mt-1.5 font-medium">{r.description}</p>
-                                    {r.downtime && <p className="text-[10px] text-gray-400 mt-1">Downtime: {r.downtime}h</p>}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {/* Report Modal */}
-                    {showMaintModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-                            <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl m-4">
-                                <h3 className="font-bold text-gray-900 mb-4">Report Maintenance / Breakdown</h3>
-                                <form onSubmit={submitMaint} className="space-y-3">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1 block">Type</label>
-                                            <select value={maintForm.type} onChange={e => setMaintForm({ ...maintForm, type: e.target.value })} className="w-full border rounded-lg p-2 text-sm"><option>Breakdown</option><option>Preventive</option><option>Corrective</option><option>Inspection</option></select>
-                                        </div>
-                                        <div><label className="text-xs font-medium text-gray-600 mb-1 block">Severity</label>
-                                            <select value={maintForm.severity} onChange={e => setMaintForm({ ...maintForm, severity: e.target.value })} className="w-full border rounded-lg p-2 text-sm"><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select>
-                                        </div>
-                                    </div>
-                                    <div><label className="text-xs font-medium text-gray-600 mb-1 block">Description *</label>
-                                        <textarea required rows={3} value={maintForm.description} onChange={e => setMaintForm({ ...maintForm, description: e.target.value })} className="w-full border rounded-lg p-2 text-sm" placeholder="Describe the issue..." />
-                                    </div>
-                                    <div className="flex gap-2 justify-end pt-2">
-                                        <button type="button" onClick={() => setShowMaintModal(false)} className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg">Cancel</button>
-                                        <button type="submit" disabled={submittingMaint} className="px-4 py-2 text-sm text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-60">{submittingMaint ? 'Saving...' : 'Submit'}</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    )}
+                <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-bold">Model</p>
+                    <p className="text-gray-900 dark:text-white font-medium mt-0.5">{machine.model || '—'}</p>
                 </div>
-            )}
-
-            <div className="flex justify-end pt-3 border-t">
-                <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">Close</button>
+                <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-bold">Serial No.</p>
+                    <p className="text-gray-900 dark:text-white font-medium mt-0.5 font-mono">{machine.serialNumber || '—'}</p>
+                </div>
+                <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-bold">Commission Year</p>
+                    <p className="text-gray-900 dark:text-white font-medium mt-0.5">{machine.commissionYear || '—'}</p>
+                </div>
             </div>
+
+            {/* Description */}
+            {machine.description && (
+                <div className="bg-gray-50 dark:bg-gray-800/40 rounded-xl p-4 text-xs text-gray-700 dark:text-gray-300 border border-gray-100 dark:border-gray-800">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-bold mb-1">Description / Notes</p>
+                    <p>{machine.description}</p>
+                </div>
+            )}
         </div>
     );
 }
@@ -257,11 +164,17 @@ function MachineDetailView({ machine, categories, locations, processes, onEdit, 
 // --- Main Component ---
 interface PPCMachinesTabProps {
     initialTab?: SubTab;
+    hideSubNav?: boolean;
 }
 
-export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachinesTabProps) {
+export default function PPCMachinesTab({ initialTab = "machine-list", hideSubNav = true }: PPCMachinesTabProps) {
+    const router = useRouter();
     const [subTab, setSubTab] = useState<SubTab>(initialTab);
     const [searchTerm, setSearchTerm] = useState("");
+
+    useEffect(() => {
+        setSubTab(initialTab);
+    }, [initialTab]);
 
     // Modal State
     const [showModal, setShowModal] = useState(false);
@@ -277,6 +190,7 @@ export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachi
     const { data: categories = [], isLoading: categoriesLoading } = useGetMachineCategoriesQuery();
     const { data: locations = [], isLoading: locationsLoading } = useGetMachineLocationsQuery();
     const { data: processes = [], isLoading: processesLoading } = useGetProcessesQuery();
+    const { data: workstations = [] } = useGetWorkstationsQuery();
 
     // RTK Query Mutations
     const [createMachine] = useCreateMachineMutation();
@@ -567,62 +481,92 @@ export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachi
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
 
 
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Make/Year</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Make / Model</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comm. Year</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Workstation Status</th>
                                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {filteredItems.map((item: any) => (
-                                        <tr
-                                            key={item._id}
-                                            onClick={() => setViewingItem(item)}
-                                            className="hover:bg-gray-50 transition-colors cursor-pointer group"
-                                        >
-                                            <td className="px-6 py-4 whitespace-nowrap">
-                                                {item.photos && item.photos.length > 0 ? (
-                                                    <div className="h-8 w-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden">
-                                                        <img src={item.photos[0]} alt="Machine" className="h-full w-full object-cover" />
-                                                    </div>
-                                                ) : (
-                                                    <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400">
-                                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.machineCode}</td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{item.machineName}</td>
+                                    {filteredItems.map((item: any) => {
+                                        const assignedWs = workstations.find((w: any) =>
+                                            Array.isArray(w.machines) &&
+                                            w.machines.some((m: any) => (typeof m === 'object' ? m._id : m) === item._id)
+                                        );
 
-
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {item.make} {item.commissionYear ? `(${item.commissionYear})` : ''}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {categories.find(c => c._id === item.category)?.categoryName || '-'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                {locations.find(l => l._id === item.location)?.locationName || '-'}
-                                            </td>
-                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleEdit(item); }}
-                                                    className="text-indigo-600 hover:text-indigo-900 mr-4 p-1 rounded hover:bg-indigo-50"
-                                                    title="Edit"
-                                                >
-                                                    <Edit2 size={16} />
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); handleDelete(item._id); }}
-                                                    className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
-                                                    title="Delete"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                        return (
+                                            <tr
+                                                key={item._id}
+                                                onClick={() => setViewingItem(item)}
+                                                className="hover:bg-gray-50 transition-colors cursor-pointer group"
+                                            >
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {item.photos && item.photos.length > 0 ? (
+                                                        <div className="h-9 w-9 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center overflow-hidden shadow-sm">
+                                                            <img src={item.photos[0]} alt="Machine" className="h-full w-full object-cover" />
+                                                        </div>
+                                                    ) : (
+                                                        <div className="h-9 w-9 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400">
+                                                            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 font-mono">{item.machineCode}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-800">{item.machineName}</td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                                    {[item.make, item.model].filter(Boolean).join(" - ") || "—"}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    {item.commissionYear || '—'}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                    {assignedWs ? (
+                                                        assignedWs.workstationType === "ASSEMBLY_LINE" ? (
+                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                                                                <CheckCircle className="w-3 h-3 mr-1 text-purple-600" />
+                                                                Line: {assignedWs.workstationName}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                                                <CheckCircle className="w-3 h-3 mr-1 text-indigo-600" />
+                                                                Single: {assignedWs.workstationName}
+                                                            </span>
+                                                        )
+                                                    ) : (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                                            Unassigned
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            router.push(`/dashboard/ppc/master/shop-floor/workstation?createForMachine=${item._id}`);
+                                                        }}
+                                                        className="inline-flex items-center px-2.5 py-1 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg mr-3 transition-colors shadow-sm"
+                                                        title="Create or assign workstation for this machine"
+                                                    >
+                                                        <Plus size={13} className="mr-1" /> Workstation
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleEdit(item); }}
+                                                        className="text-indigo-600 hover:text-indigo-900 mr-3 p-1 rounded hover:bg-indigo-50"
+                                                        title="Edit Machine"
+                                                    >
+                                                        <Edit2 size={16} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleDelete(item._id); }}
+                                                        className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                                                        title="Delete Machine"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -737,29 +681,31 @@ export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachi
                 </button>
             </div>
 
-            {/* Sub-tabs Navigation */}
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                {[
-                    { id: 'machine-list', label: 'Machine List' },
-                    { id: 'category', label: 'Categories' },
-                    { id: 'process', label: 'Processes' },
-                    { id: 'location', label: 'Locations' },
-                ].map((tab) => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setSubTab(tab.id as SubTab)}
-                        className={`
-                            px-4 py-2 rounded-md text-sm font-medium transition-all duration-200
-                            ${subTab === tab.id
-                                ? 'bg-white text-indigo-600 shadow-sm'
-                                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
-                            }
-                        `}
-                    >
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
+            {/* Sub-tabs Navigation (rendered only when hideSubNav is false) */}
+            {!hideSubNav && (
+                <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+                    {[
+                        { id: 'machine-list', label: 'Machine List' },
+                        { id: 'category', label: 'Categories' },
+                        { id: 'process', label: 'Processes' },
+                        { id: 'location', label: 'Locations' },
+                    ].map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setSubTab(tab.id as SubTab)}
+                            className={`
+                                px-4 py-2 rounded-md text-sm font-medium transition-all duration-200
+                                ${subTab === tab.id
+                                    ? 'bg-white text-indigo-600 shadow-sm'
+                                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
+                                }
+                            `}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {/* Content Area */}
             {renderTable()}
@@ -891,51 +837,10 @@ export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachi
                                         <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><Clock size={12} className="text-indigo-500"/> Comm. Year</label>
                                         <input type="number" placeholder="YYYY" value={formData.commissionYear || ''} onChange={e => setFormData({ ...formData, commissionYear: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border placeholder-gray-300" />
                                     </div>
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><ClipboardList size={12} className="text-indigo-500"/> Category <span className="text-red-500">*</span></label>
-                                        <select required value={formData.category || ''} onChange={e => setFormData({ ...formData, category: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border appearance-none">
-                                            <option value="">Select Category</option>
-                                            {categories.map(c => (<option key={c._id} value={c._id}>{c.categoryName}</option>))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><MapPin size={12} className="text-indigo-500"/> Location</label>
-                                        <select value={formData.location || ''} onChange={e => setFormData({ ...formData, location: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border appearance-none">
-                                            <option value="">Select Location</option>
-                                            {locations.map(l => (<option key={l._id} value={l._id}>{l.locationName}</option>))}
-                                        </select>
-                                    </div>
-
                                     {/* Row 3 - Description */}
                                     <div className="col-span-1 md:col-span-2 lg:col-span-4">
-                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={12} className="text-indigo-500"/> Description</label>
-                                        <textarea rows={1} placeholder="Additional details..." value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border resize-none custom-scrollbar placeholder-gray-300" />
-                                    </div>
-
-                                    {/* Row 4 - Capabilities */}
-                                    <div className="col-span-1 md:col-span-2 lg:col-span-4 border-t border-gray-100 pt-4 mt-2">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1.5"><Settings size={12} className="text-purple-500"/> Capabilities</label>
-                                            <button type="button" onClick={() => { const cur = formData.processes || []; setFormData({ ...formData, processes: [...cur, ""] }); }} className="inline-flex items-center px-2 py-1 border border-transparent text-[10px] font-bold rounded text-purple-700 bg-purple-100 hover:bg-purple-200 shadow-sm transition-colors uppercase tracking-wide">
-                                                <Plus className="h-3 w-3 mr-1" /> Add Process
-                                            </button>
-                                        </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            {(!formData.processes || formData.processes.length === 0) && (
-                                                <div className="text-xs text-gray-400 italic py-1">No capabilities added.</div>
-                                            )}
-                                            {formData.processes && formData.processes.map((procId: string, index: number) => (
-                                                <div key={index} className="flex gap-1 items-center bg-gray-50 p-1 pl-2 rounded-lg border border-gray-200 w-full sm:w-auto min-w-[200px]">
-                                                    <select value={procId} onChange={e => { const np = [...formData.processes]; np[index] = e.target.value; setFormData({ ...formData, processes: np }); }} className="flex-1 bg-transparent text-sm border-none focus:ring-0 p-0 text-gray-700">
-                                                        <option value="">Select Process...</option>
-                                                        {processes.map(p => (<option key={p._id} value={p._id}>{p.processName}</option>))}
-                                                    </select>
-                                                    <button type="button" onClick={() => { const np = formData.processes.filter((_: any, i: number) => i !== index); setFormData({ ...formData, processes: np }); }} className="p-1 text-red-400 hover:text-red-600 rounded">
-                                                        <X size={14} />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
+                                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1.5"><FileText size={12} className="text-indigo-500"/> Description / Notes</label>
+                                        <textarea rows={2} placeholder="Physical equipment specs, technical notes..." value={formData.description || ''} onChange={e => setFormData({ ...formData, description: e.target.value })} className="block w-full border-gray-200 rounded-xl shadow-sm focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white transition-all text-sm p-2.5 border resize-none custom-scrollbar placeholder-gray-300" />
                                     </div>
 
                                     {/* Row 5 - Photos */}
@@ -994,9 +899,6 @@ export default function PPCMachinesTab({ initialTab = "machine-list" }: PPCMachi
                 {viewingItem && (
                     <MachineDetailView
                         machine={viewingItem}
-                        categories={categories}
-                        locations={locations}
-                        processes={processes}
                         onEdit={() => { setViewingItem(null); handleEdit(viewingItem); }}
                         onDownloadPDF={() => handleDownloadPDF(viewingItem)}
                         onClose={() => setViewingItem(null)}

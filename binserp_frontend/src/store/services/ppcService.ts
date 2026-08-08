@@ -419,6 +419,25 @@ export const ppcService = binsApi.injectEndpoints({
       providesTags: ["Boms"],
     }),
 
+    // ─── Workstations ────────────────────────────────────────────────
+    getWorkstations: builder.query<any[], void>({
+      query: () => "/api/ppc/workstation",
+      transformResponse: (response: any) => response.workstations || [],
+      providesTags: ["Workstations"],
+    }),
+    createWorkstation: builder.mutation<any, any>({
+      query: (body) => ({ url: "/api/ppc/workstation", method: "POST", body }),
+      invalidatesTags: ["Workstations"],
+    }),
+    updateWorkstation: builder.mutation<any, { id: string; body: any }>({
+      query: ({ id, body }) => ({ url: `/api/ppc/workstation/${id}`, method: "PUT", body }),
+      invalidatesTags: ["Workstations"],
+    }),
+    deleteWorkstation: builder.mutation<any, string>({
+      query: (id) => ({ url: `/api/ppc/workstation/${id}`, method: "DELETE" }),
+      invalidatesTags: ["Workstations"],
+    }),
+
     // ─── Auto Schedule ───────────────────────────────────────────────
     autoSchedule: builder.mutation<any, { orderId: string }>({
       query: ({ orderId }) => ({ url: `/api/ppc/auto-schedule/${orderId}`, method: "POST" }),
@@ -445,6 +464,8 @@ export const {
   useGetRouteCardsQuery, useCreateRouteCardMutation,
   // Machines
   useGetMachinesQuery, useCreateMachineMutation, useUpdateMachineMutation, useDeleteMachineMutation,
+  // Workstations
+  useGetWorkstationsQuery, useCreateWorkstationMutation, useUpdateWorkstationMutation, useDeleteWorkstationMutation,
   // Machine Categories
   useGetMachineCategoriesQuery, useCreateMachineCategoryMutation, useUpdateMachineCategoryMutation, useDeleteMachineCategoryMutation,
   // Machine Locations
@@ -463,7 +484,6 @@ export const {
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   // Manpower
   useGetManpowerQuery, useGetManpowerMasterQuery, useCreateManpowerMutation, useUpdateManpowerMutation, useDeleteManpowerMutation,
-  // Components
   // Components
   useGetComponentsQuery, useGetPpcComponentsQuery, useGetComponentQuery,
   useCreateComponentMutation, useUpdateComponentMutation, useDeleteComponentMutation,

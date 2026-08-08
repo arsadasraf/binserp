@@ -4,11 +4,11 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 
-export default function PPCIndexPage() {
+export default function PPCShopFloorIndexPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard/ppc/overview");
+    router.replace("/dashboard/ppc/master/shop-floor/workstation");
   }, [router]);
 
   return (
