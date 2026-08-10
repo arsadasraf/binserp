@@ -29,6 +29,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                     <thead>
                         <tr className="border-b border-gray-100 bg-gray-50/50">
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Request #</th>
+                            <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Target SO</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Type</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Requester</th>
@@ -53,6 +54,15 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                             <div className="text-xs text-gray-500">{request.status}</div>
                                         </div>
                                     </div>
+                                </td>
+                                <td className="p-4">
+                                    {request.soNumber || request.salesOrder?.orderNumber ? (
+                                        <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
+                                            {request.soNumber || request.salesOrder?.orderNumber}
+                                        </span>
+                                    ) : (
+                                        <span className="text-gray-400 text-xs italic">General</span>
+                                    )}
                                 </td>
                                 <td className="p-4">
                                     <span className={`px-2 py-1 rounded text-xs font-medium border ${request.type === 'inhouse'

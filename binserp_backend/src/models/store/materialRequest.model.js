@@ -12,7 +12,7 @@ export const materialRequestSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
-    type: { // Added type field
+    type: {
       type: String,
       enum: ['bo', 'inhouse'],
       default: 'bo'
@@ -22,19 +22,25 @@ export const materialRequestSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    salesOrder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SalesOrder",
+    },
+    soNumber: {
+      type: String,
+    },
     department: {
       type: String,
-      // required: true, // Made optional as per refactoring
     },
     items: [
       {
-        material: { // Added reference to Material
+        material: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
         },
-        materialCode: { type: String }, // Optional for Inhouse
+        materialCode: { type: String },
         materialName: { type: String, required: true },
-        component: { // Link to Component (Inhouse Item)
+        component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component"
         },
@@ -62,7 +68,4 @@ export const materialRequestSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Purchase Order (PO) Schema
-
-// Indexes
 materialRequestSchema.index({ company: 1, requestNumber: 1 });

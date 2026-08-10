@@ -1,8 +1,6 @@
-"use client";
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { RmBoItem } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Package } from "lucide-react";
+import { X, Plus, Trash2, Package, ShoppingCart } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 
 interface MaterialRequestModalProps {
@@ -12,6 +10,7 @@ interface MaterialRequestModalProps {
     materials: RmBoItem[];
     inventoryList?: any[]; // Optional to avoid strict type breaking if not passed immediately
     inHouseComponents?: any[];
+    salesOrders?: any[];
     loading?: boolean;
 }
 
@@ -22,13 +21,21 @@ export default function MaterialRequestModal({
     materials = [],
     inventoryList = [],
     inHouseComponents = [],
+    salesOrders = [],
     loading
 }: MaterialRequestModalProps) {
     const [formData, setFormData] = useState({
         requestNumber: "",
         type: "bo" as "bo" | "inhouse",
+        salesOrder: "",
+        soNumber: "",
         items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined as string | undefined }]
     });
+
+    // Filter open sales orders (status !== 'Completed' && status !== 'Cancelled')
+    const openSalesOrders = useMemo(() => {
+        return (salesOrders || []).filter((so: any) => so.status !== 'Completed' && so.status !== 'Cancelled');
+    }, [salesOrders]);
 
     const generateRequestNumber = () => {
         const now = new Date();
@@ -41,6 +48,8 @@ export default function MaterialRequestModal({
             setFormData({
                 requestNumber: generateRequestNumber(),
                 type: "bo",
+                salesOrder: "",
+                soNumber: "",
                 items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
             });
         }
@@ -60,26 +69,20 @@ export default function MaterialRequestModal({
         const stockItem = inventoryList.find((inv: any) => {
             if (!inv) return false;
 
-            // Check ID match (handle populated or string ID)
             const invMatId = (typeof inv.materialId === 'object' && inv.materialId !== null)
                 ? inv.materialId._id
                 : inv.materialId;
 
             if (invMatId && invMatId.toString() === materialId.toString()) return true;
 
-            // Check Code match (fallback)
             if (materialCode && inv.materialCode &&
                 inv.materialCode.toString().trim().toLowerCase() === materialCode.toString().trim().toLowerCase()) return true;
 
-            // Check Name match (strong fallback)
             if (materialName && inv.materialName &&
                 inv.materialName.toString().trim().toLowerCase() === materialName.toString().trim().toLowerCase()) return true;
 
             return false;
         });
-
-        // Debug log if stock is 0 but we expected something
-        // if (!stockItem) console.log(`No stock found for ${materialName} (${materialCode})`);
 
         return stockItem ? (stockItem.currentStock || 0) : 0;
     };
@@ -97,10 +100,8 @@ export default function MaterialRequestModal({
             ...newItems[index],
             material: materialId,
             materialName: selectedItem?.componentName || selectedItem?.name || "",
-            materialCode: selectedItem?.componentCode || selectedItem?.code || "", // Ensure code is sent
-            // Inhouse items might store unit directly, BO items stores refs usually but check existing logic
+            materialCode: selectedItem?.componentCode || selectedItem?.code || "",
             unit: (formData.type === 'inhouse' ? selectedItem?.unit : (typeof selectedItem?.categoryId === 'object' ? (selectedItem.categoryId as any).unit : "PCS")) || "PCS",
-            // For Inhouse request, we also want to send 'component' key if possible, but backend handles mapping from 'material' or 'component'
             component: formData.type === 'inhouse' ? materialId : undefined
         };
         setFormData({ ...formData, items: newItems });
@@ -170,6 +171,34 @@ export default function MaterialRequestModal({
                 </div>
 
                 <div className="p-6 space-y-6 pb-32">
+                    {/* Target Sales Order Selector */}
+                    <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-100 shadow-sm">
+                        <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                            <ShoppingCart size={15} className="text-indigo-600" /> Target Sales Order (Which Sales Order are you requesting material for?)
+                        </label>
+                        <SearchableSelect
+                            options={openSalesOrders.map((so: any) => ({
+                                value: so._id,
+                                label: `${so.orderNumber || 'SO'} - ${so.customer?.name || 'Customer'} (Status: ${so.status || 'Open'})`
+                            }))}
+                            value={formData.salesOrder || ''}
+                            onChange={(val: any) => {
+                                const selectedSO = openSalesOrders.find((so: any) => so._id === val);
+                                setFormData(prev => ({
+                                    ...prev,
+                                    salesOrder: val,
+                                    soNumber: selectedSO?.orderNumber || ''
+                                }));
+                            }}
+                            placeholder="Select Open Sales Order (e.g. SO-0001)..."
+                        />
+                        {formData.soNumber && (
+                            <div className="mt-2 text-xs text-indigo-700 font-medium">
+                                Bound to Sales Order: <strong className="font-mono bg-indigo-100 px-2 py-0.5 rounded">{formData.soNumber}</strong>
+                            </div>
+                        )}
+                    </div>
+
                     {/* Items Section */}
                     <div>
                         <div className="flex justify-between items-center mb-4">

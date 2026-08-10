@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileText, History, Factory, Boxes } from 'lucide-react';
+import { FileText, Factory, Boxes } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function WipLayout({ children }: { children: React.ReactNode }) {
@@ -11,7 +11,6 @@ export default function WipLayout({ children }: { children: React.ReactNode }) {
 
   const tabs = [
     { name: 'Material Requests', href: '/dashboard/store/wip/requests', icon: FileText },
-    { name: 'Issue History', href: '/dashboard/store/wip/history', icon: History },
     { name: 'Job Work', href: '/dashboard/store/wip/job-work', icon: Factory },
     { name: 'WIP Inventory', href: '/dashboard/store/wip/inventory', icon: Boxes },
   ];

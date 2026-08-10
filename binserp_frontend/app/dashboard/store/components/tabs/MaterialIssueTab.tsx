@@ -9,10 +9,10 @@ import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
 interface MaterialIssueTabProps {
     storeData: any; // Return value of useStoreData
     token: string | null;
+    activeSubTab: 'requests' | 'history';
 }
 
-export default function MaterialIssueTab({ storeData, token }: MaterialIssueTabProps) {
-    const [subTab, setSubTab] = useState<'requests' | 'history'>('requests');
+export default function MaterialIssueTab({ storeData, token, activeSubTab }: MaterialIssueTabProps) {
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [viewRequest, setViewRequest] = useState<any>(null); // State for request details view
     const [viewIssue, setViewIssue] = useState<any>(null); // State for issue details view
@@ -31,6 +31,7 @@ export default function MaterialIssueTab({ storeData, token }: MaterialIssueTabP
         materials,
         inventoryList, // Current Inventory for stock display
         inHouseComponents, // Added
+        salesOrders,
         loading
     } = storeData;
 
@@ -192,35 +193,10 @@ export default function MaterialIssueTab({ storeData, token }: MaterialIssueTabP
         <div className="space-y-6">
             {/* Header / Sub-tabs */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div className="flex bg-gray-100/80 p-1.5 rounded-xl backdrop-blur-sm self-start sm:self-auto">
-                    <button
-                        onClick={() => setSubTab('requests')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${subTab === 'requests'
-                            ? 'bg-white text-blue-600 shadow-sm ring-1 ring-black/5'
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
-                            }`}
-                    >
-                        <CheckSquare size={16} />
-                        New Requests
-                        {pendingRequests.length > 0 && (
-                            <span className="ml-1.5 bg-red-100 text-red-600 text-xs font-bold px-1.5 py-0.5 rounded-full">
-                                {pendingRequests.length}
-                            </span>
-                        )}
-                    </button>
-                    <button
-                        onClick={() => setSubTab('history')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${subTab === 'history'
-                            ? 'bg-white text-blue-600 shadow-sm ring-1 ring-black/5'
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
-                            }`}
-                    >
-                        <History size={16} />
-                        Issued History
-                    </button>
+                <div className="hidden">
                 </div>
 
-                {subTab === 'requests' && (
+                {activeSubTab === 'requests' && (
                     <button
                         onClick={() => setIsRequestModalOpen(true)}
                         className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:shadow-lg hover:shadow-blue-200 transition-all font-medium text-sm active:scale-95"
@@ -232,8 +208,8 @@ export default function MaterialIssueTab({ storeData, token }: MaterialIssueTabP
             </div>
 
             {/* Content Container */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm min-h-[400px] overflow-hidden">
-                {subTab === 'requests' ? (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                {activeSubTab === 'requests' ? (
                     <div className="p-1">
                         <MaterialRequestTable
                             requests={pendingRequests}
@@ -310,6 +286,7 @@ export default function MaterialIssueTab({ storeData, token }: MaterialIssueTabP
                 inventoryList={inventoryList}
                 loading={loading}
                 inHouseComponents={inHouseComponents}
+                salesOrders={salesOrders}
             />
 
             <MaterialRequestDetailsModal

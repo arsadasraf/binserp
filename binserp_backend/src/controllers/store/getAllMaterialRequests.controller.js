@@ -43,9 +43,12 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
+import { salesOrderSchema } from "../../models/sales/index.js";
+
 export const getAllMaterialRequests = async (req, res) => {
   try {
     const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+    req.getModel('SalesOrder', salesOrderSchema);
 
     const companyId = getCompanyId(req);
     const { status, department } = req.query;
@@ -57,6 +60,7 @@ export const getAllMaterialRequests = async (req, res) => {
     const materialRequests = await MaterialRequest.find(query)
       .populate("requestedBy", "name userId department")
       .populate("approvedBy", "name userId")
+      .populate("salesOrder", "orderNumber status customer poReference")
       .sort({ createdAt: -1 });
 
     res.status(200).json({

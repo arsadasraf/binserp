@@ -9,7 +9,7 @@ export const locationSchema = new mongoose.Schema(
     },
     name: { type: String, required: true },
     code: { type: String },
-    type: { type: String, enum: ['Rack', 'Pallet', 'Table', 'Almirah'], default: 'Rack' },
+    type: { type: String, enum: ['Rack', 'Bin', 'Bucket', 'Pallet', 'Table', 'Almirah', 'Shelf', 'Floor', 'Cabinet', 'Box', 'Container'], default: 'Rack' },
     description: String,
   },
   { timestamps: true }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Calendar, User, FileText } from 'lucide-react';
+import { X, Calendar, User, FileText, ShoppingCart } from 'lucide-react';
 
 interface MaterialRequestDetailsModalProps {
     isOpen: boolean;
@@ -52,7 +52,14 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 {request.requestedBy?.name || 'Unknown'}
                             </div>
                         </div>
-                        {/* Removed Department & Priority from display as per user request */}
+                        <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-100">
+                            <div className="flex items-center gap-2 text-indigo-700 text-xs uppercase tracking-wider font-semibold mb-1">
+                                <ShoppingCart size={14} /> Target Sales Order
+                            </div>
+                            <div className="text-indigo-900 font-bold font-mono">
+                                {request.soNumber || request.salesOrder?.orderNumber || 'General Request'}
+                            </div>
+                        </div>
                     </div>
 
                     {/* Items List */}

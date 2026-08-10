@@ -144,8 +144,36 @@ export const jobWorkSchema = new mongoose.Schema(
     receiveHistory: [
       {
         date: { type: Date, default: Date.now },
+        grnNumber: String,
+        vendorDcNumber: String,
+        vendorInvoiceDate: Date,
+        vehicleNo: String,
         itemId: mongoose.Schema.Types.ObjectId,
-        quantity: Number
+        itemName: String,
+        quantity: Number,
+        qcRequired: { type: Boolean, default: true },
+        qcStatus: {
+          type: String,
+          enum: ["Pending", "Passed", "Rejected", "Partial"],
+          default: "Passed"
+        },
+        acceptedQuantity: Number,
+        rejectedQuantity: Number,
+        reworkQuantity: Number,
+        rejectionReason: String,
+        batchNumber: String,
+        documents: [
+          {
+            url: String,
+            filename: String,
+            fileType: String
+          }
+        ],
+        remarks: String,
+        receivedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User"
+        }
       }
     ]
   },

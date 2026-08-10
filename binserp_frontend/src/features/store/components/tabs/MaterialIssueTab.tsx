@@ -31,6 +31,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
         materials,
         inventoryList, // Current Inventory for stock display
         inHouseComponents, // Added
+        salesOrders,
         loading
     } = storeData;
 
@@ -285,6 +286,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
                 inventoryList={inventoryList}
                 loading={loading}
                 inHouseComponents={inHouseComponents}
+                salesOrders={salesOrders}
             />
 
             <MaterialRequestDetailsModal

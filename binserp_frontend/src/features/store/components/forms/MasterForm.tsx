@@ -282,9 +282,16 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                             >
                                 <option value="Rack">Rack</option>
+                                <option value="Bin">Bin</option>
+                                <option value="Bucket">Bucket</option>
                                 <option value="Pallet">Pallet</option>
                                 <option value="Table">Table</option>
                                 <option value="Almirah">Almirah</option>
+                                <option value="Shelf">Shelf</option>
+                                <option value="Floor">Floor</option>
+                                <option value="Cabinet">Cabinet</option>
+                                <option value="Box">Box</option>
+                                <option value="Container">Container</option>
                             </select>
                         </div>
                     )}

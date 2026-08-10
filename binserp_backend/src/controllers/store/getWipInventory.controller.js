@@ -9,27 +9,100 @@ const getCompanyId = (req) => {
 export const getWipInventory = async (req, res) => {
   try {
     const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
+    const MaterialIssue = req.getModel("MaterialIssue", materialIssueSchema);
 
     // Register referenced models
     req.getModel("Vendor", vendorSchema);
     req.getModel("JobWorkSupplier", jobWorkSupplierSchema);
 
     const companyId = getCompanyId(req);
+    const requestedType = (req.query.type || "rm-bo").toLowerCase(); // 'rm-bo' vs 'fg'
 
-    // Fetch all Job Work Challans for company
+    const wipMap = new Map();
+
+    // 1. Process Material Issues (Shop Floor Stock Reduction)
+    const materialIssues = await MaterialIssue.find({ company: companyId })
+      .populate("issuedTo", "name userId department")
+      .sort({ date: -1 });
+
+    materialIssues.forEach((issue) => {
+      const isIssueInhouse = issue.type === "inhouse";
+
+      // Filter by requested WIP inventory category
+      if (requestedType === "fg" && !isIssueInhouse) return;
+      if (requestedType === "rm-bo" && isIssueInhouse) return;
+
+      const issueDept = issue.department || issue.issuedTo?.department || "Shop Floor Assembly";
+
+      (issue.items || []).forEach((item) => {
+        const matName = item.materialName || "Issued Material";
+        const qty = Number(item.quantity) || 0;
+        const unit = item.unit || "PCS";
+        const issueDate = issue.date || issue.createdAt;
+        const key = `issue_${matName.trim().toLowerCase()}_${issueDept.trim().toLowerCase()}`;
+
+        if (!wipMap.has(key)) {
+          wipMap.set(key, {
+            id: key,
+            sentItemName: matName,
+            receivedItemName: matName,
+            itemType: isIssueInhouse ? "fg" : "bo",
+            categoryType: isIssueInhouse ? "FG / In-House WIP" : "RM/BO WIP",
+            vendorName: `Department: ${issueDept}`,
+            processType: "Shop Floor Issue",
+            unit: unit,
+            receivingUnit: unit,
+            totalIssuedQty: 0,
+            totalJobWorkSentQty: 0,
+            totalExpectedQty: 0,
+            totalReturnedQty: 0,
+            pendingWipQty: 0,
+            lastMovementDate: issueDate,
+            transactions: []
+          });
+        }
+
+        const entry = wipMap.get(key);
+        entry.totalIssuedQty += qty;
+        entry.totalExpectedQty += qty;
+        entry.pendingWipQty += qty;
+
+        if (new Date(issueDate) > new Date(entry.lastMovementDate)) {
+          entry.lastMovementDate = issueDate;
+        }
+
+        entry.transactions.push({
+          date: issueDate,
+          type: "Shop Floor Material Issue",
+          docNumber: issue.issueNumber || `ISS-${issue._id.toString().slice(-6)}`,
+          sentQty: qty,
+          receivedQty: 0,
+          unit: unit,
+          processType: "Shop Floor Production",
+          vendorName: issueDept,
+          status: "Issued"
+        });
+      });
+    });
+
+    // 2. Process Job Work Dispatches & Receipts (Subcontractor Stock Reduction)
     const challans = await JobWorkChallan.find({ company: companyId })
       .populate("vendor")
       .sort({ date: -1 });
 
-    // Map to aggregate WIP stock per Item & Vendor
-    const wipMap = new Map();
-
     challans.forEach((challan) => {
-      const vendorObj = challan.vendor || { name: challan.vendorName || "Supplier" };
+      const vendorObj = challan.vendor || { name: challan.vendorName || "Subcontractor" };
       const vendorId = vendorObj._id ? String(vendorObj._id) : "unknown";
-      const vendorName = vendorObj.name || "Supplier";
+      const vendorName = vendorObj.name || "Subcontractor";
 
       (challan.items || []).forEach((sentItem) => {
+        const itemType = (sentItem.itemType || "bo").toLowerCase();
+        const isItemInhouse = itemType === "fg" || itemType === "inhouse" || itemType === "component";
+
+        // Filter by requested WIP inventory category
+        if (requestedType === "fg" && !isItemInhouse) return;
+        if (requestedType === "rm-bo" && isItemInhouse) return;
+
         const sentName = sentItem.itemName || "Sent Material";
         const sentQty = Number(sentItem.quantitySent) || 0;
         const processType = sentItem.processType || "Job Work";
@@ -41,7 +114,7 @@ export const getWipInventory = async (req, res) => {
           ? sentItem.returningItems
           : [{
               receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
-              receivedItemType: sentItem.receivedItemType || "fg",
+              receivedItemType: sentItem.receivedItemType || (isItemInhouse ? "fg" : "bo"),
               quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
               quantityReceived: Number(sentItem.quantityReceived) || 0,
               receivingUnit: sentItem.receivingUnit || unit,
@@ -50,7 +123,7 @@ export const getWipInventory = async (req, res) => {
 
         retList.forEach((ret) => {
           const retName = ret.receivedItemName || sentName;
-          const key = `${sentName.trim().toLowerCase()}_${retName.trim().toLowerCase()}_${vendorId}`;
+          const key = `jw_${sentName.trim().toLowerCase()}_${retName.trim().toLowerCase()}_${vendorId}`;
 
           const expectedQty = Number(ret.quantityToBeReceived) || sentQty;
           const receivedQty = Number(ret.quantityReceived) || 0;
@@ -60,16 +133,17 @@ export const getWipInventory = async (req, res) => {
               id: key,
               sentItemName: sentName,
               receivedItemName: retName,
-              itemType: sentItem.itemType || "bo",
-              receivedItemType: ret.receivedItemType || "fg",
+              itemType: isItemInhouse ? "fg" : "bo",
+              categoryType: isItemInhouse ? "FG / In-House WIP" : "RM/BO WIP",
               vendor: vendorObj,
               vendorName,
               processType,
               unit,
               receivingUnit: ret.receivingUnit || unit,
-              totalSentQty: 0,
+              totalIssuedQty: 0,
+              totalJobWorkSentQty: 0,
               totalExpectedQty: 0,
-              totalReceivedQty: 0,
+              totalReturnedQty: 0,
               pendingWipQty: 0,
               lastMovementDate: challanDate,
               transactions: []
@@ -77,10 +151,10 @@ export const getWipInventory = async (req, res) => {
           }
 
           const entry = wipMap.get(key);
-          entry.totalSentQty += sentQty;
+          entry.totalJobWorkSentQty += sentQty;
           entry.totalExpectedQty += expectedQty;
-          entry.totalReceivedQty += receivedQty;
-          entry.pendingWipQty = entry.totalExpectedQty - entry.totalReceivedQty;
+          entry.totalReturnedQty += receivedQty;
+          entry.pendingWipQty = (entry.totalIssuedQty + entry.totalExpectedQty) - entry.totalReturnedQty;
 
           if (new Date(challanDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = challanDate;
@@ -89,7 +163,7 @@ export const getWipInventory = async (req, res) => {
           // Add Outward Dispatch Transaction
           entry.transactions.push({
             date: challanDate,
-            type: "Outward Dispatch",
+            type: "Job-Work Outward Dispatch",
             docNumber: challan.challanNumber,
             ewayBillNo: challan.ewayBillNo || "",
             sentQty: sentQty,
@@ -105,7 +179,7 @@ export const getWipInventory = async (req, res) => {
             challan.receiveHistory.forEach((hist) => {
               entry.transactions.push({
                 date: hist.date,
-                type: "Job Work Return Receipt",
+                type: "Job-Work Return Receipt",
                 docNumber: challan.challanNumber,
                 ewayBillNo: challan.ewayBillNo || "",
                 sentQty: 0,
@@ -121,32 +195,33 @@ export const getWipInventory = async (req, res) => {
       });
     });
 
-    const wipItems = Array.from(wipMap.values()).map(item => ({
+    const wipItems = Array.from(wipMap.values()).map((item) => ({
       ...item,
       pendingWipQty: item.pendingWipQty > 0 ? item.pendingWipQty : 0,
       status: item.pendingWipQty > 0 ? "In-Process" : "Completed"
     }));
 
     // Calculate Summary Metrics
-    let totalSentQty = 0;
-    let totalExpectedQty = 0;
-    let totalReceivedQty = 0;
+    let totalIssuedQty = 0;
+    let totalJobWorkSentQty = 0;
+    let totalReturnedQty = 0;
     let netPendingWipQty = 0;
 
-    wipItems.forEach(item => {
-      totalSentQty += item.totalSentQty;
-      totalExpectedQty += item.totalExpectedQty;
-      totalReceivedQty += item.totalReceivedQty;
+    wipItems.forEach((item) => {
+      totalIssuedQty += item.totalIssuedQty;
+      totalJobWorkSentQty += item.totalJobWorkSentQty;
+      totalReturnedQty += item.totalReturnedQty;
       netPendingWipQty += item.pendingWipQty;
     });
 
     res.status(200).json({
+      wipType: requestedType,
       wipItems,
       summary: {
         totalItems: wipItems.length,
-        totalSentQty,
-        totalExpectedQty,
-        totalReceivedQty,
+        totalIssuedQty,
+        totalJobWorkSentQty,
+        totalReturnedQty,
         netPendingWipQty
       }
     });

@@ -50,7 +50,7 @@ export const createMaterialRequest = async (req, res) => {
       const FGItem = req.getModel('FGItem', fgItemSchema);
 
     const companyId = getCompanyId(req);
-    let { requestNumber, department, items, priority, type } = req.body;
+    let { requestNumber, department, items, priority, type, salesOrder, soNumber } = req.body;
 
     if (!requestNumber) {
       requestNumber = `PR-${Date.now()}`;
@@ -125,6 +125,8 @@ export const createMaterialRequest = async (req, res) => {
       requestedBy: req.user.id,
       department,
       type: type || 'bo',
+      salesOrder: salesOrder || undefined,
+      soNumber: soNumber || undefined,
       items: processedItems,
       priority: priority || "Medium",
       status: "Pending",
