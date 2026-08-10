@@ -13,10 +13,14 @@ export const createPO = asyncHandler(async (req, res) => {
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
   const companyId = getCompanyId(req);
 
-  const {
+  let {
     poNumber,
     date,
     vendor,
+    vendorName,
+    quotation,
+    quotationNumber,
+    rfqNumber,
     material,
     component,
     materialName,
@@ -30,8 +34,14 @@ export const createPO = asyncHandler(async (req, res) => {
     status
   } = req.body;
 
-  if (!poNumber || !vendor) {
-    throw new ApiError(400, "PO number and vendor are required");
+  if (!poNumber) {
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    poNumber = `PO-${dateStr}-${randomNum}`;
+  }
+
+  if (!vendor) {
+    throw new ApiError(400, "Vendor is required to create PO");
   }
 
   const poData = {
@@ -39,7 +49,11 @@ export const createPO = asyncHandler(async (req, res) => {
     poNumber,
     date: date || new Date(),
     vendor,
-    createdBy: req.user.id,
+    vendorName,
+    quotation,
+    quotationNumber,
+    rfqNumber,
+    createdBy: req.user?.id || req.user?._id,
     status: status || "Released",
   };
 

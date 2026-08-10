@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import IncomingQuotationTab from '@/src/features/store/components/tabs/IncomingQuotationTab';
+import OutwardRfqTab from '@/src/features/store/components/tabs/OutwardRfqTab';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 
-export default function PurchaseVendorQuotationPage() {
+export default function OutwardRfqPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export default function PurchaseVendorQuotationPage() {
         </div>
       )}
 
-      <IncomingQuotationTab
+      <OutwardRfqTab
         token={token}
         onError={(msg) => setErrorMsg(msg)}
         onSuccess={(msg) => setSuccessMsg(msg)}

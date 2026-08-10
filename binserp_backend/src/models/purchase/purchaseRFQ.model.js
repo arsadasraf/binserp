@@ -10,31 +10,39 @@ export const purchaseRFQSchema = new mongoose.Schema(
     rfqNumber: {
       type: String,
       required: true,
-      unique: true,
     },
     date: {
       type: Date,
-      required: true,
       default: Date.now,
     },
-    vendorName: {
-      type: String,
-      required: true,
-    },
+    dueDate: Date,
+    vendorName: String,
     vendorEmail: String,
     vendorPhone: String,
+    vendorIds: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Vendor",
+      }
+    ],
     items: [
       {
+        materialId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "RmBoItem",
+        },
         materialName: String,
         quantity: Number,
+        unit: String,
         uom: String,
+        targetPrice: Number,
         remarks: String,
       },
     ],
     status: {
       type: String,
-      enum: ["Draft", "Sent", "Closed"],
-      default: "Draft",
+      enum: ["Draft", "Sent", "Quoted", "Closed"],
+      default: "Sent",
     },
     remarks: String,
     createdBy: {
@@ -44,3 +52,5 @@ export const purchaseRFQSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+purchaseRFQSchema.index({ company: 1, rfqNumber: 1 }, { unique: true });

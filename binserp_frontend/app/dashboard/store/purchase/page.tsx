@@ -7,7 +7,7 @@ export default function PurchaseRootPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/dashboard/store/purchase/po");
+    router.replace("/dashboard/store/purchase/mrp");
   }, [router]);
 
   return (

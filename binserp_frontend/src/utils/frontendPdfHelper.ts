@@ -277,3 +277,674 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
 
     printWindow.document.close();
 };
+
+export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyInfo?: any }) => {
+    const { rfq, vendor, companyInfo } = data;
+
+    if (!rfq) {
+        alert("No RFQ data provided for PDF generation");
+        return;
+    }
+
+    // Resolve Vendor Details
+    const vendorName = vendor?.name || rfq.vendorName || 'SUPPLIER / VENDOR';
+    const vendorAddress = vendor?.address || vendor?.billingAddress || vendor?.street || '';
+    const vendorCityState = `${vendor?.city || ''} ${vendor?.state || ''} ${vendor?.pincode ? '-' + vendor?.pincode : ''}`.trim();
+    const vendorGst = vendor?.gst || vendor?.gstNumber || vendor?.gstin || 'N/A';
+    const vendorPan = vendor?.pan || vendor?.panNumber || 'N/A';
+    const vendorPhone = vendor?.phone || vendor?.contactNumber || vendor?.mobile || rfq.vendorPhone || '';
+    const vendorEmail = vendor?.email || rfq.vendorEmail || '';
+
+    // Resolve Company Details
+    const compName = companyInfo?.companyName || 'COMPANY NAME';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
+    const compEmail = companyInfo?.email || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const compPan = companyInfo?.panNumber || companyInfo?.pan || 'N/A';
+
+    const items = rfq.items || [];
+    let totalQty = 0;
+    let itemsTableRowsHtml = '';
+
+    if (items.length > 0) {
+        items.forEach((item: any, idx: number) => {
+            const qty = Number(item.quantity || 0);
+            totalQty += qty;
+
+            itemsTableRowsHtml += `
+                <tr>
+                    <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                    <td style="text-align: left; font-weight: bold; padding: 6px;">${item.materialName || item.itemName || ''}</td>
+                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
+                    <td style="text-align: center; padding: 6px; color: #64748b;">${item.targetPrice ? '₹' + item.targetPrice : '-'}</td>
+                    <td style="text-align: left; padding: 6px;">${item.remarks || ''}</td>
+                    <td style="text-align: center; padding: 6px; border-left: 2px solid #0284c7; background: #fafafa;">&nbsp;</td>
+                </tr>
+            `;
+        });
+
+        // Fill empty rows for neat spacing
+        for (let i = items.length; i < 6; i++) {
+            itemsTableRowsHtml += `
+                <tr>
+                    <td style="height: 28px;"></td>
+                    <td></td><td></td><td></td><td></td>
+                    <td style="border-left: 2px solid #0284c7; background: #fafafa;"></td>
+                </tr>
+            `;
+        }
+    } else {
+        itemsTableRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No materials specified</td></tr>`;
+    }
+
+    const htmlContent = `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0284c7; padding-bottom: 12px; margin-bottom: 12px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #0369a1; text-transform: uppercase;">${compName}</h1>
+                    <div style="font-size: 10px; color: #444; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="display: inline-block; background: #0284c7; color: #fff; font-size: 10px; font-weight: bold; padding: 4px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        OUTWARD RFQ
+                    </span>
+                    <div style="font-size: 9px; color: #666; margin-top: 4px;">GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b></div>
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #f0f9ff; border: 1px solid #bae6fd; font-weight: bold; font-size: 14px; padding: 8px; text-transform: uppercase; letter-spacing: 1px; color: #0369a1; margin-bottom: 14px;">
+                REQUEST FOR QUOTATION (RFQ)
+            </div>
+
+            <!-- Address & RFQ Logistics -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #0284c7; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">TO (TARGET VENDOR / SUPPLIER)</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${vendorName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${vendorAddress ? vendorAddress + '<br>' : ''}
+                            ${vendorCityState ? vendorCityState + '<br>' : ''}
+                            ${vendorPhone ? '<b>Ph:</b> ' + vendorPhone + '<br>' : ''}
+                            ${vendorEmail ? '<b>Email:</b> ' + vendorEmail + '<br>' : ''}
+                        </div>
+                        <div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+                            <b>Vendor GSTIN:</b> ${vendorGst} | <b>PAN:</b> ${vendorPan}
+                        </div>
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 12px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>RFQ No:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; font-size: 13px; color: #0369a1;">${rfq.rfqNumber || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>RFQ Date:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold;">${new Date(rfq.date || rfq.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Response Due Date:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; color: #b91c1c;">${rfq.dueDate ? new Date(rfq.dueDate).toLocaleDateString('en-GB') : 'Immediate'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>RFQ Status:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold; color: #0369a1;">${rfq.status || 'Sent'}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Requested Materials Table -->
+            <div style="font-weight: bold; color: #334155; font-size: 11px; margin-bottom: 6px;">REQUESTED MATERIAL SPECIFICATIONS & VENDOR QUOTE SHEET</div>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #f0f9ff; text-transform: uppercase; font-weight: bold; color: #0369a1;">
+                    <tr>
+                        <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
+                        <th style="width: 32%; padding: 7px 8px; text-align: left;">Item Description & Specifications</th>
+                        <th style="width: 13%; padding: 7px 4px; text-align: center;">Req. Qty</th>
+                        <th style="width: 12%; padding: 7px 4px; text-align: center;">Target Rate</th>
+                        <th style="width: 18%; padding: 7px 8px; text-align: left;">Remarks / Specs</th>
+                        <th style="width: 20%; padding: 7px 8px; text-align: center; background: #e0f2fe;">Vendor Quoted Rate (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #0284c7;">
+                    <tr>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Required Quantity =</td>
+                        <td style="padding: 6px; text-align: center;">${totalQty}</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Special Instructions & Terms -->
+            <div style="border: 1px solid #94a3b8; padding: 10px; background: #fafafa; margin-bottom: 14px; font-size: 9.5px; line-height: 1.4;">
+                <b style="color: #0369a1; font-size: 10px;">Vendor Response Instructions:</b><br>
+                1. Please mention your best unit rate (excluding / including GST), HSN code, and lead time.<br>
+                2. Indicate validity of quotation, payment terms, and freight charges.<br>
+                ${rfq.remarks ? `3. <b>Special Note:</b> ${rfq.remarks}<br>` : ''}
+            </div>
+
+            <!-- Signatures -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 20px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Prepared By: <b>Purchase Department</b>
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 30px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center;">
+                            Authorized Purchase Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Outward_RFQ_${rfq.rfqNumber || 'Document'}_${vendorName.replace(/[^a-zA-Z0-9]/g, '_')}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Vendor RFQ PDF: ${vendorName}</span>
+                <button onclick="window.print()" style="background: #0284c7; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${htmlContent}
+            </div>
+            <script>
+                setTimeout(() => {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+
+    printWindow.document.close();
+};
+
+export const generateFrontendVendorQuotationPDF = (data: { quotation: any; vendor?: any; companyInfo?: any }) => {
+    const { quotation, vendor, companyInfo } = data;
+
+    if (!quotation) {
+        alert("No Quotation data provided for PDF generation");
+        return;
+    }
+
+    // Resolve Vendor Details
+    const vendorObj = vendor || quotation.vendor;
+    const vendorName = vendorObj?.name || quotation.vendorName || 'SUPPLIER / VENDOR';
+    const vendorAddress = vendorObj?.address || vendorObj?.billingAddress || quotation.vendorAddress || '';
+    const vendorCityState = `${vendorObj?.city || ''} ${vendorObj?.state || ''} ${vendorObj?.pincode ? '-' + vendorObj?.pincode : ''}`.trim();
+    const vendorGst = vendorObj?.gst || vendorObj?.gstNumber || quotation.vendorGst || 'N/A';
+    const vendorPan = vendorObj?.pan || vendorObj?.panNumber || 'N/A';
+    const vendorPhone = vendorObj?.phone || vendorObj?.contactNumber || quotation.vendorPhone || '';
+    const vendorEmail = vendorObj?.email || quotation.vendorEmail || '';
+
+    // Resolve Company Details
+    const compName = companyInfo?.companyName || 'COMPANY NAME';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
+    const compEmail = companyInfo?.email || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+
+    const items = quotation.items || [];
+    let totalQty = 0;
+    let itemsTableRowsHtml = '';
+
+    if (items.length > 0) {
+        items.forEach((item: any, idx: number) => {
+            const qty = Number(item.quantity || 0);
+            const rate = Number(item.unitPrice || 0);
+            const tax = Number(item.tax || 0);
+            const lineTotal = item.total ? Number(item.total) : (qty * rate * (1 + tax / 100));
+
+            totalQty += qty;
+
+            itemsTableRowsHtml += `
+                <tr>
+                    <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                    <td style="text-align: left; font-weight: bold; padding: 6px;">${item.materialName || item.itemName || ''}</td>
+                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: bold;">₹${rate.toLocaleString()}</td>
+                    <td style="text-align: center; padding: 6px;">${tax > 0 ? tax + '%' : '-'}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: 800; color: #0f172a;">₹${lineTotal.toLocaleString()}</td>
+                </tr>
+            `;
+        });
+    } else {
+        itemsTableRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No quoted materials specified</td></tr>`;
+    }
+
+    const htmlContent = `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0891b2; padding-bottom: 12px; margin-bottom: 12px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #0e7490; text-transform: uppercase;">${compName}</h1>
+                    <div style="font-size: 10px; color: #444; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="display: inline-block; background: #0891b2; color: #fff; font-size: 10px; font-weight: bold; padding: 4px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        INCOMING VENDOR QUOTATION
+                    </span>
+                    <div style="font-size: 9px; color: #666; margin-top: 4px;">GSTIN: <b>${compGst}</b></div>
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #ecfeff; border: 1px solid #a5f3fc; font-weight: bold; font-size: 14px; padding: 8px; text-transform: uppercase; letter-spacing: 1px; color: #0e7490; margin-bottom: 14px;">
+                VENDOR QUOTATION RATE SHEET
+            </div>
+
+            <!-- Address & Quotation Details -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #0891b2; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">QUOTATION FROM VENDOR</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${vendorName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${vendorAddress ? vendorAddress + '<br>' : ''}
+                            ${vendorCityState ? vendorCityState + '<br>' : ''}
+                            ${vendorPhone ? '<b>Ph:</b> ' + vendorPhone + '<br>' : ''}
+                            ${vendorEmail ? '<b>Email:</b> ' + vendorEmail + '<br>' : ''}
+                        </div>
+                        <div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+                            <b>GSTIN:</b> ${vendorGst} | <b>PAN:</b> ${vendorPan}
+                        </div>
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 12px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Quote No:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; font-size: 13px; color: #0e7490;">${quotation.quotationNumber || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Linked RFQ No:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold; color: #0284c7;">${quotation.rfqNumber || 'N/A'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Quote Date:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold;">${new Date(quotation.date || quotation.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Valid Until:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; color: #b91c1c;">${quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-GB') : 'N/A'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Approval Status:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold; color: #16a34a;">${quotation.status || 'Pending Approval'}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Quoted Material Items Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #ecfeff; text-transform: uppercase; font-weight: bold; color: #0e7490;">
+                    <tr>
+                        <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
+                        <th style="width: 35%; padding: 7px 8px; text-align: left;">Item Description</th>
+                        <th style="width: 12%; padding: 7px 4px; text-align: center;">Quantity</th>
+                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 11%; padding: 7px 4px; text-align: center;">GST %</th>
+                        <th style="width: 22%; padding: 7px 8px; text-align: right;">Total Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #0891b2;">
+                    ${quotation.subtotal ? `
+                        <tr>
+                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Subtotal =</td>
+                            <td style="padding: 5px 8px; text-align: right;">₹${Number(quotation.subtotal).toLocaleString()}</td>
+                        </tr>
+                    ` : ''}
+                    ${quotation.totalTax ? `
+                        <tr>
+                            <td colspan="5" style="padding: 5px 8px; text-align: right;">GST Tax =</td>
+                            <td style="padding: 5px 8px; text-align: right;">₹${Number(quotation.totalTax).toLocaleString()}</td>
+                        </tr>
+                    ` : ''}
+                    <tr style="font-size: 11px; background: #e0f2fe; color: #0369a1;">
+                        <td colspan="5" style="padding: 7px 8px; text-align: right;">Grand Total Amount =</td>
+                        <td style="padding: 7px 8px; text-align: right; font-weight: 900;">₹${Number(quotation.grandTotal || quotation.subtotal || 0).toLocaleString()}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Signatures -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 25px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Prepared By: <b>Purchase Department</b>
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 30px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center;">
+                            Authorized Purchase Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Vendor_Quotation_${quotation.quotationNumber || 'Document'}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Vendor Quotation PDF: ${vendorName}</span>
+                <button onclick="window.print()" style="background: #0891b2; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${htmlContent}
+            </div>
+            <script>
+                setTimeout(() => {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+
+    printWindow.document.close();
+};
+
+export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo?: any }) => {
+    const { po, vendor, companyInfo } = data;
+
+    if (!po) {
+        alert("No Purchase Order data provided for PDF generation");
+        return;
+    }
+
+    // Resolve Vendor Details
+    const vendorObj = vendor || po.vendor;
+    const vendorName = vendorObj?.name || po.vendorName || 'SUPPLIER / VENDOR';
+    const vendorAddress = vendorObj?.address || vendorObj?.billingAddress || po.vendorAddress || '';
+    const vendorCityState = `${vendorObj?.city || ''} ${vendorObj?.state || ''} ${vendorObj?.pincode ? '-' + vendorObj?.pincode : ''}`.trim();
+    const vendorGst = vendorObj?.gst || vendorObj?.gstNumber || po.vendorGst || 'N/A';
+    const vendorPan = vendorObj?.pan || vendorObj?.panNumber || 'N/A';
+    const vendorPhone = vendorObj?.phone || vendorObj?.contactNumber || po.vendorPhone || '';
+    const vendorEmail = vendorObj?.email || po.vendorEmail || '';
+
+    // Resolve Company Details
+    const compName = companyInfo?.companyName || 'COMPANY NAME';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
+    const compEmail = companyInfo?.email || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const compPan = companyInfo?.panNumber || companyInfo?.pan || 'N/A';
+
+    const items = (po.items && po.items.length > 0) 
+        ? po.items 
+        : [{
+            materialName: po.materialName || po.material?.name || 'Material Item',
+            quantity: po.quantity || 1,
+            unit: po.unit || 'PCS',
+            rate: po.rate || po.amount || 0,
+            amount: po.amount || (po.quantity * po.rate) || 0
+        }];
+
+    let totalQty = 0;
+    let subtotal = 0;
+    let itemsTableRowsHtml = '';
+
+    items.forEach((item: any, idx: number) => {
+        const qty = Number(item.quantity || 1);
+        const rate = Number(item.rate || item.unitPrice || 0);
+        const lineTotal = item.amount ? Number(item.amount) : (qty * rate);
+
+        totalQty += qty;
+        subtotal += lineTotal;
+
+        itemsTableRowsHtml += `
+            <tr>
+                <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                <td style="text-align: left; font-weight: bold; padding: 6px;">${item.materialName || item.material?.name || item.itemName || ''}</td>
+                <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
+                <td style="text-align: right; padding: 6px; font-weight: bold;">₹${rate.toLocaleString()}</td>
+                <td style="text-align: right; padding: 6px; font-weight: 800; color: #0f172a;">₹${lineTotal.toLocaleString()}</td>
+            </tr>
+        `;
+    });
+
+    const grandTotal = Number(po.totalAmount || subtotal);
+
+    const htmlContent = `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #6b21a8; padding-bottom: 12px; margin-bottom: 12px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #581c87; text-transform: uppercase;">${compName}</h1>
+                    <div style="font-size: 10px; color: #444; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="display: inline-block; background: #6b21a8; color: #fff; font-size: 10px; font-weight: bold; padding: 4px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        OUTWARD PURCHASE ORDER
+                    </span>
+                    <div style="font-size: 9px; color: #666; margin-top: 4px;">GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b></div>
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #faf5ff; border: 1px solid #e9d5ff; font-weight: bold; font-size: 14px; padding: 8px; text-transform: uppercase; letter-spacing: 1px; color: #6b21a8; margin-bottom: 14px;">
+                PURCHASE ORDER (PO)
+            </div>
+
+            <!-- Address & PO Details -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #6b21a8; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">VENDOR / SUPPLIER</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${vendorName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${vendorAddress ? vendorAddress + '<br>' : ''}
+                            ${vendorCityState ? vendorCityState + '<br>' : ''}
+                            ${vendorPhone ? '<b>Ph:</b> ' + vendorPhone + '<br>' : ''}
+                            ${vendorEmail ? '<b>Email:</b> ' + vendorEmail + '<br>' : ''}
+                        </div>
+                        <div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+                            <b>Vendor GSTIN:</b> ${vendorGst} | <b>PAN:</b> ${vendorPan}
+                        </div>
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 12px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>PO Number:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; font-size: 13px; color: #6b21a8;">${po.poNumber || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>PO Date:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold;">${new Date(po.date || po.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
+                            </tr>
+                            ${po.quotationNumber ? `
+                                <tr>
+                                    <td style="padding: 4px 0; color: #64748b;"><b>Ref Quotation:</b></td>
+                                    <td style="padding: 4px 0; font-weight: bold; color: #0e7490;">${po.quotationNumber}</td>
+                                </tr>
+                            ` : ''}
+                            ${po.rfqNumber ? `
+                                <tr>
+                                    <td style="padding: 4px 0; color: #64748b;"><b>Ref RFQ:</b></td>
+                                    <td style="padding: 4px 0; font-weight: bold; color: #0284c7;">${po.rfqNumber}</td>
+                                </tr>
+                            ` : ''}
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>PO Status:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold; color: #16a34a;">${po.status || 'Released'}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Materials Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #faf5ff; text-transform: uppercase; font-weight: bold; color: #6b21a8;">
+                    <tr>
+                        <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
+                        <th style="width: 45%; padding: 7px 8px; text-align: left;">Item Description & Specifications</th>
+                        <th style="width: 15%; padding: 7px 4px; text-align: center;">Quantity</th>
+                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 20%; padding: 7px 8px; text-align: right;">Total Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #6b21a8;">
+                    <tr style="font-size: 11px; background: #f3e8ff; color: #581c87;">
+                        <td colspan="4" style="padding: 7px 8px; text-align: right;">Total Purchase Order Value =</td>
+                        <td style="padding: 7px 8px; text-align: right; font-weight: 900;">₹${grandTotal.toLocaleString()}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Special Instructions & Terms -->
+            ${po.remarks ? `
+                <div style="border: 1px solid #94a3b8; padding: 10px; background: #fafafa; margin-bottom: 14px; font-size: 9.5px; line-height: 1.4;">
+                    <b style="color: #6b21a8;">Terms & Special Instructions:</b><br>
+                    ${po.remarks}
+                </div>
+            ` : ''}
+
+            <!-- Signatures -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 25px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Prepared By: <b>Purchase Department</b>
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 30px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center;">
+                            Authorized Purchase Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Outward_PO_${po.poNumber || 'Document'}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Outward PO PDF: ${po.poNumber || ''}</span>
+                <button onclick="window.print()" style="background: #6b21a8; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${htmlContent}
+            </div>
+            <script>
+                setTimeout(() => {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+
+    printWindow.document.close();
+};

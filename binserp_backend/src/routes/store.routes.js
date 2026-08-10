@@ -190,4 +190,9 @@ router.post("/monthly-inventory/fg", updateFGMonthlyInventory);
 router.get("/prefix", getStorePrefixSettings);
 router.put("/prefix", updateStorePrefixSettings);
 
+// Purchase RFQ Alias Routes
+import { createPurchaseRFQ, getPurchaseRFQs, updatePurchaseRFQ, deletePurchaseRFQ } from "../controllers/purchase/purchaseRFQ.controller.js";
+router.route("/purchase-rfq").post(createPurchaseRFQ).get(getPurchaseRFQs);
+router.route("/purchase-rfq/:id").put(updatePurchaseRFQ).delete(deletePurchaseRFQ);
+
 export default router;

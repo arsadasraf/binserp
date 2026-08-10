@@ -13,6 +13,8 @@ function StoreRedirectContent() {
       router.replace("/dashboard/store/wip/job-work");
     } else if (tab === "wip" || tab === "material-issue") {
       router.replace("/dashboard/store/wip/requests");
+    } else if (tab === "purchase" || tab === "po") {
+      router.replace("/dashboard/store/purchase/mrp");
     } else {
       router.replace("/dashboard/store/inventory/rm-bo-stock");
     }

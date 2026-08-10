@@ -3,18 +3,18 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShoppingCart, CalendarClock, FileText, Receipt, Tag } from 'lucide-react';
+import { ShoppingCart, CalendarClock, FileText, Send, Tag } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function PurchaseLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const tabs = [
-    { name: 'Purchase Orders (PO)', href: '/dashboard/store/purchase/po', icon: ShoppingCart },
-    { name: 'MRP & Planning', href: '/dashboard/store/purchase/mrp', icon: CalendarClock },
-    { name: 'Vendor Quotations', href: '/dashboard/store/purchase/vendor-quotation', icon: FileText },
-    { name: 'Purchase Bills', href: '/dashboard/store/purchase/purchase-bill', icon: Receipt },
-    { name: 'Vendor Price List', href: '/dashboard/store/purchase/vendor-price-list', icon: Tag },
+    { name: 'MRP', href: '/dashboard/store/purchase/mrp', icon: CalendarClock },
+    { name: 'Outward RFQ', href: '/dashboard/store/purchase/rfq', icon: Send },
+    { name: 'Incoming Quotation', href: '/dashboard/store/purchase/vendor-quotation', icon: FileText },
+    { name: 'Outward PO', href: '/dashboard/store/purchase/po', icon: ShoppingCart },
+    { name: 'RM/BO Price List', href: '/dashboard/store/purchase/vendor-price-list', icon: Tag },
   ];
 
   return (

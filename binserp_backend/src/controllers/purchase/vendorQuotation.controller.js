@@ -11,7 +11,31 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
   const VendorQuotation = req.getModel("VendorQuotation", vendorQuotationSchema);
   const companyId = getCompanyId(req);
 
-  const { quotationNumber, date, vendorName, vendorAddress, items, subtotal, totalTax, grandTotal, validUntil, termsAndConditions } = req.body;
+  let { 
+    quotationNumber, 
+    rfq, 
+    rfqNumber, 
+    vendor, 
+    vendorName, 
+    vendorAddress, 
+    vendorEmail, 
+    vendorPhone, 
+    vendorGst, 
+    date, 
+    items, 
+    subtotal, 
+    totalTax, 
+    grandTotal, 
+    validUntil, 
+    termsAndConditions,
+    status
+  } = req.body;
+
+  if (!quotationNumber) {
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    quotationNumber = `VQ-${dateStr}-${randomNum}`;
+  }
 
   const existingQuotation = await VendorQuotation.findOne({ quotationNumber, company: companyId });
   if (existingQuotation) {
@@ -21,16 +45,23 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
   const newQuotation = await VendorQuotation.create({
     company: companyId,
     quotationNumber,
-    date,
-    vendorName,
+    rfq: rfq || undefined,
+    rfqNumber: rfqNumber || "",
+    vendor: vendor || undefined,
+    vendorName: vendorName || "Supplier",
     vendorAddress,
-    items,
+    vendorEmail,
+    vendorPhone,
+    vendorGst,
+    date: date || new Date(),
+    items: Array.isArray(items) ? items : [],
     subtotal,
     totalTax,
     grandTotal,
     validUntil,
+    status: status || "Pending Approval",
     termsAndConditions,
-    createdBy: req.user.id,
+    createdBy: req.user?._id || req.user?.id,
   });
 
   return res.status(201).json(new ApiResponse(201, newQuotation, "Vendor Quotation created successfully"));
@@ -40,7 +71,10 @@ export const getVendorQuotations = asyncHandler(async (req, res) => {
   const VendorQuotation = req.getModel("VendorQuotation", vendorQuotationSchema);
   const companyId = getCompanyId(req);
 
-  const quotations = await VendorQuotation.find({ company: companyId }).sort({ createdAt: -1 });
+  const quotations = await VendorQuotation.find({ company: companyId })
+    .populate("vendor")
+    .populate("rfq")
+    .sort({ createdAt: -1 });
 
   return res.status(200).json(new ApiResponse(200, quotations, "Vendor Quotations fetched successfully"));
 });

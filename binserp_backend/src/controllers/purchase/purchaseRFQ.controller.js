@@ -11,7 +11,11 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
   const PurchaseRFQ = req.getModel("PurchaseRFQ", purchaseRFQSchema);
   const companyId = getCompanyId(req);
 
-  const { rfqNumber, date, vendorName, vendorEmail, vendorPhone, items, remarks } = req.body;
+  const { rfqNumber, date, dueDate, vendorName, vendorEmail, vendorPhone, vendorIds, items, remarks } = req.body;
+
+  if (!rfqNumber) {
+    throw new ApiError(400, "RFQ Number is required");
+  }
 
   const existingRFQ = await PurchaseRFQ.findOne({ rfqNumber, company: companyId });
   if (existingRFQ) {
@@ -21,13 +25,16 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
   const newRFQ = await PurchaseRFQ.create({
     company: companyId,
     rfqNumber,
-    date,
-    vendorName,
+    date: date || new Date(),
+    dueDate,
+    vendorName: vendorName || "Multiple Vendors",
     vendorEmail,
     vendorPhone,
-    items,
+    vendorIds: Array.isArray(vendorIds) ? vendorIds : [],
+    items: Array.isArray(items) ? items : [],
     remarks,
-    createdBy: req.user.id,
+    status: "Sent",
+    createdBy: req.user?._id || req.user?.id,
   });
 
   return res.status(201).json(new ApiResponse(201, newRFQ, "Purchase RFQ created successfully"));
@@ -37,7 +44,9 @@ export const getPurchaseRFQs = asyncHandler(async (req, res) => {
   const PurchaseRFQ = req.getModel("PurchaseRFQ", purchaseRFQSchema);
   const companyId = getCompanyId(req);
 
-  const rfqs = await PurchaseRFQ.find({ company: companyId }).sort({ createdAt: -1 });
+  const rfqs = await PurchaseRFQ.find({ company: companyId })
+    .populate("vendorIds")
+    .sort({ createdAt: -1 });
 
   return res.status(200).json(new ApiResponse(200, rfqs, "Purchase RFQs fetched successfully"));
 });
