@@ -55,3 +55,4 @@ export { createFGGRN, getAllFGGRNs, updateFGGRN, deleteFGGRN } from './fgGRN.con
 export { getRMMonthlyInventory, getFGMonthlyInventory } from './getMonthlyInventory.controller.js';
 export { updateRMMonthlyInventory, updateFGMonthlyInventory } from './updateMonthlyInventory.controller.js';
 export { getStorePrefixSettings, updateStorePrefixSettings } from './storePrefix.controller.js';
+export { getWipInventory } from './getWipInventory.controller.js';

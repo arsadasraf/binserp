@@ -432,11 +432,22 @@ export interface QuotationFormData {
     status?: "Draft" | "Sent" | "Accepted" | "Rejected";
 }
 
+export interface JobWorkReturningItem {
+    _id?: string;
+    receivedItem?: string;
+    receivedItemName: string;
+    receivedItemType: 'bo' | 'inhouse' | 'fg' | 'custom';
+    quantityToBeReceived: number;
+    quantityReceived?: number;
+    receivingUnit: string;
+    status?: 'Sent' | 'Partial' | 'Completed';
+}
+
 export interface JobWorkItem {
     _id?: string;
-    item: string; // ID of Material or Component
+    item?: string; // ID of Material or Component
     itemName: string;
-    itemType: 'bo' | 'inhouse' | 'custom';
+    itemType: 'bo' | 'inhouse' | 'fg' | 'custom';
     processType: string;
     quantitySent: number;
     quantityReceived: number;
@@ -444,6 +455,14 @@ export interface JobWorkItem {
     unitPrice?: number;
     description?: string;
     status: 'Sent' | 'Partial' | 'Completed';
+    returningItems?: JobWorkReturningItem[];
+    // Legacy fallbacks
+    itemToBeReceived?: string;
+    receivedItem?: string;
+    receivedItemName?: string;
+    receivedItemType?: 'bo' | 'inhouse' | 'fg' | 'custom';
+    quantityToBeReceived?: number;
+    receivingUnit?: string;
 }
 
 export interface JobWorkChallan {
@@ -452,6 +471,12 @@ export interface JobWorkChallan {
     vendor: Vendor; // Populated
     date: string; // ISO Date
     expectedReturnDate?: string;
+    poNumber?: string;
+    vehicleNo?: string;
+    estimatedWeight?: number;
+    estimatedPrice?: number;
+    freightType?: 'To pay' | 'Paid';
+    ewayBillNo?: string;
     status: 'Open' | 'Partial' | 'Closed' | 'Overdue';
     items: JobWorkItem[];
     createdAt: string;
@@ -466,20 +491,25 @@ export interface JobWorkFormData {
     vehicleNo?: string;
     estimatedWeight?: number;
     estimatedPrice?: number;
-    freightType?: 'To pay' | 'Paid' | 'LR/NR';
-    lrNr?: string;
-    eSugamNo?: string;
-    eSugamDate?: string;
+    freightType?: 'To pay' | 'Paid';
+    ewayBillNo?: string;
     items: {
-        item: string;
+        item?: string;
         itemName?: string;
-        itemToBeReceived?: string;
-        itemType: 'bo' | 'inhouse' | 'custom';
+        itemType: 'bo' | 'inhouse' | 'fg' | 'custom';
         processType: string;
         quantitySent: number;
         unit: string;
         unitPrice?: number;
         description?: string;
+        returningItems: JobWorkReturningItem[];
+        // Legacy fallbacks
+        receivedItem?: string;
+        receivedItemName?: string;
+        receivedItemType?: 'bo' | 'inhouse' | 'fg' | 'custom';
+        quantityToBeReceived?: number;
+        receivingUnit?: string;
+        itemToBeReceived?: string;
     }[];
 }
 

@@ -41,6 +41,9 @@ export const jobWorkSchema = new mongoose.Schema(
       type: String,
       enum: ["To pay", "Paid", "LR/NR"],
     },
+    ewayBillNo: {
+      type: String,
+    },
     lrNr: {
       type: String,
     },
@@ -59,20 +62,12 @@ export const jobWorkSchema = new mongoose.Schema(
       {
         item: {
           type: mongoose.Schema.Types.ObjectId,
-          // Refers to Material (BO) or Component (InHouse). Optional for custom items.
         },
         itemName: String,
         itemType: {
           type: String,
-          enum: ["bo", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
-          required: true,
-        },
-        itemToBeReceived: {
-          type: String,
-        },
-        processType: {
-          type: String,
-          required: true,
+          enum: ["bo", "inhouse", "fg", "Component", "SubAssembly", "Assembly", "custom"],
+          default: "bo",
         },
         quantitySent: {
           type: Number,
@@ -90,13 +85,56 @@ export const jobWorkSchema = new mongoose.Schema(
           type: Number,
           default: 0,
         },
+        processType: {
+          type: String,
+          required: true,
+        },
         description: String,
         status: {
           type: String,
           enum: ["Sent", "Partial", "Completed"],
           default: "Sent"
         },
-
+        // Multiple returning items generated from this single sent item
+        returningItems: [
+          {
+            receivedItem: {
+              type: mongoose.Schema.Types.ObjectId,
+            },
+            receivedItemName: String,
+            receivedItemType: {
+              type: String,
+              enum: ["bo", "inhouse", "fg", "Component", "SubAssembly", "Assembly", "custom"],
+              default: "fg",
+            },
+            quantityToBeReceived: {
+              type: Number,
+              required: true,
+            },
+            quantityReceived: {
+              type: Number,
+              default: 0,
+            },
+            receivingUnit: {
+              type: String,
+              default: "PCS",
+            },
+            status: {
+              type: String,
+              enum: ["Sent", "Partial", "Completed"],
+              default: "Sent"
+            }
+          }
+        ],
+        // Legacy single item fields for backward compatibility
+        itemToBeReceived: String,
+        receivedItem: {
+          type: mongoose.Schema.Types.ObjectId,
+        },
+        receivedItemName: String,
+        receivedItemType: String,
+        quantityToBeReceived: Number,
+        receivingUnit: String,
       },
     ],
     createdBy: {

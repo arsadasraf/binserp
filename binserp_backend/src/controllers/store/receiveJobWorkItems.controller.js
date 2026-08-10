@@ -58,34 +58,53 @@ export const receiveJobWorkItems = async (req, res) => {
     let allCompleted = true;
 
     for (const recItem of receivedItems) {
-      const { itemId, quantity } = recItem; // itemId here is the _id of the item inside Challan.items
-      const jwItem = jobWork.items.id(itemId); // Use subdocument ID method
+      const { itemId, returningItemId, quantity } = recItem;
+      const qtyNum = Number(quantity) || 0;
+      if (qtyNum <= 0) continue;
 
-      if (jwItem) {
-        // Validation
-        const pending = jwItem.quantitySent - jwItem.quantityReceived;
+      let foundItem = null;
 
-        // Update JW Item
-        jwItem.quantityReceived += Number(quantity);
-        if (jwItem.quantityReceived >= jwItem.quantitySent) {
-          jwItem.status = "Completed";
+      for (const jwItem of jobWork.items) {
+        if (jwItem.returningItems && jwItem.returningItems.length > 0) {
+          const retDoc = jwItem.returningItems.id(returningItemId || itemId);
+          if (retDoc) {
+            retDoc.quantityReceived = (retDoc.quantityReceived || 0) + qtyNum;
+            if (retDoc.quantityReceived >= retDoc.quantityToBeReceived) {
+              retDoc.status = "Completed";
+            } else {
+              retDoc.status = "Partial";
+            }
 
-
-        } else {
-          jwItem.status = "Partial";
-          allCompleted = false;
+            const allRetCompleted = jwItem.returningItems.every(
+              r => r.status === "Completed" || (r.quantityReceived || 0) >= r.quantityToBeReceived
+            );
+            jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
+            jwItem.status = allRetCompleted ? "Completed" : "Partial";
+            foundItem = jwItem;
+            break;
+          }
         }
 
-        // Inventory update disabled as per user request
-        
-        // Add to history timeline
+        if (String(jwItem._id) === String(itemId)) {
+          jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
+          const targetQty = jwItem.quantityToBeReceived || jwItem.quantitySent;
+          if (jwItem.quantityReceived >= targetQty) {
+            jwItem.status = "Completed";
+          } else {
+            jwItem.status = "Partial";
+          }
+          foundItem = jwItem;
+          break;
+        }
+      }
+
+      if (foundItem) {
         if (!jobWork.receiveHistory) jobWork.receiveHistory = [];
         jobWork.receiveHistory.push({
           date: new Date(),
           itemId: itemId,
-          quantity: Number(quantity)
+          quantity: qtyNum
         });
-
       }
     }
 

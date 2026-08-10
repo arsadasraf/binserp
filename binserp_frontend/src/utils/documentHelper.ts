@@ -1,7 +1,13 @@
 import { API_BASE_URL } from './config';
+import { generateFrontendReturnableDCPDF } from './frontendPdfHelper';
 
 export const generateDocument = async (type: 'pdf' | 'excel', documentType: 'invoice' | 'po' | 'dc' | 'quotation' | 'Delivery Challans' | 'Invoices' | 'InHouse Inventory' | 'returnable_dc' | 'Returnable DC' | 'incoming_rfq', data: any) => {
     try {
+        if (type === 'pdf' && (documentType === 'returnable_dc' || documentType === 'Returnable DC')) {
+            generateFrontendReturnableDCPDF(data);
+            return;
+        }
+
         const endpoint = type === 'pdf' ? `/api/documents/pdf/${documentType}` : `/api/documents/excel/export`;
         const body = type === 'pdf' ? data : { data, type: documentType };
         

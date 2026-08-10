@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Factory, Calendar, Truck, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
 import { JobWorkChallan, Vendor, JobWorkSupplier } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
+import JobWorkPreviewModal from '../modals/JobWorkPreviewModal';
 
 import { apiGet, apiDelete } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
@@ -38,6 +39,15 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [isReceiveModalOpen, setIsReceiveModalOpen] = useState(false);
     const [selectedChallan, setSelectedChallan] = useState<JobWorkChallan | null>(null);
+
+    // Preview Modal State
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+    const [previewChallan, setPreviewChallan] = useState<JobWorkChallan | null>(null);
+
+    const openPreview = (challan: JobWorkChallan) => {
+        setPreviewChallan(challan);
+        setIsPreviewOpen(true);
+    };
 
 
     const fetchChallans = async () => {
@@ -94,7 +104,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
 
     const exportChallanToPDF = async (challan: JobWorkChallan) => {
         try {
-            await generateDocument('pdf', 'returnable_dc', { doc: challan, companyInfo });
+            await generateDocument('pdf', 'returnable_dc', { doc: challan, companyInfo, vendors: [...jobWorkSuppliers, ...vendors] });
         } catch (error) {
             onError('Failed to generate PDF');
         }
@@ -244,16 +254,29 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
             ) : (
                 <div className="grid grid-cols-1 gap-4">
                     {filteredChallans.map(challan => (
-                        <div key={challan._id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                            <div className="flex flex-col md:flex-row justify-between gap-4 mb-4 border-b border-gray-50 pb-3">
+                        <div key={challan._id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow group">
+                            {/* Clickable Card Header */}
+                            <div
+                                onClick={() => openPreview(challan)}
+                                className="flex flex-col md:flex-row justify-between gap-4 mb-4 border-b border-gray-50 pb-3 cursor-pointer hover:bg-slate-50/80 -mx-4 -mt-4 p-4 rounded-t-xl transition-colors"
+                                title="Click to view full challan details preview"
+                            >
                                 <div>
                                     <div className="flex items-center gap-3 mb-1">
-                                        <span className="font-bold text-gray-900">{challan.challanNumber}</span>
+                                        <span className="font-extrabold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                                            {challan.challanNumber}
+                                            <Eye size={15} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        </span>
                                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
                                             challan.status === 'Partial' ? 'bg-amber-100 text-amber-800' :
                                                 challan.status === 'Closed' ? 'bg-green-100 text-green-800' :
                                                     'bg-red-100 text-red-800'
                                             }`}>{challan.status}</span>
+                                        {challan.ewayBillNo && (
+                                            <span className="bg-indigo-50 text-indigo-700 font-mono text-xs px-2 py-0.5 rounded border border-indigo-100">
+                                                E-Way: {challan.ewayBillNo}
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="text-sm text-gray-600 flex items-center gap-2">
                                         <Factory size={14} /> {challan.vendor?.name || 'Unknown Vendor'}
@@ -270,34 +293,67 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                             </div>
 
                             {/* Items Table */}
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto cursor-pointer" onClick={() => openPreview(challan)}>
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
                                         <tr>
-                                            <th className="px-3 py-2 text-left">Item</th>
+                                            <th className="px-3 py-2 text-left">Item Sent</th>
+                                            <th className="px-3 py-2 text-left">Material to be Received</th>
                                             <th className="px-3 py-2 text-left">Process</th>
-                                            <th className="px-3 py-2 text-center">Sent</th>
-                                            <th className="px-3 py-2 text-center">Received</th>
+                                            <th className="px-3 py-2 text-center">Sent Qty</th>
+                                            <th className="px-3 py-2 text-center">Recv Qty</th>
                                             <th className="px-3 py-2 text-center">Pending</th>
                                             <th className="px-3 py-2 text-right">Status</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100">
                                         {challan.items.map((item, idx) => {
-                                            const pending = item.quantitySent - item.quantityReceived;
-                                            return (
-                                                <tr key={idx}>
-                                                    <td className="px-3 py-2 font-medium text-gray-900">{item.itemName}</td>
-                                                    <td className="px-3 py-2 text-gray-600">{item.processType}</td>
-                                                    <td className="px-3 py-2 text-center">{item.quantitySent} {item.unit}</td>
-                                                    <td className="px-3 py-2 text-center text-green-600 font-medium">{item.quantityReceived}</td>
-                                                    <td className="px-3 py-2 text-center text-amber-600 font-medium">{pending > 0 ? pending : '-'}</td>
-                                                    <td className="px-3 py-2 text-right">
-                                                        {item.status === 'Completed' ? <CheckCircle2 size={16} className="text-green-500 ml-auto" /> :
-                                                            <span className="text-xs text-gray-500">{item.status}</span>}
-                                                    </td>
-                                                </tr>
-                                            );
+                                            const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
+                                                receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                                                quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
+                                                quantityReceived: item.quantityReceived || 0,
+                                                receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                                                status: item.status
+                                            }];
+
+                                            return retList.map((ret, rIdx) => {
+                                                const expQty = Number(ret.quantityToBeReceived) || 0;
+                                                const recvQty = Number(ret.quantityReceived) || 0;
+                                                const pending = expQty - recvQty;
+
+                                                return (
+                                                    <tr key={`${idx}_${rIdx}`}>
+                                                        {rIdx === 0 && (
+                                                            <td rowSpan={retList.length} className="px-3 py-2 font-semibold text-gray-900 border-r border-gray-100 align-top">
+                                                                {item.itemName}
+                                                            </td>
+                                                        )}
+                                                        <td className="px-3 py-2 text-indigo-700 font-semibold">
+                                                            {ret.receivedItemName || item.itemName}
+                                                        </td>
+                                                        {rIdx === 0 && (
+                                                            <td rowSpan={retList.length} className="px-3 py-2 text-gray-600 border-r border-gray-100 align-top">
+                                                                {item.processType}
+                                                            </td>
+                                                        )}
+                                                        {rIdx === 0 && (
+                                                            <td rowSpan={retList.length} className="px-3 py-2 text-center border-r border-gray-100 align-top">
+                                                                {item.quantitySent} {item.unit}
+                                                            </td>
+                                                        )}
+                                                        <td className="px-3 py-2 text-center text-slate-700 font-bold">
+                                                            {recvQty}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-center text-indigo-600 font-bold">
+                                                            {pending > 0 ? pending : 0}
+                                                        </td>
+                                                        <td className="px-3 py-2 text-right">
+                                                            {ret.status === 'Completed' || pending <= 0 ? <CheckCircle2 size={16} className="text-emerald-500 ml-auto" /> :
+                                                                <span className="text-xs text-amber-600 font-medium">{ret.status || 'Sent'}</span>}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            });
                                         })}
                                     </tbody>
                                 </table>
@@ -326,9 +382,12 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                             {/* Actions */}
                             <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
                                 <div className="flex gap-2">
+                                    <button onClick={() => openPreview(challan)} className="px-3 py-1.5 text-sm font-semibold text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                                        <Eye size={15} /> Preview
+                                    </button>
                                     {challan.status !== 'Partial' && challan.status !== 'Closed' && (
                                         <>
-                                            <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition-colors">Edit</button>
+                                            <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 rounded hover:bg-slate-200 transition-colors">Edit</button>
                                             <button onClick={() => handleDelete(challan._id)} className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors">Delete</button>
                                         </>
                                     )}
@@ -375,6 +434,20 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                     onError={onError}
                     challan={selectedChallan}
                     token={token}
+                />
+            )}
+
+            {isPreviewOpen && previewChallan && (
+                <JobWorkPreviewModal
+                    isOpen={isPreviewOpen}
+                    onClose={() => setIsPreviewOpen(false)}
+                    challan={previewChallan}
+                    vendors={vendors}
+                    jobWorkSuppliers={jobWorkSuppliers}
+                    companyInfo={companyInfo}
+                    onEdit={(c) => { setPrefillData(c); setIsFormOpen(true); }}
+                    onReceive={(c) => openReceiveModal(c)}
+                    onDelete={(id) => handleDelete(id)}
                 />
             )}
         </div>

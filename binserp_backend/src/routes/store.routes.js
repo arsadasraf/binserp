@@ -50,7 +50,8 @@ import {
   updateJobWorkSupplier,
   deleteJobWorkSupplier,
   getStorePrefixSettings,
-  updateStorePrefixSettings
+  updateStorePrefixSettings,
+  getWipInventory
 } from "../controllers/store/index.js";
 import {
   getFulfillments,
@@ -144,6 +145,7 @@ router.put("/jobwork/receive/:id", receiveJobWorkItems);
 router.get("/jobwork/all", getAllJobWorkChallans);
 router.put("/jobwork/update/:id", updateJobWorkChallan);
 router.delete("/jobwork/delete/:id", deleteJobWorkChallan);
+router.get("/wip/inventory", getWipInventory);
 
 // Store Fulfillment & MRP routes
 router.get("/fulfillment", getFulfillments);

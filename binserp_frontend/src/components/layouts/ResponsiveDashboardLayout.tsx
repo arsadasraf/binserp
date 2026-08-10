@@ -54,11 +54,11 @@ type NavItem = {
 };
 
 const storeSubItems: NavItem[] = [
-  { href: "/dashboard/store?tab=home", label: "Inventory", icon: PackageMinus },
-  { href: "/dashboard/store?tab=material-issue", label: "Issue", icon: Layers }, // Changed icon and label to match Tabs
-  { href: "/dashboard/store?tab=job-work", label: "Job Work", icon: Factory },
-  { href: "/dashboard/store?tab=dc", label: "Bills", icon: IndianRupee },
-  { href: "/dashboard/store?tab=masters", label: "Masters", icon: Settings }, // Changed icon to Settings to match Tabs
+  { href: "/dashboard/store/inventory/rm-bo-stock", label: "Inventory", icon: PackageMinus },
+  { href: "/dashboard/store/wip/requests", label: "Issue", icon: Layers },
+  { href: "/dashboard/store/wip/job-work", label: "Job Work", icon: Factory },
+  { href: "/dashboard/store/sales/orders", label: "Bills", icon: IndianRupee },
+  { href: "/dashboard/store/masters/vendors", label: "Masters", icon: Settings },
 ];
 
 const hrSubItems: NavItem[] = [

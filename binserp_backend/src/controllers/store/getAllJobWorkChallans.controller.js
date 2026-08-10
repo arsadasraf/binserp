@@ -57,7 +57,7 @@ export const getAllJobWorkChallans = async (req, res) => {
     const companyId = getCompanyId(req);
 
     const challans = await JobWorkChallan.find({ company: companyId })
-      .populate("vendor", "name code")
+      .populate("vendor")
       .sort({ date: -1 });
 
     res.status(200).json({ challans });

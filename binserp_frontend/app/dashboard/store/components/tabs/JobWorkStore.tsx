@@ -94,7 +94,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
 
     const exportChallanToPDF = async (challan: JobWorkChallan) => {
         try {
-            await generateDocument('pdf', 'returnable_dc', { doc: challan, companyInfo });
+            await generateDocument('pdf', 'returnable_dc', { doc: challan, companyInfo, vendors: [...jobWorkSuppliers, ...vendors] });
         } catch (error) {
             onError('Failed to generate PDF');
         }

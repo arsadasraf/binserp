@@ -160,7 +160,7 @@ export default function JobWorkForm({ isOpen, onClose, onSuccess, onError, vendo
 
     const handleDownloadPDF = async () => {
         try {
-            await generateDocument('pdf', 'returnable_dc', { doc: successData, companyInfo });
+            await generateDocument('pdf', 'returnable_dc', { doc: successData, companyInfo, vendors: [...jobWorkSuppliers, ...vendors] });
         } catch (error) {
             onError('Failed to generate PDF');
         }

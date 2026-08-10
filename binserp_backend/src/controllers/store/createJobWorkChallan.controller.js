@@ -51,11 +51,23 @@ export const createJobWorkChallan = async (req, res) => {
     const FGItem = req.getModel("FGItem", fgItemSchema);
 
     const companyId = getCompanyId(req);
-    let { challanNumber, vendor, date, expectedReturnDate, items } = req.body;
+    let {
+      challanNumber,
+      vendor,
+      date,
+      expectedReturnDate,
+      poNumber,
+      vehicleNo,
+      freightType,
+      ewayBillNo,
+      estimatedWeight,
+      estimatedPrice,
+      items
+    } = req.body;
 
     // Validate Input
     if (!vendor || !items || items.length === 0) {
-      return res.status(400).json({ message: "Vendor, and items are required" });
+      return res.status(400).json({ message: "Vendor and items are required" });
     }
 
     // Auto-generate Challan Number if missing
@@ -73,43 +85,134 @@ export const createJobWorkChallan = async (req, res) => {
       }
     }
 
+    // Helper to check valid Mongoose ObjectId
+    const isValidObjectId = (val) => val && mongoose.Types.ObjectId.isValid(val);
+
     // Process Items and Update Source Stock
     const processedItems = [];
     for (const item of items) {
-      const { item: itemId, itemType, quantitySent, processType, unit, description } = item;
+      const {
+        item: itemId,
+        itemType,
+        quantitySent,
+        processType,
+        unit,
+        unitPrice,
+        description,
+        receivedItem: receivedItemId,
+        receivedItemName,
+        receivedItemType,
+        quantityToBeReceived,
+        receivingUnit
+      } = item;
 
-      // 1. Validate Stock & Fetch Name
-      let itemName = "";
-      let validItemId = itemId;
+      // 1. Validate Stock & Fetch Sent Item Name
+      let itemName = item.itemName || "";
+      let validItemId = isValidObjectId(itemId) ? itemId : null;
       
-      if (itemType === "bo") {
-        const materialDoc = await Material.findById(itemId);
-        if (!materialDoc) return res.status(400).json({ message: `Material not found: ${itemId}` });
-
-        itemName = materialDoc.name;
+      if (itemType === "bo" && validItemId) {
+        const materialDoc = await Material.findById(validItemId);
+        if (materialDoc) itemName = materialDoc.name;
       } else if (itemType === "custom") {
         itemName = item.itemName || "Custom Item";
-        validItemId = null; // Custom items don't have an ID
-      } else { // InHouse
-        const fgDoc = await FGItem.findById(itemId);
-        if (!fgDoc) return res.status(400).json({ message: `FG Item not found: ${itemId}` });
-
-        itemName = fgDoc.name || fgDoc.componentName;
+        validItemId = null;
+      } else if ((itemType === "inhouse" || itemType === "fg") && validItemId) {
+        const fgDoc = await FGItem.findById(validItemId);
+        if (fgDoc) itemName = fgDoc.name || fgDoc.componentName;
       }
+
+      if (!itemName) {
+        itemName = item.itemName || "Sent Item";
+      }
+
+      // 2. Fetch Returning Items (Multiple per Sent Item)
+      const processedReturningItems = [];
+      if (Array.isArray(item.returningItems) && item.returningItems.length > 0) {
+        for (const ret of item.returningItems) {
+          let retId = isValidObjectId(ret.receivedItem) ? ret.receivedItem : null;
+          let retName = ret.receivedItemName || ret.itemName || "";
+          const retType = ret.receivedItemType || "fg";
+
+          if (retType === "bo" && retId) {
+            const retMat = await Material.findById(retId);
+            if (retMat) retName = retMat.name;
+          } else if ((retType === "inhouse" || retType === "fg") && retId) {
+            const retFg = await FGItem.findById(retId);
+            if (retFg) retName = retFg.name || retFg.componentName;
+          }
+
+          const finalRetName = retName || itemName || "Returning Material";
+
+          const retDoc = {
+            receivedItemName: finalRetName,
+            receivedItemType: retType,
+            quantityToBeReceived: Number(ret.quantityToBeReceived) || 1,
+            quantityReceived: 0,
+            receivingUnit: ret.receivingUnit || "PCS",
+            status: "Sent"
+          };
+
+          if (retId) {
+            retDoc.receivedItem = retId;
+          }
+
+          processedReturningItems.push(retDoc);
+        }
+      } else {
+        // Fallback for single returning item
+        let validReceivedItemId = isValidObjectId(receivedItemId) ? receivedItemId : null;
+        let finalReceivedItemName = receivedItemName || item.itemToBeReceived || itemName;
+
+        if (receivedItemType === "bo" && validReceivedItemId) {
+          const retMat = await Material.findById(validReceivedItemId);
+          if (retMat) finalReceivedItemName = retMat.name;
+        } else if ((receivedItemType === "inhouse" || receivedItemType === "fg") && validReceivedItemId) {
+          const retFg = await FGItem.findById(validReceivedItemId);
+          if (retFg) finalReceivedItemName = retFg.name || retFg.componentName;
+        }
+
+        const retDoc = {
+          receivedItemName: finalReceivedItemName || itemName || "Returning Material",
+          receivedItemType: receivedItemType || "fg",
+          quantityToBeReceived: Number(quantityToBeReceived) || Number(quantitySent) || 1,
+          quantityReceived: 0,
+          receivingUnit: receivingUnit || unit || "PCS",
+          status: "Sent"
+        };
+
+        if (validReceivedItemId) {
+          retDoc.receivedItem = validReceivedItemId;
+        }
+
+        processedReturningItems.push(retDoc);
+      }
+
+      const firstReturn = processedReturningItems[0] || {};
 
       const processedItem = {
         itemName,
-        itemType,
-        processType,
-        quantitySent,
+        itemType: itemType || "custom",
+        processType: processType || "Job Work",
+        quantitySent: Number(quantitySent) || 0,
         quantityReceived: 0,
         unit: unit || "PCS",
-        description,
+        unitPrice: Number(unitPrice) || 0,
+        description: description || "",
+        returningItems: processedReturningItems,
+        // Legacy fallbacks
+        itemToBeReceived: firstReturn.receivedItemName || itemName,
+        receivedItemName: firstReturn.receivedItemName || itemName,
+        receivedItemType: firstReturn.receivedItemType || "fg",
+        quantityToBeReceived: firstReturn.quantityToBeReceived || Number(quantitySent) || 0,
+        receivingUnit: firstReturn.receivingUnit || unit || "PCS",
         status: "Sent",
       };
 
       if (validItemId) {
         processedItem.item = validItemId;
+      }
+      if (firstReturn && firstReturn.receivedItem) {
+        processedItem.receivedItem = firstReturn.receivedItem;
       }
       processedItems.push(processedItem);
     }
@@ -121,6 +224,12 @@ export const createJobWorkChallan = async (req, res) => {
       vendor,
       date: date || new Date(),
       expectedReturnDate,
+      poNumber: poNumber || "",
+      vehicleNo: vehicleNo || "",
+      freightType: freightType || "To pay",
+      ewayBillNo: ewayBillNo || "",
+      estimatedWeight: Number(estimatedWeight) || 0,
+      estimatedPrice: Number(estimatedPrice) || 0,
       status: "Open",
       items: processedItems,
       createdBy: req.user.id
@@ -153,6 +262,8 @@ export const createJobWorkChallan = async (req, res) => {
         }
       }
     }
+
+    await jobWork.populate("vendor");
 
     res.status(201).json({ message: "Job Work Challan created successfully", jobWork });
 
