@@ -14,7 +14,7 @@ import {
 
 export default function SalesOrdersPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: orderList, customers, fgItems, priceLists, companyInfo, loading, refetch } = useStoreData("order-entry", "vendor", token);
+  const { data: orderList, customers, fgItems, priceLists, companyInfo, loading, refetch } = useStoreData("order", "vendor", token);
 
   const [createStoreRecord] = useCreateStoreRecordMutation();
   const [updateStoreRecord] = useUpdateStoreRecordMutation();

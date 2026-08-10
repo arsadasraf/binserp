@@ -106,14 +106,18 @@ export const createSalesOrder = asyncHandler(async (req, res) => {
   // Spawn fulfillment records for each item in the order
   const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
   if (items && items.length > 0) {
-    const fulfillments = items.map(item => ({
-      company: companyId,
-      SalesOrder: newOrder._id,
-      fgItem: item.fgItem,
-      orderedQuantity: item.quantity,
-      targetDate: targetDate || new Date(),
-    }));
-    await StoreOrderFulfillment.insertMany(fulfillments);
+    const fulfillments = items
+      .filter(item => item.fgItem)
+      .map(item => ({
+        company: companyId,
+        storeOrder: newOrder._id,
+        fgItem: item.fgItem,
+        orderedQuantity: item.quantity,
+        targetDate: item.targetDate || targetDate || new Date(),
+      }));
+    if (fulfillments.length > 0) {
+      await StoreOrderFulfillment.insertMany(fulfillments);
+    }
   }
 
   res.status(201).json({ success: true, order: newOrder });

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShoppingBag, FileText, Receipt, Truck, Tag, Inbox, FileCheck } from 'lucide-react';
+import { ShoppingBag, FileText, IndianRupee, Truck, Tag, Inbox, FileCheck } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function SalesLayout({ children }: { children: React.ReactNode }) {
@@ -15,7 +15,7 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
     { name: 'Inward PO', href: '/dashboard/store/sales/po', icon: FileCheck },
     { name: 'Sales Order', href: '/dashboard/store/sales/orders', icon: ShoppingBag },
     { name: 'DC', href: '/dashboard/store/sales/dc', icon: Truck },
-    { name: 'Invoice', href: '/dashboard/store/sales/billing', icon: Receipt },
+    { name: 'Invoice', href: '/dashboard/store/sales/billing', icon: IndianRupee },
     { name: 'FG Pricelist', href: '/dashboard/store/sales/price-list', icon: Tag },
   ];
 

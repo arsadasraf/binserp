@@ -101,6 +101,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         if (activeTab === "sales") return "order-entry";
         if (activeTab === "purchase") return "po";
         if (activeTab === "wip") return "material-issue";
+        if (activeTab === "billing") return "billing";
         if (activeTab === "masters") return masterTab === "fg-grn-history" ? "fg-grn" : masterTab;
         if (activeTab === "home") return masterTab === "grn-history" ? "grn" : masterTab === "fg-grn-history" ? "fg-grn" : "inventory";
         return activeTab;
@@ -513,7 +514,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         if (!token) return;
 
         try {
-            await createRecord({ tab: "invoice" as any, body: billingData }).unwrap();
+            await createRecord({ tab: "billing" as any, body: billingData }).unwrap();
             setSuccess("Invoice created successfully");
             fetchData();
         } catch (err: any) {
@@ -527,16 +528,11 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
      * @param id - Invoice ID
      * @param billingData - Billing form data from modal
      */
-    /**
-     * Handles Billing/Invoice update from modal
-     * @param id - Invoice ID
-     * @param billingData - Billing form data from modal
-     */
     const handleBillingUpdate = async (id: string, billingData: BillingFormData) => {
         if (!token) return;
 
         try {
-            await updateRecord({ tab: "invoice" as any, id, body: billingData }).unwrap();
+            await updateRecord({ tab: "billing" as any, id, body: billingData }).unwrap();
             setSuccess("Invoice updated successfully");
             fetchData();
         } catch (err: any) {

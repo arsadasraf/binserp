@@ -6,10 +6,11 @@ import BillingModal from "../../components/modals/BillingModal";
 import { useStoreData } from "../../components/hooks/useStoreData";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import { Plus } from "lucide-react";
+import Swal from "sweetalert2";
 
 export default function SalesBillingPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: bills, loading, refetch, handleBillingSubmit, handleBillingUpdate, handleDelete, customers } = useStoreData("billing", "customer", token);
+  const { data: bills, loading, refetch, handleBillingSubmit, handleBillingUpdate, handleDelete, customers, fgItems } = useStoreData("billing", "customer", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingBilling, setEditingBilling] = useState<any>(null);
@@ -43,16 +44,24 @@ export default function SalesBillingPage() {
           isOpen={showModal}
           loading={loading}
           customers={customers || []}
+          fgItems={fgItems || []}
+          inHouseItems={fgItems || []}
           onClose={() => { setShowModal(false); setEditingBilling(null); }}
           onSubmit={async (formData) => {
-            if (editingBilling) {
-              await handleBillingUpdate(editingBilling._id, formData);
-            } else {
-              await handleBillingSubmit(formData);
+            try {
+              if (editingBilling) {
+                await handleBillingUpdate(editingBilling._id, formData);
+              } else {
+                await handleBillingSubmit(formData);
+              }
+              setShowModal(false);
+              setEditingBilling(null);
+              refetch();
+            } catch (error: any) {
+              console.error("Failed to save Tax Invoice:", error);
+              const errorMsg = error?.data?.message || error?.error || error?.message || "Failed to save Tax Invoice. Please verify server connection.";
+              Swal.fire("Save Error", typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg), "error");
             }
-            setShowModal(false);
-            setEditingBilling(null);
-            refetch();
           }}
           initialData={editingBilling}
         />

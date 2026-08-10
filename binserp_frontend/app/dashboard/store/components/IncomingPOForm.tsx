@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package } from "lucide-react";
+import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers } from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useGetIncomingPODispatchHistoryQuery } from "@/src/store/services/storeService";
 
 interface IncomingPOFormProps {
   isOpen?: boolean;
@@ -67,6 +68,14 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
   });
 
   const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [previewTab, setPreviewTab] = useState<"overview" | "dispatch">("overview");
+
+  const { data: historyData } = useGetIncomingPODispatchHistoryQuery(initialData?._id, {
+    skip: !initialData?._id || !isPreview
+  });
+
+  const deliveryChallans = historyData?.data?.deliveryChallans || [];
+  const invoices = historyData?.data?.invoices || [];
 
   useEffect(() => {
     if (initialData) {
@@ -468,133 +477,306 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
         {/* Informative Read-Only Summary View when isPreview is true */}
         {isPreview ? (
           <div className="overflow-y-auto flex-1 p-6 space-y-6">
-            {/* Top Summary Banner */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
-                <div className="flex items-center gap-3">
-                  <h3 className="text-base font-bold text-gray-900 dark:text-white">
-                    {selectedCustomerObj?.name || selectedCustomerObj?.customerName || formData.customer || "Customer PO"}
-                  </h3>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                    formData.status === 'Accepted' || formData.status === 'Sales Order Generated' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
-                    formData.status === 'Received' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
-                    'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                  }`}>
-                    {formData.status}
+            {/* Dedicated Tab Navigation Bar */}
+            <div className="flex gap-4 border-b border-gray-200 dark:border-gray-800 pb-2">
+              <button
+                type="button"
+                onClick={() => setPreviewTab("overview")}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                  previewTab === "overview"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                }`}
+              >
+                <FileText size={15} />
+                <span>PO Overview & Line Items</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewTab("dispatch")}
+                className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all ${
+                  previewTab === "dispatch"
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                    : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                }`}
+              >
+                <Truck size={15} />
+                <span>Dispatch Details & Analytics</span>
+                {(deliveryChallans.length > 0 || invoices.length > 0) && (
+                  <span className="px-1.5 py-0.5 text-[10px] bg-white/20 rounded-full font-extrabold">
+                    {deliveryChallans.length + invoices.length}
                   </span>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  PO Number: <span className="font-semibold text-gray-700 dark:text-gray-300">{formData.poNumber}</span> | Date: {formData.date}
-                </p>
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-right">
-                <span className="text-[11px] text-gray-500 block">Total Order Amount</span>
-                <span className="text-base font-extrabold text-indigo-600 dark:text-indigo-400">₹ {Number(formData.totalAmount || 0).toFixed(2)}</span>
-              </div>
-            </div>
-
-            {/* Customer, Logistics & Packaging Details Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-gray-50/70 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Customer Details</span>
-                <p className="text-xs font-bold text-gray-900 dark:text-white">{selectedCustomerObj?.name || formData.customer}</p>
-                {selectedCustomerObj?.email && <p className="text-xs text-gray-600 dark:text-gray-400">Email: {selectedCustomerObj.email}</p>}
-                {selectedCustomerObj?.phone && <p className="text-xs text-gray-600 dark:text-gray-400">Phone: {selectedCustomerObj.phone}</p>}
-                {selectedCustomerObj?.address && <p className="text-xs text-gray-600 dark:text-gray-400">Address: {selectedCustomerObj.address}</p>}
-              </div>
-
-              <div className="bg-gray-50/70 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1">
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Transportation & Packaging</span>
-                <p className="text-xs text-gray-700 dark:text-gray-300"><span className="font-semibold">Transport:</span> {formData.transportationType} (₹{Number(formData.transportationCharges || 0).toFixed(2)})</p>
-                <p className="text-xs text-gray-700 dark:text-gray-300"><span className="font-semibold">Packaging:</span> {formData.packagingType} (₹{Number(formData.packagingCharges || 0).toFixed(2)})</p>
-                {formData.remarks && <p className="text-xs text-gray-700 dark:text-gray-300 mt-1"><span className="font-semibold">Remarks:</span> {formData.remarks}</p>}
-                {initialData?.pdf && (
-                  <a href={initialData.pdf} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 underline font-medium block mt-2">
-                    View Attached PDF Document
-                  </a>
                 )}
-                {initialData?.photos?.[0] && !initialData?.pdf && (
-                  <a href={initialData.photos[0]} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 underline font-medium block mt-2">
-                    View Attached Image Document
-                  </a>
-                )}
-              </div>
+              </button>
             </div>
 
-            {/* PO Items Summary Table */}
-            <div className="bg-white dark:bg-gray-800/40 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
-              <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-800 font-bold text-xs text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                PO Line Items ({formData.items.length})
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50/50 dark:bg-gray-800/50 text-gray-500 border-b border-gray-100 dark:border-gray-800">
-                    <tr>
-                      <th className="px-3 py-2 font-semibold">SI.No</th>
-                      <th className="px-3 py-2 font-semibold">Product & Description</th>
-                      <th className="px-3 py-2 font-semibold text-right">Qty</th>
-                      <th className="px-3 py-2 font-semibold">Unit</th>
-                      <th className="px-3 py-2 font-semibold text-right">Rate (₹)</th>
-                      <th className="px-3 py-2 font-semibold text-right">Tax Rate (%)</th>
-                      <th className="px-3 py-2 font-semibold text-right">Total Price (₹)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {formData.items.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
-                        <td className="px-3 py-2 text-gray-400 font-medium">{idx + 1}</td>
-                        <td className="px-3 py-2">
-                          <div className="font-bold text-gray-900 dark:text-white">{item.productName || "Product"}</div>
-                          {item.description && (
-                            <div className="text-[11px] text-gray-500 dark:text-gray-400 font-normal mt-0.5">
-                              {item.description}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 font-semibold text-right text-gray-900 dark:text-white">{item.quantity}</td>
-                        <td className="px-3 py-2 text-gray-500">{item.unit || "PCS"}</td>
-                        <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white">₹{Number(item.rate || 0).toFixed(2)}</td>
-                        <td className="px-3 py-2 text-right text-gray-500">{item.taxRate || 0}%</td>
-                        <td className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400">₹{Number(item.amount || 0).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Calculations Breakdown */}
-            <div className="flex justify-end">
-              <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 w-full sm:w-80 space-y-2 text-xs">
-                <div className="flex justify-between text-gray-600 dark:text-gray-400">
-                  <span>Items Subtotal:</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">₹{Number(formData.subtotal || 0).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-gray-600 dark:text-gray-400">
-                  <span>Transportation ({formData.transportationType}):</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">+ ₹{Number(formData.transportationCharges || 0).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-gray-600 dark:text-gray-400">
-                  <span>Packaging ({formData.packagingType}):</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">+ ₹{Number(formData.packagingCharges || 0).toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-gray-600 dark:text-gray-400">
-                  <span>Total Tax (GST):</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">+ ₹{Number(formData.taxAmount || 0).toFixed(2)}</span>
-                </div>
-                {Number(formData.discount || 0) > 0 && (
-                  <div className="flex justify-between text-gray-600 dark:text-gray-400">
-                    <span>Discount:</span>
-                    <span className="font-semibold text-gray-900 dark:text-white">- ₹{Number(formData.discount || 0).toFixed(2)}</span>
+            {previewTab === "overview" ? (
+              <div className="space-y-6">
+                {/* Top Summary Banner */}
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800 dark:to-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                        {selectedCustomerObj?.name || selectedCustomerObj?.customerName || formData.customer || "Customer PO"}
+                      </h3>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                        formData.status === 'Accepted' || formData.status === 'Sales Order Generated' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
+                        formData.status === 'Received' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
+                        'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                      }`}>
+                        {formData.status}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      PO Number: <span className="font-semibold text-gray-700 dark:text-gray-300">{formData.poNumber}</span> | Date: {formData.date}
+                    </p>
                   </div>
-                )}
-                <div className="pt-2 border-t border-gray-200 dark:border-gray-700 flex justify-between font-bold text-sm text-indigo-600 dark:text-indigo-400">
-                  <span>Total Amount:</span>
-                  <span>₹{Number(formData.totalAmount || 0).toFixed(2)}</span>
+
+                  <div className="bg-white dark:bg-gray-800 px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-right">
+                    <span className="text-[11px] text-gray-500 block">Total Order Amount</span>
+                    <span className="text-base font-extrabold text-indigo-600 dark:text-indigo-400">₹ {Number(formData.totalAmount || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {/* Customer, Logistics & Packaging Details Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50/70 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Customer Details</span>
+                    <p className="text-xs font-bold text-gray-900 dark:text-white">{selectedCustomerObj?.name || formData.customer}</p>
+                    {selectedCustomerObj?.email && <p className="text-xs text-gray-600 dark:text-gray-400">Email: {selectedCustomerObj.email}</p>}
+                    {selectedCustomerObj?.phone && <p className="text-xs text-gray-600 dark:text-gray-400">Phone: {selectedCustomerObj.phone}</p>}
+                    {selectedCustomerObj?.address && <p className="text-xs text-gray-600 dark:text-gray-400">Address: {selectedCustomerObj.address}</p>}
+                  </div>
+
+                  <div className="bg-gray-50/70 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-1">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">Transportation & Packaging</span>
+                    <p className="text-xs text-gray-700 dark:text-gray-300"><span className="font-semibold">Transport:</span> {formData.transportationType} (₹{Number(formData.transportationCharges || 0).toFixed(2)})</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300"><span className="font-semibold">Packaging:</span> {formData.packagingType} (₹{Number(formData.packagingCharges || 0).toFixed(2)})</p>
+                    {formData.remarks && <p className="text-xs text-gray-700 dark:text-gray-300 mt-1"><span className="font-semibold">Remarks:</span> {formData.remarks}</p>}
+                    {initialData?.pdf && (
+                      <a href={initialData.pdf} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 underline font-medium block mt-2">
+                        View Attached PDF Document
+                      </a>
+                    )}
+                    {initialData?.photos?.[0] && !initialData?.pdf && (
+                      <a href={initialData.photos[0]} target="_blank" rel="noreferrer" className="text-xs text-indigo-600 underline font-medium block mt-2">
+                        View Attached Image Document
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {/* PO Items Summary Table */}
+                <div className="bg-white dark:bg-gray-800/40 rounded-xl border border-gray-100 dark:border-gray-800 overflow-hidden shadow-sm">
+                  <div className="px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-800 font-bold text-xs text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+                    PO Line Items ({formData.items.length})
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-gray-50/50 dark:bg-gray-800/50 text-gray-500 border-b border-gray-100 dark:border-gray-800">
+                        <tr>
+                          <th className="px-3 py-2 font-semibold">SI.No</th>
+                          <th className="px-3 py-2 font-semibold">Product & Description</th>
+                          <th className="px-3 py-2 font-semibold text-right">Qty</th>
+                          <th className="px-3 py-2 font-semibold">Unit</th>
+                          <th className="px-3 py-2 font-semibold text-right">Rate (₹)</th>
+                          <th className="px-3 py-2 font-semibold text-right">Tax Rate (%)</th>
+                          <th className="px-3 py-2 font-semibold text-right">Total Price (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {formData.items.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
+                            <td className="px-3 py-2 text-gray-400 font-medium">{idx + 1}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-bold text-gray-900 dark:text-white">{item.productName || "Product"}</div>
+                              {item.description && (
+                                <div className="text-[11px] text-gray-500 dark:text-gray-400 font-normal mt-0.5">
+                                  {item.description}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 font-semibold text-right text-gray-900 dark:text-white">{item.quantity}</td>
+                            <td className="px-3 py-2 text-gray-500">{item.unit || "PCS"}</td>
+                            <td className="px-3 py-2 text-right font-medium text-gray-900 dark:text-white">₹{Number(item.rate || 0).toFixed(2)}</td>
+                            <td className="px-3 py-2 text-right text-gray-500">{item.taxRate || 0}%</td>
+                            <td className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400">₹{Number(item.amount || 0).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Calculations Breakdown */}
+                <div className="flex justify-end">
+                  <div className="bg-gray-50 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 w-full sm:w-80 space-y-2 text-xs">
+                    <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                      <span>Items Subtotal:</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">₹{Number(formData.subtotal || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                      <span>Transportation ({formData.transportationType}):</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">+ ₹{Number(formData.transportationCharges || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                      <span>Packaging ({formData.packagingType}):</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">+ ₹{Number(formData.packagingCharges || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                      <span>Total Tax (GST):</span>
+                      <span className="font-semibold text-gray-900 dark:text-white">+ ₹{Number(formData.taxAmount || 0).toFixed(2)}</span>
+                    </div>
+                    {Number(formData.discount || 0) > 0 && (
+                      <div className="flex justify-between text-gray-600 dark:text-gray-400">
+                        <span>Discount:</span>
+                        <span className="font-semibold text-gray-900 dark:text-white">- ₹{Number(formData.discount || 0).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="pt-2 border-t border-gray-200 dark:border-gray-700 flex justify-between font-bold text-sm">
+                      <span className="text-gray-900 dark:text-white">Total Amount:</span>
+                      <span className="text-indigo-600 dark:text-indigo-400">₹{Number(formData.totalAmount || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              /* DEDICATED DISPATCH DETAILS & CHARTS TAB */
+              <div className="space-y-6">
+                {/* KPI Cards Header */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {(() => {
+                    const poItems = initialData?.items || formData.items || [];
+                    const totalOrdered = poItems.reduce((sum: number, i: any) => sum + (i.quantity || 0), 0);
+                    const totalDispatched = poItems.reduce((sum: number, i: any) => sum + (i.dispatchedQuantity || 0), 0);
+                    const remainingAvailable = Math.max(0, totalOrdered - totalDispatched);
+                    const overallPercent = Math.min(100, Math.round((totalDispatched / (totalOrdered || 1)) * 100));
+
+                    return (
+                      <>
+                        <div className="bg-gradient-to-br from-blue-500 to-indigo-600 text-white p-5 rounded-2xl shadow-md space-y-1">
+                          <span className="text-xs font-semibold opacity-80 uppercase tracking-wider block">Total Ordered Quantity</span>
+                          <span className="text-2xl font-black">{totalOrdered.toLocaleString()} PCS</span>
+                          <p className="text-[11px] opacity-75 mt-1">Total items across PO lines</p>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white p-5 rounded-2xl shadow-md space-y-1">
+                          <span className="text-xs font-semibold opacity-80 uppercase tracking-wider block">Total Dispatched Quantity</span>
+                          <span className="text-2xl font-black">{totalDispatched.toLocaleString()} PCS</span>
+                          <div className="w-full bg-white/30 h-1.5 rounded-full mt-2 overflow-hidden">
+                            <div className="h-full bg-white rounded-full" style={{ width: `${overallPercent}%` }} />
+                          </div>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-amber-500 to-orange-600 text-white p-5 rounded-2xl shadow-md space-y-1">
+                          <span className="text-xs font-semibold opacity-80 uppercase tracking-wider block">Available Balance</span>
+                          <span className="text-2xl font-black">{remainingAvailable.toLocaleString()} PCS</span>
+                          <p className="text-[11px] opacity-75 mt-1">{overallPercent}% fulfilled to date</p>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Item-by-Item Dispatch Analytics Chart */}
+                <div className="bg-white dark:bg-gray-800/40 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+                    <h3 className="font-bold text-xs uppercase tracking-wider text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-indigo-600" />
+                      Item-by-Item Dispatch Progress & Completion Status
+                    </h3>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(initialData?.items || formData.items || []).map((item: any, idx: number) => {
+                      const ordered = item.quantity || 0;
+                      const dispatched = item.dispatchedQuantity || 0;
+                      const remaining = Math.max(0, ordered - dispatched);
+                      const percent = Math.min(100, Math.round((dispatched / (ordered || 1)) * 100));
+
+                      return (
+                        <div key={idx} className="p-4 bg-gray-50/70 dark:bg-gray-800/80 rounded-xl border border-gray-100 dark:border-gray-800 space-y-2">
+                          <div className="flex justify-between items-center text-xs">
+                            <div className="font-bold text-gray-900 dark:text-white">
+                              {idx + 1}. {item.productName || item.name || "Product"}
+                            </div>
+                            <div className="flex items-center gap-4 text-xs font-semibold">
+                              <span className="text-gray-500">Ordered: <strong className="text-gray-900 dark:text-white">{ordered} {item.unit || "PCS"}</strong></span>
+                              <span className="text-indigo-600 dark:text-indigo-400">Dispatched: <strong>{dispatched}</strong></span>
+                              <span className="text-emerald-600 dark:text-emerald-400">Remaining: <strong>{remaining}</strong></span>
+                            </div>
+                          </div>
+
+                          {/* Visual Progress Bar */}
+                          <div className="w-full bg-gray-200 dark:bg-gray-700 h-2.5 rounded-full overflow-hidden flex">
+                            <div className="bg-gradient-to-r from-indigo-600 to-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${percent}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Delivery Challans Timeline */}
+                <div className="bg-white dark:bg-gray-800/40 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+                    <h3 className="font-bold text-xs uppercase tracking-wider text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-amber-500" />
+                      Delivery Challans History ({deliveryChallans.length})
+                    </h3>
+                  </div>
+
+                  {deliveryChallans.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-3 text-center">No Delivery Challans generated yet for this Customer PO.</p>
+                  ) : (
+                    <div className="divide-y divide-gray-100 dark:divide-gray-800 border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden text-xs">
+                      {deliveryChallans.map((dc: any) => (
+                        <div key={dc._id} className="p-3.5 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/30">
+                          <div>
+                            <span className="font-mono font-bold text-gray-900 dark:text-white text-sm">DC #{dc.dcNumber}</span>
+                            <span className="text-gray-500 ml-2">({new Date(dc.date).toLocaleDateString("en-IN")})</span>
+                            <div className="text-[11px] text-gray-500 mt-1">
+                              Items: {(dc.items || []).map((i: any) => `${i.materialName || i.productName} (${i.quantity} ${i.unit || 'PCS'})`).join(", ")}
+                            </div>
+                          </div>
+                          <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                            {dc.status || "Issued"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Invoices Timeline */}
+                <div className="bg-white dark:bg-gray-800/40 rounded-2xl border border-gray-100 dark:border-gray-800 p-5 space-y-4 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-800 pb-3">
+                    <h3 className="font-bold text-xs uppercase tracking-wider text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-emerald-500" />
+                      Tax Invoices History ({invoices.length})
+                    </h3>
+                  </div>
+
+                  {invoices.length === 0 ? (
+                    <p className="text-xs text-gray-400 py-3 text-center">No Tax Invoices generated yet for this Customer PO.</p>
+                  ) : (
+                    <div className="divide-y divide-gray-100 dark:divide-gray-800 border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden text-xs">
+                      {invoices.map((inv: any) => (
+                        <div key={inv._id} className="p-3.5 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/30">
+                          <div>
+                            <span className="font-mono font-bold text-gray-900 dark:text-white text-sm">Invoice #{inv.invoiceNumber}</span>
+                            <span className="text-gray-500 ml-2">({new Date(inv.date).toLocaleDateString("en-IN")})</span>
+                          </div>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                            ₹{(inv.totalAmount || inv.grandTotal || 0).toLocaleString()}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* Editable Form View */

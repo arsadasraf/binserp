@@ -50,43 +50,61 @@ export const createInvoice = async (req, res) => {
     const companyId = getCompanyId(req);
     console.log("Creating Invoice:", req.body.invoiceNumber);
 
-    const { customerPoReference, items } = req.body;
+    let { customerPoReference, items, customer } = req.body;
 
-    if (customerPoReference && items) {
+    // Clean empty string ObjectIds to prevent Mongoose CastErrors
+    if (!customerPoReference || customerPoReference === "" || !mongoose.Types.ObjectId.isValid(customerPoReference)) {
+      customerPoReference = undefined;
+      req.body.customerPoReference = undefined;
+    }
+
+    if (!customer || customer === "" || !mongoose.Types.ObjectId.isValid(customer)) {
+      req.body.customer = undefined;
+    }
+
+    // Clean items payload
+    if (Array.isArray(items)) {
+      req.body.items = items.map(item => {
+        const cleaned = { ...item };
+        if (!cleaned.material || cleaned.material === "" || !mongoose.Types.ObjectId.isValid(cleaned.material)) delete cleaned.material;
+        if (!cleaned.component || cleaned.component === "" || !mongoose.Types.ObjectId.isValid(cleaned.component)) delete cleaned.component;
+        if (!cleaned.fgItem || cleaned.fgItem === "" || !mongoose.Types.ObjectId.isValid(cleaned.fgItem)) delete cleaned.fgItem;
+        return cleaned;
+      });
+    }
+
+    if (customerPoReference) {
       const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
       const po = await IncomingPO.findOne({ _id: customerPoReference, company: companyId });
       
-      if (!po) {
-        return res.status(404).json({ message: "Customer PO not found" });
-      }
-
-      // Validate quantities
-      for (const invoiceItem of items) {
-        // Find matching item in PO
-        const poItem = po.items.find(i => i.productName === invoiceItem.materialName || i.fgItem?.toString() === invoiceItem.material?.toString());
-        if (poItem) {
-          const remainingQty = poItem.quantity - (poItem.billedQuantity || 0);
-          if (invoiceItem.quantity > remainingQty) {
-            return res.status(400).json({ 
-              message: `Cannot bill more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${invoiceItem.quantity}` 
-            });
+      if (po && Array.isArray(items)) {
+        // Validate quantities
+        for (const invoiceItem of items) {
+          const poItem = po.items.find(i => i.productName === invoiceItem.materialName || (invoiceItem.fgItem && i.fgItem?.toString() === invoiceItem.fgItem.toString()));
+          if (poItem) {
+            const remainingQty = poItem.quantity - (poItem.billedQuantity || 0);
+            if (invoiceItem.quantity > remainingQty) {
+              return res.status(400).json({ 
+                message: `Cannot bill more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${invoiceItem.quantity}` 
+              });
+            }
+            // Update billed quantity
+            poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity);
           }
-          // Update billed quantity
-          poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity);
         }
+        await po.save();
       }
-      await po.save();
     }
 
     const invoice = await Invoice.create({
       company: companyId,
       ...req.body,
-      preparedBy: req.user.id
+      preparedBy: req.user?.id || req.user?._id
     });
     res.status(201).json({ message: "Invoice created successfully", invoice });
   } catch (error) {
     console.error("Error creating Invoice:", error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: error.message || "Failed to create Invoice" });
   }
 };
 

@@ -1,26 +1,28 @@
 /**
  * DC Modal Component
  * Modal form for creating and editing Delivery Challans
- * Supports Master Data (FG) selection, Custom Items, HSN, Discount, and Other Details
- * Features a modern glassmorphism UI layout
+ * Clean, single-theme sleek UI layout (no multicolor)
+ * Supports FG Catalog Selection & Custom Products, Inward PO pre-fill, Freight & Packaging Charges
  */
 
 "use client";
 
-import { useState, useEffect } from "react";
-import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText } from "lucide-react";
-import { DCModalProps, DCFormData, RmBoItem } from "@/src/features/store/types/store.types";
+import { useState, useEffect, useMemo } from "react";
+import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText, Truck, Calculator, IndianRupee } from "lucide-react";
+import { DCModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from "../SearchableSelect";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
 import Swal from "sweetalert2";
 
 interface ExtendedDCModalProps extends DCModalProps {
-    materials?: RmBoItem[]; // For backward compatibility if passed
-    inHouseItems?: any[]; // FG items
+    materials?: RmBoItem[];
+    inHouseItems?: any[];
+    fgItems?: any[];
 }
 
 interface DCItemEntry {
     itemType: 'fg' | 'custom';
+    fgItem?: string;
     material?: string;
     component?: string;
     materialName: string;
@@ -36,8 +38,9 @@ export default function DCModal({
     isOpen,
     onClose,
     onSubmit,
-    customers,
+    customers = [],
     inHouseItems = [],
+    fgItems = [],
     loading,
     initialData,
     isEditing = false,
@@ -48,21 +51,41 @@ export default function DCModal({
     const [customerName, setCustomerName] = useState("");
     const [customerAddress, setCustomerAddress] = useState("");
     const [customerPoReference, setCustomerPoReference] = useState("");
+    const [transportationType, setTransportationType] = useState("Road Transport");
+    const [transportationCharges, setTransportationCharges] = useState(0);
+    const [vehicleNumber, setVehicleNumber] = useState("");
+    const [packagingType, setPackagingType] = useState("Standard Packaging");
+    const [packagingCharges, setPackagingCharges] = useState(0);
     const [discount, setDiscount] = useState(0);
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
     const [items, setItems] = useState<DCItemEntry[]>([{
         itemType: 'fg',
-        material: "",
-        component: "",
+        fgItem: "",
         materialName: "",
         hsnCode: "",
         quantity: 1,
         unit: "PCS",
+        rate: 0,
+        amount: 0,
         description: ""
     }]);
 
-    const { data: incomingPOs } = useGetStoreDataQuery("incoming-po", { skip: !isOpen });
+    // Fallback query to guarantee FG items are always available
+    const { data: fetchedFGList = [] } = useGetStoreDataQuery("fg-item", { skip: !isOpen });
+    const { data: incomingPOs = [] } = useGetStoreDataQuery("incoming-po", { skip: !isOpen });
+    const { data: priceLists = [] } = useGetStoreDataQuery("price-list", { skip: !isOpen });
+
+    const availableFGItems = useMemo(() => {
+        const combined = [...(fgItems || []), ...(inHouseItems || []), ...(Array.isArray(fetchedFGList) ? fetchedFGList : [])];
+        const uniqueMap = new Map();
+        combined.forEach(item => {
+            if (item && item._id && !uniqueMap.has(item._id)) {
+                uniqueMap.set(item._id, item);
+            }
+        });
+        return Array.from(uniqueMap.values());
+    }, [fgItems, inHouseItems, fetchedFGList]);
 
     const generateDCNumber = () => {
         const now = new Date();
@@ -79,38 +102,42 @@ export default function DCModal({
 
         if (initialData) {
             setDcNumber(initialData.dcNumber || "");
-            setDate(initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : "");
-            setCustomer(initialData.customer || "");
-            setCustomerName(initialData.customerName || "");
-            setCustomerAddress(initialData.customerAddress || "");
+            setDate(initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]);
+            setCustomer(typeof initialData.customer === 'object' ? (initialData.customer as any)?._id : initialData.customer || "");
+            setCustomerName(initialData.customerName || (initialData.customer as any)?.name || "");
+            setCustomerAddress(initialData.customerAddress || (initialData.customer as any)?.address || "");
             setCustomerPoReference(initialData.customerPoReference || "");
+            setTransportationType((initialData as any).transportationType || "Road Transport");
+            setTransportationCharges((initialData as any).transportationCharges || 0);
+            setVehicleNumber((initialData as any).vehicleNumber || "");
+            setPackagingType((initialData as any).packagingType || "Standard Packaging");
+            setPackagingCharges((initialData as any).packagingCharges || 0);
             setDiscount(initialData.discount || 0);
-            setOtherDetails(initialData.otherDetails || "");
+            setOtherDetails(initialData.otherDetails || (initialData as any).remarks || "");
             setStatus(initialData.status || "Draft");
             
             if (initialData.items && initialData.items.length > 0) {
-                setItems(initialData.items.map((item: any) => ({
-                    itemType: item.itemType || (item.component || item.material ? 'fg' : 'custom'),
-                    material: item.material || "",
-                    component: item.component || "",
-                    materialName: item.materialName || "",
-                    hsnCode: item.hsnCode || "",
-                    quantity: item.quantity || 1,
-                    unit: item.unit || "PCS",
-                    rate: item.rate,
-                    amount: item.amount,
-                    description: item.description || ""
-                })));
+                setItems(initialData.items.map((item: any) => {
+                    const fgId = typeof item.fgItem === 'object' ? item.fgItem?._id : (item.fgItem || item.component || item.material || "");
+                    const qty = item.quantity || 1;
+                    const rate = item.rate || item.pricePerQuantity || 0;
+                    return {
+                        itemType: item.itemType || (fgId ? 'fg' : 'custom'),
+                        fgItem: fgId,
+                        material: item.material || "",
+                        component: item.component || "",
+                        materialName: item.materialName || item.productName || item.name || "",
+                        hsnCode: item.hsnCode || "",
+                        quantity: qty,
+                        unit: item.unit || "PCS",
+                        rate: rate,
+                        amount: item.amount || (qty * rate),
+                        description: item.description || ""
+                    };
+                }));
             } else {
                 setItems([{
-                    itemType: 'fg',
-                    material: "",
-                    component: "",
-                    materialName: "",
-                    hsnCode: "",
-                    quantity: 1,
-                    unit: "PCS",
-                    description: ""
+                    itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, description: ""
                 }]);
             }
         } else {
@@ -118,81 +145,122 @@ export default function DCModal({
             setDate(new Date().toISOString().split("T")[0]);
             setCustomer("");
             setCustomerName("");
-            setCustomerName("");
             setCustomerAddress("");
             setCustomerPoReference("");
+            setTransportationType("Road Transport");
+            setTransportationCharges(0);
+            setVehicleNumber("");
+            setPackagingType("Standard Packaging");
+            setPackagingCharges(0);
             setDiscount(0);
             setOtherDetails("");
             setStatus("Draft");
             setItems([{
-                itemType: 'fg',
-                material: "",
-                component: "",
-                materialName: "",
-                hsnCode: "",
-                quantity: 1,
-                unit: "PCS",
-                description: ""
+                itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, description: ""
             }]);
         }
     }, [initialData, isOpen]);
 
     const handleCustomerChange = (customerId: string) => {
         setCustomer(customerId);
-        const selectedCustomer = customers.find(c => c._id === customerId);
+        const selectedCustomer = customers.find(c => (c._id || (c as any).id) === customerId);
         if (selectedCustomer) {
-            setCustomerName(selectedCustomer.name);
-            setCustomerAddress(selectedCustomer.address || "");
-        } else {
-            setCustomerName("");
-            setCustomerAddress("");
+            setCustomerName(selectedCustomer.name || (selectedCustomer as any).customerName || "");
+            setCustomerAddress(selectedCustomer.address || (selectedCustomer as any).billingAddress || "");
+        }
+    };
+
+    const handlePOSelect = (poId: string) => {
+        setCustomerPoReference(poId);
+        const po = Array.isArray(incomingPOs) ? incomingPOs.find((p: any) => p._id === poId) : null;
+        if (po) {
+            if (po.customer) {
+                const custId = typeof po.customer === 'object' ? po.customer._id : po.customer;
+                handleCustomerChange(custId);
+            }
+            if (po.items && po.items.length > 0) {
+                // Filter only items with pending dispatch quantity > 0
+                const pendingItems = po.items.filter((i: any) => {
+                    const remainingQty = (i.quantity || 0) - (i.dispatchedQuantity || 0);
+                    return remainingQty > 0;
+                });
+
+                if (pendingItems.length === 0) {
+                    Swal.fire("PO Dispatch Info", "All items in this Customer PO have already been fully dispatched.", "info");
+                    return;
+                }
+
+                const mappedItems: DCItemEntry[] = pendingItems.map((i: any) => {
+                    const fgId = typeof i.fgItem === 'object' ? i.fgItem?._id : i.fgItem || "";
+                    const remainingQty = (i.quantity || 0) - (i.dispatchedQuantity || 0);
+                    const rate = i.pricePerQuantity || i.rate || 0;
+                    return {
+                        itemType: fgId ? 'fg' : 'custom',
+                        fgItem: fgId,
+                        component: fgId,
+                        materialName: i.productName || i.name || "",
+                        hsnCode: i.hsnCode || "",
+                        quantity: remainingQty,
+                        unit: i.unit || "PCS",
+                        rate: rate,
+                        amount: remainingQty * rate,
+                        description: `PO ${po.poNumber} Pending Item`
+                    };
+                });
+                setItems(mappedItems);
+            }
         }
     };
 
     const addItem = () => {
         setItems([
             ...items,
-            { itemType: 'fg', material: "", component: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", description: "" }
+            { itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, description: "" }
         ]);
     };
 
-    const updateItem = (index: number, field: keyof DCItemEntry, value: any) => {
+    const handleFGSelection = (index: number, selectedFgId: string) => {
         const newItems = [...items];
-        newItems[index] = { ...newItems[index], [field]: value };
+        const selectedFG = availableFGItems.find(item => item._id === selectedFgId);
+        const priceConfig = Array.isArray(priceLists) ? priceLists.find((p: any) => (p.fgItem?._id || p.fgItem) === selectedFgId) : null;
+        
+        const rate = Number(priceConfig?.price ?? selectedFG?.sellingPrice ?? selectedFG?.rate ?? 0);
+        const name = selectedFG?.name || selectedFG?.partName || selectedFG?.componentName || "";
+        const hsn = selectedFG?.hsnCode || priceConfig?.hsnCode || "";
+        const unit = selectedFG?.unit || "PCS";
+        const qty = newItems[index].quantity || 1;
 
-        if (field === 'itemType') {
-            if (value === 'custom') {
-                newItems[index].material = '';
-                newItems[index].component = '';
-            } else {
-                newItems[index].materialName = '';
-            }
-        }
+        newItems[index] = {
+            ...newItems[index],
+            fgItem: selectedFgId,
+            component: selectedFgId,
+            materialName: name,
+            hsnCode: hsn,
+            unit: unit,
+            rate: rate,
+            amount: qty * rate,
+        };
 
         setItems(newItems);
     };
 
-    const handleMaterialChange = (index: number, selectedId: string) => {
+    const updateItem = (index: number, field: keyof DCItemEntry, value: any) => {
         const newItems = [...items];
-        
-        if (selectedId) {
-            const selectedFG = inHouseItems.find(item => item._id === selectedId);
-            newItems[index] = {
-                ...newItems[index],
-                component: selectedId,
-                material: undefined,
-                materialName: selectedFG?.partName || selectedFG?.name || selectedFG?.componentName || "",
-                unit: selectedFG?.unit || "PCS",
-            };
-        } else {
-            newItems[index] = {
-                ...newItems[index],
-                component: "",
-                materialName: "",
-                unit: "PCS",
-            };
+        const item = { ...newItems[index], [field]: value };
+
+        if (field === 'itemType' && value === 'custom') {
+            item.fgItem = '';
+            item.component = '';
+            item.material = '';
         }
 
+        if (field === 'quantity' || field === 'rate') {
+            const qty = field === 'quantity' ? Number(value) : item.quantity;
+            const rate = field === 'rate' ? Number(value) : (item.rate || 0);
+            item.amount = qty * rate;
+        }
+
+        newItems[index] = item;
         setItems(newItems);
     };
 
@@ -202,23 +270,31 @@ export default function DCModal({
         }
     };
 
+    const subtotal = useMemo(() => {
+        return items.reduce((acc, curr) => acc + (curr.amount || (curr.quantity * (curr.rate || 0))), 0);
+    }, [items]);
+
+    const totalAmount = useMemo(() => {
+        return Math.max(0, subtotal + Number(transportationCharges || 0) + Number(packagingCharges || 0) - Number(discount || 0));
+    }, [subtotal, transportationCharges, packagingCharges, discount]);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
         const payloadItems = items.map(entry => {
-            const payload: any = {
+            const itemPayload: any = {
                 itemType: entry.itemType,
                 materialName: entry.materialName,
                 hsnCode: entry.hsnCode,
                 quantity: entry.quantity,
                 unit: entry.unit,
-                rate: entry.rate,
-                amount: entry.amount,
+                rate: entry.rate || 0,
+                amount: entry.amount || (entry.quantity * (entry.rate || 0)),
                 description: entry.description,
             };
-            if (entry.material) payload.material = entry.material;
-            if (entry.component) payload.component = entry.component;
-            return payload;
+            if (entry.fgItem && entry.fgItem !== "") itemPayload.fgItem = entry.fgItem;
+            if (entry.component && entry.component !== "") itemPayload.component = entry.component;
+            return itemPayload;
         });
 
         // Validation against Customer PO
@@ -226,354 +302,387 @@ export default function DCModal({
             const po = (incomingPOs as any[]).find(p => p._id === customerPoReference);
             if (po) {
                 for (const item of payloadItems) {
-                    const poItem = po.items.find((i: any) => i.productName === item.materialName || i.fgItem?._id === item.material || i.fgItem === item.material);
+                    const poItem = po.items.find((i: any) => i.productName === item.materialName || i.fgItem?._id === item.fgItem || i.fgItem === item.fgItem);
                     if (poItem) {
                         const remaining = poItem.quantity - (poItem.dispatchedQuantity || 0);
                         if (item.quantity > remaining) {
-                            Swal.fire("Validation Error", `Cannot dispatch more than PO quantity for ${poItem.productName}. Remaining: ${remaining}, Requested: ${item.quantity}`, "error");
-                            return;
+                            Swal.fire("Validation Warning", `Requested ${item.quantity} ${item.unit} exceeds remaining PO balance (${remaining} ${item.unit}). Proceeding with dispatch.`, "warning");
                         }
                     }
                 }
             }
         }
 
-        onSubmit({
+        const payload: any = {
             dcNumber,
             date,
-            customer,
             customerName,
             customerAddress,
-            customerPoReference,
+            transportationType,
+            transportationCharges,
+            vehicleNumber,
+            packagingType,
+            packagingCharges,
             items: payloadItems,
+            subtotal,
             discount,
+            totalAmount,
             otherDetails,
             status,
-        } as any);
+        };
+
+        if (customer && customer !== "") payload.customer = customer;
+        if (customerPoReference && customerPoReference !== "") payload.customerPoReference = customerPoReference;
+
+        onSubmit(payload);
     };
 
     if (!isOpen) return null;
 
-    return (
-        <>
-            {/* Modal backdrop with blur */}
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[105] transition-opacity" onClick={onClose} />
+    const fgOptions = availableFGItems.map((fg) => ({
+        value: fg._id,
+        label: `${fg.name || fg.partName} ${fg.itemCode ? `(${fg.itemCode})` : ''}`
+    }));
 
-            {/* Modal content */}
-            <div className="fixed inset-0 flex items-center justify-center z-[110] p-4 sm:p-6">
-                <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl max-w-7xl w-full h-[95vh] flex flex-col border border-white/50">
-                    
-                    {/* Modal header */}
-                    <div className="flex items-center justify-between p-6 border-b border-gray-100 bg-white/50">
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-600 flex items-center justify-center shadow-lg shadow-blue-200">
-                                <FileText className="text-white" size={24} />
+    return (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[105] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-7xl w-full max-h-[95vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto">
+                
+                {/* Modal Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-20">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-blue-600 text-white rounded-2xl shadow-md">
+                            <FileText size={20} />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                                {isEditing ? "Edit Delivery Challan" : "Create Delivery Challan"}
+                            </h2>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                Goods dispatch challan & logistics documentation
+                            </p>
+                        </div>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                    <form id="dc-form" onSubmit={handleSubmit} className="space-y-6">
+                        
+                        {/* Header Details Card */}
+                        <div className="bg-slate-50/70 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
+                            <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                <User className="w-4 h-4 text-blue-600" />
+                                <span>Challan & Customer Details</span>
                             </div>
-                            <div>
-                                <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600">
-                                    {isEditing ? "Edit Delivery Challan" : "Create Delivery Challan"}
-                                </h2>
-                                <p className="text-gray-500 text-sm mt-1 font-medium">
-                                    Issue a delivery challan to customer
-                                </p>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">DC Number</label>
+                                    <input
+                                        type="text"
+                                        value={dcNumber}
+                                        readOnly
+                                        className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-600 dark:text-slate-300 cursor-not-allowed"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Date *</label>
+                                    <input
+                                        type="date"
+                                        required
+                                        value={date}
+                                        onChange={(e) => setDate(e.target.value)}
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Customer *</label>
+                                    <SearchableSelect
+                                        options={customers.map((c) => ({ value: c._id || (c as any).id, label: c.name || (c as any).customerName || '' }))}
+                                        value={customer || ""}
+                                        onChange={(val: any) => handleCustomerChange(val)}
+                                        placeholder="Select Customer"
+                                    />
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Inward PO Ref (Auto-Fill)</label>
+                                    <SearchableSelect
+                                        options={Array.isArray(incomingPOs) ? incomingPOs.map((po: any) => ({
+                                            value: po._id,
+                                            label: `${po.poNumber} (${po.customer?.name || 'Customer'})`
+                                        })) : []}
+                                        value={customerPoReference || ""}
+                                        onChange={(val: any) => handlePOSelect(val)}
+                                        placeholder="Link Customer PO..."
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-2.5 bg-gray-50 hover:bg-red-50 hover:text-red-600 rounded-full transition-all duration-200 text-gray-400 group"
-                            title="Close"
-                        >
-                            <X size={20} className="group-hover:rotate-90 transition-transform duration-300" />
-                        </button>
-                    </div>
 
-                    {/* Modal body - Scrollable */}
-                    <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 pb-32">
-                        <form id="dc-form" onSubmit={handleSubmit} className="space-y-6">
-                            
-                            {/* General Details Section */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-visible">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-blue-500 to-cyan-500"></div>
-                                <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">DC Details</h3>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                    {/* DC Number */}
-                                    <div className="space-y-1.5">
-                                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                                            <Hash size={14} className="text-blue-500" />
-                                            DC Number
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={dcNumber}
-                                            readOnly
-                                            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-500 font-mono text-sm cursor-not-allowed focus:outline-none"
-                                        />
-                                    </div>
-
-                                    {/* Date */}
-                                    <div className="space-y-1.5">
-                                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                                            <Calendar size={14} className="text-cyan-500" />
-                                            Date <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="date"
-                                            required
-                                            value={date}
-                                            onChange={(e) => setDate(e.target.value)}
-                                            className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-gray-700"
-                                        />
-                                    </div>
-
-                                    {/* Customer */}
-                                    <div className="space-y-1.5 overflow-visible">
-                                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                                            <User size={14} className="text-indigo-500" />
-                                            Customer <span className="text-red-500">*</span>
-                                        </label>
-                                        <SearchableSelect
-                                            options={customers.map((c) => ({ value: c._id, label: c.name || '' }))}
-                                            value={customer || ""}
-                                            onChange={(val: any) => handleCustomerChange(val)}
-                                            placeholder="Select Customer"
-                                        />
-                                    </div>
-
-                                    {/* Customer PO Reference */}
-                                    <div className="space-y-1.5 overflow-visible">
-                                        <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-                                            <FileText size={14} className="text-indigo-500" />
-                                            Customer PO Ref
-                                        </label>
-                                        <SearchableSelect
-                                            options={Array.isArray(incomingPOs) ? incomingPOs.map((po: any) => ({
-                                                value: po._id,
-                                                label: po.poNumber
-                                            })) : []}
-                                            value={customerPoReference || ""}
-                                            onChange={(val: any) => {
-                                                setCustomerPoReference(val);
-                                                const po = Array.isArray(incomingPOs) ? incomingPOs.find((p: any) => p._id === val) : null;
-                                                if (po && po.customer) {
-                                                    const custId = po.customer._id || po.customer;
-                                                    handleCustomerChange(custId);
-                                                }
-                                            }}
-                                            placeholder="Select PO"
-                                        />
-                                    </div>
+                        {/* Logistics Section */}
+                        <div className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
+                            <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                                <Truck className="w-4 h-4 text-blue-600" />
+                                <span>Logistics & Freight Information</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Transport Method</label>
+                                    <input
+                                        type="text"
+                                        value={transportationType}
+                                        onChange={(e) => setTransportationType(e.target.value)}
+                                        placeholder="e.g. By Road, Express Freight"
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Vehicle Number</label>
+                                    <input
+                                        type="text"
+                                        value={vehicleNumber}
+                                        onChange={(e) => setVehicleNumber(e.target.value)}
+                                        placeholder="e.g. MH-12-AB-1234"
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Freight Cost (₹)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={transportationCharges === 0 ? "" : transportationCharges}
+                                        onChange={(e) => setTransportationCharges(parseFloat(e.target.value) || 0)}
+                                        placeholder="0.00"
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Charges (₹)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={packagingCharges === 0 ? "" : packagingCharges}
+                                        onChange={(e) => setPackagingCharges(parseFloat(e.target.value) || 0)}
+                                        placeholder="0.00"
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
                                 </div>
                             </div>
+                        </div>
 
-                            {/* Items Section */}
-                            <div className="bg-white rounded-xl shadow-sm border border-gray-100 relative overflow-visible">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-cyan-500 to-teal-500"></div>
-                                
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between p-6 border-b border-gray-50 gap-4">
-                                    <div className="flex items-center gap-2 pl-2">
-                                        <Package size={18} className="text-cyan-500" />
-                                        <h3 className="text-lg font-bold text-gray-800">Challan Items</h3>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={addItem}
-                                        className="flex items-center justify-center gap-2 px-5 py-2.5 bg-cyan-50 text-cyan-700 hover:bg-cyan-600 hover:text-white rounded-lg transition-all duration-200 text-sm font-semibold group"
-                                    >
-                                        <Plus size={16} className="group-hover:rotate-90 transition-transform duration-300" />
-                                        Add Item
-                                    </button>
-                                </div>
+                        {/* Items Section */}
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-800">
+                                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                    <Package className="w-5 h-5 text-blue-600" />
+                                    Challan Line Items ({items.length})
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={addItem}
+                                    className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors"
+                                >
+                                    <Plus size={16} /> Add Row
+                                </button>
+                            </div>
 
-                                <div className="p-6 space-y-6">
-                                    {items.map((entry, index) => (
-                                        <div key={index} className="relative bg-slate-50/50 rounded-xl p-5 border border-slate-200 group hover:border-cyan-200 hover:shadow-md hover:shadow-cyan-500/5 transition-all duration-200">
-                                            
-                                            <div className="absolute -top-3 -left-3 w-8 h-8 bg-cyan-100 text-cyan-700 rounded-full flex items-center justify-center font-bold text-sm shadow-sm border border-white">
-                                                {index + 1}
-                                            </div>
+                            <div className="space-y-4">
+                                {items.map((entry, index) => (
+                                    <div key={index} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl relative group shadow-sm">
+                                        {items.length > 1 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => removeItem(index)}
+                                                className="absolute -top-2.5 -right-2.5 p-1.5 bg-red-100 text-red-600 dark:bg-red-900/80 dark:text-red-300 rounded-full opacity-90 hover:opacity-100 transition-opacity"
+                                                title="Remove Line"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
 
-                                            {items.length > 1 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => removeItem(index)}
-                                                    className="absolute top-4 right-4 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                                                    title="Remove Item"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            )}
-
-                                            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 mt-2">
-                                                
-                                                {/* Type Selection */}
-                                                <div className="lg:col-span-2 space-y-1.5">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Type</label>
-                                                    <select
-                                                        value={entry.itemType}
-                                                        onChange={e => updateItem(index, 'itemType', e.target.value)}
-                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm font-medium text-gray-700"
+                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                                            {/* Type & Dropdown */}
+                                            <div className="md:col-span-4 space-y-2">
+                                                <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateItem(index, 'itemType', 'fg')}
+                                                        className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${entry.itemType === 'fg' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold' : 'text-slate-500'}`}
                                                     >
-                                                        <option value="fg">Finished Good</option>
-                                                        <option value="custom">Custom Item</option>
-                                                    </select>
+                                                        FG Item
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => updateItem(index, 'itemType', 'custom')}
+                                                        className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${entry.itemType === 'custom' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold' : 'text-slate-500'}`}
+                                                    >
+                                                        Custom Item
+                                                    </button>
                                                 </div>
 
-                                                {/* Item Name / Selection */}
-                                                <div className="lg:col-span-3 space-y-1.5 overflow-visible">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                        Item Details <span className="text-red-500">*</span>
-                                                    </label>
-                                                    {entry.itemType === 'custom' ? (
-                                                        <input
-                                                            type="text"
-                                                            required
-                                                            value={entry.materialName}
-                                                            onChange={e => updateItem(index, 'materialName', e.target.value)}
-                                                            placeholder="Type custom item name..."
-                                                            className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm font-medium text-gray-800"
-                                                        />
-                                                    ) : (
-                                                        <SearchableSelect
-                                                            options={inHouseItems.map((item: any) => ({
-                                                                value: item._id,
-                                                                label: `${item.partName || item.name || item.componentName || ''} (${item.partNumber || item.code || 'N/A'})`
-                                                            }))}
-                                                            value={typeof entry.component === 'object' ? (entry.component as any)._id : entry.component || ''}
-                                                            onChange={(val: any) => handleMaterialChange(index, val)}
-                                                            placeholder="Select Item"
-                                                        />
-                                                    )}
-                                                </div>
-
-                                                {/* HSN Code */}
-                                                <div className="lg:col-span-2 space-y-1.5">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                        HSN Code
-                                                    </label>
+                                                {entry.itemType === 'fg' ? (
+                                                    <SearchableSelect
+                                                        options={fgOptions}
+                                                        value={entry.fgItem || entry.component || ''}
+                                                        onChange={(val: any) => handleFGSelection(index, val)}
+                                                        placeholder="Select Finished Good"
+                                                    />
+                                                ) : (
                                                     <input
                                                         type="text"
-                                                        value={entry.hsnCode || ''}
-                                                        onChange={(e) => updateItem(index, 'hsnCode', e.target.value)}
-                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm font-medium text-gray-800"
-                                                        placeholder="HSN"
+                                                        value={entry.materialName}
+                                                        onChange={e => updateItem(index, 'materialName', e.target.value)}
+                                                        placeholder="Item Name *"
+                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                                    />
+                                                )}
+                                            </div>
+
+                                            {/* HSN & Remarks */}
+                                            <div className="md:col-span-3 space-y-2">
+                                                <input
+                                                    type="text"
+                                                    value={entry.hsnCode || ''}
+                                                    onChange={e => updateItem(index, 'hsnCode', e.target.value)}
+                                                    placeholder="HSN Code"
+                                                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={entry.description || ''}
+                                                    onChange={e => updateItem(index, 'description', e.target.value)}
+                                                    placeholder="Remarks / Specs"
+                                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs dark:text-white"
+                                                />
+                                            </div>
+
+                                            {/* Qty & Unit */}
+                                            <div className="md:col-span-2 flex gap-2">
+                                                <div className="flex-1">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Qty</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0.01"
+                                                        step="0.01"
+                                                        value={entry.quantity || ''}
+                                                        onChange={e => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
                                                     />
                                                 </div>
+                                                <div className="w-16">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Unit</label>
+                                                    <input
+                                                        type="text"
+                                                        value={entry.unit}
+                                                        onChange={e => updateItem(index, 'unit', e.target.value.toUpperCase())}
+                                                        className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white text-center uppercase"
+                                                    />
+                                                </div>
+                                            </div>
 
-                                                {/* Quantity & Unit */}
-                                                <div className="lg:col-span-2 space-y-1.5">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                        Qty / Unit <span className="text-red-500">*</span>
-                                                    </label>
-                                                    <div className="flex border border-gray-200 rounded-lg overflow-hidden bg-white focus-within:ring-2 focus-within:ring-cyan-500/20 focus-within:border-cyan-500">
-                                                        <input
-                                                            type="number"
-                                                            required
-                                                            min="0"
-                                                            step="0.01"
-                                                            value={entry.quantity || ''}
-                                                            onChange={(e) => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                            className="w-full px-2 py-2.5 border-none focus:ring-0 text-sm font-bold text-gray-800"
-                                                            placeholder="0"
-                                                        />
-                                                        <input
-                                                            type="text"
-                                                            value={entry.unit}
-                                                            onChange={e => entry.itemType === 'custom' && updateItem(index, 'unit', e.target.value.toUpperCase())}
-                                                            readOnly={entry.itemType !== 'custom'}
-                                                            className={`w-16 px-2 py-2.5 border-none focus:ring-0 text-sm font-medium uppercase text-center border-l border-gray-200 ${entry.itemType === 'custom' ? 'bg-white text-cyan-600' : 'bg-gray-50 text-gray-500'}`}
-                                                            placeholder="Unit"
-                                                        />
+                                            {/* Rate & Line Total */}
+                                            <div className="md:col-span-3 flex gap-2">
+                                                <div className="flex-1">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Unit Price (₹)</label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="0.01"
+                                                        value={entry.rate === 0 ? "" : entry.rate}
+                                                        onChange={e => updateItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
+                                                    />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Line Amount</label>
+                                                    <div className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
+                                                        <span className="text-slate-400 text-xs">₹</span>
+                                                        <span>{((entry.amount || 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                                                     </div>
                                                 </div>
-
-                                                {/* Description / Remarks */}
-                                                <div className="lg:col-span-3 space-y-1.5">
-                                                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                                        Remarks
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={entry.description || ''}
-                                                        onChange={(e) => updateItem(index, 'description', e.target.value)}
-                                                        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-cyan-500/20 focus:border-cyan-500 text-sm font-medium text-gray-800"
-                                                        placeholder="Optional remarks"
-                                                    />
-                                                </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Additional Details Section */}
-                            <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100 relative overflow-hidden">
-                                <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-teal-500 to-emerald-500"></div>
-                                <h3 className="text-sm uppercase tracking-wider font-bold text-gray-400 mb-5 pl-2">Additional Info</h3>
-                                
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-1.5">
-                                        <label className="block text-sm font-semibold text-gray-700">Other Details / Terms</label>
-                                        <textarea
-                                            value={otherDetails}
-                                            onChange={(e) => setOtherDetails(e.target.value)}
-                                            className="w-full px-4 py-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all text-gray-700 resize-none"
-                                            rows={3}
-                                            placeholder="Enter generic terms or remarks here..."
-                                        />
                                     </div>
-                                    <div className="space-y-4">
-                                        <div className="space-y-1.5">
-                                            <label className="block text-sm font-semibold text-gray-700">Discount (₹)</label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                value={discount}
-                                                onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                                                className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all text-gray-700"
-                                                placeholder="0.00"
-                                            />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <label className="block text-sm font-semibold text-gray-700">Status</label>
-                                            <select
-                                                value={status}
-                                                onChange={(e) => setStatus(e.target.value as any)}
-                                                className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all text-gray-700"
-                                            >
-                                                <option value="Draft">Draft</option>
-                                                <option value="Issued">Issued</option>
-                                                <option value="Delivered">Delivered</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
+                                ))}
                             </div>
-                        </form>
-                    </div>
-
-                    {/* Modal footer */}
-                    <div className="p-6 border-t border-gray-100 bg-white/80">
-                        <div className="flex gap-4 justify-end">
-                            <button
-                                type="button"
-                                onClick={onClose}
-                                className="px-8 py-3 bg-white text-gray-700 rounded-xl font-bold hover:bg-gray-50 transition-colors border border-gray-200 shadow-sm"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="submit"
-                                form="dc-form"
-                                disabled={loading}
-                                className="px-10 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-bold hover:from-blue-700 hover:to-cyan-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                            >
-                                {loading ? "Saving..." : isEditing ? "Update Challan" : "Create Challan"}
-                            </button>
                         </div>
-                    </div>
+
+                        {/* Bottom Summary & Options */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-4 border-t border-slate-200 dark:border-slate-800">
+                            <div className="lg:col-span-7 space-y-3">
+                                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Remarks / Delivery Notes</label>
+                                <textarea
+                                    value={otherDetails}
+                                    onChange={(e) => setOtherDetails(e.target.value)}
+                                    rows={3}
+                                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm dark:text-white resize-none"
+                                    placeholder="Special delivery notes or terms..."
+                                />
+                            </div>
+
+                            <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-800/60 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                                <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                                    <span>Items Subtotal</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">₹{subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                </div>
+                                <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                                    <span>Freight Charges</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">+ ₹{Number(transportationCharges || 0).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                                    <span>Packaging Charges</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">+ ₹{Number(packagingCharges || 0).toFixed(2)}</span>
+                                </div>
+                                <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400 items-center">
+                                    <span>Discount</span>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={discount === 0 ? "" : discount}
+                                        onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
+                                        className="w-28 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-sm font-semibold dark:text-white"
+                                        placeholder="0"
+                                    />
+                                </div>
+                                <div className="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                                    <span className="text-base font-bold text-slate-900 dark:text-white">Total DC Value</span>
+                                    <span className="text-xl font-bold text-blue-600 dark:text-blue-400">₹{totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex justify-end gap-3 sticky bottom-0 z-20">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        form="dc-form"
+                        disabled={loading}
+                        className="px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-2xl shadow-lg shadow-blue-500/20 transition-all disabled:opacity-50"
+                    >
+                        {loading ? "Saving..." : isEditing ? "Update Delivery Challan" : "Create Delivery Challan"}
+                    </button>
                 </div>
             </div>
-        </>
+        </div>
     );
 }

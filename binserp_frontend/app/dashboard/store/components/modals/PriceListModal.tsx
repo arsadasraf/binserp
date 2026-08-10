@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { X, Save, AlertCircle, Tag, DollarSign, Percent } from "lucide-react";
+import { X, Save, AlertCircle, Tag, IndianRupee, Percent } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 
 interface PriceListModalProps {

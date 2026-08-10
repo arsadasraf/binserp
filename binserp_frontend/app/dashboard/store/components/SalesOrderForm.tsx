@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, ShoppingCart } from "lucide-react";
+import { 
+  Plus, Trash2, X, FileText, Calculator, 
+  Package, ShoppingCart, Calendar, CheckCircle2, FileUp, Tag
+} from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 
 interface SalesOrderFormProps {
   isOpen?: boolean;
@@ -103,7 +104,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
     }
   }, [initialData]);
 
-  // Recalculate totals
+  // Recalculate totals dynamically
   useEffect(() => {
     let newSubtotal = 0;
     let newTaxAmount = 0;
@@ -116,7 +117,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
       return { ...item, amount, taxAmount };
     });
 
-    const newTotalAmount = newSubtotal + newTaxAmount + Number(formData.transportationCharges || 0) + Number(formData.packagingCharges || 0) - Number(formData.discount || 0);
+    const newTotalAmount = newSubtotal + newTaxAmount - Number(formData.discount || 0);
 
     if (
       newSubtotal !== formData.subtotal || 
@@ -132,13 +133,13 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
         totalAmount: newTotalAmount
       }));
     }
-  }, [formData.items, formData.discount, formData.transportationCharges, formData.packagingCharges]);
+  }, [formData.items, formData.discount]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name === "discount" || name === "transportationCharges" || name === "packagingCharges" ? Number(value) : value
+      [name]: name === "discount" ? Number(value) : value
     }));
   };
 
@@ -235,6 +236,7 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
         targetDate: item.targetDate || formData.targetDate
       };
       if (!itemCopy.fgItem) delete itemCopy.fgItem;
+      if (!itemCopy.targetDate) delete itemCopy.targetDate;
       return itemCopy;
     });
 
@@ -262,207 +264,106 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
     onSubmit(submitData);
   };
 
-  const customerOptions = useMemo(() => {
-    return [
-      { value: "", label: "-- None (Internal Stock Production) --" },
-      ...customers.map(c => ({ value: c._id || c.name || c.id, label: `${c.name || c.customerName} ${c.code ? `(${c.code})` : ''}` }))
-    ];
-  }, [customers]);
-
   const fgItemOptions = useMemo(() => {
     return fgItems.map(fg => ({ value: fg._id, label: `${fg.name} ${fg.itemCode ? `(${fg.itemCode})` : ''}` }));
   }, [fgItems]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-gray-900/60 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-[96vw] lg:max-w-7xl overflow-hidden flex flex-col my-auto max-h-[95vh] border border-gray-100 dark:border-gray-800">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-md overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] lg:max-w-7xl overflow-hidden flex flex-col my-auto max-h-[96vh] border border-slate-200/80 dark:border-slate-800">
         
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50 sticky top-0 z-10">
+        {/* Compact Modal Header */}
+        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-50 via-blue-50/40 to-slate-50 dark:from-slate-900 dark:via-slate-800/60 dark:to-slate-900 sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">
-              <ShoppingCart size={20} />
+            <div className="p-2.5 bg-blue-600 text-white rounded-2xl shadow-lg shadow-blue-500/20">
+              <ShoppingCart size={22} />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
-                {initialData ? 'Edit Sales Order' : 'Create Sales Order'}
-              </h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {formData.customer ? 'Customer Direct Order' : 'Direct / Internal Stock Order'}
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+                  {initialData ? 'Edit Sales Order' : 'Create Internal Sales Order'}
+                </h2>
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                  Product Entry
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Internal Sales Order & Product Rate Summary
               </p>
             </div>
           </div>
-          <button
-            onClick={onCancel || onClose}
-            className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-          >
-            <X size={20} />
-          </button>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Target Delivery Date:</span>
+              <input
+                type="date"
+                name="targetDate"
+                value={formData.targetDate}
+                onChange={handleChange}
+                className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
+              />
+            </div>
+            <button
+              onClick={onCancel || onClose}
+              className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
-        {/* Form View */}
-        <div className="overflow-y-auto flex-1 p-6">
+        {/* Form Body */}
+        <div className="overflow-y-auto flex-1 p-6 space-y-6">
           <form id="sales-order-form" onSubmit={handleSubmit} className="space-y-6">
             
-            {/* Header Details */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Customer <span className="text-xs font-normal text-gray-500">(Optional)</span>
-                </label>
-                <SearchableSelect
-                  options={customerOptions}
-                  value={formData.customer}
-                  onChange={(val: string) => setFormData(prev => ({ ...prev, customer: val }))}
-                  placeholder="Select Customer or Leave Blank"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  PO Reference <span className="text-xs font-normal text-gray-500">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  name="poReference"
-                  value={formData.poReference}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
-                  placeholder="e.g. CUST-PO-991"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Target Delivery Date *</label>
-                <input
-                  type="date"
-                  name="targetDate"
-                  value={formData.targetDate}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
-                >
-                  <option value="Pending">Pending</option>
-                  <option value="In-Progress">In-Progress</option>
-                  <option value="Partially Dispatched">Partially Dispatched</option>
-                  <option value="Dispatched">Dispatched</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Transportation & Packaging Optional Fields Grid */}
-            <div className="bg-gray-50/70 dark:bg-gray-800/40 p-4 rounded-xl border border-gray-100 dark:border-gray-800 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                <Truck className="w-4 h-4 text-blue-500" />
-                <span>Transportation & Packaging Charges (Optional)</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Transport Type</label>
-                  <input
-                    type="text"
-                    name="transportationType"
-                    value={formData.transportationType}
-                    onChange={handleChange}
-                    placeholder="e.g. By Road, Express"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs dark:text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Transport Charges (₹)</label>
-                  <input
-                    type="number"
-                    name="transportationCharges"
-                    min="0"
-                    value={formData.transportationCharges === 0 ? "" : formData.transportationCharges}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs dark:text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Packaging Type</label>
-                  <input
-                    type="text"
-                    name="packagingType"
-                    value={formData.packagingType}
-                    onChange={handleChange}
-                    placeholder="e.g. Wooden Box, Standard"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs dark:text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Packaging Charges (₹)</label>
-                  <input
-                    type="number"
-                    name="packagingCharges"
-                    min="0"
-                    value={formData.packagingCharges === 0 ? "" : formData.packagingCharges}
-                    onChange={handleChange}
-                    placeholder="0.00"
-                    className="w-full px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs dark:text-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Line Items */}
+            {/* Product Line Items */}
             <div className="space-y-4">
-              <div className="flex justify-between items-center pb-2 border-b border-gray-100 dark:border-gray-800">
-                <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                  <div className="w-1.5 h-4 bg-blue-500 rounded-full"></div>
-                  Finished Goods Line Items ({formData.items.length})
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-800">
+                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Package className="w-5 h-5 text-blue-600" />
+                  Product Entry Line Items ({formData.items.length})
                 </h3>
                 <button
                   type="button"
                   onClick={addItem}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800/80 rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors shadow-sm"
                 >
-                  <Plus size={16} /> Add FG Item
+                  <Plus size={16} /> Add Product Row
                 </button>
               </div>
 
               <div className="space-y-4">
                 {formData.items.map((item, index) => (
-                  <div key={index} className="p-4 bg-gray-50/50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700/50 rounded-xl relative group">
+                  <div key={index} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/80 rounded-2xl relative group shadow-sm hover:border-blue-300 dark:hover:border-blue-800 transition-all">
                     {formData.items.length > 1 && (
                       <button
                         type="button"
                         onClick={() => removeItem(index)}
-                        className="absolute -top-2 -right-2 p-1.5 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-200 shadow-sm"
+                        className="absolute -top-2.5 -right-2.5 p-1.5 bg-red-100 text-red-600 dark:bg-red-900/80 dark:text-red-300 rounded-full opacity-90 hover:opacity-100 transition-opacity hover:bg-red-200 shadow-md border border-red-200 dark:border-red-800"
+                        title="Remove product line"
                       >
                         <X size={14} />
                       </button>
                     )}
                     
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                      {/* Item Type & Selection */}
-                      <div className="md:col-span-3 space-y-3">
-                        <div className="flex gap-2 p-1 bg-gray-200/50 dark:bg-gray-700/50 rounded-lg">
+                      {/* Product Type & Dropdown */}
+                      <div className="md:col-span-4 space-y-2">
+                        <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200/50 dark:border-slate-700">
                           <button
                             type="button"
                             onClick={() => handleItemChange(index, "itemType", "Master")}
-                            className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${item.itemType === "Master" ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 hover:text-gray-700"}`}
+                            className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${item.itemType === "Master" ? "bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
                           >
-                            FG Master
+                            FG Catalog Item
                           </button>
                           <button
                             type="button"
                             onClick={() => handleItemChange(index, "itemType", "Custom")}
-                            className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${item.itemType === "Custom" ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 hover:text-gray-700"}`}
+                            className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${item.itemType === "Custom" ? "bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
                           >
-                            Custom FG
+                            Custom Product
                           </button>
                         </div>
                         
@@ -471,35 +372,35 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
                             options={fgItemOptions}
                             value={item.fgItem}
                             onChange={(val: string) => handleItemChange(index, "fgItem", val)}
-                            placeholder="Select FG Item"
+                            placeholder="Select Finished Good"
                           />
                         ) : (
                           <input
                             type="text"
                             value={item.productName}
                             onChange={(e) => handleItemChange(index, "productName", e.target.value)}
-                            placeholder="Product / FG Name"
-                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
+                            placeholder="Custom Product Name *"
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
                           />
                         )}
                       </div>
 
-                      {/* Description & Date */}
-                      <div className="md:col-span-3 space-y-3">
+                      {/* Item Description & Target Date */}
+                      <div className="md:col-span-3 space-y-2">
                         <input
                           type="text"
                           value={item.description}
                           onChange={(e) => handleItemChange(index, "description", e.target.value)}
-                          placeholder="Description (Optional)"
-                          className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white h-[38px]"
+                          placeholder="Specification / Specs (Optional)"
+                          className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
                         />
                         <div className="flex items-center gap-2">
-                           <span className="text-xs text-gray-500 whitespace-nowrap">Target Date:</span>
-                           <input
+                          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">Target Date:</span>
+                          <input
                             type="date"
                             value={item.targetDate}
                             onChange={(e) => handleItemChange(index, "targetDate", e.target.value)}
-                            className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500/20 transition-all dark:text-white"
+                            className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs focus:ring-2 focus:ring-blue-500/20 transition-all dark:text-white"
                           />
                         </div>
                       </div>
@@ -507,57 +408,57 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
                       {/* Quantity & Unit */}
                       <div className="md:col-span-2 flex gap-2">
                         <div className="flex-1">
-                          <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Qty</label>
+                          <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">Qty</label>
                           <input
                             type="number"
                             min="0.01"
                             step="0.01"
                             value={item.quantity || ""}
                             onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white font-medium"
                           />
                         </div>
                         <div className="w-16">
-                          <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Unit</label>
+                          <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">Unit</label>
                           <input
                             type="text"
                             value={item.unit}
                             onChange={(e) => handleItemChange(index, "unit", e.target.value)}
-                            className="w-full px-2 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white text-center"
+                            className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white text-center uppercase"
                           />
                         </div>
                       </div>
 
-                      {/* Financials (Rate, Tax, Amount) */}
-                      <div className="md:col-span-4 flex gap-2">
-                         <div className="flex-1">
-                          <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Rate (₹)</label>
+                      {/* Financials (Unit Price, Tax %, Total Amount) */}
+                      <div className="md:col-span-3 flex gap-2">
+                        <div className="flex-1">
+                          <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">Unit Price (₹)</label>
                           <input
                             type="number"
                             min="0"
                             step="0.01"
                             value={item.rate === 0 ? "" : item.rate}
                             onChange={(e) => handleItemChange(index, "rate", e.target.value)}
-                            className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
+                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white font-medium"
                           />
                         </div>
                         <div className="w-16">
-                          <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Tax %</label>
+                          <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">GST %</label>
                           <input
                             type="number"
                             min="0"
                             step="0.1"
                             value={item.taxRate === 0 ? "" : item.taxRate}
                             onChange={(e) => handleItemChange(index, "taxRate", e.target.value)}
-                            className="w-full px-2 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white text-center"
+                            className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white text-center font-medium"
                           />
                         </div>
                         <div className="flex-1">
-                           <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Amount</label>
-                           <div className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
-                              <span>₹</span>
-                              <span>{item.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                           </div>
+                          <label className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">Line Amount</label>
+                          <div className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
+                            <span className="text-slate-400 text-xs">₹</span>
+                            <span>{item.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -566,27 +467,32 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
               </div>
             </div>
 
-            {/* Totals & Single Document Upload Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4 border-t border-gray-100 dark:border-gray-800">
-              <div className="space-y-4">
+            {/* Bottom Section: Notes & Attachment (Left) + Clean Price Summary (Right) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-4 border-t border-slate-200 dark:border-slate-800">
+              
+              {/* Left Column: Remarks & File Upload */}
+              <div className="lg:col-span-7 space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Remarks / Order Instructions</label>
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Order Notes & Remarks</label>
                   <textarea
                     name="remarks"
                     value={formData.remarks}
                     onChange={handleChange}
-                    rows={2}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white resize-none"
-                    placeholder="Production instructions, special terms..."
+                    rows={3}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white resize-none"
+                    placeholder="Add internal notes, production instructions, or reference tags..."
                   />
                 </div>
                 
-                {/* Single Document Upload Field (PDF & JPG Only) */}
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Upload Document (PDF or JPG)</label>
+                {/* Document Upload */}
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/60 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    <FileUp className="w-4 h-4 text-blue-600" />
+                    <span>Attach Optional Reference Document (PDF / Image)</span>
+                  </div>
                   <input
                     type="file"
-                    accept=".pdf, .jpg, .jpeg, .png, image/jpeg, image/png"
+                    accept=".pdf, .jpg, .jpeg, .png"
                     onChange={(e) => {
                       if (e.target.files && e.target.files[0]) {
                         const file = e.target.files[0];
@@ -594,68 +500,71 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
                         if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext || '')) {
                           setDocumentFile(file);
                         } else {
-                          alert("Only PDF and JPG/JPEG/PNG files are allowed.");
+                          alert("Only PDF and image (JPG/PNG) files are allowed.");
                           e.target.value = "";
                         }
                       }
                     }}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm transition-all dark:text-gray-300 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-medium file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100"
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs transition-all dark:text-slate-300 file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-600 hover:file:bg-blue-100"
                   />
                   {documentFile && (
-                    <p className="text-xs text-emerald-600 font-semibold mt-1">Selected Document: {documentFile.name}</p>
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                      <CheckCircle2 size={14} /> Attached: {documentFile.name}
+                    </p>
                   )}
                   {initialData?.pdf && !documentFile && (
-                    <a href={initialData.pdf} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline mt-1 block font-medium">
-                      View Attached PDF Document
-                    </a>
-                  )}
-                  {initialData?.photos?.[0] && !documentFile && !initialData?.pdf && (
-                    <a href={initialData.photos[0]} target="_blank" rel="noreferrer" className="text-xs text-blue-600 underline mt-1 block font-medium">
-                      View Attached Image Document
+                    <a href={initialData.pdf} target="_blank" rel="noreferrer" className="text-xs text-blue-600 dark:text-blue-400 underline font-medium block">
+                      View Existing PDF Attachment
                     </a>
                   )}
                 </div>
               </div>
 
-              <div className="bg-gray-50 dark:bg-gray-800/30 p-6 rounded-2xl border border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-2 mb-4 text-gray-800 dark:text-gray-200 font-semibold">
-                   <Calculator size={18} className="text-blue-500"/>
-                   <h3>Order Financial Summary</h3>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
-                    <span>Items Subtotal</span>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">₹{formData.subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+              {/* Right Column: Clean Price Summary Card */}
+              <div className="lg:col-span-5 bg-gradient-to-br from-slate-50 to-blue-50/30 dark:from-slate-800/60 dark:to-slate-900/80 p-6 rounded-3xl border border-slate-200 dark:border-slate-700/80 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-4 text-slate-900 dark:text-white font-bold">
+                    <Calculator size={20} className="text-blue-600"/>
+                    <h3 className="text-base tracking-tight">Order Price Summary</h3>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
-                    <span>Transportation ({formData.transportationType || 'Road'})</span>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">+ ₹{Number(formData.transportationCharges || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
-                    <span>Packaging ({formData.packagingType || 'Standard'})</span>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">+ ₹{Number(formData.packagingCharges || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400 items-center">
-                    <span>Discount</span>
-                    <div className="flex items-center gap-1 w-32">
-                      <span className="text-gray-500">₹</span>
-                      <input
-                        type="number"
-                        name="discount"
-                        min="0"
-                        value={formData.discount === 0 ? "" : formData.discount}
-                        onChange={handleChange}
-                        className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-right text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
-                      />
+
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                      <span>Items Subtotal</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        ₹{formData.subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400 items-center">
+                      <span>Discount</span>
+                      <div className="flex items-center gap-1 w-32">
+                        <span className="text-slate-400 text-xs">₹</span>
+                        <input
+                          type="number"
+                          name="discount"
+                          min="0"
+                          value={formData.discount === 0 ? "" : formData.discount}
+                          onChange={handleChange}
+                          className="w-full px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-sm font-semibold focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all dark:text-white"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
+                      <span>Calculated Tax (GST)</span>
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        ₹{formData.taxAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      </span>
                     </div>
                   </div>
-                  <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
-                    <span>Total Tax</span>
-                    <span className="font-medium text-gray-900 dark:text-gray-100">₹{formData.taxAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                  </div>
-                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between">
-                    <span className="text-base font-bold text-gray-900 dark:text-white">Total Amount</span>
-                    <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                </div>
+
+                <div className="pt-4 mt-6 border-t border-slate-200/80 dark:border-slate-700 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Total Net Amount</span>
+                    <span className="text-2xl font-black text-blue-600 dark:text-blue-400 tracking-tight">
                       ₹{formData.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </span>
                   </div>
@@ -666,11 +575,11 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 flex justify-end gap-3 sticky bottom-0 z-10">
+        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 flex justify-end gap-3 sticky bottom-0 z-20 backdrop-blur-sm">
           <button
             type="button"
             onClick={onCancel || onClose}
-            className="px-5 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all focus:ring-4 focus:ring-gray-100 dark:focus:ring-gray-800"
+            className="px-5 py-2.5 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
           >
             Cancel
           </button>
@@ -679,15 +588,18 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
             type="submit"
             form="sales-order-form"
             disabled={isSubmitting}
-            className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-200 dark:shadow-blue-900/20 transition-all focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900 disabled:opacity-70 flex items-center gap-2"
+            className="px-6 py-2.5 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-2xl shadow-lg shadow-blue-500/25 transition-all focus:ring-4 focus:ring-blue-100 dark:focus:ring-blue-900 disabled:opacity-70 flex items-center gap-2"
           >
             {isSubmitting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Saving...
+                Saving Sales Order...
               </>
             ) : (
-              'Save Sales Order'
+              <>
+                <CheckCircle2 size={18} />
+                Save Sales Order
+              </>
             )}
           </button>
         </div>

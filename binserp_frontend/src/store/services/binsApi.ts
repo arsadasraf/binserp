@@ -9,6 +9,15 @@ import { clearSession } from "@/src/lib/session";
 const baseQuery = fetchBaseQuery({
   baseUrl,
   credentials: "include", // Send HttpOnly cookies automatically
+  prepareHeaders: (headers) => {
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("token");
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+    }
+    return headers;
+  },
 });
 
 // Mutex to prevent multiple simultaneous refresh calls
