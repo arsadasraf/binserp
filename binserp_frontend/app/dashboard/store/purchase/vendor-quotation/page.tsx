@@ -35,7 +35,7 @@ export default function PurchaseVendorQuotationPage() {
       <QuotationTable
         data={quotations || []}
         onEdit={(q) => { setEditingQuotation(q); setShowModal(true); }}
-        onDelete={(id) => handleDelete("vendor-quotation", id)}
+        onDelete={(id) => handleDelete(id)}
       />
 
       {showModal && (

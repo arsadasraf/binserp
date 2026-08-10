@@ -26,7 +26,7 @@ export default function SalesQuotationsPage() {
         onView={(q) => { setViewingQuotation(q); }}
         onDelete={async (id) => {
           if (confirm("Are you sure you want to delete this Outward Quotation?")) {
-            await handleDelete("quotation", id);
+            await handleDelete(id);
             refetch();
           }
         }}

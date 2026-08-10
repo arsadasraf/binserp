@@ -155,7 +155,7 @@ export default function AdminDashboard() {
   const filterOptions = {
     name: Array.from(new Set(users.map((u: User) => u.name))),
     userId: Array.from(new Set(users.map((u: User) => u.userId))),
-    role: Array.from(new Set(users.map((u: User) => u.role?.name).filter(Boolean)))
+    role: Array.from(new Set(users.map((u: User) => u.role?.name).filter(Boolean) as string[]))
   };
 
   const filteredUsers = users.filter((u: User) => {

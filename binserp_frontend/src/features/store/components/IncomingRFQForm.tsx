@@ -13,6 +13,7 @@ interface IncomingRFQFormProps {
   fgItems: any[];
   customers?: any[];
   companyInfo?: any;
+  priceLists?: any[];
   isOpen?: boolean;
   onSubmit: (data: any) => void;
   onClose?: () => void;
@@ -26,6 +27,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({
   fgItems = [],
   customers = [],
   companyInfo,
+  priceLists = [],
   isOpen = true,
   onSubmit,
   onClose,

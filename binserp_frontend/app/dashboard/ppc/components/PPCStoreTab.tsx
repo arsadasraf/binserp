@@ -9,7 +9,7 @@ import * as XLSX from 'xlsx';
 import { Calendar, XCircle, Plus } from 'lucide-react';
 
 // Import Types and Hook from Store
-import { TabType, MasterType, GRNFormData, POFormData, DCFormData, BillingFormData } from "../../store/types/store.types";
+import { TabType, MasterType, GRNFormData, POFormData, DCFormData, BillingFormData } from "@/src/features/store/types/store.types";
 import { useStoreData } from "../../store/components/hooks/useStoreData";
 
 // Import Store Components

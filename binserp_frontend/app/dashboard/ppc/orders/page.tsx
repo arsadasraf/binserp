@@ -6,7 +6,8 @@ import {
   useGetProductionOrdersQuery, 
   useGetPpcOrdersQuery, 
   useDeleteOrderMutation,
-  useUpdatePpcOrderStatusMutation
+  useUpdatePpcOrderStatusMutation,
+  useMoveToManufacturingMutation
 } from "@/src/store/services/ppcService";
 import { useHeader } from "@/src/context/HeaderContext";
 import { FileText, Hammer, Plus, Eye, Edit2, Trash2, ChevronRight, CheckCircle2, Clock } from 'lucide-react';
@@ -26,6 +27,7 @@ export default function PPCOrdersPage() {
 
   const [deleteOrder] = useDeleteOrderMutation();
   const [updatePpcOrderStatus] = useUpdatePpcOrderStatusMutation();
+  const [moveToMfg] = useMoveToManufacturingMutation();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<any>(null);
@@ -272,10 +274,15 @@ export default function PPCOrdersPage() {
             isOpen={!!moveToMfgOrder}
             order={moveToMfgOrder}
             onClose={() => setMoveToMfgOrder(null)}
-            onSuccess={() => {
-              setMoveToMfgOrder(null);
-              refetchProd();
-              refetchPpc();
+            onMove={async (itemsToMove) => {
+              try {
+                await moveToMfg({ id: moveToMfgOrder._id, itemsToMove }).unwrap();
+                setMoveToMfgOrder(null);
+                refetchProd();
+                refetchPpc();
+              } catch (error: any) {
+                alert(error?.data?.message || "Failed to move to manufacturing");
+              }
             }}
           />
         )}

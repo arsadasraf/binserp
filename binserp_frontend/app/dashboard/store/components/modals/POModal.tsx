@@ -321,7 +321,7 @@ export default function POModal({
                                             Vendor <span className="text-red-500">*</span>
                                         </label>
                                         <SearchableSelect
-                                            options={(vendors || []).map((v) => ({ value: v._id || v.id, label: `${v.name || v.companyName || 'Vendor'} ${v.code ? `(${v.code})` : ''}` }))}
+                                            options={(vendors || []).map((v: any) => ({ value: v._id || v.id, label: `${v.name || v.companyName || 'Vendor'} ${v.code ? `(${v.code})` : ''}` }))}
                                             value={vendor}
                                             onChange={(val: any) => setVendor(val)}
                                             placeholder="Select Vendor / Customer"

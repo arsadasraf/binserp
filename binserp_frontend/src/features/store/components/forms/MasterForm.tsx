@@ -334,7 +334,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                     </div>
 
                     {/* Code Field (Hidden for Inhouse, Customer, Vendor, Location, RM/BO Items, & Category) */}
-                    {masterTab !== "inhouse-items" && masterTab !== "customer" && masterTab !== "vendor" && masterTab !== "location" && masterTab !== "rm-bo-item" && masterTab !== "category" && (
+                    {masterTab !== "inhouse-items" && masterTab !== "customer" && masterTab !== "vendor" && masterTab !== "location" && masterTab !== "category" && (
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Code <span className="text-red-500"> *</span>
@@ -350,21 +350,6 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </div>
                     )}
 
-                    {/* Description Field for RM/BO Item */}
-                    {masterTab === "rm-bo-item" && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Description
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.descriptions || ""}
-                                onChange={(e) => setFormData({ ...formData, descriptions: e.target.value })}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="Enter Description"
-                            />
-                        </div>
-                    )}
 
                     {/* GST Number Field for Customer & Vendor */}
                     {(masterTab === "customer" || masterTab === "vendor") && (
@@ -430,15 +415,14 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             </div>
                     )}
 
-                    {/* Material/Inhouse Specific: Category & Location */}
-                    {(masterTab === "rm-bo-item" || masterTab === "inhouse-items") && (
+                    {/* Inhouse Specific: Category & Location */}
+                    {masterTab === "inhouse-items" && (
                         <>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Category {masterTab === "rm-bo-item" && <span className="text-red-500">*</span>}
+                                    Category
                                 </label>
                                 <select
-                                    required={masterTab === "rm-bo-item"}
                                     value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
                                     onChange={(e) => handleCategoryChange(e.target.value)}
                                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
@@ -479,78 +463,6 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </>
                     )}
 
-                    {/* RM/BO Item Specific Fields */}
-                    {masterTab === "rm-bo-item" && (
-                        <>
-                            <div className="md:col-span-2 lg:col-span-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Descriptions</label>
-                                <textarea
-                                    value={formData.descriptions || formData.description || ""}
-                                    onChange={(e) => setFormData({ ...formData, descriptions: e.target.value, description: e.target.value })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    placeholder="Enter Descriptions"
-                                    rows={2}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Minimum Stock</label>
-                                <input
-                                    type="number"
-                                    value={formData.minimumStock ?? ""}
-                                    onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    placeholder="Enter Minimum Stock"
-                                />
-                            </div>
-                            <div className="md:col-span-2 lg:col-span-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Photos & PDFs (Max 2)</label>
-                                <input
-                                    type="file"
-                                    multiple
-                                    accept="image/*,application/pdf"
-                                    onChange={(e) => {
-                                        if (e.target.files && e.target.files.length > 2) {
-                                            alert("You can only upload up to 2 photos.");
-                                            e.target.value = "";
-                                            return;
-                                        }
-                                        const filesArray = Array.from(e.target.files || []);
-                                        const existing = Array.isArray(formData.photos) ? formData.photos : [];
-                                        setFormData({ ...formData, photos: [...existing, ...filesArray].slice(0, 2) });
-                                    }}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                />
-                                {formData.photos && Array.isArray(formData.photos) && formData.photos.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                        {(formData.photos as any[]).map((photo, i) => {
-                                            const photoUrl = typeof photo === 'string' ? photo : (photo instanceof File ? URL.createObjectURL(photo) : '');
-                                            const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo?.type === 'application/pdf';
-                                            return (
-                                                <div key={i} className="relative group w-16 h-16 rounded border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
-                                                    {isPdf ? (
-                                                        <span className="text-xs font-bold text-red-500">PDF</span>
-                                                    ) : (
-                                                        <img src={photoUrl} alt={`Attachment ${i + 1}`} className="w-full h-full object-cover" />
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const newPhotos = (formData.photos as any[]).filter((_, idx) => idx !== i);
-                                                            setFormData({ ...formData, photos: newPhotos });
-                                                        }}
-                                                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
-                                                        title="Remove"
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-                        </>
-                    )}
                 </div>
             </div>
 

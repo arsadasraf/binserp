@@ -35,12 +35,13 @@ export default function PurchasePOPage() {
       <POTable
         data={poList || []}
         onEdit={(po) => { setEditingPO(po); setShowModal(true); }}
-        onDelete={(id) => handleDelete("po", id)}
+        onDelete={(id) => handleDelete(id)}
       />
 
       {showModal && (
         <POModal
           isOpen={showModal}
+          loading={loading}
           onClose={() => { setShowModal(false); setEditingPO(null); }}
           vendors={vendors || []}
           materials={materials || []}

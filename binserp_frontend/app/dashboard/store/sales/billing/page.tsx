@@ -9,7 +9,7 @@ import { Plus } from "lucide-react";
 
 export default function SalesBillingPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: bills, loading, refetch, handleBillingSubmit, handleBillingUpdate, handleDelete } = useStoreData("billing", "vendor", token);
+  const { data: bills, loading, refetch, handleBillingSubmit, handleBillingUpdate, handleDelete, customers } = useStoreData("billing", "customer", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingBilling, setEditingBilling] = useState<any>(null);
@@ -35,12 +35,14 @@ export default function SalesBillingPage() {
       <BillingTable
         data={bills || []}
         onEdit={(b) => { setEditingBilling(b); setShowModal(true); }}
-        onDelete={(id) => handleDelete("billing", id)}
+        onDelete={(id) => handleDelete(id)}
       />
 
       {showModal && (
         <BillingModal
           isOpen={showModal}
+          loading={loading}
+          customers={customers || []}
           onClose={() => { setShowModal(false); setEditingBilling(null); }}
           onSubmit={async (formData) => {
             if (editingBilling) {

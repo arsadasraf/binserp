@@ -94,7 +94,7 @@ export default function PriceListModal({
       });
     } catch (err: any) {
       setError(err?.data?.message || err?.message || "Failed to save price list.");
-    } fienerally {
+    } finally {
       setLoading(false);
     }
   };

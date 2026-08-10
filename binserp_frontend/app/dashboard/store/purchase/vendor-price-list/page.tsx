@@ -10,7 +10,7 @@ import { useCreateStoreRecordMutation, useUpdateStoreRecordMutation, useDeleteSt
 
 export default function PurchaseVendorPriceListPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { vendorPriceLists, materials, loading, refetch } = useStoreData("vendor-price-list", "vendor", token);
+  const { vendorPriceLists, materials, loading, refetch, vendors } = useStoreData("vendor-price-list", "vendor", token);
   const [createStoreRecord] = useCreateStoreRecordMutation();
   const [updateStoreRecord] = useUpdateStoreRecordMutation();
   const [deleteStoreRecord] = useDeleteStoreRecordMutation();
@@ -51,6 +51,7 @@ export default function PurchaseVendorPriceListPage() {
       {showModal && (
         <VendorPriceListModal
           isOpen={showModal}
+          vendors={vendors || []}
           onClose={() => { setShowModal(false); setEditingItem(null); }}
           onSubmit={async (formData) => {
             if (editingItem) {

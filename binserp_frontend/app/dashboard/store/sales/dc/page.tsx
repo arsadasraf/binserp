@@ -9,7 +9,7 @@ import { Plus } from "lucide-react";
 
 export default function SalesDCPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: dcList, loading, refetch, handleDCSubmit, handleDCUpdate, handleDelete } = useStoreData("dc", "vendor", token);
+  const { data: dcList, loading, refetch, handleDCSubmit, handleDCUpdate, handleDelete, customers } = useStoreData("dc", "customer", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingDC, setEditingDC] = useState<any>(null);
@@ -35,12 +35,14 @@ export default function SalesDCPage() {
       <DCTable
         data={dcList || []}
         onEdit={(dc) => { setEditingDC(dc); setShowModal(true); }}
-        onDelete={(id) => handleDelete("dc", id)}
+        onDelete={(id) => handleDelete(id)}
       />
 
       {showModal && (
         <DCModal
           isOpen={showModal}
+          loading={loading}
+          customers={customers || []}
           onClose={() => { setShowModal(false); setEditingDC(null); }}
           onSubmit={async (formData) => {
             if (editingDC) {

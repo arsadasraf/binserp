@@ -114,14 +114,14 @@ export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs = [], f
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={(e) => { e.stopPropagation(); onEdit(rfq); }}
+                        onClick={(e) => { e.stopPropagation(); onEdit?.(rfq); }}
                         className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
                         title="Edit RFQ"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); onDelete(rfq._id, rfq.rfqNumber); }}
+                        onClick={(e) => { e.stopPropagation(); onDelete?.(rfq._id, rfq.rfqNumber); }}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Delete RFQ"
                       >

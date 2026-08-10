@@ -4,21 +4,28 @@ import { useGetStoreDataQuery, useCreateStoreRecordMutation, useUpdateStoreRecor
 import Swal from "sweetalert2";
 
 interface IncomingRFQTableProps {
-  rfqs: any[];
-  fgItems: any[];
-  onCreate: () => void;
-  onEdit: (rfq: any) => void;
-  onView: (rfq: any) => void;
-  onDelete: (id: string, name: string) => void;
+  rfqs?: any[];
+  fgItems?: any[];
+  data?: any[];
+  onCreate?: () => void;
+  onEdit?: (rfq: any) => void;
+  onView?: (rfq: any) => void;
+  onDelete?: (id: string, name?: string) => void;
 }
 
-export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItems, onCreate, onEdit, onView, onDelete }) => {
+export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs = [], fgItems = [], data, onCreate, onEdit, onView, onDelete }) => {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const filteredRfqs = rfqs.filter((rfq) =>
-    rfq.rfqNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    rfq.customerName?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const actualRfqs = rfqs.length > 0 ? rfqs : (data || []);
+
+  const filteredRfqs = (actualRfqs || []).filter((rfq) => {
+    if (!rfq) return false;
+    const term = searchTerm.toLowerCase();
+    return (
+      (rfq.rfqNumber?.toLowerCase() || "").includes(term) ||
+      (rfq.customerName?.toLowerCase() || "").includes(term)
+    );
+  });
 
   return (
     <div className="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden">
@@ -107,14 +114,14 @@ export const IncomingRFQTable: React.FC<IncomingRFQTableProps> = ({ rfqs, fgItem
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={(e) => { e.stopPropagation(); onEdit(rfq); }}
+                        onClick={(e) => { e.stopPropagation(); onEdit?.(rfq); }}
                         className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-colors"
                         title="Edit RFQ"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); onDelete(rfq._id, rfq.rfqNumber); }}
+                        onClick={(e) => { e.stopPropagation(); onDelete?.(rfq._id, rfq.rfqNumber); }}
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
                         title="Delete RFQ"
                       >

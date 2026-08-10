@@ -41,11 +41,12 @@ export default function QuotationTable({ data = [], companyInfo, onCreate, onEdi
         try {
             const doc = new jsPDF();
 
-            const compName = companyInfo?.companyName || companyInfo?.name || "COMPANY MASTER";
-            const compAddress = companyInfo?.address || companyInfo?.location || "";
-            const compEmail = companyInfo?.email || "";
-            const compPhone = companyInfo?.phone || companyInfo?.contactNumber || "";
-            const compGst = companyInfo?.gstin || companyInfo?.gstNumber || companyInfo?.gst || "";
+            const info = companyInfo as any;
+            const compName = info?.companyName || info?.name || "COMPANY MASTER";
+            const compAddress = info?.address || info?.location || "";
+            const compEmail = info?.email || "";
+            const compPhone = info?.phone || info?.contactNumber || "";
+            const compGst = info?.gstin || info?.gstNumber || info?.gst || "";
 
             // Top Clean Header (Monochrome Dark Slate Text)
             doc.setTextColor(15, 23, 42);
