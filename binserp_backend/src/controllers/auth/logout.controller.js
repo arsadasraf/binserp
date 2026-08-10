@@ -67,6 +67,11 @@ export const logout = async (req, res, next) => {
     res.clearCookie("refreshToken", cookieOptions);
     res.clearCookie("saasAdminToken", cookieOptions);
 
+    // Additional fallback clearing without path parameter in case legacy cookies exist
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+    res.clearCookie("saasAdminToken");
+
     return res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
     next(error);

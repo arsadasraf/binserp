@@ -415,7 +415,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => {
     await clearSession();
-    window.location.href = "/login";
+    window.location.href = "/login?logout=true";
   };
 
   // Mobile Bottom Nav Logic

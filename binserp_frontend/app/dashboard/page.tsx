@@ -93,7 +93,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     await clearSession();
-    window.location.href = "/login";
+    window.location.href = "/login?logout=true";
   };
 
   const dashboardCards = [

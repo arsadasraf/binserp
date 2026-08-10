@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image"
 import Link from "next/link";
 import { useLoginMutation } from "@/src/store/services/authService";
-import { persistSession } from "@/src/lib/session";
+import { persistSession, clearSession } from "@/src/lib/session";
 import ErrorAlert from "@/src/components/ErrorAlert";
 import SuccessAlert from "@/src/components/SuccessAlert";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
@@ -24,6 +24,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const searchParams = new URLSearchParams(window.location.search);
+      const isLogout = searchParams.get('logout');
+      if (isLogout) {
+        clearSession();
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
       const errorParam = searchParams.get('error');
       if (errorParam) {
         if (errorParam === 'EmailNotFound') {

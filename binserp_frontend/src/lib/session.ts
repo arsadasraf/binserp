@@ -43,19 +43,42 @@ export const persistSession = ({ token, userType, user }: PersistArgs) => {
 export const clearSession = async () => {
   if (typeof window === "undefined") return;
 
+  // Clear LocalStorage & SessionStorage
   localStorage.removeItem("token");
   localStorage.removeItem("userType");
   localStorage.removeItem("userInfo");
-
-  ["token", "userType", "department", "displayName", "accessToken", "refreshToken", "saasAdminToken"].forEach(deleteCookie);
   try {
-    // Attempt to log out from backend (silently)
-    // We use fetch directly since we just need a simple POST with credentials
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    sessionStorage.clear();
+  } catch (e) {}
+
+  // Delete all known client-accessible cookies across multiple path/domain variations
+  const keys = [
+    "token",
+    "userType",
+    "department",
+    "displayName",
+    "accessToken",
+    "refreshToken",
+    "saasAdminToken",
+  ];
+
+  const isSecure = window.location.protocol === "https:";
+  keys.forEach((name) => {
+    document.cookie = `${name}=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; ${isSecure ? "Secure;" : ""}`;
+    document.cookie = `${name}=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; ${isSecure ? "Secure;" : ""}`;
+  });
+
+  try {
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+
     await fetch(`${baseUrl}/api/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
+      method: "POST",
+      credentials: "include",
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
   } catch (err) {
     console.error("Backend logout failed:", err);
   }

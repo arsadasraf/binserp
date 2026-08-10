@@ -50,7 +50,9 @@ export function proxy(request: NextRequest) {
     }
   }
 
-  if (pathname.startsWith("/login") && token) {
+  // Don't redirect back to dashboard if user explicitly triggered logout
+  const isLogoutAttempt = request.nextUrl.searchParams.has("logout");
+  if (pathname.startsWith("/login") && token && !isLogoutAttempt) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
@@ -60,5 +62,3 @@ export function proxy(request: NextRequest) {
 export const config = {
   matcher: ["/dashboard/:path*", "/login"],
 };
-
-
