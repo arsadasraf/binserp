@@ -7,7 +7,7 @@ export const generateTokens = (id, type, companyId = null, tokenVersion = 0) => 
   }
 
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: "1h", // 1-hour access token
+    expiresIn: "12h", // 12-hour access token
   });
 
   const refreshToken = jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET, {
@@ -23,7 +23,7 @@ export const setTokenCookies = (res, accessToken, refreshToken) => {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 1000, // 1 hour
+    maxAge: 12 * 60 * 60 * 1000, // 12 hours
   });
 
   res.cookie("refreshToken", refreshToken, {

@@ -272,9 +272,12 @@ export const requirePermission = (moduleName, tabName, action) => {
       return next();
     }
 
-    // 2. Company Admin (Owner) has full access to all system modules
+    // 2. Company Admin (Owner) is restricted strictly to Admin module (Overview, User Management, Roles)
     if (req.userType === "company") {
-      return next();
+      if (moduleName === "Admin") {
+        return next();
+      }
+      throw new ApiError(403, "Access denied. Company Admin accounts are restricted to Overview, User Management, and Roles.");
     }
 
     const user = req.user;

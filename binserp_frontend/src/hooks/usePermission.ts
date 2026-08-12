@@ -82,7 +82,8 @@ export function usePermission() {
    * Check if user has permission for a specific module and tab
    */
   const hasTabAccess = (moduleName: string, tabName: string): boolean => {
-    if (userType === "saasadmin" || userType === "company") return true;
+    if (userType === "saasadmin") return true;
+    if (userType === "company") return moduleName.toLowerCase() === "admin";
     return permissionSet.has(`${moduleName}:${tabName}`) || permissionSet.has(`${moduleName}:${tabName}:all`) || permissionSet.has(`${moduleName.toLowerCase()}:${tabName.toLowerCase()}`);
   };
 
@@ -90,7 +91,8 @@ export function usePermission() {
    * Check if user has permission for a specific module, tab, and action
    */
   const hasPermission = (moduleName: string, tabName: string, action: string = "read"): boolean => {
-    if (userType === "saasadmin" || userType === "company") return true;
+    if (userType === "saasadmin") return true;
+    if (userType === "company") return moduleName.toLowerCase() === "admin";
     return permissionSet.has(`${moduleName}:${tabName}:${action}`) || permissionSet.has(`${moduleName}:${tabName}`) || permissionSet.has(`${moduleName}:${tabName}:all`);
   };
 
@@ -98,7 +100,8 @@ export function usePermission() {
    * Check if user is allowed to access any tab in a given module
    */
   const isModuleAllowed = (moduleName: string): boolean => {
-    if (userType === "saasadmin" || userType === "company") return true;
+    if (userType === "saasadmin") return true;
+    if (userType === "company") return moduleName.toLowerCase() === "admin";
     
     for (const key of permissionSet) {
       if (key.startsWith(`${moduleName}:`) || key.startsWith(`${moduleName.toLowerCase()}:`)) return true;

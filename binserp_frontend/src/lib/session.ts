@@ -1,6 +1,6 @@
 "use client";
 
-const COOKIE_MAX_AGE = 60 * 60 * 8; // 8 hours
+const COOKIE_MAX_AGE = 60 * 60 * 12; // 12 hours
 const getCookieFlags = () => {
   const isSecure = window.location.protocol === "https:";
   return `path=/; SameSite=Lax; ${isSecure ? "Secure" : ""}`;

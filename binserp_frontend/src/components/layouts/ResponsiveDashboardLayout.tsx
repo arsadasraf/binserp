@@ -13,76 +13,32 @@ import {
   Store,
   Users,
   Wallet,
-  Home,
-  PackageMinus,
-  PackagePlus,
-  Receipt,
   MoreVertical,
-  // ChevronDown,
-  // ChevronRight,
   Truck,
-  ShoppingCart,
-  Database,
   LayoutGrid,
-  Settings,
-  CalendarClock,
-  Layers,
-  ScanFace,
-  ClipboardList,
-  Banknote,
   UserCheck,
   Wrench,
   CheckCircle,
   Briefcase,
-  FileText,
   Target,
-  IndianRupee, // Added Target for CRM
-  Activity,
+  X,
 } from "lucide-react";
 
 import type { LucideIcon } from "lucide-react";
 import { clearSession } from "@/src/lib/session";
 import { HeaderProvider, useHeader } from "@/src/context/HeaderContext";
-import ThemeToggle from "@/src/components/ThemeToggle";
 import { API_BASE_URL } from "@/src/utils/config";
 
-type NavItem = {
+export type NavItem = {
   href: string;
   label: string;
   icon: LucideIcon;
   priority?: number;
-  subItems?: NavItem[];
 };
 
-const storeSubItems: NavItem[] = [
-  { href: "/dashboard/store/inventory/rm-bo-stock", label: "Inventory", icon: PackageMinus },
-  { href: "/dashboard/store/wip/requests", label: "Issue", icon: Layers },
-  { href: "/dashboard/store/wip/job-work", label: "Job Work", icon: Factory },
-  { href: "/dashboard/store/sales/orders", label: "Bills", icon: IndianRupee },
-  { href: "/dashboard/store/masters/vendors", label: "Masters", icon: Settings },
-];
-
-const hrSubItems: NavItem[] = [
-  { href: "/dashboard/hr?tab=home", label: "Overview", icon: Home },
-  { href: "/dashboard/hr?tab=attendance", label: "Kiosk", icon: ScanFace },
-  { href: "/dashboard/hr?tab=present", label: "Present", icon: ClipboardList },
-  { href: "/dashboard/hr?tab=salaries", label: "Salaries", icon: Banknote },
-  { href: "/dashboard/hr?tab=master", label: "Masters", icon: Database },
-];
-
-const ppcSubItems: NavItem[] = [
-  { href: "/dashboard/ppc/overview", label: "Overview", icon: Home },
-  { href: "/dashboard/ppc/orders", label: "Orders", icon: ShoppingCart },
-  { href: "/dashboard/ppc/planning", label: "Planning", icon: CalendarClock },
-  { href: "/dashboard/ppc/tracing", label: "Traceability", icon: Activity },
-  { href: "/dashboard/ppc/master", label: "Masters", icon: Settings },
-];
-
-const employeeSubItems: NavItem[] = [
-  { href: "/dashboard/employee?tab=work", label: "Job", icon: Briefcase },
-  { href: "/dashboard/employee?tab=attendance", label: "Attendance", icon: CalendarClock },
-  { href: "/dashboard/employee?tab=payslips", label: "Salaries", icon: FileText }, // Using FileText as icon
-];
+// ----------------------------------------------------------------------
+// Unified Module Navigation Definitions (Top-Level Module Links)
+// ----------------------------------------------------------------------
 
 const companyNav: NavItem[] = [
   { href: "/dashboard/admin/overview", label: "Overview", icon: LayoutDashboard, priority: 1 },
@@ -90,160 +46,127 @@ const companyNav: NavItem[] = [
   { href: "/dashboard/admin/roles", label: "Roles", icon: Shield, priority: 3 },
 ];
 
-const departmentNavMap: Record<string, NavItem[]> = {
-  HR: [{
-    href: "/dashboard/hr",
-    label: "HR ",
+const departmentNavMap: Record<string, NavItem> = {
+  Admin: {
+    href: "/dashboard/admin/overview",
+    label: "Admin",
     icon: Shield,
     priority: 1,
-    subItems: hrSubItems
-  }],
-  Store: [{
-    href: "/dashboard/store",
+  },
+  HR: {
+    href: "/dashboard/hr?tab=home",
+    label: "HR",
+    icon: Users,
+    priority: 2,
+  },
+  Store: {
+    href: "/dashboard/store/inventory/rm-bo-stock",
     label: "Store",
     icon: Store,
-    priority: 1,
-    subItems: storeSubItems
-  }],
-  PPC: [{
-    href: "/dashboard/ppc",
+    priority: 3,
+  },
+  PPC: {
+    href: "/dashboard/ppc/overview",
     label: "PPC",
     icon: Factory,
-    priority: 1,
-    subItems: ppcSubItems
-  }],
-  Security: [
-    {
-      href: "/dashboard/gate-entry",
-      label: "Gate Entry",
-      icon: UserCheck,
-      priority: 2,
-      subItems: [
-        { href: "/dashboard/gate-entry?tab=overview", label: "Overview", icon: LayoutDashboard },
-        { href: "/dashboard/gate-entry?tab=kiosk", label: "Kiosk Mode", icon: ScanFace },
-        { href: "/dashboard/gate-entry?tab=visitor", label: "Visitor Log", icon: Users },
-        { href: "/dashboard/gate-entry?tab=vehicle", label: "Vehicle Log", icon: Truck },
-      ]
-    }
-  ],
-  Maintenance: [{ href: "/dashboard/maintenance", label: "Maintenance", icon: Wrench, priority: 1 }],
-  Quality: [{ href: "/dashboard/quality", label: "Quality", icon: CheckCircle, priority: 1 }],
-  CRM: [{ href: "/dashboard/crm", label: "CRM", icon: Target, priority: 1 }],
-  Accounts: [{ href: "/dashboard/accounts", label: "Accounts", icon: Wallet, priority: 1 }],
-  Reports: [{ href: "/dashboard/reports", label: "Reports", icon: LineChart, priority: 1 }],
+    priority: 4,
+  },
+  Security: {
+    href: "/dashboard/gate-entry?tab=overview",
+    label: "Gate Entry",
+    icon: UserCheck,
+    priority: 5,
+  },
+  Maintenance: { href: "/dashboard/maintenance", label: "Maintenance", icon: Wrench, priority: 6 },
+  Quality: { href: "/dashboard/quality", label: "Quality", icon: CheckCircle, priority: 7 },
+  CRM: { href: "/dashboard/crm", label: "CRM", icon: Target, priority: 8 },
+  Accounts: { href: "/dashboard/accounts", label: "Accounts", icon: Wallet, priority: 9 },
+  Reports: { href: "/dashboard/reports", label: "Reports", icon: LineChart, priority: 10 },
 };
+
+const employeeNav: NavItem[] = [
+  { href: "/dashboard/employee?tab=work", label: "Employee Portal", icon: Briefcase, priority: 1 },
+];
 
 const fallbackNav: NavItem[] = [{ href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, priority: 1 }];
 
-const employeeNav: NavItem[] = [
-  { href: "/dashboard/employee", label: "Dashboard", icon: LayoutDashboard, priority: 1, subItems: employeeSubItems },
-];
+// ----------------------------------------------------------------------
+// Dynamic Nav Item Resolver
+// ----------------------------------------------------------------------
 
-function resolveNavItems(userType: string | null, department: string | null, roles: any[]) {
-  const allCompanyNav = [
-    ...companyNav,
-    ...(departmentNavMap.Reports || []),
-    ...(departmentNavMap.HR || []),
-    ...(departmentNavMap.Store || []),
-    ...(departmentNavMap.PPC || []),
-    ...(departmentNavMap.Security || []),
-    ...(departmentNavMap.Maintenance || []),
-    ...(departmentNavMap.Quality || []),
-    ...(departmentNavMap.CRM || []),
-    ...(departmentNavMap.Accounts || []),
-  ];
-
+function resolveNavItems(userType: string | null, department: string | null, roles: any[]): NavItem[] {
+  // 1. Company Admin accounts are strictly restricted to Admin module links
   if (userType === "company") {
-    return [...allCompanyNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+    return [...companyNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 
-  if (roles && roles.length > 0) {
-    let allowedItems: NavItem[] = [];
-    const allowedModules = new Set<string>();
-    const allowedTabsByModule = new Map<string, Set<string>>();
-
-    roles.forEach(role => {
-      if (!role || typeof role === "string") return;
-      if (role.isActive === false) return;
-      role.policies?.forEach((policy: any) => {
-        if (!policy || !policy.module) return;
-        const modUpper = policy.module.toUpperCase();
-        allowedModules.add(modUpper);
-        let tabsSet = allowedTabsByModule.get(modUpper);
-        if (!tabsSet) {
-          tabsSet = new Set<string>();
-          allowedTabsByModule.set(modUpper, tabsSet);
-        }
-        policy.tabs?.forEach((tab: any) => {
-          if (typeof tab === "string") {
-            tabsSet.add(tab.toLowerCase());
-          } else if (tab && (tab.id || tab.name)) {
-            const tabName = (tab.id || tab.name).toLowerCase();
-            if (!tab.actions || tab.actions.length > 0) {
-              tabsSet.add(tabName);
-            }
-          }
-        });
-      });
-    });
-
-    for (const [moduleName, items] of Object.entries(departmentNavMap)) {
-      if (allowedModules.has(moduleName.toUpperCase())) {
-        const itemCopy = { ...items[0] };
-        if (itemCopy.subItems) {
-          const allowedTabs = allowedTabsByModule.get(moduleName.toUpperCase());
-          if (allowedTabs && !allowedTabs.has('all')) {
-              itemCopy.subItems = itemCopy.subItems.filter(sub => {
-                  try {
-                    const url = new URL(sub.href, "http://dummy");
-                    const tabParam = url.searchParams.get("tab");
-                    const routePath = url.pathname.replace("/dashboard/", "").toLowerCase();
-                    const lastSegment = routePath.split('/').pop() || '';
-                    if (tabParam) {
-                       return allowedTabs.has(tabParam.toLowerCase()) || allowedTabs.has("masters") || allowedTabs.has("master");
-                    }
-                    if (routePath) {
-                       return allowedTabs.has(routePath) || allowedTabs.has(lastSegment) || Array.from(allowedTabs).some(t => t.startsWith(routePath) || routePath.startsWith(t));
-                    }
-                    return true; 
-                  } catch(e) { return true; }
-              });
-          }
-        }
-        allowedItems.push(itemCopy);
-      }
-    }
-
-    if (allowedModules.has('ADMIN')) {
-       allowedItems.push({ href: "/dashboard/admin", label: "Admin", icon: Users, priority: 2 });
-    }
-
-    if (allowedItems.length > 0) {
-       return allowedItems.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
-    }
-  }
-
+  // 2. Employee portal user type
   if (userType === "employee") {
     return employeeNav;
   }
 
-  const upperDept = (department || "").toUpperCase();
-  if (upperDept.includes("ADMIN") || upperDept.includes("CEO") || upperDept.includes("MD") || upperDept.includes("COMPANY MANAGEMENT") || upperDept.includes("MANAGER") || upperDept.includes("PPC")) {
-    return [...allCompanyNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  // 3. SaaS Admin full system access
+  if (userType === "saasadmin") {
+    return Object.values(departmentNavMap).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 
-  const matchedDepartmentNav = department
-    ? Object.entries(departmentNavMap).find(([k]) => upperDept.includes(k.toUpperCase()) || k.toUpperCase().includes(upperDept))?.[1]
-    : null;
+  // 4. Role-based resolution for Users / Staff
+  if (roles && Array.isArray(roles) && roles.length > 0) {
+    let isGM = false;
+    const allowedModules = new Set<string>();
 
-  const list = matchedDepartmentNav ? matchedDepartmentNav : allCompanyNav;
+    roles.forEach((r) => {
+      if (!r) return;
+      const roleName = typeof r === "string" ? r : r.name;
+      if (roleName === "GM" || roleName === "Admin Default Role" || roleName === "Company Management") {
+        isGM = true;
+      }
+      if (typeof r === "object" && Array.isArray(r.policies)) {
+        r.policies.forEach((policy: any) => {
+          if (policy && policy.module && policy.module !== "Admin") {
+            allowedModules.add(policy.module.toUpperCase());
+          }
+        });
+      }
+    });
 
-  return [...list].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+    if (isGM) {
+      // GM gets all operational modules (excludes Admin user/role management)
+      return Object.values(departmentNavMap)
+        .filter((navObj) => navObj.label !== "Admin")
+        .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+    }
+
+    const allowedNav: NavItem[] = [];
+    Object.entries(departmentNavMap).forEach(([modName, navObj]) => {
+      if (modName !== "Admin" && allowedModules.has(modName.toUpperCase())) {
+        allowedNav.push(navObj);
+      }
+    });
+
+    if (allowedNav.length > 0) {
+      return allowedNav.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+    }
+  }
+
+  // 5. Fallback based on department string (excludes Admin module)
+  const upperDept = (department || "").toUpperCase();
+  const matchedKey = Object.keys(departmentNavMap).find((key) => key !== "Admin" && upperDept.includes(key.toUpperCase()));
+  if (matchedKey && departmentNavMap[matchedKey]) {
+    return [departmentNavMap[matchedKey]];
+  }
+
+  return Object.values(departmentNavMap)
+    .filter((navObj) => navObj.label !== "Admin")
+    .sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
 }
+
+// ----------------------------------------------------------------------
+// Layout Content Component
+// ----------------------------------------------------------------------
 
 function LayoutContent({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const { title, subtitle, showBottomNav, setShowBottomNav } = useHeader();
 
@@ -252,62 +175,23 @@ function LayoutContent({ children }: { children: ReactNode }) {
   const [userName, setUserName] = useState("BinsAnalytics");
   const [userSubtitle, setUserSubtitle] = useState("Dashboard");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true); // New state for desktop toggle
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  // const [storeMenuOpen, setStoreMenuOpen] = useState(false);
-  // const [ppcMenuOpen, setPpcMenuOpen] = useState(false);
   const [pythonOnline, setPythonOnline] = useState<boolean | null>(null);
 
-  // Scroll and route-based visibility for mobile bottom navigation
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     setShowBottomNav(true);
   }, [pathname]);
 
-  useEffect(() => {
-    const mainEl = mainRef.current;
-    if (!mainEl) return;
-
-    let lastScrollTop = 0;
-
-    const handleScroll = () => {
-      const scrollTop = mainEl.scrollTop;
-      const scrollHeight = mainEl.scrollHeight;
-      const clientHeight = mainEl.clientHeight;
-
-      const hasScroll = scrollHeight > clientHeight;
-      const isAtBottom = hasScroll && (scrollHeight - scrollTop - clientHeight <= 15);
-
-      if (scrollTop <= 10) {
-        setShowBottomNav(true);
-      } else if (isAtBottom) {
-        setShowBottomNav(false);
-      } else if (scrollTop < lastScrollTop || !hasScroll) {
-        setShowBottomNav(true);
-      }
-
-      lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
-    };
-
-    mainEl.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      mainEl.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
-
-  // Check if we are in the Store or PPC module
-  const isStoreModule = pathname?.startsWith("/dashboard/store");
-  const isPPCModule = pathname?.startsWith("/dashboard/ppc");
-  const isEmployeeModule = pathname?.startsWith("/dashboard/employee");
-
+  // Handle User Info & Nav Resolution
   useEffect(() => {
     const userType = localStorage.getItem("userType");
     const userInfoStr = localStorage.getItem("userInfo");
     let department: string | null = null;
     let resolvedName = "BinsAnalytics";
     let resolvedSubtitle = "Dashboard";
-
     let roles: any[] = [];
 
     if (userInfoStr) {
@@ -316,22 +200,21 @@ function LayoutContent({ children }: { children: ReactNode }) {
         department = parsed?.department || null;
         if (parsed?.role) {
           roles = [parsed.role];
-        } else if (Array.isArray(parsed?.roles) && parsed.roles.length > 0) {
+        } else if (Array.isArray(parsed?.roles)) {
           roles = parsed.roles;
-        } else {
-          roles = [];
         }
+
         resolvedName = parsed?.name || parsed?.companyName || resolvedName;
-        
+
         let roleName = "";
         if (userType === "company") {
           roleName = "Company Admin";
         } else if (userType === "saasadmin") {
           roleName = "SaaS Admin";
         } else if (parsed?.role) {
-          roleName = typeof parsed.role === "string" ? parsed.role : (parsed.role.name || "");
+          roleName = typeof parsed.role === "string" ? parsed.role : parsed.role.name || "";
         } else if (Array.isArray(parsed?.roles) && parsed.roles.length > 0) {
-          roleName = typeof parsed.roles[0] === "string" ? parsed.roles[0] : (parsed.roles[0].name || "");
+          roleName = typeof parsed.roles[0] === "string" ? parsed.roles[0] : parsed.roles[0].name || "";
         }
 
         resolvedSubtitle = roleName || parsed?.department || "User";
@@ -347,45 +230,49 @@ function LayoutContent({ children }: { children: ReactNode }) {
     setUserName(resolvedName);
     setUserSubtitle(resolvedSubtitle);
 
-    // 🔒 Navigation Guard Logic
+    // 🔒 Navigation Guard Logic with Module Prefix Authorization
     if (pathname) {
-      const isAuthorized = items.some(item => 
-        pathname === item.href || pathname.startsWith(item.href + "/")
-      );
+      const allowedModulePrefixes = items.map((item) => {
+        const pathOnly = item.href.split("?")[0];
+        const segments = pathOnly.split("/").filter(Boolean);
+        return segments.length >= 2 ? `/${segments[0]}/${segments[1]}` : pathOnly;
+      });
 
-      // Allow some global routes just in case they exist, including login to prevent redirect loops during logout
-      const isGlobalRoute = pathname === "/dashboard/profile" || pathname === "/dashboard/settings" || pathname === "/login" || pathname === "/" || pathname?.startsWith("/auth");
+      const isAuthorized = allowedModulePrefixes.some((prefix) => {
+        return pathname === prefix || pathname.startsWith(prefix + "/") || pathname.startsWith(prefix + "?");
+      });
 
-      if (!isAuthorized && !isGlobalRoute && pathname !== "/dashboard") {
-        console.warn(`Unauthorized access attempt to ${pathname}. Redirecting...`);
-        const fallbackRoute = items.length > 0 ? items[0].href : "/dashboard";
-        router.replace(fallbackRoute);
-        return; // Wait for redirect to finish
-      }
+      const isGlobalRoute =
+        pathname === "/dashboard/profile" ||
+        pathname === "/dashboard/settings" ||
+        pathname === "/login" ||
+        pathname === "/" ||
+        pathname?.startsWith("/auth");
 
-      // If they are on the root /dashboard but it's not in their allowed items, redirect to their default home
       if (pathname === "/dashboard") {
-        const hasDashboard = items.some(item => item.href === "/dashboard");
-        if (!hasDashboard && items.length > 0) {
+        if (items.length > 0) {
           router.replace(items[0].href);
           return;
         }
+      } else if (!isAuthorized && !isGlobalRoute) {
+        console.warn(`Unauthorized access attempt to ${pathname}. Redirecting...`);
+        const fallbackRoute = items.length > 0 ? items[0].href : "/dashboard/admin/overview";
+        router.replace(fallbackRoute);
+        return;
       }
     }
 
     setIsCheckingAuth(false);
   }, [pathname, router]);
 
-  // Polling Python Health
+  // Polling AI Python Health Status
   useEffect(() => {
     const checkHealth = async () => {
       try {
         const apiUrl = API_BASE_URL || "http://localhost:8000";
         const res = await fetch(`${apiUrl}/api/hr/python-health`, {
           credentials: "include",
-          headers: {
-            "Content-Type": "application/json"
-          }
+          headers: { "Content-Type": "application/json" },
         });
         if (res.ok) {
           const data = await res.json();
@@ -398,9 +285,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
       }
     };
 
-    // Initial check
     checkHealth();
-    // Poll every 30 seconds
     const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -410,73 +295,23 @@ function LayoutContent({ children }: { children: ReactNode }) {
     window.location.href = "/login?logout=true";
   };
 
-  // Mobile Bottom Nav Logic
+  // Mobile Bottom Navigation Items
   const mobileBottomNavItems = useMemo(() => {
-    if (isStoreModule) {
-      // For Store: Home, Material Issue, Bills
-      return [
-        storeSubItems[0], // Home
-        storeSubItems[1], // Material Issue  
-        storeSubItems[2], // Bills (parent with sub-items)
-      ];
-    }
-    if (isPPCModule) {
-      // For PPC: Home, PO List, Create PO, Create Work Order (First 4)
-      return ppcSubItems.slice(0, 4);
-    }
-    if (isEmployeeModule) {
-      return employeeSubItems;
-    }
-    // Default global nav (first 4)
     return navItems.slice(0, 4);
-  }, [isStoreModule, isPPCModule, isEmployeeModule, navItems]);
+  }, [navItems]);
 
   const mobileOverflowItems = useMemo(() => {
-    if (isStoreModule) {
-      // Remaining Store items: Masters only
-      return [storeSubItems[3]]; // Masters
-    }
-    if (isPPCModule) {
-      // Remaining PPC items
-      return ppcSubItems.slice(4);
-    }
-    if (isEmployeeModule) {
-      return [];
-    }
     return navItems.slice(4);
-  }, [isStoreModule, isPPCModule, isEmployeeModule, navItems]);
+  }, [navItems]);
 
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
-  // Re-added renderNavLink function
-  const renderNavLink = (item: NavItem, isMobile = false, isSubItem = false) => {
+  // Render NavLink Helper (Clean Direct Links without Accordion Chevron Arrows)
+  const renderNavLink = (item: NavItem, isMobile = false) => {
     const Icon = item.icon;
-    // Check active state
-    let isActive = false;
-    if (item.href.includes("?")) {
-      // For query param links (Store/PPC sub-items)
-      const itemUrl = new URL(item.href, "http://dummy.com"); // helper for parsing
-      const itemRecTab = itemUrl.searchParams.get("tab");
-      const itemRecSubTab = itemUrl.searchParams.get("subTab");
 
-      const currentTab = searchParams.get("tab") || "home";
-      const currentSubTab = searchParams.get("subTab");
-
-      const pathMatch = pathname === itemUrl.pathname;
-      const tabMatch = itemRecTab === currentTab;
-      // If the link has a subTab, it must match. If it doesn't, we only care about the tab.
-      const subTabMatch = itemRecSubTab ? itemRecSubTab === currentSubTab : true;
-
-      isActive = pathMatch && tabMatch && subTabMatch;
-    } else {
-      // For path links
-      isActive = pathname === item.href || (!!pathname && pathname.startsWith(item.href + "/"));
-    }
-
-    const hasSubItems = item.subItems && item.subItems.length > 0;
-    // const isStoreExpanded = item.label === "Store" && storeMenuOpen;
-    // const isPPCExpanded = item.label === "PPC" && ppcMenuOpen;
-    // const isExpanded = isStoreExpanded || isPPCExpanded;
+    const basePath = item.href.split("?")[0];
+    const isActive = pathname === basePath || (!!pathname && pathname.startsWith(basePath + "/"));
 
     if (isMobile) {
       return (
@@ -489,62 +324,37 @@ function LayoutContent({ children }: { children: ReactNode }) {
           }}
           className={[
             "group flex flex-col items-center justify-center w-full h-full transition-all",
-            isActive ? "text-indigo-600 dark:text-indigo-400" : "text-gray-500 dark:text-gray-400",
+            isActive ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-gray-500 dark:text-gray-400",
           ].join(" ")}
         >
-          <Icon size={24} className={isActive ? "text-indigo-600 dark:text-indigo-400" : "text-gray-500 dark:text-gray-400"} />
+          <Icon size={22} className={isActive ? "text-indigo-600 dark:text-indigo-400" : "text-gray-500 dark:text-gray-400"} />
+          <span className="text-[10px] mt-0.5 truncate max-w-[64px]">{item.label}</span>
         </Link>
       );
     }
 
-    // Desktop Sidebar Item
+    // Clean Desktop Nav Link
     return (
-      <div key={item.label}>
-        <Link
-          href={item.href}
-          onClick={(e) => {
-            // if (hasSubItems) {
-            //   // If clicking the parent item, toggle expansion
-            //   if (item.label === "Store") {
-            //     setStoreMenuOpen(!storeMenuOpen);
-            //   } else if (item.label === "PPC") {
-            //     setPpcMenuOpen(!ppcMenuOpen);
-            //   }
-            // }
-          }}
-          className={[
-            "group flex items-center justify-between rounded-xl transition-all",
-            isSubItem ? "pl-10 pr-3 py-2 text-sm" : "px-3 py-2 text-sm font-medium",
-            isActive && !hasSubItems
-              ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
-              : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200",
-          ].join(" ")}
-        >
-          <div className="flex items-center gap-3">
-            <Icon size={isSubItem ? 16 : 18} className={isActive && !hasSubItems ? "text-indigo-600 dark:text-indigo-400" : "text-gray-500 group-hover:text-indigo-500 dark:text-gray-500 dark:group-hover:text-indigo-400"} />
-            <span className={desktopSidebarOpen ? "" : "hidden"}>{item.label}</span>
-          </div>
-          {hasSubItems && desktopSidebarOpen && (
-            <div onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              // if (item.label === "Store") {
-              //   setStoreMenuOpen(!storeMenuOpen);
-              // } else if (item.label === "PPC") {
-              //   setPpcMenuOpen(!ppcMenuOpen);
-              // }
-            }}>
-              {/* {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />} */}
-            </div>
-          )}
-        </Link>
-        {/* Render Sub-items */}
-        {/* {hasSubItems && isExpanded && desktopSidebarOpen && (
-          <div className="mt-1 flex flex-col gap-1">
-            {item.subItems!.map(sub => renderNavLink(sub, false, true))}
-          </div>
-        )} */}
-      </div>
+      <Link
+        key={item.label}
+        href={item.href}
+        className={[
+          "group flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all font-medium text-sm w-full",
+          isActive
+            ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400 font-bold shadow-sm"
+            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200",
+        ].join(" ")}
+      >
+        <Icon
+          size={18}
+          className={
+            isActive
+              ? "text-indigo-600 dark:text-indigo-400"
+              : "text-gray-500 group-hover:text-indigo-500 dark:text-gray-400 dark:group-hover:text-indigo-400"
+          }
+        />
+        <span className={desktopSidebarOpen ? "truncate" : "hidden"}>{item.label}</span>
+      </Link>
     );
   };
 
@@ -552,36 +362,40 @@ function LayoutContent({ children }: { children: ReactNode }) {
     <div className="flex h-screen w-full bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans overflow-hidden">
       {/* Desktop Sidebar */}
       <aside
-        className={`${desktopSidebarOpen ? "w-64" : "hidden lg:block w-0 opacity-0 overflow-hidden"
-          } bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col transition-all duration-300 ease-in-out hidden lg:flex`}
+        className={`${
+          desktopSidebarOpen ? "w-64" : "hidden lg:flex w-20 overflow-hidden"
+        } bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 flex-col transition-all duration-300 ease-in-out hidden lg:flex shrink-0`}
       >
         <div className="h-16 flex items-center gap-3 px-6 border-b border-gray-100 dark:border-gray-800">
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-xl">B</span>
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md shadow-indigo-200 dark:shadow-none">
+            <span className="text-white font-black text-xl">B</span>
           </div>
           <span className={`font-bold text-xl text-gray-900 dark:text-white ${!desktopSidebarOpen && "hidden"}`}>
             BinsErp
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+        <div className="flex-1 overflow-y-auto p-3 space-y-1">
           {navItems.map((item) => renderNavLink(item))}
         </div>
 
         <div className="p-4 border-t border-gray-50 dark:border-gray-800">
           {desktopSidebarOpen ? (
             <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 mb-2">
-              <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
+              <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold shrink-0">
                 {userName.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{userName}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{userSubtitle}</p>
+                <p className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{userName}</p>
+                <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold truncate">{userSubtitle}</p>
               </div>
             </div>
           ) : (
             <div className="flex justify-center mb-4">
-              <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold" title={userName}>
+              <div
+                className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold"
+                title={`${userName} (${userSubtitle})`}
+              >
                 {userName.charAt(0)}
               </div>
             </div>
@@ -589,7 +403,9 @@ function LayoutContent({ children }: { children: ReactNode }) {
 
           <button
             onClick={handleLogout}
-            className={`w-full flex items-center ${desktopSidebarOpen ? "gap-3 px-3" : "justify-center"} py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors`}
+            className={`w-full flex items-center ${
+              desktopSidebarOpen ? "gap-3 px-3" : "justify-center"
+            } py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors`}
             title="Sign Out"
           >
             <LogOut size={18} />
@@ -598,29 +414,29 @@ function LayoutContent({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Mobile Header & Content */}
+      {/* Main Container */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Desktop Header */}
-        <div className="hidden lg:flex items-center px-4 py-3 bg-white dark:bg-gray-900/80 dark:backdrop-blur-md border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10 shrink-0">
-          <button
-            onClick={() => setDesktopSidebarOpen(!desktopSidebarOpen)}
-            className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors mr-3"
-            title={desktopSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
-          >
-            <Menu size={20} />
-          </button>
+        {/* Desktop Top Header */}
+        <div className="hidden lg:flex items-center px-6 py-3.5 bg-white dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-100 dark:border-gray-800 sticky top-0 z-10 shrink-0 justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setDesktopSidebarOpen(!desktopSidebarOpen)}
+              className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
+              title={desktopSidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
+            >
+              <Menu size={20} />
+            </button>
 
-          {/* Dynamic Header Title */}
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white leading-tight">{title}</h1>
-            {subtitle && <p className="text-sm text-gray-500 dark:text-gray-400 font-medium">{subtitle}</p>}
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 dark:text-white leading-tight">{title}</h1>
+              {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{subtitle}</p>}
+            </div>
           </div>
 
-          <div className="ml-auto flex items-center gap-3">
-            {/* User Name & Role Badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-              <span className="text-xs sm:text-sm font-semibold text-gray-800 dark:text-gray-200">{userName}</span>
-              <span className="text-[11px] font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 rounded-md border border-indigo-200 dark:border-indigo-800 uppercase tracking-wider">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3.5 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200/80 dark:border-gray-700">
+              <span className="text-xs font-bold text-gray-800 dark:text-gray-200">{userName}</span>
+              <span className="text-[10px] font-extrabold px-2 py-0.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300 rounded-md uppercase tracking-wider">
                 {userSubtitle}
               </span>
             </div>
@@ -629,11 +445,19 @@ function LayoutContent({ children }: { children: ReactNode }) {
               className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-full border border-gray-200 dark:border-gray-700 cursor-help transition-all hover:bg-gray-100 dark:hover:bg-gray-700"
               title={pythonOnline === null ? "Checking AI Status..." : pythonOnline ? "AI Service is Online" : "AI Service is Offline"}
             >
-              <div className={`w-2.5 h-2.5 rounded-full ${pythonOnline === null ? "bg-gray-400" : pythonOnline ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"}`}></div>
-              <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300 uppercase tracking-widest hidden sm:inline-block">AI</span>
+              <div
+                className={`w-2.5 h-2.5 rounded-full ${
+                  pythonOnline === null
+                    ? "bg-gray-400"
+                    : pythonOnline
+                    ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"
+                    : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"
+                }`}
+              ></div>
+              <span className="text-[10px] font-black text-gray-600 dark:text-gray-300 uppercase tracking-widest hidden sm:inline-block">
+                AI
+              </span>
             </div>
-
-            {/* <ThemeToggle /> */}
           </div>
         </div>
 
@@ -642,43 +466,32 @@ function LayoutContent({ children }: { children: ReactNode }) {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileSidebarOpen(true)}
-              className="p-2 -ml-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-              title="Open Menu"
+              className="p-2 -ml-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors"
+              title="Open Navigation Menu"
             >
-              <LayoutGrid size={24} />
+              <LayoutGrid size={22} />
             </button>
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">B</span>
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md shadow-indigo-200 dark:shadow-none">
+              <span className="text-white font-black text-lg">B</span>
             </div>
-            <span className="font-bold text-lg text-gray-900 dark:text-white">BinsErp</span>
+            <span className="font-extrabold text-lg text-gray-900 dark:text-white">BinsErp</span>
           </div>
 
           <div className="flex items-center gap-3">
-            <div
-              className="flex items-center justify-center p-1 cursor-help"
-              title={pythonOnline === null ? "Checking AI Status..." : pythonOnline ? "AI Service is Online" : "AI Service is Offline"}
-            >
-              <div className={`w-2.5 h-2.5 rounded-full ${pythonOnline === null ? "bg-gray-400" : pythonOnline ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse"}`}></div>
-            </div>
-
             <div className="flex flex-col items-end">
-              <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">{userName}</span>
-              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">{userSubtitle}</span>
+              <span className="text-xs font-bold text-gray-900 dark:text-gray-100">{userName}</span>
+              <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 uppercase">{userSubtitle}</span>
             </div>
-            <button
-              onClick={handleLogout}
-              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              title="Sign Out"
-            >
+            <button onClick={handleLogout} className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors" title="Sign Out">
               <LogOut size={20} />
             </button>
           </div>
         </header>
 
-        {/* Main Content */}
-        <main ref={mainRef} className="flex-1 overflow-y-auto relative">
+        {/* Main Route Content */}
+        <main ref={mainRef} className="flex-1 overflow-y-auto relative bg-slate-50/50 dark:bg-gray-950">
           {isCheckingAuth ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-gray-950/50 backdrop-blur-sm z-50">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/60 dark:bg-gray-950/60 backdrop-blur-sm z-50">
               <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
             </div>
           ) : (
@@ -686,10 +499,12 @@ function LayoutContent({ children }: { children: ReactNode }) {
           )}
         </main>
 
-        {/* Mobile Bottom Navigation */}
-        <nav className={`lg:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 fixed bottom-0 left-0 right-0 z-30 pb-safe transition-transform duration-300 ease-in-out ${
-          showBottomNav ? "translate-y-0" : "translate-y-full shadow-none pointer-events-none"
-        }`}>
+        {/* Mobile Bottom Navigation Bar */}
+        <nav
+          className={`lg:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 fixed bottom-0 left-0 right-0 z-30 pb-safe transition-transform duration-300 ease-in-out ${
+            showBottomNav ? "translate-y-0 shadow-lg" : "translate-y-full pointer-events-none"
+          }`}
+        >
           <div className="flex items-center justify-around h-16 px-2">
             {mobileBottomNavItems.map((item) => (
               <div key={item.href} className="flex-1 h-full">
@@ -697,28 +512,28 @@ function LayoutContent({ children }: { children: ReactNode }) {
               </div>
             ))}
 
-            {/* More Button */}
             {mobileOverflowItems.length > 0 && (
               <div className="flex-1 h-full relative">
                 <button
                   onClick={() => setMobileMoreOpen(!mobileMoreOpen)}
-                  className={`flex flex-col items-center justify-center w-full h-full transition-all ${mobileMoreOpen ? "text-indigo-600 dark:text-indigo-400" : "text-gray-500 dark:text-gray-400"
-                    }`}
+                  className={`flex flex-col items-center justify-center w-full h-full transition-all ${
+                    mobileMoreOpen ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-gray-500 dark:text-gray-400"
+                  }`}
                 >
-                  <MoreVertical size={24} />
+                  <MoreVertical size={22} />
+                  <span className="text-[10px] mt-0.5">More</span>
                 </button>
 
-                {/* Overflow Menu */}
                 {mobileMoreOpen && (
-                  <div className="absolute bottom-full right-0 mb-2 w-48 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in slide-in-from-bottom-2">
+                  <div className="absolute bottom-full right-0 mb-2 w-48 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in slide-in-from-bottom-2">
                     {mobileOverflowItems.map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
                         onClick={() => setMobileMoreOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-gray-800 last:border-0"
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-gray-800 last:border-0"
                       >
-                        <item.icon size={18} className="text-gray-500 dark:text-gray-400" />
+                        <item.icon size={16} className="text-gray-500 dark:text-gray-400" />
                         {item.label}
                       </Link>
                     ))}
@@ -730,52 +545,52 @@ function LayoutContent({ children }: { children: ReactNode }) {
         </nav>
       </div>
 
-      {/* Mobile Sidebar Drawer (for global nav) */}
-      {
-        mobileSidebarOpen && (
-          <div className="fixed inset-0 z-40 lg:hidden">
-            <div
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-              onClick={() => setMobileSidebarOpen(false)}
-            />
-            <div className="absolute inset-y-0 left-0 w-64 bg-white dark:bg-gray-900 shadow-xl flex flex-col animate-in slide-in-from-left duration-300">
-              <div className="p-6 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between">
-                <span className="font-bold text-xl text-gray-900 dark:text-white">Menu</span>
-                <button
+      {/* Mobile Off-Canvas Navigation Drawer */}
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" onClick={() => setMobileSidebarOpen(false)} />
+          <div className="absolute inset-y-0 left-0 w-72 bg-white dark:bg-gray-900 shadow-2xl flex flex-col animate-in slide-in-from-left duration-300">
+            <div className="p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md">
+                  <span className="text-white font-black">B</span>
+                </div>
+                <span className="font-extrabold text-lg text-gray-900 dark:text-white">Navigation</span>
+              </div>
+              <button
+                onClick={() => setMobileSidebarOpen(false)}
+                className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-1">
+              {navItems.map((item) => (
+                <Link
+                  key={item.label}
+                  href={item.href}
                   onClick={() => setMobileSidebarOpen(false)}
-                  className="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg"
+                  className="flex items-center gap-3 px-3.5 py-3 rounded-xl text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 font-bold text-sm"
                 >
-                  {/* <ChevronDown className="rotate-90" size={20} /> */}
-                </button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-1">
-                {navItems.map((item) => (
-                  <div key={item.label}>
-                    <Link
-                      href={item.href}
-                      onClick={() => setMobileSidebarOpen(false)}
-                      className="flex items-center gap-3 px-3 py-3 rounded-xl text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 font-medium"
-                    >
-                      <item.icon size={20} />
-                      {item.label}
-                    </Link>
-                  </div>
-                ))}
-              </div>
-              <div className="p-4 border-t border-gray-50 dark:border-gray-800">
-                <button
-                  onClick={handleLogout}
-                  className="w-full flex items-center gap-3 px-3 py-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl font-medium"
-                >
-                  <LogOut size={20} />
-                  Sign Out
-                </button>
-              </div>
+                  <item.icon size={20} className="text-indigo-600 dark:text-indigo-400" />
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 dark:border-gray-800">
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-3.5 py-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl font-bold text-sm"
+              >
+                <LogOut size={20} />
+                Sign Out
+              </button>
             </div>
           </div>
-        )
-      }
-
+        </div>
+      )}
     </div>
   );
 }

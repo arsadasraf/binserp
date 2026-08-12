@@ -21,12 +21,13 @@ const departmentAccess: Record<string, string[]> = {
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("accessToken")?.value;
+  const refreshToken = request.cookies.get("refreshToken")?.value || request.cookies.get("saasAdminToken")?.value;
   const userType = request.cookies.get("userType")?.value;
   const department = request.cookies.get("department")?.value;
 
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
 
-  if (isProtected && !token) {
+  if (isProtected && !token && !refreshToken) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 

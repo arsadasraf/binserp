@@ -101,8 +101,8 @@ export const deleteRole = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Role not found");
   }
 
-  if (role.isDefault && (role.name === "GM" || role.name === "Admin Default Role" || role.name === "Company Management")) {
-    throw new ApiError(403, "The GM default role is required for company management and cannot be deleted.");
+  if (role.isDefault) {
+    throw new ApiError(403, `System default role '${role.name}' cannot be deleted.`);
   }
 
   await RoleModel.findOneAndDelete({ _id: req.params.id, company: req.company._id });

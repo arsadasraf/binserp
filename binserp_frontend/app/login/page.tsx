@@ -86,29 +86,91 @@ export default function LoginPage() {
         });
 
         const redirect = () => {
-          // Check for Employee Type first (priority)
-          if (response.user && response.user.type === 'employee') {
-            router.push("/dashboard/employee");
+          if (loginType === "company") {
+            router.push("/dashboard/admin/overview");
+            return;
+          }
+
+          if (response.user && response.user.type === "employee") {
+            router.push("/dashboard/employee?tab=work");
             return;
           }
 
           if (loginType === "user" && response.user) {
-            const department = response.user.department;
-            if (department.includes("HR")) {
-              router.push("/dashboard/hr");
-            } else if (department.includes("Store")) {
-              router.push("/dashboard/store");
+            const roles = response.user.roles || (response.user.role ? [response.user.role] : []);
+            if (roles && roles.length > 0) {
+              let isGM = false;
+              const allowedModules = new Set<string>();
+              roles.forEach((r: any) => {
+                if (r && r.isActive !== false) {
+                  const roleName = typeof r === "string" ? r : r.name;
+                  if (roleName === "GM" || roleName === "Admin Default Role" || roleName === "Company Management") {
+                    isGM = true;
+                  }
+                  r.policies?.forEach((p: any) => p?.module && allowedModules.add(p.module.toUpperCase()));
+                }
+              });
+
+              if (isGM) {
+                router.push("/dashboard/hr?tab=home");
+                return;
+              }
+              if (allowedModules.has("HR")) {
+                router.push("/dashboard/hr?tab=home");
+                return;
+              }
+              if (allowedModules.has("STORE")) {
+                router.push("/dashboard/store/inventory/rm-bo-stock");
+                return;
+              }
+              if (allowedModules.has("PPC")) {
+                router.push("/dashboard/ppc/overview");
+                return;
+              }
+              if (allowedModules.has("SECURITY")) {
+                router.push("/dashboard/gate-entry?tab=overview");
+                return;
+              }
+              if (allowedModules.has("ACCOUNTS")) {
+                router.push("/dashboard/accounts");
+                return;
+              }
+              if (allowedModules.has("MAINTENANCE")) {
+                router.push("/dashboard/maintenance");
+                return;
+              }
+              if (allowedModules.has("QUALITY")) {
+                router.push("/dashboard/quality");
+                return;
+              }
+              if (allowedModules.has("CRM")) {
+                router.push("/dashboard/crm");
+                return;
+              }
+              if (allowedModules.has("REPORTS")) {
+                router.push("/dashboard/reports");
+                return;
+              }
+            }
+
+            const department = (response.user.department || "").toUpperCase();
+            if (department.includes("ADMIN") || department.includes("GM")) {
+              router.push("/dashboard/admin/overview");
+            } else if (department.includes("HR")) {
+              router.push("/dashboard/hr?tab=home");
+            } else if (department.includes("STORE")) {
+              router.push("/dashboard/store/inventory/rm-bo-stock");
             } else if (department.includes("PPC")) {
-              router.push("/dashboard/ppc");
-            } else if (department === "Accounts") {
+              router.push("/dashboard/ppc/overview");
+            } else if (department.includes("ACCOUNTS")) {
               router.push("/dashboard/accounts");
-            } else if (department === "Company Management" || department === "MD") {
-              router.push("/dashboard/reports");
+            } else if (department.includes("SECURITY")) {
+              router.push("/dashboard/gate-entry?tab=overview");
             } else {
-              router.push("/dashboard"); // Default for user with department
+              router.push("/dashboard/admin/overview");
             }
           } else {
-            router.push("/dashboard"); // Default for company login or other cases
+            router.push("/dashboard/admin/overview");
           }
         };
 
