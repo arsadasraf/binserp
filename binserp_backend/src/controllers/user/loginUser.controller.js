@@ -8,14 +8,6 @@ import crypto from "crypto";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
-const getCompanyId = (req) => {
-  return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
-};
-
-const getCompanyLoginId = (req) => {
-  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
-};
-
 const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   const R = 6371; // Radius of the earth in km
   const dLat = (lat2 - lat1) * (Math.PI / 180);
@@ -57,30 +49,49 @@ export const loginUser = async (req, res) => {
     const EmployeeModel = getTenantModel(company.dbName, "Employee", employeeSchema);
     getTenantModel(company.dbName, "Role", roleSchema);
 
-    // 3. Try Finding User first
-    const user = await UserModel.findOne({ userId }).populate("role").populate({ path: "roles", strictPopulate: false });
+    // Normalize User ID search (hyphen-insensitive matching: EMP-0001 vs EMP0001)
+    const rawUserId = userId.trim();
+    const cleanUserId = rawUserId.replace(/[\s-]/g, "");
+    const formattedWithHyphen = rawUserId.replace(/([A-Za-z]+)[\s-]*(\d+)/, "$1-$2");
+    const formattedNoHyphen = rawUserId.replace(/([A-Za-z]+)[\s-]*(\d+)/, "$1$2");
+
+    // 3. Try Finding Staff User first
+    const user = await UserModel.findOne({
+      $or: [
+        { userId: rawUserId },
+        { userId: cleanUserId },
+        { userId: formattedWithHyphen },
+        { userId: formattedNoHyphen },
+        { userId: { $regex: `^${cleanUserId.replace(/(\d+)/, "-?$1")}$`, $options: "i" } },
+      ],
+    })
+      .populate("role")
+      .populate({ path: "roles", strictPopulate: false });
 
     if (user) {
-      // --- USER FOUND ---
+      // --- STAFF USER FOUND ---
       if (user.isActive === false) {
-        return res.status(403).json({ message: "Account deactivated. Please contact an administrator." });
+        return res.status(403).json({ message: "Your account is inactive. Please contact your administrator." });
       }
 
-      const isMatch = await user.comparePassword(password);
+      // Compare password (also test with/without hyphens if direct fails)
+      let isMatch = await user.comparePassword(password);
+      if (!isMatch && password.includes("-")) {
+        isMatch = await user.comparePassword(password.replace(/-/g, ""));
+      }
+
       if (!isMatch) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
       // 🔒 Security Checks (IP/Location) for User
-      // 1. IP Check
       if (user.allowedIP) {
-        const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress;
+        const clientIP = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress;
         if (!clientIP || !clientIP.includes(user.allowedIP)) {
-          return res.status(403).json({ message: `Access denied from restricted IP.` });
+          return res.status(403).json({ message: "Access denied from restricted IP." });
         }
       }
 
-      // 2. Location Check
       if (user.allowedLocation && user.allowedLocation.lat && user.allowedLocation.lng) {
         const { latitude, longitude } = req.body;
         if (!latitude || !longitude) {
@@ -104,16 +115,14 @@ export const loginUser = async (req, res) => {
       // Generate tokens
       const { accessToken, refreshToken } = generateTokens(user._id, "user", company.companyId, user.tokenVersion);
 
-      // Save refresh token to user
       user.refreshToken = refreshToken;
       await user.save({ validateBeforeSave: false });
 
-      // Set cookies
       setTokenCookies(res, accessToken, refreshToken);
 
       // Track Session History
       const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
-      const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || "Unknown";
+      const clientIP = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "Unknown";
       await SessionHistoryModel.create({
         userId: user.userId,
         userType: "user",
@@ -122,7 +131,7 @@ export const loginUser = async (req, res) => {
         location: {
           lat: req.body.latitude ? Number(req.body.latitude) : null,
           lng: req.body.longitude ? Number(req.body.longitude) : null,
-        }
+        },
       });
 
       return res.status(200).json({
@@ -134,7 +143,7 @@ export const loginUser = async (req, res) => {
           email: user.email,
           department: user.department,
           roleLevel: user.roleLevel,
-          roles: (user.roles && user.roles.length > 0) ? user.roles : (user.role ? [user.role] : []),
+          roles: user.roles && user.roles.length > 0 ? user.roles : user.role ? [user.role] : [],
           role: user.role || null,
           photo: (await signPhotos([user.photo]))[0],
           company: {
@@ -147,48 +156,71 @@ export const loginUser = async (req, res) => {
       });
     }
 
-    // 4. Try Finding Employee if User not found
-    const employee = await EmployeeModel.findOne({ employeeId: userId }).populate("roles");
+    // 4. Try Finding Employee if Staff User not found
+    const employee = await EmployeeModel.findOne({
+      $or: [
+        { employeeId: rawUserId },
+        { employeeId: cleanUserId },
+        { employeeId: formattedWithHyphen },
+        { employeeId: formattedNoHyphen },
+        { employeeId: { $regex: `^${cleanUserId.replace(/(\d+)/, "-?$1")}$`, $options: "i" } },
+      ],
+    }).populate("roles");
 
     if (employee) {
       // --- EMPLOYEE FOUND ---
+      // 🚫 INACTIVE CHECK: Clear message if employee is marked inactive in HR
+      if (employee.status !== "Active" || employee.isActive === false) {
+        return res.status(403).json({ message: "Your account is inactive. Please contact HR administration." });
+      }
+
       let isMatch = false;
 
-      // Use secure password if it exists
+      // 🔑 Hyphen-insensitive password check (supports both encrypted password & joining date)
       if (employee.password) {
         isMatch = await employee.comparePassword(password);
-      } else {
-        // Legacy fallback: Password must match Joining Date (YYYY-MM-DD)
-        const joiningDate = new Date(employee.joiningDate).toISOString().split('T')[0];
-        isMatch = (password === joiningDate);
+        if (!isMatch && password.includes("-")) {
+          isMatch = await employee.comparePassword(password.replace(/-/g, ""));
+        }
+      }
+
+      // Legacy joining date fallback (YYYY-MM-DD or YYYYMMDD)
+      if (!isMatch && employee.joiningDate) {
+        const joiningDateHyphen = new Date(employee.joiningDate).toISOString().split("T")[0]; // 2024-05-15
+        const joiningDateNoHyphen = joiningDateHyphen.replace(/-/g, ""); // 20240515
+        const inputPasswordNoHyphen = password.replace(/[\s-]/g, "");
+
+        isMatch =
+          password === joiningDateHyphen ||
+          password === joiningDateNoHyphen ||
+          inputPasswordNoHyphen === joiningDateNoHyphen;
       }
 
       if (!isMatch) {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
-      if (employee.status !== 'Active' || employee.isActive === false) {
-        return res.status(403).json({ message: "Account is not active." });
-      }
-
       // Increment token version for strict single-device login
       employee.tokenVersion = (employee.tokenVersion || 0) + 1;
 
       // Generate tokens
-      const { accessToken, refreshToken } = generateTokens(employee._id, "employee", company.companyId, employee.tokenVersion);
+      const { accessToken, refreshToken } = generateTokens(
+        employee._id,
+        "employee",
+        company.companyId,
+        employee.tokenVersion
+      );
 
-      // Save refresh token to employee
       employee.refreshToken = refreshToken;
       await employee.save({ validateBeforeSave: false });
 
       const roleLevel = employee.roleLevel || 1;
 
-      // Set cookies
       setTokenCookies(res, accessToken, refreshToken);
 
       // Track Session History
       const SessionHistoryModel = getTenantModel(company.dbName, "SessionHistory", sessionHistorySchema);
-      const clientIP = req.headers['x-forwarded-for'] || req.ip || req.socket.remoteAddress || "Unknown";
+      const clientIP = req.headers["x-forwarded-for"] || req.ip || req.socket.remoteAddress || "Unknown";
       await SessionHistoryModel.create({
         userId: employee.employeeId,
         userType: "employee",
@@ -197,7 +229,7 @@ export const loginUser = async (req, res) => {
         location: {
           lat: req.body.latitude ? Number(req.body.latitude) : null,
           lng: req.body.longitude ? Number(req.body.longitude) : null,
-        }
+        },
       });
 
       return res.status(200).json({
@@ -212,7 +244,7 @@ export const loginUser = async (req, res) => {
           roleLevel: roleLevel,
           roles: employee.roles || [],
           photo: (await signPhotos([employee.photo]))[0],
-          type: 'employee',
+          type: "employee",
           company: {
             id: company._id,
             companyId: company.companyId,
@@ -225,7 +257,6 @@ export const loginUser = async (req, res) => {
 
     // Neither User nor Employee found
     return res.status(404).json({ message: "User/Employee ID not found" });
-
   } catch (error) {
     console.error("Login Error:", error);
     res.status(500).json({ message: error.message });

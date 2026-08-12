@@ -1,11 +1,29 @@
 import { API_BASE_URL } from "@/src/utils/config";
 
-const getApiUrl = () => {
-    const baseUrl = API_BASE_URL || "http://localhost:8000";
-    return baseUrl.endsWith("/api") ? baseUrl : `${baseUrl}/api`;
+const getApiUrl = (): string => {
+    // 1. Priority: Environment Variable
+    const envUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (envUrl && envUrl !== "undefined" && envUrl.trim() !== "") {
+        const cleaned = envUrl.replace(/\/+$/, "");
+        return cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
+    }
+
+    // 2. Priority: Browser Runtime
+    if (typeof window !== "undefined") {
+        const host = window.location.hostname;
+        if (host === "localhost" || host === "127.0.0.1") {
+            return `http://${host}:8000/api`;
+        }
+        // Production Nginx reverse proxy: current origin + /api
+        return `${window.location.origin}/api`;
+    }
+
+    // 3. Fallback
+    const base = API_BASE_URL || "http://localhost:8000";
+    const cleaned = base.replace(/\/+$/, "");
+    return cleaned.endsWith("/api") ? cleaned : `${cleaned}/api`;
 };
 
-const API_URL = getApiUrl();
 const SAAS_ADMIN_TOKEN_KEY = "saasAdminToken";
 
 interface LoginResponse {
@@ -42,7 +60,8 @@ class SaasAdminAuth {
 
     async login(username: string, password: string): Promise<LoginResponse> {
         try {
-            const response = await fetch(`${API_URL}/saasadmin/login`, {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/saasadmin/login`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -99,7 +118,8 @@ class SaasAdminAuth {
             throw new Error("Not authenticated");
         }
 
-        const response = await fetch(`${API_URL}/saasadmin${endpoint}`, {
+        const apiUrl = getApiUrl();
+        const response = await fetch(`${apiUrl}/saasadmin${endpoint}`, {
             ...options,
             headers: {
                 ...this.getAuthHeaders(),
@@ -144,7 +164,8 @@ class SaasAdminAuth {
             const token = this.getToken();
             if (!token) throw new Error("Not authenticated");
 
-            const response = await fetch(`${API_URL}/saasadmin/export/companies`, {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/saasadmin/export/companies`, {
                 method: "GET",
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -172,7 +193,8 @@ class SaasAdminAuth {
             const token = this.getToken();
             if (!token) throw new Error("Not authenticated");
 
-            const response = await fetch(`${API_URL}/saasadmin/export/users`, {
+            const apiUrl = getApiUrl();
+            const response = await fetch(`${apiUrl}/saasadmin/export/users`, {
                 method: "GET",
                 headers: {
                     Authorization: `Bearer ${token}`,

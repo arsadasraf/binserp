@@ -8,6 +8,7 @@ services:
       - .env
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/binsdb
+      - SAAS_ADMIN_EMAIL=asrafali444u@gmail.com
     depends_on:
       - mongodb
     networks:
@@ -20,7 +21,6 @@ services:
       - "3000:3000"
     env_file:
       - .env.prod
-    # IMPORTANT: Update NEXT_PUBLIC_IP in your .env.prod to your EC2 Public IP or Domain
     depends_on:
       - backend
     networks:
@@ -32,7 +32,7 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      # This ensures data persists on your EBS volume
+      # EBS volume mount for persistent tenant databases
       - /mongodb-data:/data/db
     networks:
       - msmehub-net
