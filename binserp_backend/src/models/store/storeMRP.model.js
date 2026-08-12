@@ -11,6 +11,10 @@ export const storeMRPSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "SalesOrder",
     },
+    salesOrder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SalesOrder",
+    },
     fgItem: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "FGItem",
@@ -27,7 +31,7 @@ export const storeMRPSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "Partially RM Planned", "RM Planned", "Production Planned"],
+      enum: ["Pending", "Partially RM Planned", "RM Planned", "Production Planned", "Sent to PPC"],
       default: "Pending",
     },
     remarks: {

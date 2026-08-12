@@ -1,5 +1,6 @@
-import { customerSchema, fgItemSchema, storeOrderFulfillmentSchema } from "../../models/store/index.js";
+import { customerSchema, fgItemSchema, storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema } from "../../models/store/index.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+import { ppcOrderSchema } from "../../models/ppc/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
@@ -10,6 +11,12 @@ const getCompanyLoginId = (req) => {
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
+};
+
+// Helper for YYYY-MM string
+const getCurrentMonthStr = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 };
 
 // Generate Store Order Number if prefix is available
@@ -103,25 +110,260 @@ export const createSalesOrder = asyncHandler(async (req, res) => {
 
   const newOrder = await SalesOrder.create(orderData);
 
-  // Spawn fulfillment records for each item in the order
+  // Spawn fulfillment records & run automated FG Stock Check -> Purchase MRP -> PPC Order Intake Bucket
   const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+  const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+  const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
+  const PPCOrder = req.getModel("PPCOrder", ppcOrderSchema);
+  const currentMonth = getCurrentMonthStr();
+
   if (items && items.length > 0) {
-    const fulfillments = items
-      .filter(item => item.fgItem)
-      .map(item => ({
+    for (const item of items) {
+      if (!item.fgItem) continue;
+
+      const orderedQty = Number(item.quantity || 1);
+
+      // Check current monthly inventory
+      const invRecord = await FGInventoryMonthly.findOne({
+        company: companyId,
+        fgItem: item.fgItem,
+        month: currentMonth
+      });
+
+      const closingStock = invRecord ? Number(invRecord.closingStock || 0) : 0;
+      const totalReserved = invRecord ? Number(invRecord.totalReservedQuantity || 0) : 0;
+      const availableStock = Math.max(0, closingStock - totalReserved);
+
+      const reservedQuantity = Math.min(orderedQty, availableStock);
+      const shortfallQuantity = Math.max(0, orderedQty - reservedQuantity);
+
+      // 1. Create fulfillment record
+      await StoreOrderFulfillment.create({
         company: companyId,
         storeOrder: newOrder._id,
         fgItem: item.fgItem,
-        orderedQuantity: item.quantity,
+        orderedQuantity: orderedQty,
+        reservedQuantity,
+        mrpMovedQuantity: shortfallQuantity,
+        status: shortfallQuantity > 0 ? (reservedQuantity > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved',
         targetDate: item.targetDate || targetDate || new Date(),
-      }));
-    if (fulfillments.length > 0) {
-      await StoreOrderFulfillment.insertMany(fulfillments);
+      });
+
+      // 2. Increment stock reservation if in stock
+      if (reservedQuantity > 0 && invRecord) {
+        invRecord.totalReservedQuantity = (invRecord.totalReservedQuantity || 0) + reservedQuantity;
+        await invRecord.save();
+      }
+
+      // 3. Push shortfall to Purchase MRP & PPC Order Intake Bucket
+      if (shortfallQuantity > 0) {
+        // Push to Purchase MRP
+        await StoreMRP.create({
+          company: companyId,
+          storeOrder: newOrder._id,
+          fgItem: item.fgItem,
+          requiredQuantity: shortfallQuantity,
+          dueDate: item.targetDate || targetDate || new Date(),
+          status: "Pending",
+          createdBy: req.user?._id,
+          remarks: `Auto-generated shortfall from Sales Order #${newOrder.orderNumber}`
+        });
+
+        // Push to PPC Order Intake Bucket
+        const countPpc = await PPCOrder.countDocuments({ company: companyId });
+        await PPCOrder.create({
+          company: companyId,
+          orderNumber: `PPC-INTAKE-${newOrder.orderNumber}-${countPpc + 1}`,
+          poReference: newOrder.poReference || newOrder.orderNumber,
+          customer: newOrder.customer,
+          deliveryDate: item.targetDate || targetDate || new Date(),
+          status: "Pending",
+          items: [{
+            productName: item.name || "FG Item",
+            productCode: item.code || "",
+            quantity: shortfallQuantity,
+            targetDate: item.targetDate || targetDate || new Date(),
+          }],
+          remarks: `PPC Order Intake Bucket demand from Sales Order #${newOrder.orderNumber}`
+        });
+      }
     }
   }
 
   res.status(201).json({ success: true, order: newOrder });
 });
+
+export const getSalesOrderStockStatus = asyncHandler(async (req, res) => {
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
+  const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+  const companyId = getCompanyId(req);
+  const orderId = req.params.id;
+
+  const order = await SalesOrder.findOne({ _id: orderId, company: companyId }).populate("items.fgItem");
+  if (!order) {
+    return res.status(404).json({ success: false, message: "Sales Order not found" });
+  }
+
+  const currentMonth = getCurrentMonthStr();
+  const stockDetails = [];
+
+  if (order.items && order.items.length > 0) {
+    for (const item of order.items) {
+      const fgId = item.fgItem?._id || item.fgItem;
+      const fgName = item.name || item.fgItem?.name || "FG Product";
+      const orderedQty = Number(item.quantity || 1);
+
+      let closingStock = 0;
+      let totalReserved = 0;
+
+      if (fgId) {
+        const invRecord = await FGInventoryMonthly.findOne({
+          company: companyId,
+          fgItem: fgId,
+          month: currentMonth
+        });
+
+        if (invRecord) {
+          closingStock = Number(invRecord.closingStock || 0);
+          totalReserved = Number(invRecord.totalReservedQuantity || 0);
+        }
+      }
+
+      const availableStock = Math.max(0, closingStock - totalReserved);
+      const suggestedReserve = Math.min(orderedQty, availableStock);
+      const suggestedShortfall = Math.max(0, orderedQty - suggestedReserve);
+
+      stockDetails.push({
+        fgItem: fgId,
+        name: fgName,
+        orderedQuantity: orderedQty,
+        closingStock,
+        totalReserved,
+        availableStock,
+        suggestedReserve,
+        suggestedShortfall
+      });
+    }
+  }
+
+  res.status(200).json({
+    success: true,
+    orderNumber: order.orderNumber,
+    stockDetails
+  });
+});
+
+export const moveSalesOrderToMRP = asyncHandler(async (req, res) => {
+  const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
+  const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
+  const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+  const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
+  const companyId = getCompanyId(req);
+  const orderId = req.params.id;
+  const { allocations } = req.body; // Custom allocations from modal form
+
+  const order = await SalesOrder.findOne({ _id: orderId, company: companyId });
+  if (!order) {
+    return res.status(404).json({ success: false, message: "Sales Order not found" });
+  }
+
+  const currentMonth = getCurrentMonthStr();
+  let totalReserved = 0;
+  let totalShortfall = 0;
+
+  if (order.items && order.items.length > 0) {
+    for (const item of order.items) {
+      if (!item.fgItem) continue;
+
+      const orderedQty = Number(item.quantity || 1);
+      const fgId = item.fgItem._id ? item.fgItem._id.toString() : item.fgItem.toString();
+
+      // Check if user provided custom allocation for this FG item
+      const customAlloc = Array.isArray(allocations) ? allocations.find(a => String(a.fgItem) === fgId) : null;
+
+      const invRecord = await FGInventoryMonthly.findOne({
+        company: companyId,
+        fgItem: item.fgItem,
+        month: currentMonth
+      });
+
+      const closingStock = invRecord ? Number(invRecord.closingStock || 0) : 0;
+      const reservedInMonth = invRecord ? Number(invRecord.totalReservedQuantity || 0) : 0;
+      const availableStock = Math.max(0, closingStock - reservedInMonth);
+
+      const reservedQuantity = customAlloc !== null && customAlloc !== undefined
+        ? Number(customAlloc.reservedQuantity || 0)
+        : Math.min(orderedQty, availableStock);
+
+      const shortfallQuantity = customAlloc !== null && customAlloc !== undefined
+        ? Number(customAlloc.shortfallQuantity || 0)
+        : Math.max(0, orderedQty - reservedQuantity);
+
+      totalReserved += reservedQuantity;
+      totalShortfall += shortfallQuantity;
+
+      // Update or create fulfillment
+      let fulfillment = await StoreOrderFulfillment.findOne({ storeOrder: order._id, fgItem: item.fgItem });
+      if (!fulfillment) {
+        fulfillment = await StoreOrderFulfillment.create({
+          company: companyId,
+          storeOrder: order._id,
+          fgItem: item.fgItem,
+          orderedQuantity: orderedQty,
+          reservedQuantity,
+          mrpMovedQuantity: shortfallQuantity,
+          status: shortfallQuantity > 0 ? (reservedQuantity > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved',
+          targetDate: item.targetDate || order.targetDate || new Date(),
+        });
+      } else {
+        fulfillment.reservedQuantity = reservedQuantity;
+        fulfillment.mrpMovedQuantity = shortfallQuantity;
+        fulfillment.status = shortfallQuantity > 0 ? (reservedQuantity > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved';
+        await fulfillment.save();
+      }
+
+      if (reservedQuantity > 0 && invRecord) {
+        invRecord.totalReservedQuantity = (invRecord.totalReservedQuantity || 0) + reservedQuantity;
+        await invRecord.save();
+      }
+
+      if (shortfallQuantity > 0) {
+        let existingMRP = await StoreMRP.findOne({
+          company: companyId,
+          $or: [{ salesOrder: order._id }, { storeOrder: order._id }],
+          fgItem: item.fgItem
+        });
+
+        if (!existingMRP) {
+          await StoreMRP.create({
+            company: companyId,
+            salesOrder: order._id,
+            storeOrder: order._id,
+            fgItem: item.fgItem,
+            requiredQuantity: shortfallQuantity,
+            dueDate: item.targetDate || order.targetDate || new Date(),
+            status: "Pending",
+            createdBy: req.user?._id,
+            remarks: `Moved from Sales Order #${order.orderNumber}`
+          });
+        } else {
+          existingMRP.requiredQuantity = shortfallQuantity;
+          await existingMRP.save();
+        }
+      }
+    }
+  }
+
+  order.status = "Moved MRP";
+  await order.save();
+
+  res.status(200).json({
+    success: true,
+    message: `Sales Order stock allocated & shortfall moved to MRP. Reserved Stock: ${totalReserved}, Shortfall to MRP: ${totalShortfall}`,
+    order
+  });
+});
+
 
 export const getAllSalesOrders = asyncHandler(async (req, res) => {
   // Register required models for populate

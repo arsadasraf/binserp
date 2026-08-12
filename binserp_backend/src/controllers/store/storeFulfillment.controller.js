@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { storeOrderFulfillmentSchema, fgInventoryMonthlySchema, storeMRPSchema, storeRMPlanSchema, fgItemSchema } from "../../models/store/index.js";
 import { salesOrderSchema } from "../../models/sales/index.js";
+import { ppcOrderSchema } from "../../models/ppc/index.js";
 
 const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
@@ -172,6 +173,7 @@ export const getStoreMRPs = async (req, res) => {
 
     const mrps = await StoreMRP.find({ company: companyId })
       .populate('salesOrder', 'orderNumber customerName')
+      .populate('storeOrder', 'orderNumber customerName')
       .populate({
         path: 'fgItem',
         select: 'name code bom',
@@ -301,19 +303,38 @@ export const planProductionRequirement = async (req, res) => {
 export const getRMPlans = async (req, res) => {
   try {
     const companyId = getCompanyId(req);
-    // Needed to register references if not already done
-    const Vendor = req.getModel("Vendor"); // Assume already registered by master routes
-    const RmBoItem = req.getModel("RmBoItem"); // Or Material
+    const Vendor = req.getModel("Vendor");
+    const RmBoItem = req.getModel("RmBoItem");
+    const Inventory = req.getModel("Inventory");
 
     const StoreRMPlan = req.getModel("StoreRMPlan", storeRMPlanSchema);
 
     const plans = await StoreRMPlan.find({ company: companyId })
-      .populate('sourceMRP')
-      .populate({ path: 'rmBoItem', select: 'name code' })
-      .populate('vendor', 'vendorName vendorCode')
+      .populate({
+        path: 'sourceMRP',
+        populate: [
+          { path: 'salesOrder', select: 'orderNumber customerName' },
+          { path: 'fgItem', select: 'name code' }
+        ]
+      })
+      .populate({ path: 'rmBoItem', select: 'name code descriptions category unit' })
+      .populate('vendor', 'vendorName vendorCode name')
       .sort({ createdAt: -1 });
 
-    res.status(200).json({ success: true, data: plans });
+    const enrichedPlans = await Promise.all(plans.map(async (p) => {
+      const pObj = p.toObject();
+      const matId = p.rmBoItem?._id || p.rmBoItem;
+      const inv = matId ? await Inventory.findOne({ company: companyId, materialId: matId }) : null;
+      const currentStock = inv ? Number(inv.currentStock || 0) : 0;
+      const shortage = Math.max(0, Number(p.requiredQuantity || 0) - currentStock);
+      return {
+        ...pObj,
+        currentStock,
+        shortage
+      };
+    }));
+
+    res.status(200).json({ success: true, data: enrichedPlans });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -339,6 +360,46 @@ export const updateRMPlanPO = async (req, res) => {
     await plan.save();
 
     res.status(200).json({ success: true, message: "PO details updated.", data: plan });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const sendMRPToPPC = async (req, res) => {
+  try {
+    const { id } = req.params; // StoreMRP ID
+    const companyId = getCompanyId(req);
+
+    const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
+    const PPCOrder = req.getModel("PPCOrder", ppcOrderSchema);
+
+    const mrp = await StoreMRP.findOne({ _id: id, company: companyId })
+      .populate('salesOrder')
+      .populate('fgItem');
+
+    if (!mrp) return res.status(404).json({ success: false, message: "Requirement not found" });
+
+    const countPpc = await PPCOrder.countDocuments({ company: companyId });
+    const ppcOrder = await PPCOrder.create({
+      company: companyId,
+      orderNumber: `PPC-INTAKE-${mrp.salesOrder?.orderNumber || 'MRP'}-${countPpc + 1}`,
+      poReference: mrp.salesOrder?.poReference || mrp.salesOrder?.orderNumber || `MRP-${mrp._id}`,
+      customer: mrp.salesOrder?.customer,
+      deliveryDate: mrp.dueDate || new Date(),
+      status: "Pending",
+      items: [{
+        productName: mrp.fgItem?.name || "FG Item",
+        productCode: mrp.fgItem?.code || "",
+        quantity: mrp.requiredQuantity,
+        targetDate: mrp.dueDate || new Date(),
+      }],
+      remarks: `Sent from Purchase MRP for Sales Order #${mrp.salesOrder?.orderNumber || ''}`
+    });
+
+    mrp.status = "Sent to PPC";
+    await mrp.save();
+
+    res.status(200).json({ success: true, message: `FG Requirement sent to PPC Order Intake Bucket.`, ppcOrder });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

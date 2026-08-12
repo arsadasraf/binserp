@@ -62,7 +62,8 @@ import {
   planSingleRMRequirement,
   planProductionRequirement,
   getRMPlans,
-  updateRMPlanPO
+  updateRMPlanPO,
+  sendMRPToPPC
 } from "../controllers/store/storeFulfillment.controller.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multer.middleware.js";
@@ -155,6 +156,7 @@ router.get("/mrp", getStoreMRPs);
 router.post("/mrp/:id/plan-rm", planRMRequirement);
 router.post("/mrp/:id/plan-single-rm", planSingleRMRequirement);
 router.post("/mrp/:id/plan-production", planProductionRequirement);
+router.post("/mrp/:id/send-to-ppc", sendMRPToPPC);
 
 // RM Planning routes
 router.get("/rm-plan", getRMPlans);

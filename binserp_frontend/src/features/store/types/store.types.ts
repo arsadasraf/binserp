@@ -206,6 +206,7 @@ export interface Category {
 export interface RmBoItem {
     _id: string;
     name: string;
+    code?: string;
     descriptions?: string;
     minimumStock?: number;
     photos?: string[];

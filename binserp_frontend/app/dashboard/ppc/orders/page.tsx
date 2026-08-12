@@ -16,11 +16,11 @@ import OrderDetailModal from "../components/OrderDetailModal";
 import MoveToManufacturingModal from "../components/MoveToManufacturingModal";
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 
-type OrderSubTab = "production-orders" | "manufacturing-orders";
+type OrderSubTab = "intake-bucket" | "production-orders" | "manufacturing-orders";
 
 export default function PPCOrdersPage() {
   const { setHeader } = useHeader();
-  const [subTab, setSubTab] = useState<OrderSubTab>("production-orders");
+  const [subTab, setSubTab] = useState<OrderSubTab>("intake-bucket");
 
   const { data: productionOrders = [], isLoading: loadingProd, refetch: refetchProd } = useGetProductionOrdersQuery();
   const { data: ppcOrders = [], isLoading: loadingPpc, refetch: refetchPpc } = useGetPpcOrdersQuery();
@@ -37,6 +37,10 @@ export default function PPCOrdersPage() {
   useEffect(() => {
     setHeader("Production & Manufacturing Orders", "Manage customer sales/production orders and shop floor manufacturing orders.");
   }, [setHeader]);
+
+  const intakeOrders = productionOrders.filter((ord: any) => 
+    ord.orderNumber?.includes('INTAKE') || ord.remarks?.includes('PPC Order Intake') || ord.status === 'Pending'
+  );
 
   const handleDelete = async (id: string) => {
     if (confirm("Are you sure you want to delete this order?")) {
@@ -58,7 +62,18 @@ export default function PPCOrdersPage() {
           
           {/* Toolbar: SubTabs & Action */}
           <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 bg-white dark:bg-gray-900 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800">
-            <div className="flex gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit">
+            <div className="flex gap-2 p-1 bg-gray-100 dark:bg-gray-800 rounded-xl w-fit flex-wrap">
+              <button
+                onClick={() => setSubTab("intake-bucket")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                  subTab === "intake-bucket"
+                    ? "bg-amber-600 text-white shadow-sm"
+                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
+                }`}
+              >
+                <Clock size={16} />
+                Order Intake Bucket ({intakeOrders.length})
+              </button>
               <button
                 onClick={() => setSubTab("production-orders")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
@@ -68,7 +83,7 @@ export default function PPCOrdersPage() {
                 }`}
               >
                 <FileText size={16} />
-                Production Orders ({productionOrders.length})
+                All Production Orders ({productionOrders.length})
               </button>
               <button
                 onClick={() => setSubTab("manufacturing-orders")}
@@ -99,7 +114,84 @@ export default function PPCOrdersPage() {
 
           {/* SubTab Content */}
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 p-4 sm:p-6">
-            {subTab === "production-orders" ? (
+            {subTab === "intake-bucket" ? (
+              loadingProd ? (
+                <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-amber-50 dark:bg-amber-950/40 p-4 rounded-xl border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-300 flex justify-between items-center">
+                    <div>
+                      <strong className="text-sm font-bold block">PPC Order Intake Bucket</strong>
+                      Incoming Finished Goods (FG) demand auto-transferred from Sales Orders with inventory shortfalls.
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-amber-100/60 dark:bg-amber-900/40 text-amber-900 dark:text-amber-300 uppercase font-bold">
+                        <tr>
+                          <th className="px-4 py-3">Intake Order #</th>
+                          <th className="px-4 py-3">Customer / PO Ref</th>
+                          <th className="px-4 py-3">Product Name</th>
+                          <th className="px-4 py-3 text-right">Shortfall Qty</th>
+                          <th className="px-4 py-3">Target Date</th>
+                          <th className="px-4 py-3 text-center">Intake Status</th>
+                          <th className="px-4 py-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                        {intakeOrders.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
+                              No pending intake orders in bucket. Sales Order shortfalls will automatically arrive here.
+                            </td>
+                          </tr>
+                        ) : (
+                          intakeOrders.map((ord: any) => {
+                            const firstItem = ord.items?.[0] || {};
+                            return (
+                              <tr key={ord._id} className="hover:bg-amber-50/50 dark:hover:bg-gray-800/40">
+                                <td className="px-4 py-3 font-bold text-amber-800 dark:text-amber-300 font-mono">
+                                  {ord.orderNumber}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300 font-semibold">
+                                  {ord.customerName || ord.customer?.name || "Direct Customer"}
+                                  {ord.poReference && <span className="block text-[10px] text-slate-400 font-mono">Ref: {ord.poReference}</span>}
+                                </td>
+                                <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
+                                  {firstItem.productName || ord.productName || "FG Product"}
+                                </td>
+                                <td className="px-4 py-3 text-right font-extrabold text-amber-600">
+                                  {firstItem.quantity || ord.quantity || 1}
+                                </td>
+                                <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
+                                  {ord.deliveryDate ? new Date(ord.deliveryDate).toLocaleDateString('en-GB') : "N/A"}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">
+                                    {ord.status || 'Pending'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <button
+                                    onClick={() => setMoveToMfgOrder(ord)}
+                                    title="Create Manufacturing Order"
+                                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 ml-auto"
+                                  >
+                                    <Hammer size={14} />
+                                    <span>Create Mfg Order</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            ) : subTab === "production-orders" ? (
               loadingProd ? (
                 <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>
               ) : (

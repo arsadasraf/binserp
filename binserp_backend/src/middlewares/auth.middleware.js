@@ -272,23 +272,9 @@ export const requirePermission = (moduleName, tabName, action) => {
       return next();
     }
 
-    // 2. Company Admin (Owner) has full access to Admin/User/Role management
+    // 2. Company Admin (Owner) has full access to all system modules
     if (req.userType === "company") {
-      if (moduleName === "Admin" || moduleName === "Company") {
-        return next();
-      }
-      // If company admin has a role populated, evaluate it
-      if (req.user && req.user.role) {
-        const permMap = buildPermissionMap([req.user.role]);
-        if (
-          permMap[`${moduleName}:${tabName}`] ||
-          permMap[`${moduleName}:${tabName}:${action}`] ||
-          permMap[`${moduleName}:${tabName}:all`]
-        ) {
-          return next();
-        }
-      }
-      throw new ApiError(403, `Access denied. Company Admin requires permission for '${moduleName} -> ${tabName}'.`);
+      return next();
     }
 
     const user = req.user;

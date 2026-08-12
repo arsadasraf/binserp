@@ -411,7 +411,7 @@ export default function RoleEditorPage() {
                     {mod.tabs.map(tab => {
                       const isChecked = currentTabs.includes(tab.id);
                       return (
-                        <label
+                        <div
                           key={tab.id}
                           onClick={() => handleTabToggle(mod.name, tab.id)}
                           className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all select-none ${
@@ -433,7 +433,7 @@ export default function RoleEditorPage() {
                               <span className="text-[11px] text-gray-400 dark:text-gray-500 font-mono">{tab.route}</span>
                             )}
                           </div>
-                        </label>
+                        </div>
                       );
                     })}
                   </div>

@@ -19,6 +19,8 @@ import {
   updateSalesOrder,
   deleteSalesOrder,
   planSalesOrder,
+  moveSalesOrderToMRP,
+  getSalesOrderStockStatus,
   createSalesDispatch,
   getDispatchHistory,
   createIncomingRFQ,
@@ -73,6 +75,8 @@ router.get("/order", getAllSalesOrders);
 router.get("/order/:id", getSalesOrderById);
 router.put("/order/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), updateSalesOrder);
 router.post("/order/:id/plan", planSalesOrder);
+router.get("/order/:id/stock-status", getSalesOrderStockStatus);
+router.post("/order/:id/move-to-mrp", moveSalesOrderToMRP);
 router.delete("/order/:id", deleteSalesOrder);
 
 // Sales Order Dispatch routes

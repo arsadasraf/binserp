@@ -59,10 +59,11 @@ export const SYSTEM_PERMISSIONS = [
     module: "PPC",
     label: "PPC (Production Planning)",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/ppc?tab=overview" },
-      { id: "orders", label: "Orders List", route: "/dashboard/ppc?tab=orders" },
-      { id: "planning", label: "Planning", route: "/dashboard/ppc?tab=planning" },
-      { id: "master", label: "PPC Masters", route: "/dashboard/ppc?tab=master" }
+      { id: "overview", label: "Overview", route: "/dashboard/ppc/overview" },
+      { id: "orders", label: "Orders List", route: "/dashboard/ppc/orders" },
+      { id: "planning", label: "Planning", route: "/dashboard/ppc/planning" },
+      { id: "tracing", label: "Traceability", route: "/dashboard/ppc/tracing" },
+      { id: "master", label: "PPC Masters", route: "/dashboard/ppc/master" }
     ]
   },
   {

@@ -30,6 +30,7 @@ export const getAllUsers = async (req, res) => {
     req.getModel('Role', roleSchema); // Ensure role schema is registered on tenant
     const users = await UserModel.find({}) // Tenant DB is already scoped
       .populate("role")
+      .populate({ path: "roles", strictPopulate: false })
       .select("-password")
       .sort({ createdAt: -1 });
 

@@ -37,6 +37,7 @@ import {
   FileText,
   Target,
   IndianRupee, // Added Target for CRM
+  Activity,
 } from "lucide-react";
 
 import type { LucideIcon } from "lucide-react";
@@ -70,10 +71,11 @@ const hrSubItems: NavItem[] = [
 ];
 
 const ppcSubItems: NavItem[] = [
-  { href: "/dashboard/ppc?tab=overview", label: "Overview", icon: Home },
-  { href: "/dashboard/ppc?tab=orders&subTab=po-list", label: "Orders", icon: ShoppingCart },
-  { href: "/dashboard/ppc?tab=planning", label: "Planning", icon: CalendarClock },
-  { href: "/dashboard/ppc?tab=master&subTab=machine-list", label: "Masters", icon: Settings },
+  { href: "/dashboard/ppc/overview", label: "Overview", icon: Home },
+  { href: "/dashboard/ppc/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/dashboard/ppc/planning", label: "Planning", icon: CalendarClock },
+  { href: "/dashboard/ppc/tracing", label: "Traceability", icon: Activity },
+  { href: "/dashboard/ppc/master", label: "Masters", icon: Settings },
 ];
 
 const employeeSubItems: NavItem[] = [
@@ -138,8 +140,21 @@ const employeeNav: NavItem[] = [
 ];
 
 function resolveNavItems(userType: string | null, department: string | null, roles: any[]) {
+  const allCompanyNav = [
+    ...companyNav,
+    ...(departmentNavMap.Reports || []),
+    ...(departmentNavMap.HR || []),
+    ...(departmentNavMap.Store || []),
+    ...(departmentNavMap.PPC || []),
+    ...(departmentNavMap.Security || []),
+    ...(departmentNavMap.Maintenance || []),
+    ...(departmentNavMap.Quality || []),
+    ...(departmentNavMap.CRM || []),
+    ...(departmentNavMap.Accounts || []),
+  ];
+
   if (userType === "company") {
-    return companyNav;
+    return [...allCompanyNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 
   if (roles && roles.length > 0) {
@@ -182,12 +197,13 @@ function resolveNavItems(userType: string | null, department: string | null, rol
                   try {
                     const url = new URL(sub.href, "http://dummy");
                     const tabParam = url.searchParams.get("tab");
+                    const routePath = url.pathname.replace("/dashboard/", "").toLowerCase();
+                    const lastSegment = routePath.split('/').pop() || '';
                     if (tabParam) {
                        return allowedTabs.has(tabParam.toLowerCase()) || allowedTabs.has("masters") || allowedTabs.has("master");
                     }
-                    const routePath = url.pathname.replace("/dashboard/", "").toLowerCase();
                     if (routePath) {
-                       return allowedTabs.has(routePath) || Array.from(allowedTabs).some(t => t.startsWith(routePath) || routePath.startsWith(t));
+                       return allowedTabs.has(routePath) || allowedTabs.has(lastSegment) || Array.from(allowedTabs).some(t => t.startsWith(routePath) || routePath.startsWith(t));
                     }
                     return true; 
                   } catch(e) { return true; }
@@ -197,54 +213,30 @@ function resolveNavItems(userType: string | null, department: string | null, rol
         allowedItems.push(itemCopy);
       }
     }
-    
+
     if (allowedModules.has('ADMIN')) {
        allowedItems.push({ href: "/dashboard/admin", label: "Admin", icon: Users, priority: 2 });
     }
 
-    if (allowedItems.length === 0) {
-       return fallbackNav;
+    if (allowedItems.length > 0) {
+       return allowedItems.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
     }
-
-    return allowedItems.sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 
   if (userType === "employee") {
     return employeeNav;
   }
 
-  if (department === "Admin") {
-    return companyNav;
-  }
-
-  const allModulesNav = [
-    // { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, priority: 1 },
-    ...(departmentNavMap.Reports || []),
-    ...(departmentNavMap.HR || []),
-    ...(departmentNavMap.Store || []),
-    ...(departmentNavMap.PPC || []),
-    ...(departmentNavMap.Security || []),
-    ...(departmentNavMap.Maintenance || []),
-    ...(departmentNavMap.Quality || []),
-    ...(departmentNavMap.CRM || []),
-    ...(departmentNavMap.Accounts || []),
-  ];
-
-  const upperDept = department?.toUpperCase();
-  if (upperDept === "CEO" || upperDept === "MD" || upperDept === "COMPANY MANAGEMENT" || upperDept === "MANAGER") {
-    return [...allModulesNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+  const upperDept = (department || "").toUpperCase();
+  if (upperDept.includes("ADMIN") || upperDept.includes("CEO") || upperDept.includes("MD") || upperDept.includes("COMPANY MANAGEMENT") || upperDept.includes("MANAGER") || upperDept.includes("PPC")) {
+    return [...allCompanyNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 
   const matchedDepartmentNav = department
-    ? Object.entries(departmentNavMap).find(([k]) => k.toUpperCase() === department.toUpperCase())?.[1]
+    ? Object.entries(departmentNavMap).find(([k]) => upperDept.includes(k.toUpperCase()) || k.toUpperCase().includes(upperDept))?.[1]
     : null;
 
-  const list =
-    userType === "company"
-      ? companyNav
-      : matchedDepartmentNav
-        ? matchedDepartmentNav
-        : fallbackNav;
+  const list = matchedDepartmentNav ? matchedDepartmentNav : allCompanyNav;
 
   return [...list].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
 }

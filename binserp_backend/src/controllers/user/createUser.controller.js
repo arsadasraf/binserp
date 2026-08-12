@@ -62,6 +62,7 @@ export const createUser = async (req, res) => {
       password,
       department: department || "",
       role,
+      roles: role ? [role] : [],
       allowedIP,
       allowedLocation,
       roleLevel: roleLevel || 1,

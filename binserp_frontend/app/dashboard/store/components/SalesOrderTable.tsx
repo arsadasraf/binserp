@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { Plus, Search, Eye, Edit2, Trash2, Download, ShoppingCart, Filter, FileText, Building2, Tag } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import MoveToMrpModal from "./MoveToMrpModal";
 
 interface SalesOrderTableProps {
   orders: any[];
@@ -25,6 +26,7 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | "PO_BASED" | "DIRECT">("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [selectedOrderForMrp, setSelectedOrderForMrp] = useState<any | null>(null);
 
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
@@ -383,6 +385,16 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
 
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {order.status !== 'Moved MRP' && order.status !== 'Completed' && (
+                          <button
+                            onClick={() => setSelectedOrderForMrp(order)}
+                            title="Check FG Stock & Move Shortfall to MRP"
+                            className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold transition-colors flex items-center gap-1 shadow-xs"
+                          >
+                            <span>Move to MRP</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => onView(order)}
                           title="View Details"
@@ -423,6 +435,20 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Move to MRP Modal Form with FG Stock Availability */}
+      {selectedOrderForMrp && (
+        <MoveToMrpModal
+          isOpen={!!selectedOrderForMrp}
+          order={selectedOrderForMrp}
+          onClose={() => setSelectedOrderForMrp(null)}
+          onSuccess={(msg) => {
+            alert(msg);
+            setSelectedOrderForMrp(null);
+            window.location.reload();
+          }}
+        />
+      )}
     </div>
   );
 };

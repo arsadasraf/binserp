@@ -1,70 +1,129 @@
-import React, { useState } from 'react';
-import { useGetGlobalMRPQuery, useUpdateMRPItemMutation } from '@/src/store/services/ppcService';
+/**
+ * MRPTab Component
+ * 
+ * Manages Material Requirements Planning (MRP) for:
+ * 1. Finished Goods (FG) Shortfalls moved from Sales Orders
+ * 2. Raw Materials / Bought-Out (RM / BO) Items exploded from FG BOMs
+ */
+
+import React, { useState, useEffect } from 'react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
-import { Search, Save, AlertCircle, CheckCircle2, ClipboardList } from 'lucide-react';
+import { Search, Save, AlertCircle, CheckCircle2, ClipboardList, Layers, Send, ArrowRight } from 'lucide-react';
 import Swal from 'sweetalert2';
 
 export default function MRPTab() {
-  const { data: mrpItems = [], isLoading, isFetching } = useGetGlobalMRPQuery();
-  const [updateMRPItem, { isLoading: isUpdating }] = useUpdateMRPItemMutation();
+  const [loading, setLoading] = useState(true);
+  const [fgMrps, setFgMrps] = useState<any[]>([]);
+  const [rmPlans, setRmPlans] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentSubTab, setCurrentSubTab] = useState<'bo' | 'fg'>('bo');
-  const [editQuantities, setEditQuantities] = useState<Record<string, number>>({});
-  const [editStatuses, setEditStatuses] = useState<Record<string, string>>({});
+  const [currentSubTab, setCurrentSubTab] = useState<'fg' | 'bo'>('fg');
 
-  const filteredItems = mrpItems.filter((item: any) => {
-    const matchesSearch = item.materialName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          item.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesTab = item.itemType === currentSubTab;
-    return matchesSearch && matchesTab;
-  });
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
-  const handleQuantityChange = (id: string, val: string) => {
-    setEditQuantities(prev => ({ ...prev, [id]: Number(val) }));
-  };
+  useEffect(() => {
+    fetchMRPData();
+  }, []);
 
-  const handleStatusChange = (id: string, val: string) => {
-    setEditStatuses(prev => ({ ...prev, [id]: val }));
-  };
-
-  const handleSave = async (item: any) => {
-    const prQuantity = editQuantities[item.itemId] !== undefined ? editQuantities[item.itemId] : item.prQuantity;
-    const status = editStatuses[item.itemId] || item.status;
-
+  const fetchMRPData = async () => {
+    setLoading(true);
     try {
-      await updateMRPItem({
-        itemId: item.itemId,
-        prQuantity,
-        status
-      }).unwrap();
-      
+      // Fetch FG MRPs (moved from Sales Orders)
+      const resFg = await fetch(`${apiUrl}/api/store/mrp`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const dataFg = await resFg.json();
+      if (resFg.ok) {
+        setFgMrps(dataFg.data || dataFg.mrps || []);
+      }
+
+      // Fetch RM/BO Plans (exploded from FG BOMs)
+      const resRm = await fetch(`${apiUrl}/api/store/rm-plan`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const dataRm = await resRm.json();
+      if (resRm.ok) {
+        setRmPlans(dataRm.data || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch MRP data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExplodeBOM = async (mrpId: string) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/store/mrp/${mrpId}/plan-rm`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to explode BOM');
+
       Swal.fire({
         icon: 'success',
-        title: 'Updated',
-        text: 'MRP item updated successfully',
-        timer: 1500,
-        showConfirmButton: false
+        title: 'BOM Exploded',
+        text: data.message || 'BOM exploded into RM/BO material requirements',
+        timer: 2000
       });
-      
-      // Clear local edit state so it reflects API data
-      const newQuantities = { ...editQuantities };
-      delete newQuantities[item.itemId];
-      setEditQuantities(newQuantities);
-
-      const newStatuses = { ...editStatuses };
-      delete newStatuses[item.itemId];
-      setEditStatuses(newStatuses);
-
-    } catch (error: any) {
+      fetchMRPData();
+      setCurrentSubTab('bo');
+    } catch (err: any) {
       Swal.fire({
         icon: 'error',
         title: 'Error',
-        text: error?.data?.message || 'Failed to update MRP item'
+        text: err.message || 'Failed to explode BOM'
       });
     }
   };
 
-  if (isLoading) {
+  const handleSendToPPC = async (mrpId: string) => {
+    try {
+      const res = await fetch(`${apiUrl}/api/store/mrp/${mrpId}/send-to-ppc`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to send to PPC');
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Sent to PPC Intake',
+        text: data.message || 'FG Requirement sent to PPC Order Intake Bucket',
+        timer: 2000
+      });
+      fetchMRPData();
+    } catch (err: any) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: err.message || 'Failed to send to PPC'
+      });
+    }
+  };
+
+  const filteredFgItems = fgMrps.filter((item: any) => {
+    const fgName = item.fgItem?.name || item.materialName || '';
+    const orderNum = item.salesOrder?.orderNumber || item.orderNumber || '';
+    const term = searchTerm.toLowerCase();
+    return fgName.toLowerCase().includes(term) || orderNum.toLowerCase().includes(term);
+  });
+
+  const filteredRmItems = rmPlans.filter((item: any) => {
+    const rmName = item.rmBoItem?.name || item.materialName || '';
+    const orderNum = item.sourceMRP?.salesOrder?.orderNumber || item.orderNumber || '';
+    const term = searchTerm.toLowerCase();
+    return rmName.toLowerCase().includes(term) || orderNum.toLowerCase().includes(term);
+  });
+
+  if (loading) {
     return <div className="flex justify-center items-center h-64"><LoadingSpinner /></div>;
   }
 
@@ -72,146 +131,226 @@ export default function MRPTab() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Sub-Tabs */}
-      <div className="flex gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
-        <button
-          onClick={() => setCurrentSubTab("bo")}
-          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "bo"
-            ? "bg-indigo-600 text-white shadow-md"
-            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
-            }`}
-        >
-          RM / BO
-        </button>
+      <div className="flex gap-2 p-1 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 w-fit shadow-sm">
         <button
           onClick={() => setCurrentSubTab("fg")}
-          className={`px-5 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${currentSubTab === "fg"
+          className={`px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 ${currentSubTab === "fg"
             ? "bg-indigo-600 text-white shadow-md"
-            : "text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-slate-800"
             }`}
         >
-          Finished Goods (FG)
+          Finished Goods Shortfalls ({fgMrps.length})
+        </button>
+        <button
+          onClick={() => setCurrentSubTab("bo")}
+          className={`px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 ${currentSubTab === "bo"
+            ? "bg-indigo-600 text-white shadow-md"
+            : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-slate-800"
+            }`}
+        >
+          RM / BO Material Requirements ({rmPlans.length})
         </button>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+      {/* Toolbar Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
             <ClipboardList size={20} />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Material Requirements Planning</h2>
-            <p className="text-sm text-gray-500">Manage required materials and PR quantities across all orders</p>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Purchase MRP & Material Planning</h2>
+            <p className="text-xs text-gray-500">Manage order shortfalls, explode BOMs, and route requirements to PPC / Purchasing</p>
           </div>
         </div>
 
         <div className="relative w-full sm:w-72">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-gray-400" />
-          </div>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            className="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-xl text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-            placeholder="Search material or order..."
+            className="block w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-slate-800 rounded-xl text-xs bg-white dark:bg-slate-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
+            placeholder="Search item or order number..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50/80 text-gray-600 font-medium border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-4">Material / Component</th>
-                <th className="px-6 py-4">Source Order</th>
-                <th className="px-6 py-4 text-center">Required</th>
-                <th className="px-6 py-4 text-center">Available</th>
-                <th className="px-6 py-4 text-center">Shortage</th>
-                <th className="px-6 py-4 text-center">PR Quantity</th>
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 bg-white">
-              {filteredItems.length > 0 ? (
-                filteredItems.map((item, idx) => (
-                  <tr key={item.itemId || idx} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-gray-900">
-                      {item.materialName || 'Unknown Material'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 font-medium text-xs border border-indigo-100">
-                        {item.orderNumber}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center font-semibold text-gray-700">
-                      {item.requiredQuantity} <span className="text-xs font-normal text-gray-400">{item.unit || 'Nos'}</span>
-                    </td>
-                    <td className="px-6 py-4 text-center text-gray-600">
-                      {item.stockAvailable}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {item.shortage > 0 ? (
-                        <span className="text-red-600 font-bold bg-red-50 px-2 py-1 rounded-md border border-red-100 inline-flex items-center gap-1">
-                          <AlertCircle size={14} /> {item.shortage}
-                        </span>
-                      ) : (
-                        <span className="text-green-600 font-bold bg-green-50 px-2 py-1 rounded-md border border-green-100 inline-flex items-center gap-1">
-                          <CheckCircle2 size={14} /> 0
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <input 
-                        type="number"
-                        min="0"
-                        className="w-20 px-2 py-1.5 text-center text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-inner"
-                        value={editQuantities[item.itemId] !== undefined ? editQuantities[item.itemId] : (item.prQuantity || 0)}
-                        onChange={(e) => handleQuantityChange(item.itemId, e.target.value)}
-                      />
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <select
-                        className={`text-xs font-medium px-2 py-1.5 border rounded-lg outline-none transition-all cursor-pointer ${
-                          (editStatuses[item.itemId] || item.status) === 'PR Raised' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                          (editStatuses[item.itemId] || item.status) === 'Fulfilled' ? 'bg-green-50 text-green-700 border-green-200' :
-                          'bg-amber-50 text-amber-700 border-amber-200'
-                        }`}
-                        value={editStatuses[item.itemId] || item.status || 'Pending'}
-                        onChange={(e) => handleStatusChange(item.itemId, e.target.value)}
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="PR Raised">PR Raised</option>
-                        <option value="Fulfilled">Fulfilled</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleSave(item)}
-                        disabled={isUpdating}
-                        className="inline-flex items-center justify-center p-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Save Changes"
-                      >
-                        <Save size={16} />
-                      </button>
+      {/* Table Content */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden">
+        {currentSubTab === "fg" ? (
+          /* Finished Goods (FG) Table */
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-indigo-50/80 dark:bg-slate-800 text-indigo-900 dark:text-indigo-300 font-bold uppercase">
+                <tr>
+                  <th className="px-6 py-4">Finished Goods Item</th>
+                  <th className="px-6 py-4">Source Sales Order</th>
+                  <th className="px-6 py-4 text-center">Shortfall Qty</th>
+                  <th className="px-6 py-4">Target Due Date</th>
+                  <th className="px-6 py-4 text-center">MRP Status</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                {filteredFgItems.length > 0 ? (
+                  filteredFgItems.map((item) => {
+                    const fgName = item.fgItem?.name || item.materialName || 'FG Product';
+                    const fgCode = item.fgItem?.code || '';
+                    const orderNum = item.salesOrder?.orderNumber || item.storeOrder?.orderNumber || item.orderNumber || 'SO-Direct';
+                    const custName = item.salesOrder?.customerName || item.storeOrder?.customerName || item.customerName || '';
+
+                    return (
+                      <tr key={item._id} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
+                          {fgName} {fgCode && <span className="text-[10px] text-gray-400 block font-mono">{fgCode}</span>}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-xs">
+                            {orderNum}
+                          </span>
+                          {custName && <span className="text-[10px] text-gray-500 block mt-0.5">{custName}</span>}
+                        </td>
+                        <td className="px-6 py-4 text-center font-extrabold text-amber-600 dark:text-amber-400 text-sm font-mono">
+                          {item.requiredQuantity} Units
+                        </td>
+                        <td className="px-6 py-4 text-gray-600 dark:text-gray-300 font-medium">
+                          {item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-GB') : '-'}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                            item.status === 'Sent to PPC' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40' :
+                            item.status === 'RM Planned' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/40' :
+                            'bg-amber-100 text-amber-800 dark:bg-amber-950/40'
+                          }`}>
+                            {item.status || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleExplodeBOM(item._id)}
+                              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex items-center gap-1"
+                              title="Explode BOM to calculate RM/BO requirements"
+                            >
+                              <Layers size={14} />
+                              <span>Explode BOM</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleSendToPPC(item._id)}
+                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex items-center gap-1"
+                              title="Send demand to PPC Order Intake Bucket"
+                            >
+                              <Send size={14} />
+                              <span>Send to PPC</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
+                      No FG shortfalls found in Purchase MRP. Use "Move to MRP" on Sales Orders to add items here.
                     </td>
                   </tr>
-                ))
-              ) : (
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* RM / BO Table */
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-gray-50/80 dark:bg-slate-800 text-gray-600 dark:text-gray-300 font-bold uppercase">
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                    <div className="flex flex-col items-center justify-center">
-                      <ClipboardList className="h-10 w-10 text-gray-300 mb-3" />
-                      <p className="text-base font-medium text-gray-900">No Material Requirements Found</p>
-                      <p className="text-sm mt-1">There are currently no active material requirements matching your criteria.</p>
-                    </div>
-                  </td>
+                  <th className="px-6 py-4">Material / Component</th>
+                  <th className="px-6 py-4">Source Order / FG Ref</th>
+                  <th className="px-6 py-4 text-center">Required Qty</th>
+                  <th className="px-6 py-4 text-center">In-House Stock</th>
+                  <th className="px-6 py-4 text-center">Net Shortage</th>
+                  <th className="px-6 py-4 text-center">Status</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                {filteredRmItems.length > 0 ? (
+                  filteredRmItems.map((item) => {
+                    const matName = item.rmBoItem?.name || item.materialName || 'RM / BO Item';
+                    const orderNum = item.sourceMRP?.salesOrder?.orderNumber || item.orderNumber || 'MRP';
+                    const fgName = item.sourceMRP?.fgItem?.name || '';
+                    const reqQty = Number(item.requiredQuantity || 0);
+                    const stock = Number(item.currentStock || 0);
+                    const shortage = Number(item.shortage !== undefined ? item.shortage : Math.max(0, reqQty - stock));
+
+                    return (
+                      <tr key={item._id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/40">
+                        <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
+                          {matName}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-mono text-[11px]">
+                            {orderNum}
+                          </span>
+                          {fgName && <span className="text-[10px] text-gray-400 block mt-0.5">{fgName}</span>}
+                        </td>
+                        <td className="px-6 py-4 text-center font-bold text-gray-700 dark:text-slate-300">
+                          {reqQty}
+                        </td>
+                        <td className="px-6 py-4 text-center font-semibold text-gray-600 dark:text-slate-400">
+                          {stock}
+                        </td>
+                        <td className="px-6 py-4 text-center font-extrabold">
+                          {shortage > 0 ? (
+                            <span className="text-red-600 bg-red-50 dark:bg-red-950/40 px-2 py-1 rounded-md border border-red-200 font-mono">
+                              {shortage} Short
+                            </span>
+                          ) : (
+                            <span className="text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-md border border-emerald-200">
+                              In Stock
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-center font-bold">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] ${item.status === 'PO Created' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {item.status || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <a
+                              href={`/dashboard/store/purchase/rfq?materialId=${item.rmBoItem?._id || item._id}&qty=${shortage || reqQty}`}
+                              className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold rounded-lg transition-colors"
+                              title="Create Outward RFQ"
+                            >
+                              Outward RFQ
+                            </a>
+
+                            <a
+                              href={`/dashboard/store/purchase/po?materialId=${item.rmBoItem?._id || item._id}&qty=${shortage || reqQty}`}
+                              className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors"
+                              title="Create Outward PO"
+                            >
+                              Outward PO
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                      No RM/BO material requirements found. Explode a BOM from the "Finished Goods Shortfalls" sub-tab above to generate material plans.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

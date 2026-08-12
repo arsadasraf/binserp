@@ -39,7 +39,10 @@ export const updateUser = async (req, res) => {
     // Update fields
     if (name) user.name = name;
     if (email) user.email = email;
-    if (role !== undefined) user.role = role;
+    if (role !== undefined) {
+      user.role = role;
+      user.roles = role ? [role] : [];
+    }
     if (roleLevel !== undefined) user.roleLevel = roleLevel;
     if (password) user.password = password; // Will be hashed by pre-save hook
     if (allowedIP !== undefined) user.allowedIP = allowedIP;

@@ -208,13 +208,13 @@ export default function JobWorkForm({
 
             // Auto-sync first returning item name if blank
             if (current.returningItems && current.returningItems.length > 0 && !current.returningItems[0].receivedItemName) {
-                current.returningItems[0].receivedItemName = current.itemName;
+                current.returningItems[0].receivedItemName = current.itemName || '';
             }
         }
 
         if (field === 'itemName') {
             if (current.returningItems && current.returningItems.length > 0 && !current.returningItems[0].receivedItemName) {
-                current.returningItems[0].receivedItemName = value;
+                current.returningItems[0].receivedItemName = value || '';
             }
         }
 
@@ -566,7 +566,7 @@ export default function JobWorkForm({
                                 <SearchableSelect
                                     options={supplierOptions}
                                     value={formData.vendor}
-                                    onChange={(val) => setFormData({ ...formData, vendor: val })}
+                                    onChange={(val: any) => setFormData({ ...formData, vendor: val })}
                                     placeholder="Search or Select Supplier..."
                                 />
                             </div>
@@ -767,7 +767,7 @@ export default function JobWorkForm({
                                                 <SearchableSelect
                                                     options={sentItem.itemType === 'bo' ? boOptions : fgOptions}
                                                     value={sentItem.item || ''}
-                                                    onChange={(val) => handleSentItemChange(itemIdx, 'item', val)}
+                                                    onChange={(val: any) => handleSentItemChange(itemIdx, 'item', val)}
                                                     placeholder={sentItem.itemType === 'bo' ? "Select Raw Material / BO Item..." : "Select FG / In-House Item..."}
                                                 />
                                             )}
@@ -923,7 +923,7 @@ export default function JobWorkForm({
                                                             <SearchableSelect
                                                                 options={retItem.receivedItemType === 'bo' ? boOptions : fgOptions}
                                                                 value={retItem.receivedItem || ''}
-                                                                onChange={(val) => handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val)}
+                                                                onChange={(val: any) => handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val)}
                                                                 placeholder={retItem.receivedItemType === 'bo' ? "Select BO Returning Material..." : "Select FG Returning Item..."}
                                                             />
                                                         )}
