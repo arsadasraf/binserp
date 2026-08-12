@@ -28,8 +28,7 @@ const getDistanceFromLatLonInKm = (lat1, lon1, lat2, lon2) => {
   return R * c; // Distance in km
 };
 
-// ✅ Create User (Admin only)
-
+// ✅ Login User / Employee
 export const loginUser = async (req, res) => {
   try {
     const { companyId, userId, password } = req.body;
@@ -42,6 +41,11 @@ export const loginUser = async (req, res) => {
     const company = await Company.findOne({ companyId });
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
+    }
+
+    // 🚫 SUSPENSION CHECK: Block login immediately if company is suspended
+    if (company.isSuspended) {
+      return res.status(403).json({ message: "Your company has been suspended from ERP provider." });
     }
 
     if (!company.dbName) {
@@ -139,7 +143,7 @@ export const loginUser = async (req, res) => {
             companyName: company.companyName,
           },
         },
-        token: accessToken, // Send access token in body temporarily
+        token: accessToken,
       });
     }
 
@@ -163,7 +167,7 @@ export const loginUser = async (req, res) => {
         return res.status(401).json({ message: "Invalid credentials" });
       }
 
-      if (employee.status !== 'Active') {
+      if (employee.status !== 'Active' || employee.isActive === false) {
         return res.status(403).json({ message: "Account is not active." });
       }
 
@@ -177,7 +181,6 @@ export const loginUser = async (req, res) => {
       employee.refreshToken = refreshToken;
       await employee.save({ validateBeforeSave: false });
 
-      // Determine Role Level
       const roleLevel = employee.roleLevel || 1;
 
       // Set cookies
@@ -204,9 +207,9 @@ export const loginUser = async (req, res) => {
           name: employee.name,
           userId: employee.employeeId,
           email: employee.email,
-          department: employee.department, // Use real department
+          department: employee.department,
           designation: employee.designation,
-          roleLevel: roleLevel, // For frontend checks
+          roleLevel: roleLevel,
           roles: employee.roles || [],
           photo: (await signPhotos([employee.photo]))[0],
           type: 'employee',
@@ -216,7 +219,7 @@ export const loginUser = async (req, res) => {
             companyName: company.companyName,
           },
         },
-        token: accessToken, // Send token in body as well temporarily during migration
+        token: accessToken,
       });
     }
 
@@ -228,5 +231,3 @@ export const loginUser = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-// ✅ Request Password Reset

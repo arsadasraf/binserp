@@ -6,8 +6,7 @@ import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
 import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
-// ✅ Register Company
-
+// ✅ Login Company
 export const loginCompany = async (req, res) => {
   try {
     const { companyId, password } = req.body;
@@ -22,9 +21,9 @@ export const loginCompany = async (req, res) => {
       return res.status(404).json({ message: "Company not found" });
     }
 
-
-    if (!company) {
-      return res.status(404).json({ message: "Company not found" });
+    // 🚫 SUSPENSION CHECK: Block login immediately if company is suspended
+    if (company.isSuspended) {
+      return res.status(403).json({ message: "Your company has been suspended from ERP provider." });
     }
 
     // Check if verified
@@ -64,5 +63,3 @@ export const loginCompany = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
-// ✅ Request Password Reset

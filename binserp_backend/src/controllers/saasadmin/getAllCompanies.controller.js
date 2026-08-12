@@ -1,80 +1,62 @@
-import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
-import { SaasAdmin } from "../../models/saasadmin/index.js";
 import { Company } from "../../models/company/index.js";
-// import { User } from "../../models/user/index.js";
-import { AuditLog } from "../../models/auditlog/index.js";
-import { ApiError } from "../../utils/ApiError.js";
-import { ApiResponse } from "../../utils/ApiResponse.js";
-import { logAuditAction } from "../../utils/auditLogger.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
-import crypto from "crypto";
+import { employeeSchema } from "../../models/hr/index.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
 
-// 🔑 Generate JWT for SaaS Admin
-const generateToken = (adminId) => {
-    return jwt.sign({ id: adminId, type: "saasadmin" }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-    });
-};
-
-// 🔐 Login SaaS Admin
-
+/**
+ * 🏢 Get All Companies with Full Registration & Profile Details
+ * GET /api/saasadmin/companies
+ */
 export const getAllCompanies = asyncHandler(async (req, res) => {
-    const { search, verified, sortBy = "createdAt", order = "desc" } = req.query;
+  const { search, verified, sortBy = "createdAt", order = "desc" } = req.query;
 
-    // Build filter
-    const filter = {};
-    if (search) {
-        filter.$or = [
-            { companyName: { $regex: search, $options: "i" } },
-            { email: { $regex: search, $options: "i" } },
-            { city: { $regex: search, $options: "i" } },
-        ];
+  const filter = {};
+  if (search) {
+    filter.$or = [
+      { companyName: { $regex: search, $options: "i" } },
+      { companyId: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+      { city: { $regex: search, $options: "i" } },
+      { state: { $regex: search, $options: "i" } },
+      { companyType: { $regex: search, $options: "i" } },
+    ];
+  }
+  if (verified !== undefined) {
+    filter.isVerified = verified === "true";
+  }
+
+  const sort = {};
+  sort[sortBy] = order === "asc" ? 1 : -1;
+
+  // Fetch all matching companies with ALL fields (excluding password)
+  const rawCompanies = await Company.find(filter).select("-password").sort(sort).lean();
+
+  const companies = [];
+
+  for (const comp of rawCompanies) {
+    let staffCount = 0;
+    let employeeCount = 0;
+
+    try {
+      const dbName = comp.dbName || comp._id.toString();
+      const UserModel = getTenantModel(dbName, "User", userSchema);
+      const EmployeeModel = getTenantModel(dbName, "Employee", employeeSchema);
+
+      staffCount = await UserModel.countDocuments().catch(() => 0);
+      employeeCount = await EmployeeModel.countDocuments().catch(() => 0);
+    } catch (e) {
+      console.warn(`Could not count users for company ${comp.companyName}:`, e.message);
     }
-    if (verified !== undefined) {
-        filter.isVerified = verified === "true";
-    }
 
-    // Build sort
-    const sort = {};
-    sort[sortBy] = order === "asc" ? 1 : -1;
+    companies.push({
+      ...comp,
+      staffCount,
+      employeeCount,
+      userCount: staffCount + employeeCount,
+    });
+  }
 
-    // Get companies with user count
-    const companies = await Company.aggregate([
-        { $match: filter },
-        {
-            $lookup: {
-                from: "users",
-                localField: "_id",
-                foreignField: "company",
-                as: "users",
-            },
-        },
-        {
-            $project: {
-                companyName: 1,
-                email: 1,
-                contactNumber: 1,
-                city: 1,
-                country: 1,
-                logo: 1,
-                isVerified: 1,
-                isSuspended: 1,
-                suspensionReason: 1,
-                createdAt: 1,
-                updatedAt: 1,
-                userCount: { $size: "$users" },
-            },
-        },
-        { $sort: sort },
-    ]);
-
-    res
-        .status(200)
-        .json(
-            new ApiResponse(200, companies, `${companies.length} companies retrieved`)
-        );
+  res.status(200).json(new ApiResponse(200, companies, `${companies.length} companies retrieved`));
 });
-
-// 🏢 Get Company By ID

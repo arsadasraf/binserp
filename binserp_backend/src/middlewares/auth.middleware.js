@@ -34,6 +34,10 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
       if (!company) throw new ApiError(404, "Company not found");
 
+      if (company.isSuspended) {
+        throw new ApiError(403, "Your company has been suspended from ERP provider.");
+      }
+
       // 2. Resolve Tenant
       const dbName = company.dbName;
       req.tenantConnection = getTenantConnection(dbName);
@@ -86,6 +90,10 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
 
       if (!company) throw new ApiError(404, "Company not found");
 
+      if (company.isSuspended) {
+        throw new ApiError(403, "Your company has been suspended from ERP provider.");
+      }
+
       // Resolve Tenant
       const dbName = company.dbName;
       req.tenantConnection = getTenantConnection(dbName);
@@ -132,6 +140,10 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
       const company = await Company.findById(decoded.id).select("-password");
       if (!company) {
         throw new ApiError(404, "Company not found");
+      }
+
+      if (company.isSuspended) {
+        throw new ApiError(403, "Your company has been suspended from ERP provider.");
       }
 
       // STRICT SINGLE-DEVICE CHECK

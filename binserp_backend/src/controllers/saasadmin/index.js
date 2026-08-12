@@ -15,3 +15,5 @@ export { exportCompaniesCSV } from './exportCompaniesCSV.controller.js';
 export { exportUsersCSV } from './exportUsersCSV.controller.js';
 export { createCompanyBySaasAdmin } from './createCompanyBySaasAdmin.controller.js';
 export { resetCompanyPassword } from './resetCompanyPassword.controller.js';
+export { toggleUserBlockStatus } from './toggleUserBlockStatus.controller.js';
+export { getCompanyRoles } from './getCompanyRoles.controller.js';

@@ -1,6 +1,5 @@
 import { API_BASE_URL } from "@/src/utils/config";
 
-// Fix: Ensure API_URL always ends with /api
 const getApiUrl = () => {
     const baseUrl = API_BASE_URL || "http://localhost:8000";
     return baseUrl.endsWith("/api") ? baseUrl : `${baseUrl}/api`;
@@ -23,14 +22,10 @@ interface LoginResponse {
     message: string;
 }
 
-interface SaasAdminAuthClient {
-    token: string | null;
-}
-
 class SaasAdminAuth {
     private getToken(): string | null {
         if (typeof window === "undefined") return null;
-        return localStorage.getItem(SAAS_ADMIN_TOKEN_KEY);
+        return localStorage.getItem(SAAS_ADMIN_TOKEN_KEY) || localStorage.getItem("token");
     }
 
     private setToken(token: string): void {
@@ -41,12 +36,12 @@ class SaasAdminAuth {
     private removeToken(): void {
         if (typeof window === "undefined") return;
         localStorage.removeItem(SAAS_ADMIN_TOKEN_KEY);
+        localStorage.removeItem("token");
+        localStorage.removeItem("userType");
     }
 
     async login(username: string, password: string): Promise<LoginResponse> {
         try {
-            console.log("🔐 Attempting login to:", `${API_URL}/saasadmin/login`);
-
             const response = await fetch(`${API_URL}/saasadmin/login`, {
                 method: "POST",
                 headers: {
@@ -55,8 +50,6 @@ class SaasAdminAuth {
                 body: JSON.stringify({ username, password }),
                 credentials: "include",
             });
-
-            console.log("📡 Response status:", response.status);
 
             if (!response.ok) {
                 let errorMessage = "Login failed";
@@ -70,11 +63,7 @@ class SaasAdminAuth {
             }
 
             const data = await response.json();
-            console.log("✅ Login successful");
-
-            // Store token
             this.setToken(data.data.token);
-
             return data;
         } catch (error: any) {
             console.error("❌ Login error:", error);
@@ -131,6 +120,25 @@ class SaasAdminAuth {
         return data;
     }
 
+    async toggleUserBlock(userId: string, companyId: string, isEmployee: boolean): Promise<any> {
+        return this.fetchWithAuth(`/users/${userId}/block`, {
+            method: "PUT",
+            body: JSON.stringify({ companyId, isEmployee }),
+        });
+    }
+
+    async toggleCompanySuspend(companyId: string, isCurrentlySuspended: boolean): Promise<any> {
+        const endpoint = isCurrentlySuspended ? `/companies/${companyId}/unsuspend` : `/companies/${companyId}/suspend`;
+        return this.fetchWithAuth(endpoint, {
+            method: "PUT",
+            body: JSON.stringify({ reason: "Blocked by SaaS Platform Administrator" }),
+        });
+    }
+
+    async getCompanyRoles(companyId: string): Promise<any> {
+        return this.fetchWithAuth(`/companies/${companyId}/roles`);
+    }
+
     async exportCompaniesCSV(): Promise<void> {
         try {
             const token = this.getToken();
@@ -150,7 +158,7 @@ class SaasAdminAuth {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `companies_${new Date().toISOString().split('T')[0]}.csv`;
+            a.download = `companies_${new Date().toISOString().split("T")[0]}.csv`;
             a.click();
             window.URL.revokeObjectURL(url);
         } catch (error) {
@@ -178,7 +186,7 @@ class SaasAdminAuth {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = url;
-            a.download = `users_${new Date().toISOString().split('T')[0]}.csv`;
+            a.download = `users_${new Date().toISOString().split("T")[0]}.csv`;
             a.click();
             window.URL.revokeObjectURL(url);
         } catch (error) {

@@ -1,42 +1,43 @@
-import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
-import { SaasAdmin } from "../../models/saasadmin/index.js";
 import { Company } from "../../models/company/index.js";
-// import { User } from "../../models/user/index.js";
-import { AuditLog } from "../../models/auditlog/index.js";
-import { ApiError } from "../../utils/ApiError.js";
-import { ApiResponse } from "../../utils/ApiResponse.js";
-import { logAuditAction } from "../../utils/auditLogger.js";
 import { getTenantModel } from "../../db/tenant.js";
 import { userSchema } from "../../models/user/index.js";
-import crypto from "crypto";
+import { employeeSchema } from "../../models/hr/index.js";
+import { ApiError } from "../../utils/ApiError.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
 
-// 🔑 Generate JWT for SaaS Admin
-const generateToken = (adminId) => {
-    return jwt.sign({ id: adminId, type: "saasadmin" }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-    });
-};
-
-// 🔐 Login SaaS Admin
-
+/**
+ * 🏢 Get Company By ID with Full Registration & Profile Details
+ * GET /api/saasadmin/companies/:id
+ */
 export const getCompanyById = asyncHandler(async (req, res) => {
-    const { id } = req.params;
+  const { id } = req.params;
 
-    const company = await Company.findById(id).select("-password");
-    if (!company) {
-        throw new ApiError(404, "Company not found");
-    }
+  const company = await Company.findById(id).select("-password").lean();
+  if (!company) {
+    throw new ApiError(404, "Company not found");
+  }
 
-    // Get user count
-    const userCount = await User.countDocuments({ company: id });
+  let staffCount = 0;
+  let employeeCount = 0;
 
-    const companyData = {
-        ...company.toObject(),
-        userCount,
-    };
+  try {
+    const dbName = company._id.toString();
+    const UserModel = getTenantModel(dbName, "User", userSchema);
+    const EmployeeModel = getTenantModel(dbName, "Employee", employeeSchema);
 
-    res.status(200).json(new ApiResponse(200, companyData, "Company retrieved"));
+    staffCount = await UserModel.countDocuments().catch(() => 0);
+    employeeCount = await EmployeeModel.countDocuments().catch(() => 0);
+  } catch (e) {
+    console.warn(`Could not count users for company ${company.companyName}:`, e.message);
+  }
+
+  const companyData = {
+    ...company,
+    staffCount,
+    employeeCount,
+    userCount: staffCount + employeeCount,
+  };
+
+  res.status(200).json(new ApiResponse(200, companyData, "Company details retrieved"));
 });
-
-// 📈 Get Company Analytics

@@ -17,6 +17,8 @@ import {
     exportUsersCSV,
     createCompanyBySaasAdmin,
     resetCompanyPassword,
+    toggleUserBlockStatus,
+    getCompanyRoles,
 } from "../controllers/saasadmin/index.js";
 import { verifySaasAdminJWT } from "../middlewares/auth.middleware.js";
 
@@ -32,12 +34,14 @@ router.get("/companies", verifySaasAdminJWT, getAllCompanies);
 router.get("/companies/:id", verifySaasAdminJWT, getCompanyById);
 router.get("/companies/:id/analytics", verifySaasAdminJWT, getCompanyAnalytics);
 router.get("/companies/:id/users", verifySaasAdminJWT, getUsersByCompany);
+router.get("/companies/:id/roles", verifySaasAdminJWT, getCompanyRoles);
 router.put("/companies/:id/status", verifySaasAdminJWT, updateCompanyStatus);
 router.put("/companies/:id/reset-password", verifySaasAdminJWT, resetCompanyPassword);
 router.put("/companies/:id/suspend", verifySaasAdminJWT, suspendCompany);
 router.put("/companies/:id/unsuspend", verifySaasAdminJWT, unsuspendCompany);
 router.delete("/companies/:id", verifySaasAdminJWT, deleteCompany);
 router.get("/users", verifySaasAdminJWT, getAllUsers);
+router.put("/users/:id/block", verifySaasAdminJWT, toggleUserBlockStatus);
 router.delete("/users/:id", verifySaasAdminJWT, deleteUser);
 router.get("/audit-logs", verifySaasAdminJWT, getAuditLogs);
 router.get("/export/companies", verifySaasAdminJWT, exportCompaniesCSV);

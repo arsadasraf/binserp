@@ -13,7 +13,7 @@ import { API_BASE_URL } from "@/src/utils/config";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [loginType, setLoginType] = useState<"company" | "user">("company");
+  const [loginType, setLoginType] = useState<"company" | "user">("user");
   const [companyId, setCompanyId] = useState("");
   const [userId, setUserId] = useState("");
   const [password, setPassword] = useState("");
@@ -337,7 +337,7 @@ export default function LoginPage() {
             <div className="flex flex-col items-center justify-center py-4">
               <div className="text-center mb-6">
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Company Administrators log in using their verified Google account.
+                  Company Administrators & SaaS Platform Admins log in using their verified Google account.
                 </p>
               </div>
               <button

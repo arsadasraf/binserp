@@ -25,8 +25,11 @@ function AuthSuccessContent() {
           user: decodedData // The company object
         });
 
-        // Redirect to dashboard immediately
-        router.push("/dashboard");
+        if (userType === "saasadmin") {
+          router.push("/binssaas/dashboard");
+        } else {
+          router.push("/dashboard");
+        }
       } catch (error) {
         console.error("Failed to parse auth data", error);
         router.push("/login?error=Invalid_Auth_Data");
