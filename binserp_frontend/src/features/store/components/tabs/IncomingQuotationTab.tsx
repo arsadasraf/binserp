@@ -19,7 +19,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
     const [companyInfo, setCompanyInfo] = useState<any>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
-    const [viewMode, setViewMode] = useState<'matrix' | 'buckets' | 'table'>('matrix');
+    const [filterVendor, setFilterVendor] = useState<string>('All');
 
     // PO Generation Modal State
     const [poModalQuote, setPoModalQuote] = useState<any | null>(null);
@@ -47,7 +47,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         grandTotal: 0
     });
 
-    // View Modal State
+    // View / Preview Modal State
     const [selectedQuote, setSelectedQuote] = useState<any | null>(null);
 
     const fetchData = async () => {
@@ -196,11 +196,11 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                 vendor: newQuote.vendorId || undefined
             };
             await apiPost('/api/purchase/quotation', payload, token);
-            onSuccess("Incoming Vendor Quotation logged successfully");
+            onSuccess("Inward Vendor Quotation logged successfully");
             setIsCreateModalOpen(false);
             fetchData();
         } catch (err: any) {
-            onError(err.message || "Failed to log incoming vendor quotation");
+            onError(err.message || "Failed to log inward vendor quotation");
         } finally {
             setSubmitting(false);
         }
@@ -239,6 +239,38 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         });
     };
 
+    // Calculate L1 / L2 Bid Rank map for all quotations sharing the same RFQ
+    const rfqRankMap = useMemo(() => {
+        const groups: { [rfqKey: string]: any[] } = {};
+
+        (Array.isArray(quotations) ? quotations : []).forEach((q: any) => {
+            const key = (q.rfqNumber || q.rfq?._id || q.rfq || 'direct').toString();
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(q);
+        });
+
+        const map = new Map<string, { rank: string; l1Total: number; totalQuotes: number }>();
+
+        Object.keys(groups).forEach(key => {
+            const sorted = [...groups[key]].sort((a: any, b: any) => 
+                (Number(a.grandTotal || a.subtotal) || 0) - (Number(b.grandTotal || b.subtotal) || 0)
+            );
+            const l1Total = Number(sorted[0]?.grandTotal || sorted[0]?.subtotal) || 0;
+            sorted.forEach((q: any, idx: number) => {
+                const qId = (q._id || q.id || q.quotationNumber)?.toString();
+                if (qId) {
+                    map.set(qId, {
+                        rank: `L${idx + 1}`,
+                        l1Total,
+                        totalQuotes: sorted.length
+                    });
+                }
+            });
+        });
+
+        return map;
+    }, [quotations]);
+
     const filteredQuotations = useMemo(() => {
         return (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
             const matchSearch = 
@@ -247,30 +279,16 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                 (q.vendorName && q.vendorName.toLowerCase().includes(searchTerm.toLowerCase()));
             
             const matchStatus = filterStatus === 'All' || q.status === filterStatus;
-            return matchSearch && matchStatus;
+
+            let matchVendor = true;
+            if (filterVendor !== 'All') {
+                const vId = typeof q.vendor === 'string' ? q.vendor : (q.vendor?._id || q.vendorId);
+                matchVendor = vId?.toString() === filterVendor?.toString() || q.vendorName?.toLowerCase().includes(filterVendor.toLowerCase());
+            }
+
+            return matchSearch && matchStatus && matchVendor;
         });
-    }, [quotations, searchTerm, filterStatus]);
-
-    // Group Quotations by Linked RFQ for Rate Comparison Matrix
-    const rfqMatrixGroups = useMemo(() => {
-        const groups: { [rfqNo: string]: any[] } = {};
-
-        filteredQuotations.forEach((q: any) => {
-            const key = q.rfqNumber || 'Direct / General Quotes';
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(q);
-        });
-
-        // Tag lowest bidder L1 in each RFQ group
-        Object.keys(groups).forEach(key => {
-            groups[key].sort((a: any, b: any) => (a.grandTotal || a.subtotal || 0) - (b.grandTotal || b.subtotal || 0));
-            groups[key].forEach((q: any, rank: number) => {
-                q.bidRank = `L${rank + 1}`;
-            });
-        });
-
-        return groups;
-    }, [filteredQuotations]);
+    }, [quotations, searchTerm, filterStatus, filterVendor]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-300">
@@ -279,10 +297,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <div>
                     <h2 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        <FileText size={22} className="text-cyan-600" /> Incoming Vendor Quotations & Price Matrix
+                        <FileText size={22} className="text-cyan-600" /> Inward Quotations & Bid Evaluation
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5">
-                        Log subcontractor & vendor rate quotes linked to Outward RFQs, compare bids (L1/L2), and convert to POs.
+                        Log vendor rate quotes, compare bids (L1 / L2), preview details, and generate Outward Purchase Orders.
                     </p>
                 </div>
 
@@ -290,11 +308,11 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                     onClick={handleOpenCreateModal}
                     className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold text-xs rounded-xl shadow-md shadow-cyan-600/20 hover:shadow-lg transition-all flex items-center gap-2"
                 >
-                    <Plus size={16} /> Add Incoming Quote
+                    <Plus size={16} /> Log Inward Quote
                 </button>
             </div>
 
-            {/* Filter & View Mode Bar */}
+            {/* Filter Bar */}
             <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
                 <div className="relative w-full sm:w-80">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -307,7 +325,25 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                     />
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* Vendor Filter Dropdown */}
+                    <div className="flex items-center gap-2">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Vendor:</label>
+                        <select
+                            value={filterVendor}
+                            onChange={(e) => setFilterVendor(e.target.value)}
+                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-cyan-500/20 max-w-[200px] truncate"
+                        >
+                            <option value="All">All Vendors</option>
+                            {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
+                                <option key={v._id || v.id} value={(v._id || v.id)?.toString()}>
+                                    {v.name || v.companyName} {v.code ? `(${v.code})` : ''}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Status Filter */}
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
                         {['All', 'Pending Approval', 'Approved', 'Rejected'].map(status => (
                             <button
@@ -319,27 +355,6 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                             </button>
                         ))}
                     </div>
-
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-                        <button
-                            onClick={() => setViewMode('matrix')}
-                            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all ${viewMode === 'matrix' ? 'bg-cyan-600 text-white shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            <BarChart3 size={15} /> Rate Matrix (L1/L2)
-                        </button>
-                        <button
-                            onClick={() => setViewMode('buckets')}
-                            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all ${viewMode === 'buckets' ? 'bg-cyan-600 text-white shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            <LayoutGrid size={15} /> Vendor Buckets
-                        </button>
-                        <button
-                            onClick={() => setViewMode('table')}
-                            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all ${viewMode === 'table' ? 'bg-cyan-600 text-white shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            <List size={15} /> Table
-                        </button>
-                    </div>
                 </div>
             </div>
 
@@ -347,180 +362,15 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                 <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-cyan-600"></div>
                 </div>
-            ) : Object.keys(rfqMatrixGroups).length === 0 ? (
+            ) : filteredQuotations.length === 0 ? (
                 <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                     <FileText className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Incoming Vendor Quotations Found</h3>
-                    <p className="text-xs text-slate-500 mt-1">Select an Outward RFQ and log vendor quoted prices to auto-compare bids.</p>
-                </div>
-            ) : viewMode === 'matrix' ? (
-                
-                /* Comparative Rate Matrix View (Grouped by Linked RFQ) */
-                <div className="space-y-6">
-                    {Object.keys(rfqMatrixGroups).map(rfqKey => {
-                        const quoteGroup = rfqMatrixGroups[rfqKey];
-                        const l1Quote = quoteGroup[0];
-
-                        return (
-                            <div key={rfqKey} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <h3 className="text-base font-black text-slate-900 dark:text-white">
-                                                RFQ Reference: <span className="text-cyan-600 dark:text-cyan-400 font-mono">{rfqKey}</span>
-                                            </h3>
-                                            <span className="bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                                                {quoteGroup.length} Vendor Quotes Received
-                                            </span>
-                                        </div>
-                                        <p className="text-xs text-slate-500 mt-0.5">
-                                            Side-by-side vendor quotation rate analysis and bid evaluation.
-                                        </p>
-                                    </div>
-
-                                    {l1Quote && (
-                                        <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5">
-                                            <Award size={16} className="text-emerald-600" />
-                                            Lowest Bidder (L1): <strong className="text-emerald-700 dark:text-emerald-300">{l1Quote.vendorName}</strong> (₹{Number(l1Quote.grandTotal || l1Quote.subtotal || 0).toLocaleString()})
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {quoteGroup.map((quote: any) => {
-                                        const isL1 = quote.bidRank === 'L1';
-
-                                        return (
-                                            <div
-                                                key={quote._id}
-                                                className={`rounded-2xl border p-4 transition-all flex flex-col justify-between space-y-3 ${
-                                                    isL1
-                                                        ? 'bg-emerald-50/40 border-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-800'
-                                                        : 'bg-slate-50/50 border-slate-200 dark:bg-slate-800/40 dark:border-slate-700'
-                                                }`}
-                                            >
-                                                <div className="space-y-2">
-                                                    <div className="flex justify-between items-start">
-                                                        <div>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${isL1 ? 'bg-emerald-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>
-                                                                    {quote.bidRank}
-                                                                </span>
-                                                                <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">
-                                                                    {quote.vendorName}
-                                                                </h4>
-                                                            </div>
-                                                            <span className="text-[10px] font-mono text-slate-400 block mt-0.5">
-                                                                Quote #: {quote.quotationNumber}
-                                                            </span>
-                                                        </div>
-
-                                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                                            quote.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                                        }`}>
-                                                            {quote.status || 'Pending'}
-                                                        </span>
-                                                    </div>
-
-                                                    {/* Items Rate Table */}
-                                                    <div className="bg-white dark:bg-slate-900 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800 space-y-1 text-xs">
-                                                        {(quote.items || []).map((it: any, idx: number) => (
-                                                            <div key={idx} className="flex justify-between items-center py-0.5">
-                                                                <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[170px]">{it.materialName || 'Material'}</span>
-                                                                <span className="font-bold text-slate-900 dark:text-white font-mono">
-                                                                    ₹{Number(it.unitPrice || 0).toLocaleString()} <span className="text-[10px] text-slate-400">/{it.unit || 'PCS'}</span>
-                                                                </span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-
-                                                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2">
-                                                    <div className="flex justify-between items-center text-xs font-bold">
-                                                        <span className="text-slate-500">Quoted Total:</span>
-                                                        <span className="text-cyan-600 dark:text-cyan-400 font-mono text-sm">₹{Number(quote.grandTotal || quote.subtotal || 0).toLocaleString()}</span>
-                                                    </div>
-
-                                                    <div className="flex items-center justify-end gap-2">
-                                                        <button
-                                                            onClick={() => handlePrintQuotePdf(quote)}
-                                                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
-                                                        >
-                                                            <Printer size={14} /> PDF
-                                                        </button>
-
-                                                        <button
-                                                            onClick={() => handleOpenPoModal(quote)}
-                                                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-600/20 inline-flex items-center gap-1.5"
-                                                        >
-                                                            <ShoppingCart size={14} /> {quote.status === 'Approved' ? 'Re-Generate PO' : 'Generate PO'}
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            ) : viewMode === 'buckets' ? (
-
-                /* Vendor Buckets View */
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {filteredQuotations.map((quote) => (
-                        <div key={quote._id} className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-4 flex flex-col justify-between">
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-start">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-9 h-9 rounded-xl bg-cyan-50 dark:bg-cyan-950 text-cyan-600 flex items-center justify-center font-bold">
-                                            <Building2 size={18} />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-extrabold text-slate-900 dark:text-white text-sm">{quote.vendorName}</h3>
-                                            <span className="text-[10px] text-slate-400 font-mono block">Quote #: {quote.quotationNumber}</span>
-                                        </div>
-                                    </div>
-                                    <span className="bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 font-mono text-[10px] font-bold px-2 py-0.5 rounded border border-cyan-200 dark:border-cyan-800">
-                                        RFQ: {quote.rfqNumber || 'N/A'}
-                                    </span>
-                                </div>
-
-                                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 space-y-1 text-xs border border-slate-100 dark:border-slate-800">
-                                    {(quote.items || []).map((it: any, idx: number) => (
-                                        <div key={idx} className="flex justify-between text-xs">
-                                            <span className="font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[170px]">{it.materialName}</span>
-                                            <span className="font-bold text-slate-900 dark:text-white">₹{it.unitPrice}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center gap-2">
-                                <span className="font-mono text-cyan-600 dark:text-cyan-400 font-bold text-sm">₹{Number(quote.grandTotal || quote.subtotal || 0).toLocaleString()}</span>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => handlePrintQuotePdf(quote)}
-                                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5"
-                                    >
-                                        <Printer size={14} /> PDF
-                                    </button>
-                                    <button
-                                        onClick={() => handleOpenPoModal(quote)}
-                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
-                                    >
-                                        <ShoppingCart size={14} /> Generate PO
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
+                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Inward Vendor Quotations Found</h3>
+                    <p className="text-xs text-slate-500 mt-1">Select an Outward RFQ and log vendor quoted rates to auto-compare bids.</p>
                 </div>
             ) : (
 
-                /* Table View */
+                /* Clean Inward Quotation Table List */
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
@@ -530,36 +380,282 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                     <th className="px-5 py-3.5">Linked RFQ #</th>
                                     <th className="px-5 py-3.5">Vendor Name</th>
                                     <th className="px-5 py-3.5 text-center">Date</th>
+                                    <th className="px-5 py-3.5 text-center">Bid Rank</th>
                                     <th className="px-5 py-3.5 text-right">Grand Total</th>
                                     <th className="px-5 py-3.5 text-center">Status</th>
                                     <th className="px-5 py-3.5 text-right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                                {filteredQuotations.map((q) => (
-                                    <tr key={q._id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                                        <td className="px-5 py-4 font-mono font-bold text-cyan-600 dark:text-cyan-400">{q.quotationNumber}</td>
-                                        <td className="px-5 py-4 font-mono text-slate-700 dark:text-slate-300 font-bold">{q.rfqNumber || 'N/A'}</td>
-                                        <td className="px-5 py-4 font-bold text-slate-800 dark:text-slate-200">{q.vendorName}</td>
-                                        <td className="px-5 py-4 text-center font-semibold text-slate-600 dark:text-slate-400">{new Date(q.date || Date.now()).toLocaleDateString('en-GB')}</td>
-                                        <td className="px-5 py-4 text-right font-extrabold text-cyan-600 dark:text-cyan-400 font-mono">₹{Number(q.grandTotal || q.subtotal || 0).toLocaleString()}</td>
-                                        <td className="px-5 py-4 text-center">
-                                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                                                {q.status || 'Pending'}
-                                            </span>
-                                        </td>
-                                        <td className="px-5 py-4 text-right space-x-2">
-                                            <button onClick={() => handlePrintQuotePdf(q)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold inline-flex items-center gap-1">
-                                                <Printer size={14} /> PDF
-                                            </button>
-                                            <button onClick={() => handleOpenPoModal(q)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1">
-                                                <ShoppingCart size={14} /> Generate PO
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {filteredQuotations.map((q) => {
+                                    const qId = (q._id || q.id || q.quotationNumber)?.toString();
+                                    const rankInfo = rfqRankMap.get(qId) || { rank: 'L1', l1Total: Number(q.grandTotal || q.subtotal || 0), totalQuotes: 1 };
+                                    const isL1 = rankInfo.rank === 'L1';
+                                    const isL2 = rankInfo.rank === 'L2';
+
+                                    return (
+                                        <tr key={q._id || q.quotationNumber} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                                            <td className="px-5 py-4 font-mono font-bold text-cyan-600 dark:text-cyan-400">
+                                                {q.quotationNumber}
+                                            </td>
+
+                                            <td className="px-5 py-4 font-mono text-slate-700 dark:text-slate-300 font-bold">
+                                                {q.rfqNumber || 'Direct'}
+                                            </td>
+
+                                            <td className="px-5 py-4 font-bold text-slate-800 dark:text-slate-200">
+                                                {q.vendorName}
+                                            </td>
+
+                                            <td className="px-5 py-4 text-center font-semibold text-slate-600 dark:text-slate-400 text-xs">
+                                                {new Date(q.date || q.createdAt || Date.now()).toLocaleDateString('en-GB')}
+                                            </td>
+
+                                            <td className="px-5 py-4 text-center">
+                                                {isL1 ? (
+                                                    <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-full font-black text-xs inline-flex items-center gap-1 shadow-sm">
+                                                        <Award size={13} className="text-emerald-600" /> L1 (Lowest)
+                                                    </span>
+                                                ) : isL2 ? (
+                                                    <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 rounded-full font-extrabold text-xs inline-flex items-center gap-1">
+                                                        L2 (2nd Lowest)
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-full font-bold text-xs">
+                                                        {rankInfo.rank}
+                                                    </span>
+                                                )}
+                                            </td>
+
+                                            <td className="px-5 py-4 text-right font-extrabold text-cyan-600 dark:text-cyan-400 font-mono text-sm">
+                                                ₹{Number(q.grandTotal || q.subtotal || 0).toLocaleString()}
+                                            </td>
+
+                                            <td className="px-5 py-4 text-center">
+                                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                                                    q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                                }`}>
+                                                    {q.status || 'Pending'}
+                                                </span>
+                                            </td>
+
+                                            <td className="px-5 py-4 text-right space-x-1.5">
+                                                <button
+                                                    onClick={() => setSelectedQuote(q)}
+                                                    title="Preview Quotation Details & L1/L2 Rate Comparison"
+                                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                >
+                                                    <Eye size={13} /> View
+                                                </button>
+
+                                                <button
+                                                    onClick={() => handlePrintQuotePdf(q)}
+                                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                >
+                                                    <Printer size={13} /> PDF
+                                                </button>
+
+                                                <button
+                                                    onClick={() => handleOpenPoModal(q)}
+                                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-600/20 inline-flex items-center gap-1.5"
+                                                >
+                                                    <ShoppingCart size={13} /> {q.status === 'Approved' ? 'Re-Gen PO' : 'Generate PO'}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Preview Quotation & Multi-Vendor Bid Evaluation Modal */}
+            {selectedQuote && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                        
+                        {/* Header Banner */}
+                        <div className="p-6 bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-cyan-900">
+                            <div className="flex items-center gap-3">
+                                <div className="w-11 h-11 bg-cyan-900/80 rounded-2xl flex items-center justify-center border border-cyan-700 text-cyan-300 shadow-inner">
+                                    <FileText size={22} />
+                                </div>
+                                <div>
+                                    <h2 className="text-lg font-extrabold tracking-tight flex items-center gap-2">
+                                        Vendor Bid Comparison: <span className="font-mono text-cyan-300">{selectedQuote.rfqNumber || selectedQuote.quotationNumber}</span>
+                                    </h2>
+                                    <p className="text-xs text-cyan-300/80 mt-0.5">
+                                        Evaluating all vendor rate quotes logged for RFQ #{selectedQuote.rfqNumber || 'Direct'}. Select any vendor to generate an Outward PO.
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedQuote(null)} className="w-8 h-8 rounded-full bg-cyan-900/80 hover:bg-cyan-800 flex items-center justify-center text-white transition-colors">
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body: Multi-Vendor Bid Cards */}
+                        <div className="p-6 overflow-y-auto flex-1 space-y-6 text-sm">
+                            {(() => {
+                                const targetKey = selectedQuote.rfqNumber || (typeof selectedQuote.rfq === 'string' ? selectedQuote.rfq : selectedQuote.rfq?._id);
+                                
+                                const rfqBids = (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
+                                    if (!targetKey) return q._id === selectedQuote._id;
+                                    const curKey = q.rfqNumber || (typeof q.rfq === 'string' ? q.rfq : q.rfq?._id);
+                                    return curKey?.toString() === targetKey?.toString();
+                                }).sort((a: any, b: any) => (Number(a.grandTotal || a.subtotal) || 0) - (Number(b.grandTotal || b.subtotal) || 0));
+
+                                const displayBids = rfqBids.length > 0 ? rfqBids : [selectedQuote];
+                                const l1Total = Number(displayBids[0]?.grandTotal || displayBids[0]?.subtotal) || 0;
+
+                                return (
+                                    <div className="space-y-6">
+                                        <div className="flex justify-between items-center bg-cyan-50 dark:bg-cyan-950/40 p-4 rounded-2xl border border-cyan-200 dark:border-cyan-800">
+                                            <div className="flex items-center gap-2">
+                                                <Award className="text-emerald-600" size={20} />
+                                                <span className="text-xs font-extrabold text-cyan-900 dark:text-cyan-200">
+                                                    {displayBids.length} Vendor Quote(s) Submitted for RFQ #{selectedQuote.rfqNumber || 'Direct'}
+                                                </span>
+                                            </div>
+                                            <span className="text-xs font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950 px-3 py-1 rounded-xl">
+                                                Lowest Bid (L1): ₹{l1Total.toLocaleString()}
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                            {displayBids.map((quote: any, rankIdx: number) => {
+                                                const rank = `L${rankIdx + 1}`;
+                                                const isL1 = rankIdx === 0;
+                                                const isL2 = rankIdx === 1;
+                                                const quoteTotal = Number(quote.grandTotal || quote.subtotal) || 0;
+                                                const diffFromL1 = quoteTotal - l1Total;
+
+                                                return (
+                                                    <div
+                                                        key={quote._id || quote.quotationNumber}
+                                                        className={`rounded-3xl border p-5 shadow-sm transition-all flex flex-col justify-between space-y-4 ${
+                                                            isL1
+                                                                ? 'bg-emerald-50/50 border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800 ring-2 ring-emerald-500/20'
+                                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+                                                        }`}
+                                                    >
+                                                        {/* Vendor & Rank Header */}
+                                                        <div className="space-y-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        {isL1 ? (
+                                                                            <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-xl font-black text-xs inline-flex items-center gap-1 shadow-sm">
+                                                                                <Award size={13} /> L1 (Lowest Bid)
+                                                                            </span>
+                                                                        ) : isL2 ? (
+                                                                            <span className="px-2.5 py-1 bg-amber-600 text-white rounded-xl font-extrabold text-xs inline-flex items-center gap-1">
+                                                                                L2 (2nd Lowest)
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="px-2.5 py-1 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-bold text-xs">
+                                                                                {rank}
+                                                                            </span>
+                                                                        )}
+
+                                                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                                                            quote.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                                                        }`}>
+                                                                            {quote.status || 'Pending'}
+                                                                        </span>
+                                                                    </div>
+
+                                                                    <h3 className="font-extrabold text-slate-900 dark:text-white text-base mt-2">
+                                                                        {quote.vendorName}
+                                                                    </h3>
+                                                                    <span className="text-[10px] font-mono text-slate-400 block">
+                                                                        Quote #: {quote.quotationNumber}
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="text-right font-mono">
+                                                                    <div className="text-lg font-black text-cyan-600 dark:text-cyan-400">
+                                                                        ₹{quoteTotal.toLocaleString()}
+                                                                    </div>
+                                                                    {!isL1 && diffFromL1 > 0 && (
+                                                                        <span className="text-[11px] font-bold text-rose-600 dark:text-rose-400 block">
+                                                                            +₹{diffFromL1.toLocaleString()} vs L1
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Vendor Brief */}
+                                                            <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5 pt-1">
+                                                                {quote.vendorAddress && <div>📍 {quote.vendorAddress}</div>}
+                                                                {quote.vendorPhone && <div>📞 {quote.vendorPhone}</div>}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Items Table */}
+                                                        <div className="space-y-1.5 flex-1">
+                                                            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                                                                Quoted Item Rates ({(quote.items || []).length} items)
+                                                            </div>
+                                                            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-100 dark:border-slate-800 space-y-1.5 max-h-48 overflow-y-auto">
+                                                                {(quote.items || []).map((it: any, idx: number) => (
+                                                                    <div key={idx} className="flex justify-between items-center text-xs">
+                                                                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[180px]">
+                                                                            {it.materialName || 'Material'}
+                                                                        </span>
+                                                                        <span className="font-bold text-slate-900 dark:text-white font-mono">
+                                                                            ₹{Number(it.unitPrice || 0).toLocaleString()} <span className="text-[10px] text-slate-400">/{it.unit || 'PCS'}</span>
+                                                                        </span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Actions Per Vendor Card */}
+                                                        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center gap-2">
+                                                            <button
+                                                                onClick={() => handlePrintQuotePdf(quote)}
+                                                                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                            >
+                                                                <Printer size={14} /> PDF
+                                                            </button>
+
+                                                            <button
+                                                                onClick={() => {
+                                                                    setSelectedQuote(null);
+                                                                    handleOpenPoModal(quote);
+                                                                }}
+                                                                className={`px-4 py-2 text-white text-xs font-extrabold rounded-xl transition-all shadow-md inline-flex items-center gap-1.5 ${
+                                                                    isL1
+                                                                        ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/30 ring-2 ring-emerald-400/40'
+                                                                        : 'bg-cyan-600 hover:bg-cyan-700 shadow-cyan-600/20'
+                                                                }`}
+                                                            >
+                                                                <ShoppingCart size={15} /> Generate PO for {quote.vendorName.split(' ')[0]}
+                                                            </button>
+                                                        </div>
+
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end flex-shrink-0">
+                            <button
+                                onClick={() => setSelectedQuote(null)}
+                                className="px-5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-xs hover:bg-slate-100"
+                            >
+                                Close Comparison View
+                            </button>
+                        </div>
+
                     </div>
                 </div>
             )}

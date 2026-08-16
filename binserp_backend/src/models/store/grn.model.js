@@ -44,6 +44,10 @@ export const grnSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer"
     },
+    purchaseOrder: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PurchaseOrder",
+    },
     poNumber: String, // Linked Purchase Order Number (System)
     poReference: String, // Manual PO Reference Number
     items: [

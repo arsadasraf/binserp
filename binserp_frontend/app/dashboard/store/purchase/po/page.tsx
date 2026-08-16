@@ -9,7 +9,7 @@ import { Plus } from "lucide-react";
 
 export default function PurchasePOPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: poList, vendors, materials, fgItems, companyInfo, loading, refetch, handlePOSubmit, handlePOUpdate, handleDelete } = useStoreData("po", "vendor", token);
+  const { data: poList, vendors, materials, fgItems, vendorPriceLists, companyInfo, loading, refetch, handlePOSubmit, handlePOUpdate, handleDelete } = useStoreData("po", "vendor", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingPO, setEditingPO] = useState<any>(null);
@@ -34,6 +34,7 @@ export default function PurchasePOPage() {
 
       <POTable
         data={poList || []}
+        vendors={vendors || []}
         companyInfo={companyInfo}
         onEdit={(po) => { setEditingPO(po); setShowModal(true); }}
         onDelete={(id) => handleDelete(id)}
@@ -47,6 +48,7 @@ export default function PurchasePOPage() {
           vendors={vendors || []}
           materials={materials || []}
           inHouseItems={fgItems || []}
+          priceLists={vendorPriceLists || []}
           onSubmit={async (formData) => {
             if (editingPO) {
               await handlePOUpdate(editingPO._id, formData);

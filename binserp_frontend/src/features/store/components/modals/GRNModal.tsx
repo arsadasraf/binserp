@@ -50,6 +50,8 @@ export default function GRNModal({
     const [supplier, setSupplier] = useState('');
     const [customer, setCustomer] = useState(''); // New state for customer
     const [poReference, setPoReference] = useState('');
+    const [selectedPO, setSelectedPO] = useState('');
+    const [vendorActivePOs, setVendorActivePOs] = useState<any[]>([]);
     const [qcRequired, setQcRequired] = useState(false); // New state for QC Check
     const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
@@ -63,6 +65,53 @@ export default function GRNModal({
         locationId: '',
         rate: 0,
     }]);
+
+    // Fetch active POs when supplier changes
+    useEffect(() => {
+        if (supplier && type === 'bo') {
+            const fetchPOs = async () => {
+                try {
+                    const token = localStorage.getItem('token');
+                    const res = await fetch(`${API_BASE_URL}/api/purchase/po/active-by-vendor/${supplier}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const json = await res.json();
+                        setVendorActivePOs(json.data || []);
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch active vendor POs:", e);
+                }
+            };
+            fetchPOs();
+        } else {
+            setVendorActivePOs([]);
+            setSelectedPO('');
+        }
+    }, [supplier, type]);
+
+    const handleSelectPO = (poId: string) => {
+        setSelectedPO(poId);
+        const po = vendorActivePOs.find(p => p._id === poId);
+        if (po) {
+            setPoReference(po.poNumber);
+            if (Array.isArray(po.items) && po.items.length > 0) {
+                const entries = po.items.map((it: any) => {
+                    const pendQty = it.pendingQuantity !== undefined ? it.pendingQuantity : Math.max(0, (it.quantity || 0) - (it.receivedQuantity || 0));
+                    return {
+                        material: it.material?._id || it.material || '',
+                        materialName: it.materialName || it.material?.name || '',
+                        quantity: pendQty,
+                        unit: it.unit || 'PCS',
+                        category: it.category || 'RmBo',
+                        locationId: '',
+                        rate: it.rate || 0,
+                    };
+                });
+                setMaterialEntries(entries);
+            }
+        }
+    };
 
     // Refs for file inputs
     const cameraInputRef = React.useRef<HTMLInputElement>(null);
@@ -293,6 +342,7 @@ export default function GRNModal({
 
         if (type === 'bo') {
             formData.append('supplier', supplier);
+            if (selectedPO) formData.append('purchaseOrder', selectedPO);
             if (poReference) formData.append('poReference', poReference);
             // Add PDF if selected
             if (pdfFile) {
@@ -417,36 +467,57 @@ export default function GRNModal({
                                         </div>
                                     </div>
 
-                                    {/* Supplier - BO Only */}
-                                    {type === 'bo' && (
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                Supplier <span className="text-red-500">*</span>
-                                            </label>
-                                            <SearchableSelect
-                                                options={safeVendors.map(vendor => ({ value: vendor._id, label: `${vendor.name || ''} ${vendor.code ? `(${vendor.code})` : ''}` }))}
-                                                value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
-                                                onChange={(val: any) => setSupplier(val)}
-                                                placeholder="Select Supplier"
-                                            />
-                                        </div>
-                                    )}
+                                     {/* Supplier - BO Only */}
+                                     {type === 'bo' && (
+                                         <div>
+                                             <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                 Supplier <span className="text-red-500">*</span>
+                                             </label>
+                                             <SearchableSelect
+                                                 options={safeVendors.map(vendor => ({ value: vendor._id, label: `${vendor.name || ''} ${vendor.code ? `(${vendor.code})` : ''}` }))}
+                                                 value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
+                                                 onChange={(val: any) => setSupplier(val)}
+                                                 placeholder="Select Supplier"
+                                             />
+                                         </div>
+                                     )}
 
-                                    {/* PO Reference - BO Only */}
-                                    {type === 'bo' && (
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                PO Reference
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={poReference}
-                                                onChange={(e) => setPoReference(e.target.value)}
-                                                className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                                placeholder="Enter PO No."
-                                            />
-                                        </div>
-                                    )}
+                                     {/* Link Active Purchase Order - BO Only */}
+                                     {type === 'bo' && supplier && vendorActivePOs.length > 0 && (
+                                         <div>
+                                             <label className="block text-xs font-bold text-indigo-600 mb-1">
+                                                 Link Outward PO (Auto-fill)
+                                             </label>
+                                             <select
+                                                 value={selectedPO}
+                                                 onChange={(e) => handleSelectPO(e.target.value)}
+                                                 className="w-full px-3 py-1.5 border border-indigo-300 bg-indigo-50/50 rounded-md focus:ring-1 focus:ring-indigo-500 text-xs font-bold text-indigo-900"
+                                             >
+                                                 <option value="">-- Select Active PO --</option>
+                                                 {vendorActivePOs.map(p => (
+                                                     <option key={p._id} value={p._id}>
+                                                         {p.poNumber} ({new Date(p.date || p.createdAt).toLocaleDateString('en-GB')} - {p.status})
+                                                     </option>
+                                                 ))}
+                                             </select>
+                                         </div>
+                                     )}
+
+                                     {/* PO Reference - BO Only */}
+                                     {type === 'bo' && (
+                                         <div>
+                                             <label className="block text-xs font-medium text-gray-700 mb-1">
+                                                 PO Reference
+                                             </label>
+                                             <input
+                                                 type="text"
+                                                 value={poReference}
+                                                 onChange={(e) => setPoReference(e.target.value)}
+                                                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                                 placeholder="Enter PO No."
+                                             />
+                                         </div>
+                                     )}
                                 </div>
                             </div>
 

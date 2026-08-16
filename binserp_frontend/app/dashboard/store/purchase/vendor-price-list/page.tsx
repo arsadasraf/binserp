@@ -51,10 +51,10 @@ export default function PurchaseVendorPriceListPage() {
       {showModal && (
         <VendorPriceListModal
           isOpen={showModal}
-          vendors={vendors || []}
+          materials={materials || []}
           onClose={() => { setShowModal(false); setEditingItem(null); }}
           onSubmit={async (formData) => {
-            if (editingItem) {
+            if (editingItem && editingItem._id) {
               await updateStoreRecord({ tab: "vendor-price-list", id: editingItem._id, body: formData }).unwrap();
             } else {
               await createStoreRecord({ tab: "vendor-price-list", body: formData }).unwrap();

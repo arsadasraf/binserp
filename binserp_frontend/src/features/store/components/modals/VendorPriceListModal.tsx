@@ -7,7 +7,7 @@ interface VendorPriceListModalProps {
   onClose: () => void;
   onSubmit: (data: any) => Promise<void>;
   initialData?: any;
-  vendors: any[]; 
+  materials?: any[]; 
 }
 
 export default function VendorPriceListModal({
@@ -15,11 +15,10 @@ export default function VendorPriceListModal({
   onClose,
   onSubmit,
   initialData,
-  vendors,
+  materials = [],
 }: VendorPriceListModalProps) {
   const [formData, setFormData] = useState({
     material: "",
-    vendors: [] as string[],
     price: "",
     taxRate: "",
     remarks: "",
@@ -27,20 +26,12 @@ export default function VendorPriceListModal({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [vendorSearchTerm, setVendorSearchTerm] = useState("");
-
-  const filteredVendors = useMemo(() => {
-    if (!vendorSearchTerm) return vendors;
-    const lower = vendorSearchTerm.toLowerCase();
-    return vendors.filter(v => v.name?.toLowerCase().includes(lower) || v.code?.toLowerCase().includes(lower));
-  }, [vendors, vendorSearchTerm]);
 
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
         setFormData({
           material: initialData.material?._id || initialData.material || "",
-          vendors: initialData.vendor ? [initialData.vendor?._id || initialData.vendor] : [],
           price: initialData.price?.toString() || "",
           taxRate: initialData.taxRate?.toString() || "",
           remarks: initialData.remarks || "",
@@ -48,14 +39,12 @@ export default function VendorPriceListModal({
       } else {
         setFormData({
           material: "",
-          vendors: [],
           price: "",
           taxRate: "",
           remarks: "",
         });
       }
       setError("");
-      setVendorSearchTerm("");
     }
   }, [isOpen, initialData]);
 
@@ -63,8 +52,8 @@ export default function VendorPriceListModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.material || formData.vendors.length === 0 || !formData.price || !formData.taxRate) {
-      setError("Please fill all required fields and select at least one vendor.");
+    if (!formData.material || formData.price === "" || formData.taxRate === "") {
+      setError("Please fill all required fields (Material, Price, and Tax Rate).");
       return;
     }
 
@@ -72,12 +61,13 @@ export default function VendorPriceListModal({
       setLoading(true);
       setError("");
       await onSubmit({
-        ...formData,
+        material: formData.material,
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
+        remarks: formData.remarks,
       });
     } catch (err: any) {
-      setError(err.message || "Failed to save vendor price list.");
+      setError(err.message || "Failed to save RM/BO price list.");
     } finally {
       setLoading(false);
     }
@@ -85,10 +75,10 @@ export default function VendorPriceListModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
         <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-            {initialData && !initialData.isNewAssignment ? "Edit Vendor Price" : "Assign Vendor Price"}
+            {initialData ? "Edit RM/BO Price Sheet" : "Set RM/BO Price Sheet"}
           </h2>
           <button
             onClick={onClose}
@@ -109,60 +99,26 @@ export default function VendorPriceListModal({
           <form id="vendorPriceListForm" onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Selected Material <span className="text-red-500">*</span>
+                RM/BO Material <span className="text-red-500">*</span>
               </label>
-              <div className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 font-medium">
-                {initialData?.material?.name || "N/A"}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Vendor(s) <span className="text-red-500">*</span>
-              </label>
-              {initialData && !initialData.isNewAssignment ? (
-                 <div className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 font-medium">
-                   {initialData?.vendor?.name || "N/A"}
-                 </div>
-              ) : (
-                <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden flex flex-col">
-                  <div className="p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                      <input
-                        type="text"
-                        placeholder="Search vendors..."
-                        value={vendorSearchTerm}
-                        onChange={(e) => setVendorSearchTerm(e.target.value)}
-                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar p-2 space-y-1">
-                    {filteredVendors.length === 0 ? (
-                      <div className="p-3 text-sm text-gray-500 text-center">
-                        {vendorSearchTerm ? "No matching vendors found" : "No vendors available"}
-                      </div>
-                    ) : (
-                      filteredVendors.map((v: any) => (
-                        <label key={v._id} className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formData.vendors.includes(v._id)}
-                            onChange={(e) => {
-                              const newVendors = e.target.checked
-                                ? [...formData.vendors, v._id]
-                                : formData.vendors.filter(id => id !== v._id);
-                              setFormData({ ...formData, vendors: newVendors });
-                            }}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{v.name}</span>
-                        </label>
-                      ))
-                    )}
-                  </div>
+              {initialData?.material?.name ? (
+                <div className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-900 dark:text-gray-100 font-medium">
+                  {initialData.material.name} {initialData.material.code ? `(${initialData.material.code})` : ''}
                 </div>
+              ) : (
+                <select
+                  value={formData.material}
+                  onChange={(e) => setFormData({ ...formData, material: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                  required
+                >
+                  <option value="" disabled>Select Material</option>
+                  {materials.map((m: any) => (
+                    <option key={m._id} value={m._id}>
+                      {m.name} {m.code ? `(${m.code})` : ''}
+                    </option>
+                  ))}
+                </select>
               )}
             </div>
 
@@ -175,6 +131,7 @@ export default function VendorPriceListModal({
                   type="number"
                   step="0.01"
                   min="0"
+                  placeholder="0.00"
                   value={formData.price}
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
                   className="w-full px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
@@ -231,7 +188,7 @@ export default function VendorPriceListModal({
             className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm shadow-blue-200 dark:shadow-none transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save size={18} />
-            {loading ? "Saving..." : "Save Configuration"}
+            {loading ? "Saving..." : "Save Price Sheet"}
           </button>
         </div>
       </div>

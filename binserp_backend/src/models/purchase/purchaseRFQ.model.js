@@ -32,6 +32,7 @@ export const purchaseRFQSchema = new mongoose.Schema(
           ref: "RmBoItem",
         },
         materialName: String,
+        description: String,
         quantity: Number,
         unit: String,
         uom: String,
@@ -49,6 +50,17 @@ export const purchaseRFQSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        updatedAt: { type: Date, default: Date.now },
+      }
+    ],
   },
   { timestamps: true }
 );

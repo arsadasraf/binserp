@@ -14,31 +14,41 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
 
   const { vendor, material, price, taxRate, validFrom, validUntil, remarks } = req.body;
 
-  const existingPriceList = await VendorPriceList.findOne({ vendor, material, company: companyId });
+  if (!material) {
+    throw new ApiError(400, "Material is required");
+  }
+
+  const query = { material, company: companyId };
+  if (vendor) {
+    query.vendor = vendor;
+  }
+
+  const existingPriceList = await VendorPriceList.findOne(query);
   if (existingPriceList) {
     existingPriceList.price = price;
     existingPriceList.taxRate = taxRate;
+    if (vendor !== undefined) existingPriceList.vendor = vendor;
     if (validFrom !== undefined) existingPriceList.validFrom = validFrom;
     if (validUntil !== undefined) existingPriceList.validUntil = validUntil;
     if (remarks !== undefined) existingPriceList.remarks = remarks;
     
     await existingPriceList.save();
-    return res.status(200).json(new ApiResponse(200, existingPriceList, "Vendor Price List updated successfully"));
+    return res.status(200).json(new ApiResponse(200, existingPriceList, "Price List updated successfully"));
   }
 
   const newPriceList = await VendorPriceList.create({
     company: companyId,
-    vendor,
+    vendor: vendor || undefined,
     material,
     price,
     taxRate,
     validFrom,
     validUntil,
     remarks,
-    createdBy: req.user.id,
+    createdBy: req.user?.id || req.user?._id,
   });
 
-  return res.status(201).json(new ApiResponse(201, newPriceList, "Vendor Price List created successfully"));
+  return res.status(201).json(new ApiResponse(201, newPriceList, "Price List created successfully"));
 });
 
 export const getVendorPriceLists = asyncHandler(async (req, res) => {

@@ -2,6 +2,7 @@ import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
+import { purchaseOrderSchema } from "../../models/purchase/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -56,7 +57,7 @@ export const createGRN = async (req, res) => {
 
   try {
     const companyId = getCompanyId(req);
-    let { grnNumber, date, supplier, customer, type, material, materialName, quantity, unit, locationId, category, status, items, poReference, qcRequired } = req.body;
+    let { grnNumber, date, supplier, customer, type, material, materialName, quantity, unit, locationId, category, status, items, poReference, purchaseOrder, qcRequired } = req.body;
 
     // Parse qcRequired explicitly (Handle "true"/"false" strings from FormData)
     if (qcRequired === 'true') qcRequired = true;
@@ -278,7 +279,8 @@ export const createGRN = async (req, res) => {
       supplierName: supplierName, // Optional for InHouse
       supplierAddress: supplierAddress,
       customer: customer, // New field
-      poNumber: "",
+      purchaseOrder: purchaseOrder || undefined,
+      poNumber: poReference || "",
       poReference: poReference || "",
       items: itemsArray,
       pdf: pdfUrl,
@@ -288,6 +290,71 @@ export const createGRN = async (req, res) => {
       qcRequired: qcRequired || false,
       qcStatus: qcRequired ? "Pending" : "Skipped"
     });
+
+    // Update Linked Purchase Order Item Quantities & Status
+    if (purchaseOrder || poReference) {
+      try {
+        const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+        const poQuery = purchaseOrder 
+          ? { _id: purchaseOrder, company: companyId } 
+          : { poNumber: poReference, company: companyId };
+        
+        const poDoc = await PurchaseOrder.findOne(poQuery);
+        if (poDoc) {
+          let poUpdated = false;
+          let allItemsCompleted = true;
+          let anyItemReceived = false;
+
+          if (Array.isArray(poDoc.items) && poDoc.items.length > 0) {
+            poDoc.items.forEach(poItem => {
+              const matchingGrnItem = itemsArray.find(gItem => 
+                (gItem.material && poItem.material && gItem.material.toString() === poItem.material.toString()) ||
+                (gItem.component && poItem.component && gItem.component.toString() === poItem.component.toString()) ||
+                (gItem.materialName && poItem.materialName && gItem.materialName.toLowerCase().trim() === poItem.materialName.toLowerCase().trim())
+              );
+
+              if (matchingGrnItem) {
+                const addedQty = parseFloat(matchingGrnItem.quantity || matchingGrnItem.receivedQuantity || 0);
+                poItem.receivedQuantity = (poItem.receivedQuantity || 0) + addedQty;
+                poItem.pendingQuantity = Math.max(0, (poItem.quantity || 0) - poItem.receivedQuantity);
+                if (poItem.receivedQuantity >= poItem.quantity) {
+                  poItem.itemStatus = "Completed";
+                } else if (poItem.receivedQuantity > 0) {
+                  poItem.itemStatus = "Partially Received";
+                }
+                poUpdated = true;
+              }
+
+              if ((poItem.receivedQuantity || 0) < (poItem.quantity || 0)) {
+                allItemsCompleted = false;
+              }
+              if ((poItem.receivedQuantity || 0) > 0) {
+                anyItemReceived = true;
+              }
+            });
+          } else if (poDoc.material || poDoc.materialName) {
+            const addedQty = itemsArray.reduce((sum, gItem) => sum + parseFloat(gItem.quantity || 0), 0);
+            poDoc.receivedQuantity = (poDoc.receivedQuantity || 0) + addedQty;
+            poDoc.pendingQuantity = Math.max(0, (poDoc.quantity || 0) - poDoc.receivedQuantity);
+            poUpdated = true;
+            allItemsCompleted = poDoc.receivedQuantity >= poDoc.quantity;
+            anyItemReceived = poDoc.receivedQuantity > 0;
+          }
+
+          if (poUpdated) {
+            if (allItemsCompleted) {
+              poDoc.status = "Completed";
+            } else if (anyItemReceived) {
+              poDoc.status = "Partially Received";
+            }
+            await poDoc.save();
+            console.log(`[createGRN] Updated Linked Purchase Order ${poDoc.poNumber}: Status=${poDoc.status}`);
+          }
+        }
+      } catch (poErr) {
+        console.error("Error updating linked purchase order from GRN:", poErr);
+      }
+    }
 
     // Auto-update inventory (BO ONLY for now)
     // If QC Required -> Add to Pending Stock

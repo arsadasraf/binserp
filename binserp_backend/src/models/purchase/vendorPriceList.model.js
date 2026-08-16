@@ -10,7 +10,6 @@ export const vendorPriceListSchema = new mongoose.Schema(
     vendor: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Vendor",
-      required: true,
     },
     material: {
       type: mongoose.Schema.Types.ObjectId,

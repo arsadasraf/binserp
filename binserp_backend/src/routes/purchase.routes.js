@@ -18,6 +18,8 @@ import {
   getAllPOs,
   updatePO,
   deletePO,
+  getVendorPOBucket,
+  getVendorActivePOs,
   createVendorPriceList,
   getVendorPriceLists,
   updateVendorPriceList,
@@ -29,6 +31,13 @@ const router = Router();
 
 // Apply auth middleware to all purchase routes
 router.use(verifyJWT);
+
+// Vendor Bucket & Active PO Routes
+router.route("/vendor-bucket")
+  .get(getVendorPOBucket);
+
+router.route("/po/active-by-vendor/:vendorId")
+  .get(getVendorActivePOs);
 
 // MRP Routes
 router.route("/mrp")

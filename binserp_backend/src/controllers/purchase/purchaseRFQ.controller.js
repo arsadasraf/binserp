@@ -1,4 +1,5 @@
 import { purchaseRFQSchema } from "../../models/purchase/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -9,7 +10,9 @@ const getCompanyId = (req) => {
 
 export const createPurchaseRFQ = asyncHandler(async (req, res) => {
   const PurchaseRFQ = req.getModel("PurchaseRFQ", purchaseRFQSchema);
+  req.getModel("User", userSchema);
   const companyId = getCompanyId(req);
+  const userId = req.user?._id || req.user?.id;
 
   const { rfqNumber, date, dueDate, vendorName, vendorEmail, vendorPhone, vendorIds, items, remarks } = req.body;
 
@@ -34,18 +37,29 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
     items: Array.isArray(items) ? items : [],
     remarks,
     status: "Sent",
-    createdBy: req.user?._id || req.user?.id,
+    createdBy: userId,
+    updatedBy: userId,
+    statusHistory: [{ status: "Sent", updatedBy: userId, updatedAt: new Date() }],
   });
 
-  return res.status(201).json(new ApiResponse(201, newRFQ, "Purchase RFQ created successfully"));
+  const populatedRFQ = await PurchaseRFQ.findById(newRFQ._id)
+    .populate("vendorIds")
+    .populate("createdBy", "name email role")
+    .populate("updatedBy", "name email role");
+
+  return res.status(201).json(new ApiResponse(201, populatedRFQ, "Purchase RFQ created successfully"));
 });
 
 export const getPurchaseRFQs = asyncHandler(async (req, res) => {
   const PurchaseRFQ = req.getModel("PurchaseRFQ", purchaseRFQSchema);
+  req.getModel("User", userSchema);
   const companyId = getCompanyId(req);
 
   const rfqs = await PurchaseRFQ.find({ company: companyId })
     .populate("vendorIds")
+    .populate("createdBy", "name email role")
+    .populate("updatedBy", "name email role")
+    .populate("statusHistory.updatedBy", "name email role")
     .sort({ createdAt: -1 });
 
   return res.status(200).json(new ApiResponse(200, rfqs, "Purchase RFQs fetched successfully"));
@@ -53,18 +67,38 @@ export const getPurchaseRFQs = asyncHandler(async (req, res) => {
 
 export const updatePurchaseRFQ = asyncHandler(async (req, res) => {
   const PurchaseRFQ = req.getModel("PurchaseRFQ", purchaseRFQSchema);
+  req.getModel("User", userSchema);
   const { id } = req.params;
   const companyId = getCompanyId(req);
+  const userId = req.user?._id || req.user?.id;
+
+  const existingRFQ = await PurchaseRFQ.findOne({ _id: id, company: companyId });
+  if (!existingRFQ) {
+    throw new ApiError(404, "Purchase RFQ not found");
+  }
+
+  const updatePayload = { ...req.body, updatedBy: userId };
+
+  // Track status change audit history
+  if (req.body.status && req.body.status !== existingRFQ.status) {
+    updatePayload.$push = {
+      statusHistory: {
+        status: req.body.status,
+        updatedBy: userId,
+        updatedAt: new Date(),
+      }
+    };
+  }
 
   const updatedRFQ = await PurchaseRFQ.findOneAndUpdate(
     { _id: id, company: companyId },
-    req.body,
+    updatePayload,
     { new: true, runValidators: true }
-  );
-
-  if (!updatedRFQ) {
-    throw new ApiError(404, "Purchase RFQ not found");
-  }
+  )
+    .populate("vendorIds")
+    .populate("createdBy", "name email role")
+    .populate("updatedBy", "name email role")
+    .populate("statusHistory.updatedBy", "name email role");
 
   return res.status(200).json(new ApiResponse(200, updatedRFQ, "Purchase RFQ updated successfully"));
 });

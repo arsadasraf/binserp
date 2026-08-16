@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShoppingCart, CalendarClock, FileText, Send, Tag } from 'lucide-react';
+import { ShoppingCart, CalendarClock, FileText, Send, Tag, Building2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function PurchaseLayout({ children }: { children: React.ReactNode }) {
@@ -12,7 +12,7 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
   const tabs = [
     { name: 'MRP', href: '/dashboard/store/purchase/mrp', icon: CalendarClock },
     { name: 'Outward RFQ', href: '/dashboard/store/purchase/rfq', icon: Send },
-    { name: 'Incoming Quotation', href: '/dashboard/store/purchase/vendor-quotation', icon: FileText },
+    { name: 'Inward Quotation', href: '/dashboard/store/purchase/vendor-quotation', icon: FileText },
     { name: 'Outward PO', href: '/dashboard/store/purchase/po', icon: ShoppingCart },
     { name: 'RM/BO Price List', href: '/dashboard/store/purchase/vendor-price-list', icon: Tag },
   ];

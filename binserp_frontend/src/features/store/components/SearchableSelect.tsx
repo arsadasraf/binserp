@@ -1,9 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 const SearchableSelect = ({ options, value, onChange, placeholder, className = "w-full", innerClassName = "", dropdownPosition = "bottom" }: any) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const wrapperRef = useRef<HTMLDivElement>(null);
+
+    // Deduplicate options by value to prevent double items rendering
+    const uniqueOptions = useMemo(() => {
+        const map = new Map();
+        (options || []).forEach((o: any) => {
+            if (o && o.value && !map.has(o.value)) {
+                map.set(o.value, o);
+            }
+        });
+        return Array.from(map.values());
+    }, [options]);
 
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
@@ -15,8 +26,8 @@ const SearchableSelect = ({ options, value, onChange, placeholder, className = "
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    const selectedOption = options.find((o: any) => o.value === value);
-    const filteredOptions = (options || []).filter((o: any) => (o.label || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    const selectedOption = uniqueOptions.find((o: any) => o.value === value);
+    const filteredOptions = (uniqueOptions || []).filter((o: any) => (o.label || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
         <div ref={wrapperRef} className={`relative ${className}`}>

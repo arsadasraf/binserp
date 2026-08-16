@@ -334,13 +334,23 @@ export interface POFormData {
         material?: string;
         component?: string;
         materialName: string;
+        description?: string;
         quantity: number;
         unit: string;
         rate: number;
+        taxRate?: number;
+        taxAmount?: number;
         amount: number;
         category?: string;
     }>;
+    subtotal?: number;
+    totalTax?: number;
+    transportType?: string;
+    transportCharge?: number;
+    packingType?: string;
+    packingCharge?: number;
     totalAmount?: number;  // Total of all items
+    grandTotal?: number;
 }
 
 // DC Form Data
@@ -623,6 +633,7 @@ export interface POModalProps {
     materials: RmBoItem[];
     vendors: Vendor[];
     inHouseItems?: any[];
+    priceLists?: any[];
     loading: boolean;
     initialData?: POFormData;
     isEditing?: boolean;
