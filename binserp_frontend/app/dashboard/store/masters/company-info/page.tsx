@@ -204,7 +204,7 @@ export default function CompanyInfoPage() {
   if (loading) return <LoadingSpinner />;
 
   const renderSectionHeader = (title: string, icon: React.ReactNode, colorClass: string = "bg-indigo-600") => (
-    <h3 className="text-base font-semibold text-gray-900 mb-4 flex items-center gap-2">
+    <h3 className="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
       <div className={`p-1.5 rounded-lg text-white ${colorClass}`}>
         {icon}
       </div>
@@ -213,23 +213,23 @@ export default function CompanyInfoPage() {
   );
 
   return (
-    <div className="w-full h-[calc(100vh-160px)] overflow-y-auto custom-scrollbar pr-1 space-y-6 pb-12">
-      <div className="w-full max-w-7xl mx-auto space-y-6">
+    <div className="w-full min-h-full flex-1 space-y-6 pb-12 transition-all duration-300">
+      <div className="w-full space-y-6">
         {/* Header Banner */}
-        <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h1 className="text-lg sm:text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Building2 className="text-indigo-600 h-5 w-5 sm:h-6 sm:w-6" />
+        <div className="w-full bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex-1">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <Building2 className="text-indigo-600 dark:text-indigo-400 h-5 w-5 sm:h-6 sm:w-6" />
               Company Information & Document Printing Settings
             </h1>
-            <p className="text-xs sm:text-sm text-gray-500 mt-1">
+            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
               Configure company details, logo for invoices/documents, and credentials for e-Invoicing & e-Way Bills.
             </p>
           </div>
           <button
             onClick={handleSubmit}
             disabled={saving}
-            className="w-full md:w-auto flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl shadow-md transition-all disabled:opacity-50 text-sm"
+            className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl shadow-md transition-all disabled:opacity-50 text-sm shrink-0 cursor-pointer"
           >
             <Save size={18} />
             {saving ? 'Saving...' : 'Save Company Info'}
@@ -237,20 +237,20 @@ export default function CompanyInfoPage() {
         </div>
 
         {message && (
-          <div className={`p-4 rounded-xl text-sm font-medium flex items-center gap-2 ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+          <div className={`w-full p-4 rounded-xl text-sm font-medium flex items-center gap-2 ${message.type === 'success' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800' : 'bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 border border-red-200 dark:border-red-800'}`}>
             <CheckCircle2 size={18} />
             {message.text}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="w-full space-y-6">
           {/* Section 1: Basic Company Info & Logo */}
-          <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+          <div className="w-full bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
             {renderSectionHeader("General Company Details & Logo", <Building2 size={18} />, "bg-indigo-600")}
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6">
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
                   Company Display Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -258,35 +258,35 @@ export default function CompanyInfoPage() {
                   required
                   value={formData.companyName}
                   onChange={e => setFormData({ ...formData, companyName: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. Acme Manufacturing Pvt Ltd"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Legal Name (as per GST)</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Legal Name (as per GST)</label>
                 <input
                   type="text"
                   value={formData.legalName}
                   onChange={e => setFormData({ ...formData, legalName: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Legal Business Name"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Trade Name</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Trade Name</label>
                 <input
                   type="text"
                   value={formData.tradeName}
                   onChange={e => setFormData({ ...formData, tradeName: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Trade / Brand Name"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
                   Contact Person <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -294,13 +294,13 @@ export default function CompanyInfoPage() {
                   required
                   value={formData.contactPerson}
                   onChange={e => setFormData({ ...formData, contactPerson: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Contact Person Name"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
                   Contact Phone Number <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -308,33 +308,33 @@ export default function CompanyInfoPage() {
                   required
                   value={formData.contactNumber}
                   onChange={e => setFormData({ ...formData, contactNumber: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="+91 9876543210"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Email Address</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Email Address</label>
                 <input
                   type="email"
                   value={formData.email}
                   onChange={e => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="billing@company.com"
                 />
               </div>
 
-              <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Company Logo (For Documents & Invoices)</label>
+              <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 2xl:col-span-5">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Company Logo (For Documents & Invoices)</label>
                 <div className="flex flex-wrap items-center gap-4">
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleLogoChange}
-                    className="px-4 py-2 text-sm border border-gray-300 rounded-xl file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                    className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-900/50 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100"
                   />
                   {logoPreview && (
-                    <div className="h-16 w-28 p-1 border border-gray-200 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden">
+                    <div className="h-16 w-28 p-1 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
                       <img src={logoPreview} alt="Company Logo Preview" className="max-h-full max-w-full object-contain" />
                     </div>
                   )}
@@ -344,12 +344,12 @@ export default function CompanyInfoPage() {
           </div>
 
           {/* Section 2: Address & Location Info */}
-          <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+          <div className="w-full bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
             {renderSectionHeader("Address & Location Details", <MapPin size={18} />, "bg-purple-600")}
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-              <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6">
+              <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 2xl:col-span-5">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
                   Billing Address <span className="text-red-500">*</span>
                 </label>
                 <textarea
@@ -357,22 +357,22 @@ export default function CompanyInfoPage() {
                   rows={2}
                   value={formData.billingAddress}
                   onChange={e => setFormData({ ...formData, billingAddress: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Full Billing Address"
                 />
               </div>
 
-              <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
+              <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 2xl:col-span-5">
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-gray-700">
+                  <label className="block text-xs font-bold text-gray-700 dark:text-gray-300">
                     Shipping Address <span className="text-red-500">*</span>
                   </label>
-                  <label className="flex items-center gap-1.5 text-xs text-purple-600 cursor-pointer font-medium">
+                  <label className="flex items-center gap-1.5 text-xs text-purple-600 dark:text-purple-400 cursor-pointer font-bold">
                     <input
                       type="checkbox"
                       checked={sameAsBilling}
                       onChange={handleCopyBillingToShipping}
-                      className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                      className="rounded border-gray-300 dark:border-gray-700 text-purple-600 focus:ring-purple-500"
                     />
                     Same as Billing Address
                   </label>
@@ -382,62 +382,62 @@ export default function CompanyInfoPage() {
                   rows={2}
                   value={formData.shippingAddress}
                   onChange={e => setFormData({ ...formData, shippingAddress: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Full Shipping Address"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">City</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">City</label>
                 <input
                   type="text"
                   value={formData.city}
                   onChange={e => setFormData({ ...formData, city: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="City"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">District</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">District</label>
                 <input
                   type="text"
                   value={formData.district}
                   onChange={e => setFormData({ ...formData, district: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="District"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">State</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">State</label>
                 <input
                   type="text"
                   value={formData.state}
                   onChange={e => setFormData({ ...formData, state: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. Karnataka"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">State Code (e.g. 29)</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">State Code (e.g. 29)</label>
                 <input
                   type="text"
                   value={formData.stateCode}
                   onChange={e => setFormData({ ...formData, stateCode: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. 29"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Pincode / Postal Code</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Pincode / Postal Code</label>
                 <input
                   type="text"
                   value={formData.pincode}
                   onChange={e => setFormData({ ...formData, pincode: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. 560001"
                 />
               </div>
@@ -445,94 +445,94 @@ export default function CompanyInfoPage() {
           </div>
 
           {/* Section 3: Taxation, e-Invoicing & e-Way Bill Credentials */}
-          <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+          <div className="w-full bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
             {renderSectionHeader("Taxation, e-Invoicing & e-Way Bill Integration", <ShieldCheck size={18} />, "bg-emerald-600")}
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">GSTIN Number</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6">
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">GSTIN Number</label>
                 <input
                   type="text"
                   value={formData.gstNumber}
                   onChange={e => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm font-medium"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. 29AAAAA0000A1Z5"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">PAN Number</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">PAN Number</label>
                 <input
                   type="text"
                   value={formData.panNumber}
                   onChange={e => setFormData({ ...formData, panNumber: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm font-medium"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. ABCDE1234F"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">LUT Number (For Export)</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">LUT Number (For Export)</label>
                 <input
                   type="text"
                   value={formData.lutNumber}
                   onChange={e => setFormData({ ...formData, lutNumber: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="LUT Document Number"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">e-Invoice Portal GSTIN</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">e-Invoice Portal GSTIN</label>
                 <input
                   type="text"
                   value={formData.einvoiceGstin}
                   onChange={e => setFormData({ ...formData, einvoiceGstin: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e-Invoice GSTIN"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">e-Invoice API Username</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">e-Invoice API Username</label>
                 <input
                   type="text"
                   value={formData.einvoiceUsername}
                   onChange={e => setFormData({ ...formData, einvoiceUsername: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="API Username"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">e-Invoice API Password</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">e-Invoice API Password</label>
                 <input
                   type="password"
                   value={formData.einvoicePassword}
                   onChange={e => setFormData({ ...formData, einvoicePassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="API Password"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">e-Way Bill Username</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">e-Way Bill Username</label>
                 <input
                   type="text"
                   value={formData.ewayBillUsername}
                   onChange={e => setFormData({ ...formData, ewayBillUsername: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e-Way Bill Username"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">e-Way Bill Password</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">e-Way Bill Password</label>
                 <input
                   type="password"
                   value={formData.ewayBillPassword}
                   onChange={e => setFormData({ ...formData, ewayBillPassword: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e-Way Bill Password"
                 />
               </div>
@@ -540,61 +540,61 @@ export default function CompanyInfoPage() {
           </div>
 
           {/* Section 4: Bank Details */}
-          <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+          <div className="w-full bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
             {renderSectionHeader("Bank Account Details (For Printing on Invoices)", <Landmark size={18} />, "bg-blue-600")}
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-5">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Account Name</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-4 sm:gap-6">
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Account Name</label>
                 <input
                   type="text"
                   value={formData.bankDetails.accountName}
                   onChange={e => setFormData({ ...formData, bankDetails: { ...formData.bankDetails, accountName: e.target.value } })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. Acme Manufacturing Ltd"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Bank Name</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Bank Name</label>
                 <input
                   type="text"
                   value={formData.bankDetails.bankName}
                   onChange={e => setFormData({ ...formData, bankDetails: { ...formData.bankDetails, bankName: e.target.value } })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. HDFC Bank"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Account Number</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Account Number</label>
                 <input
                   type="text"
                   value={formData.bankDetails.accountNumber}
                   onChange={e => setFormData({ ...formData, bankDetails: { ...formData.bankDetails, accountNumber: e.target.value } })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Account Number"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">IFSC Code</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">IFSC Code</label>
                 <input
                   type="text"
                   value={formData.bankDetails.ifscCode}
                   onChange={e => setFormData({ ...formData, bankDetails: { ...formData.bankDetails, ifscCode: e.target.value.toUpperCase() } })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="e.g. HDFC0001234"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Branch Name</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Branch Name</label>
                 <input
                   type="text"
                   value={formData.bankDetails.branch}
                   onChange={e => setFormData({ ...formData, bankDetails: { ...formData.bankDetails, branch: e.target.value } })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Branch Location"
                 />
               </div>
@@ -602,28 +602,28 @@ export default function CompanyInfoPage() {
           </div>
 
           {/* Section 5: Terms & Print Specs */}
-          <div className="bg-white p-4 sm:p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+          <div className="w-full bg-white dark:bg-gray-900 p-4 sm:p-6 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-4">
             {renderSectionHeader("Document Printing & Terms Configuration", <FileCheck2 size={18} />, "bg-amber-600")}
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Quality Specifications (Default Note)</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Quality Specifications (Default Note)</label>
                 <textarea
                   rows={3}
                   value={formData.qualitySpecs}
                   onChange={e => setFormData({ ...formData, qualitySpecs: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-amber-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Enter default quality specs note for documents..."
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Commercial Terms & Conditions</label>
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Commercial Terms & Conditions</label>
                 <textarea
                   rows={3}
                   value={formData.commercialTerms}
                   onChange={e => setFormData({ ...formData, commercialTerms: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 text-sm"
+                  className="w-full px-4 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-amber-500 focus:bg-white dark:focus:bg-gray-900 text-sm font-semibold transition-all text-gray-900 dark:text-white"
                   placeholder="Enter terms & conditions printed on invoices & purchase orders..."
                 />
               </div>
@@ -634,7 +634,7 @@ export default function CompanyInfoPage() {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl shadow-lg shadow-indigo-100 transition-all disabled:opacity-50 text-sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition-all disabled:opacity-50 text-sm cursor-pointer"
             >
               <Save size={18} />
               {saving ? 'Saving Information...' : 'Save Company Information'}
