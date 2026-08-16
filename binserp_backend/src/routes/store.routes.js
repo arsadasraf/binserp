@@ -53,7 +53,8 @@ import {
   updateStorePrefixSettings,
   getWipInventory,
   getStockTransactions,
-  getItemTransactionHistory
+  getItemTransactionHistory,
+  bulkImportMasters
 } from "../controllers/store/index.js";
 
 import {
@@ -77,7 +78,9 @@ const router = express.Router();
 router.use(verifyJWT);
 
 // Restrict Master routes for Executives
-router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/company-info", "/fg-item"], restrictExecutive);
+router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/company-info", "/fg-item", "/masters/bulk-import"], restrictExecutive);
+
+router.post("/masters/bulk-import", bulkImportMasters);
 
 
 // GRN routes (with PDF and photos upload support)

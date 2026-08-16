@@ -13,11 +13,13 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { InventoryItem } from "@/src/features/store/types/store.types";
-import { Package, Factory, Download, Search, Edit2 } from 'lucide-react';
+import { InventoryItem, MasterType } from "@/src/features/store/types/store.types";
+import { Package, Factory, Download, Search, Edit2, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
 import { apiPost } from '@/src/lib/api';
+import MasterExcelImportModal from '@/src/features/store/components/modals/MasterExcelImportModal';
+import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 
 interface InventoryTableProps {
     data: InventoryItem[];
@@ -42,6 +44,7 @@ export default function InventoryTable({
     onItemClick,
     refetch
 }: InventoryTableProps) {
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [filters, setFilters] = useState<Record<string, string[]>>({});
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -182,6 +185,22 @@ export default function InventoryTable({
                             className="pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 w-64"
                         />
                     </div>
+                    <button
+                        onClick={() => downloadMasterExcelTemplate(activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm"
+                        title="Download standard Excel template format for this inventory view"
+                    >
+                        <Download size={14} className="text-emerald-600" />
+                        Template
+                    </button>
+                    <button
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-md shadow-emerald-600/20"
+                        title="Import Inventory items from Excel Spreadsheet"
+                    >
+                        <FileSpreadsheet size={14} />
+                        Import Excel
+                    </button>
                     <button
                         onClick={exportToExcel}
                         className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-200"
@@ -612,6 +631,15 @@ export default function InventoryTable({
                     </div>
                 </>
             )}
+
+            <MasterExcelImportModal
+                isOpen={isImportModalOpen}
+                masterTab={activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items'}
+                onClose={() => setIsImportModalOpen(false)}
+                onSuccess={() => {
+                    if (refetch) refetch();
+                }}
+            />
         </div>
     );
 }

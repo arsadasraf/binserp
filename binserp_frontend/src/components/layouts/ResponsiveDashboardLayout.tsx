@@ -95,9 +95,9 @@ const fallbackNav: NavItem[] = [{ href: "/dashboard", label: "Dashboard", icon: 
 // ----------------------------------------------------------------------
 
 function resolveNavItems(userType: string | null, department: string | null, roles: any[]): NavItem[] {
-  // 1. Company Admin accounts are strictly restricted to Admin module links
+  // 1. Company Admin accounts have full access to all department module links
   if (userType === "company") {
-    return [...companyNav].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+    return Object.values(departmentNavMap).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   }
 
   // 2. Employee portal user type

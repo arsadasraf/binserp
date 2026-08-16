@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, BarChart3, ShoppingCart, Award } from 'lucide-react';
+import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, BarChart3, ShoppingCart, Award, Download, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import { generateFrontendVendorQuotationPDF } from '@/src/utils/frontendPdfHelper';
 import PoGenerationModal from '../modals/PoGenerationModal';
+import MasterExcelImportModal from '../modals/MasterExcelImportModal';
+import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 
 interface IncomingQuotationTabProps {
     token: string | null;
@@ -17,6 +20,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
     const [rfqs, setRfqs] = useState<any[]>([]);
     const [vendors, setVendors] = useState<any[]>([]);
     const [companyInfo, setCompanyInfo] = useState<any>(null);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
     const [filterVendor, setFilterVendor] = useState<string>('All');

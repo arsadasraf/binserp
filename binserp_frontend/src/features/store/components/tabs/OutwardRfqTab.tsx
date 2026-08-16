@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Send, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck } from 'lucide-react';
+import { Send, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import { generateFrontendRfqPDF } from '@/src/utils/frontendPdfHelper';
+import MasterExcelImportModal from '../modals/MasterExcelImportModal';
+import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 
 interface OutwardRfqTabProps {
     token: string | null;
@@ -16,6 +19,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
     const [materials, setMaterials] = useState<any[]>([]);
     const [vendors, setVendors] = useState<any[]>([]);
     const [companyInfo, setCompanyInfo] = useState<any>(null);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
     const [filterVendor, setFilterVendor] = useState<string>('All');

@@ -12,10 +12,13 @@
 
 import React, { useState, useMemo } from 'react';
 import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { API_BASE_URL } from '@/src/utils/config';
+import MasterExcelImportModal from '@/src/features/store/components/modals/MasterExcelImportModal';
+import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 
 interface POTableProps {
     data: any[];
@@ -68,6 +71,7 @@ const getVendorGstStr = (vendorObj: any): string => {
 };
 
 export default function POTable({ data, vendors = [], companyInfo, onEdit, onDelete, onStatusChange }: POTableProps) {
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedPoPreview, setSelectedPoPreview] = useState<any | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterVendor, setFilterVendor] = useState<string>('All');
@@ -151,6 +155,24 @@ export default function POTable({ data, vendors = [], companyInfo, onEdit, onDel
             return matchSearch && matchStatus && matchVendor;
         });
     }, [data, searchTerm, filterStatus, filterVendor]);
+
+    const exportPOListToExcel = () => {
+        const exportData = filteredData.map((po: any, idx: number) => ({
+            'S.No': idx + 1,
+            'PO Number': po.poNumber || '-',
+            'PO Date': new Date(po.date || Date.now()).toLocaleDateString('en-GB'),
+            'Vendor Name': getVendorNameStr(po),
+            'Items Count': po.items?.length || 0,
+            'Grand Total (₹)': po.grandTotal || po.totalAmount || 0,
+            'Status': po.status || 'Released',
+            'Created By': po.createdByName || po.createdBy?.name || 'Admin User'
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(exportData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Purchase Orders');
+        XLSX.writeFile(wb, `Purchase_Orders_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
 
     return (
         <div className="w-full space-y-4">

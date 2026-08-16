@@ -3,13 +3,15 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Search, Image as ImageIcon } from 'lucide-react';
+import { Edit2, Trash2, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Search, Image as ImageIcon, FileSpreadsheet, Upload } from 'lucide-react';
 import { MasterType } from "@/src/features/store/types/store.types";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import GRNDetailModal from '../modals/GRNDetailModal';
 import MasterDetailModal from '../modals/MasterDetailModal';
+import MasterExcelImportModal from '../modals/MasterExcelImportModal';
+import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import ColumnFilter from './ColumnFilter';
 
 interface MastersTableProps {
@@ -213,6 +215,7 @@ const downloadPOAsExcel = (po: any) => {
 };
 
 export default function MastersTable({ data, masterTab, onEdit, onDelete }: MastersTableProps) {
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [filters, setFilters] = useState<Record<string, string[]>>({});
 
     const handleFilterChange = (column: string, values: string[]) => {
@@ -379,7 +382,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     <span className="text-sm text-gray-500 font-medium whitespace-nowrap">
                         Showing {filteredData.length} records
                     </span>
-                    {["vendor", "customer", "job-work-supplier", "rm-bo-item", "fg-items", "category", "location"].includes(masterTab) && (
+                    {!['grn-history', 'fg-grn-history', 'po-history', 'company-info', 'prefix-settings', 'print-settings'].includes(masterTab) && (
                         <div className="relative w-full sm:max-w-md">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
                             <input
@@ -393,7 +396,27 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     )}
                 </div>
                 
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                    {!['grn-history', 'fg-grn-history', 'po-history', 'company-info', 'prefix-settings', 'print-settings'].includes(masterTab) && (
+                        <>
+                            <button
+                                onClick={() => downloadMasterExcelTemplate(masterTab)}
+                                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm"
+                                title="Download standard Excel template format for this master tab"
+                            >
+                                <Download size={15} className="text-emerald-600" />
+                                Template
+                            </button>
+                            <button
+                                onClick={() => setIsImportModalOpen(true)}
+                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-md shadow-emerald-600/20"
+                                title="Import Master Data from Excel Spreadsheet"
+                            >
+                                <FileSpreadsheet size={15} />
+                                Import Excel
+                            </button>
+                        </>
+                    )}
                     {masterTab !== 'po-history' && (
                         <button
                             onClick={exportToExcel}
@@ -918,6 +941,16 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     </div>
                 </div>
             )}
+
+            {/* Excel Master Data Import Modal */}
+            <MasterExcelImportModal
+                isOpen={isImportModalOpen}
+                masterTab={masterTab}
+                onClose={() => setIsImportModalOpen(false)}
+                onSuccess={() => {
+                    window.location.reload();
+                }}
+            />
         </div>
     );
 }
