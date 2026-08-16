@@ -43,9 +43,23 @@ const updateComponentStock = async (req, componentId, quantity) => {
 // ========== GRN (Goods Receipt Note) ==========
 
 
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
+
 export const updateInventoryStock = async (req, materialId, quantity, unit, locationId, options = {}) => {
   console.log(`>>> [updateInventoryStock] Updating MatID: ${materialId}, Qty: ${quantity}, Unit: ${unit}, Options:`, options);
-  const { isPending = false, isQCRelease = false, inspectedQuantity = 0 } = options;
+  const {
+    isPending = false,
+    isQCRelease = false,
+    inspectedQuantity = 0,
+    transactionCategory,
+    referenceDocType,
+    referenceDocId,
+    referenceDocNumber,
+    recipientOrSource,
+    purpose,
+    performedBy,
+    performedByName,
+  } = options;
 
   try {
     const companyId = getCompanyId(req);
@@ -78,6 +92,9 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
 
     console.log(`>>> [updateInventoryStock] Inventory Found? ${!!inventory}. Current Stock: ${inventory?.currentStock}`);
 
+    let previousStock = 0;
+    let newStock = 0;
+
     if (!inventory) {
       // Create new inventory entry
       let locationName = "";
@@ -86,12 +103,15 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
         if (location) locationName = location.name;
       }
 
+      previousStock = 0;
+      newStock = (!isPending) ? Math.max(0, quantity) : 0;
+
       inventory = await Inventory.create({
         company: companyId,
         materialCode,
         materialName,
         unit: unit || material.unit || "PCS",
-        currentStock: (!isPending) ? Math.max(0, quantity) : 0,
+        currentStock: newStock,
         qcPendingStock: (isPending) ? Math.max(0, quantity) : 0,
         locationId: locationId || undefined,
         categoryId: categoryId || undefined,
@@ -102,18 +122,23 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       // Update existing inventory
       console.log(`>>> [updateInventoryStock] Updating Existing. Old: ${inventory.currentStock}, Change: ${quantity}`);
 
+      previousStock = inventory.currentStock;
+
       if (isPending) {
         // Add to Pending Stock (GRN created, waiting QC)
         inventory.qcPendingStock = (inventory.qcPendingStock || 0) + quantity;
+        newStock = inventory.currentStock;
       } else if (isQCRelease) {
         // Move from Pending to Main (QC Passed)
         // Increase main stock by Accepted Quantity (passed in 'quantity')
         inventory.currentStock = Math.max(0, inventory.currentStock + quantity);
         // Decrease pending stock by Inspected Quantity (processed amount)
         inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) - inspectedQuantity);
+        newStock = inventory.currentStock;
       } else {
         // Regular update (Direct GRN or Issue)
         inventory.currentStock = Math.max(0, inventory.currentStock + quantity);
+        newStock = inventory.currentStock;
       }
 
       console.log(`>>> [updateInventoryStock] New Stock: ${inventory.currentStock}, Pending: ${inventory.qcPendingStock}`);
@@ -137,11 +162,43 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       await inventory.save();
     }
 
+    // Log Stock Transaction Ledger entry if category or doc info is provided
+    if (transactionCategory || referenceDocType) {
+      const defaultCategory = isPending
+        ? "GRN_QC_PENDING_INWARD"
+        : (isQCRelease
+            ? "QC_RELEASE_INWARD"
+            : (quantity >= 0 ? "GRN_PURCHASE_INWARD" : "MATERIAL_ISSUE_SHOPFLOOR_OUTWARD"));
+
+      const movementType = (isPending || isQCRelease || quantity >= 0) ? "INWARD" : "OUTWARD";
+
+      await recordStockTransaction(req, {
+        itemType: "RmBo",
+        item: materialId,
+        itemCode: materialCode,
+        itemName: materialName,
+        unit: unit || material.unit || "PCS",
+        movementType,
+        transactionCategory: transactionCategory || defaultCategory,
+        quantity: Math.abs(quantity),
+        previousStock,
+        newStock,
+        referenceDocType: referenceDocType || "GRN",
+        referenceDocId,
+        referenceDocNumber,
+        recipientOrSource,
+        purpose,
+        performedBy,
+        performedByName,
+      });
+    }
+
     return inventory;
   } catch (error) {
     console.error("Error updating inventory:", error);
     throw error;
   }
 };
+
 
 // Create Inventory

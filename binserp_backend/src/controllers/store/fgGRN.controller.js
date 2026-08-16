@@ -1,5 +1,6 @@
 import { fgGRNSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { uploadOnS3, signPhotos } from "../../utils/s3.js";
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -71,7 +72,7 @@ export const createFGGRN = async (req, res) => {
       items: itemsArray,
       pdf: pdfUrl,
       photos: photoUrls,
-      receivedBy: req.user.id,
+      receivedBy: req.user?.id || req.user?._id,
       status: status || "Received",
       qcRequired,
       qcStatus: qcRequired ? "Pending" : "Skipped",
@@ -85,19 +86,42 @@ export const createFGGRN = async (req, res) => {
       const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
       
       for (const item of itemsArray) {
-         await FGItem.findByIdAndUpdate(item.fgItem, { $inc: { quantity: item.quantity } });
+        const existingFG = await FGItem.findById(item.fgItem);
+        const previousStock = existingFG ? (existingFG.quantity || 0) : 0;
+        const newStock = previousStock + item.quantity;
+
+        await FGItem.findByIdAndUpdate(item.fgItem, { $set: { quantity: newStock } });
          
-         try {
-           await FGInventoryMonthly.findOneAndUpdate(
-             { company: companyId, fgItem: item.fgItem, month: currentMonthStr },
-             { $inc: { totalInwardQuantity: item.quantity } },
-             { new: true, upsert: true }
-           );
-         } catch (monthlyErr) {
-           console.error("Error updating FG monthly inward quantity:", monthlyErr);
-         }
+        try {
+          await FGInventoryMonthly.findOneAndUpdate(
+            { company: companyId, fgItem: item.fgItem, month: currentMonthStr },
+            { $inc: { totalInwardQuantity: item.quantity } },
+            { new: true, upsert: true }
+          );
+        } catch (monthlyErr) {
+          console.error("Error updating FG monthly inward quantity:", monthlyErr);
+        }
+
+        await recordStockTransaction(req, {
+          itemType: "FGItem",
+          item: item.fgItem,
+          itemName: item.itemName,
+          unit: item.unit || "Nos",
+          movementType: "INWARD",
+          transactionCategory: "FG_GRN_INWARD",
+          quantity: item.quantity,
+          previousStock,
+          newStock,
+          referenceDocType: "FGGRN",
+          referenceDocId: newGRN._id,
+          referenceDocNumber: grnNumber,
+          recipientOrSource: "In-House Production",
+          purpose: remarks || "Finished Goods Production GRN Inward",
+          performedBy: req.user?.id || req.user?._id,
+        });
       }
     }
+
 
     res.status(201).json({ message: "FG GRN created successfully", grn: newGRN });
   } catch (error) {

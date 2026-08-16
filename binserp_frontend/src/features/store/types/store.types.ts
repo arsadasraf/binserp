@@ -478,6 +478,13 @@ export interface JobWorkChallan {
     estimatedPrice?: number;
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
+    jobWorkType?: 'route-card' | 'inventory-conversion';
+    routeCardRef?: {
+        job?: string;
+        routeCard?: string;
+        operationSequence?: number;
+        operationName?: string;
+    };
     status: 'Open' | 'Partial' | 'Closed' | 'Overdue';
     items: JobWorkItem[];
     createdAt: string;
@@ -494,7 +501,15 @@ export interface JobWorkFormData {
     estimatedPrice?: number;
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
+    jobWorkType?: 'route-card' | 'inventory-conversion';
+    routeCardRef?: {
+        job?: string;
+        routeCard?: string;
+        operationSequence?: number;
+        operationName?: string;
+    };
     items: {
+
         item?: string;
         itemName?: string;
         itemType: 'bo' | 'inhouse' | 'fg' | 'custom';

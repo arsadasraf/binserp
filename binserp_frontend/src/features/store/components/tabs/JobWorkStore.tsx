@@ -118,6 +118,9 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
         }
     };
 
+    const [workflowFilter, setWorkflowFilter] = useState<'all' | 'inventory-conversion' | 'route-card'>('all');
+
+
     // Filter Logic
     const filteredChallans = challans.filter(c => {
         const matchesSearch =
@@ -125,6 +128,11 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
             (c.vendor?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || false;
 
         if (!matchesSearch) return false;
+
+        if (workflowFilter !== 'all') {
+            const type = c.jobWorkType || 'inventory-conversion';
+            if (type !== workflowFilter) return false;
+        }
 
         if (filterSupplier && c.vendor?._id !== filterSupplier) return false;
         if (filterMonth) {
@@ -147,6 +155,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
         }
         return true;
     });
+
 
     return (
         <div className="animate-in fade-in duration-300">
@@ -186,12 +195,24 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
 
                 {/* Search & Create Button */}
                 <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
+                    {/* Workflow Selector */}
+                    <select
+                        value={workflowFilter}
+                        onChange={(e) => setWorkflowFilter(e.target.value as any)}
+                        className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium text-gray-700 bg-white"
+                    >
+                        <option value="all">All Workflows</option>
+                        <option value="inventory-conversion">Store RM/BO Subcontracting Conversion</option>
+                        <option value="route-card">PPC Route-Card Operations</option>
+                    </select>
+
                     {/* Filters */}
                     <select
                         value={filterSupplier}
                         onChange={(e) => setFilterSupplier(e.target.value)}
                         className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                     >
+
                         <option value="">All Suppliers</option>
                         {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
                             const vendor = challans.find(c => c.vendor?._id === id)?.vendor;

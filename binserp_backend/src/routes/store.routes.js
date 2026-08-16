@@ -51,8 +51,11 @@ import {
   deleteJobWorkSupplier,
   getStorePrefixSettings,
   updateStorePrefixSettings,
-  getWipInventory
+  getWipInventory,
+  getStockTransactions,
+  getItemTransactionHistory
 } from "../controllers/store/index.js";
+
 import {
   getFulfillments,
   reserveQuantity,
@@ -99,6 +102,9 @@ router.post("/inventory", createInventory);
 router.get("/inventory", getInventory);
 router.put("/inventory/:id", updateInventory);
 router.get("/inventory/low-stock", getLowStockItems);
+router.get("/transactions", getStockTransactions);
+router.get("/transactions/item/:id", getItemTransactionHistory);
+
 
 // Material Request routes
 router.post("/material-request", createMaterialRequest);

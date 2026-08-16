@@ -305,8 +305,18 @@ export const createGRN = async (req, res) => {
             parseFloat(item.quantity),
             item.unit,
             item.locationId,
-            { isPending: !!qcRequired }
+            {
+              isPending: !!qcRequired,
+              transactionCategory: qcRequired ? "GRN_QC_PENDING_INWARD" : "GRN_PURCHASE_INWARD",
+              referenceDocType: "GRN",
+              referenceDocId: grn._id,
+              referenceDocNumber: grnNumber,
+              recipientOrSource: supplierName || "Supplier",
+              purpose: "Goods Receipt Note Purchase Inward",
+              performedBy: req.user?.id || req.user?._id,
+            }
           );
+
 
           try {
             await RMInventoryMonthly.findOneAndUpdate(

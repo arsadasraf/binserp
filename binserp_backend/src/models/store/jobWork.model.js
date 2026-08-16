@@ -53,11 +53,23 @@ export const jobWorkSchema = new mongoose.Schema(
     eSugamDate: {
       type: Date,
     },
+    jobWorkType: {
+      type: String,
+      enum: ["route-card", "inventory-conversion"],
+      default: "inventory-conversion",
+    },
+    routeCardRef: {
+      job: { type: mongoose.Schema.Types.ObjectId, ref: "Job" },
+      routeCard: { type: mongoose.Schema.Types.ObjectId, ref: "RouteCard" },
+      operationSequence: Number,
+      operationName: String,
+    },
     status: {
       type: String,
       enum: ["Open", "Partial", "Closed", "Overdue"],
       default: "Open",
     },
+
     items: [
       {
         item: {

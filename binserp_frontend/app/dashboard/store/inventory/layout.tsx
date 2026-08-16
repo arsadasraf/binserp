@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Package, Factory, History } from 'lucide-react';
+import { Package, Factory, History, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function InventoryLayout({ children }: { children: React.ReactNode }) {
@@ -12,9 +12,11 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
   const tabs = [
     { name: 'RM/BO Inventory', href: '/dashboard/store/inventory/rm-bo-stock', icon: Package },
     { name: 'FG Inventory', href: '/dashboard/store/inventory/inhouse-stock', icon: Factory },
+    { name: 'Transaction Ledger', href: '/dashboard/store/inventory/ledger', icon: Layers },
     { name: 'BO GRN History', href: '/dashboard/store/inventory/grn-history', icon: History },
     { name: 'FG GRN History', href: '/dashboard/store/inventory/fg-grn-history', icon: History },
   ];
+
 
   return (
     <div className="flex flex-col h-full bg-gray-50/50 rounded-2xl p-4 md:p-6 gap-6">

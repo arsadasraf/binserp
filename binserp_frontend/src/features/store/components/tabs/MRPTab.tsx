@@ -7,7 +7,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { getApiBaseUrl } from '@/src/utils/config';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
+
 import { Search, Save, AlertCircle, CheckCircle2, ClipboardList, Layers, Send, ArrowRight } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -17,9 +19,10 @@ export default function MRPTab() {
   const [rmPlans, setRmPlans] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentSubTab, setCurrentSubTab] = useState<'fg' | 'bo'>('fg');
-
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+  const apiUrl = getApiBaseUrl();
+
+
 
   useEffect(() => {
     fetchMRPData();

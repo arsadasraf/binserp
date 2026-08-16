@@ -22,3 +22,5 @@ export { storeOrderFulfillmentSchema } from './storeOrderFulfillment.model.js';
 export { storeMRPSchema } from './storeMRP.model.js';
 export { storeRMPlanSchema } from './storeRMPlan.model.js';
 export { storePrefixSchema } from './storePrefix.model.js';
+export { stockTransactionSchema } from './stockTransaction.model.js';
+

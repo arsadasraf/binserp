@@ -359,11 +359,20 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                         ) : null}
 
                                                         <td className="px-4 py-3 font-bold text-indigo-700 dark:text-indigo-300">
-                                                            <div className="flex items-center gap-1">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
                                                                 <ArrowRight size={13} className="text-indigo-500 flex-shrink-0" />
-                                                                {ret.receivedItemName || sentItem.itemName}
+                                                                <span>{ret.receivedItemName || sentItem.itemName}</span>
+                                                                <span className={`px-1.5 py-0.5 text-[9px] font-extrabold rounded ${
+                                                                    ((ret.receivedItemType as string) === 'bo' || (ret.receivedItemType as string) === 'rm')
+                                                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200/50'
+                                                                        : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/50'
+                                                                }`}>
+                                                                    {((ret.receivedItemType as string) === 'bo' || (ret.receivedItemType as string) === 'rm') ? 'RM/BO Stock' : 'FG Stock'}
+                                                                </span>
+
                                                             </div>
                                                         </td>
+
 
                                                         <td className="px-4 py-3 text-center font-semibold text-slate-700 dark:text-slate-300">
                                                             {expectedQty} <span className="text-[10px] text-slate-400">{ret.receivingUnit || 'PCS'}</span>

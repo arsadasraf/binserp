@@ -124,7 +124,7 @@ app.use("/api/maintenance", maintenanceRoutes);
 app.use("/api/quality", qualityRoutes);
 app.use("/api/crm", crmRoutes);
 app.use("/api/auth", authRoutes);
-app.use("/auth", authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/purchase", purchaseRoutes);

@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -79,6 +81,7 @@ export const createDC = async (req, res) => {
     }
 
     const dc = await DeliveryChallan.create({
+
       company: companyId,
       dcNumber,
       date,
@@ -90,10 +93,60 @@ export const createDC = async (req, res) => {
       discount: req.body.discount,
       otherDetails: req.body.otherDetails,
       status: status || 'Draft',
-      preparedBy: req.user.id
+      preparedBy: req.user?.id || req.user?._id
     });
 
+    // Auto-deduct FG item stock and log SALES_DC_OUTWARD transaction when DC is Issued or Delivered
+    if (dc.status === "Issued" || dc.status === "Delivered") {
+      const FGItem = req.getModel("FGItem", fgItemSchema);
+      const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+      const currentDate = new Date();
+      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+
+      for (const item of items) {
+        const fgId = item.fgItem || item.material || item.component;
+        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
+          const fgDoc = await FGItem.findById(fgId);
+          if (fgDoc) {
+            const previousStock = fgDoc.quantity || 0;
+            const newStock = Math.max(0, previousStock - Number(item.quantity));
+
+            await FGItem.findByIdAndUpdate(fgId, { $set: { quantity: newStock } });
+
+            try {
+              await FGInventoryMonthly.findOneAndUpdate(
+                { company: companyId, fgItem: fgId, month: currentMonthStr },
+                { $inc: { totalOutwardQuantity: Number(item.quantity) } },
+                { new: true, upsert: true }
+              );
+            } catch (mErr) {
+              console.error("Monthly FG outward update err:", mErr);
+            }
+
+            await recordStockTransaction(req, {
+              itemType: "FGItem",
+              item: fgId,
+              itemName: item.materialName || fgDoc.name,
+              unit: item.unit || fgDoc.unit || "PCS",
+              movementType: "OUTWARD",
+              transactionCategory: "SALES_DC_OUTWARD",
+              quantity: Number(item.quantity),
+              previousStock,
+              newStock,
+              referenceDocType: "DeliveryChallan",
+              referenceDocId: dc._id,
+              referenceDocNumber: dcNumber,
+              recipientOrSource: req.body.customerName || "Customer",
+              purpose: `Customer Sales Dispatch (DC #${dcNumber})`,
+              performedBy: req.user?.id || req.user?._id,
+            });
+          }
+        }
+      }
+    }
+
     res.status(201).json({ message: "DC created successfully", dc });
+
   } catch (error) {
     console.error("Error creating DC:", error);
     res.status(500).json({ message: error.message });

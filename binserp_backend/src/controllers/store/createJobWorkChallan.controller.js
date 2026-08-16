@@ -217,6 +217,12 @@ export const createJobWorkChallan = async (req, res) => {
       processedItems.push(processedItem);
     }
 
+    const Job = req.getModel("Job", jobSchema);
+    const {
+      jobWorkType = "inventory-conversion",
+      routeCardRef
+    } = req.body;
+
     // Create Challan
     const jobWork = await JobWorkChallan.create({
       company: companyId,
@@ -230,24 +236,57 @@ export const createJobWorkChallan = async (req, res) => {
       ewayBillNo: ewayBillNo || "",
       estimatedWeight: Number(estimatedWeight) || 0,
       estimatedPrice: Number(estimatedPrice) || 0,
+      jobWorkType,
+      routeCardRef,
       status: "Open",
       items: processedItems,
-      createdBy: req.user.id
+      createdBy: req.user?.id || req.user?._id
     });
 
-    // Update inventory for RM/BO items (outward transition)
+    // Update inventory for RM/BO items (outward transition) or PPC Route Card operation status
     const currentDate = new Date();
     const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
     const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
 
+    const vendorDoc = await req.getModel("Vendor", vendorSchema).findById(vendor);
+    const vendorName = vendorDoc ? vendorDoc.name : "Subcontractor Vendor";
+
+    if (jobWorkType === "route-card" && routeCardRef?.job) {
+      try {
+        const jobDoc = await Job.findById(routeCardRef.job);
+        if (jobDoc && Array.isArray(jobDoc.processHistory)) {
+          const op = jobDoc.processHistory.find((p) => p.sequence === routeCardRef.operationSequence || p.isJobWork);
+
+          if (op) {
+            op.status = "InProgress";
+            op.isJobWork = true;
+            op.assignedVendor = vendor;
+            await jobDoc.save();
+          }
+        }
+      } catch (jobErr) {
+        console.error("Error updating PPC Job for route card job work challan:", jobErr);
+      }
+    }
+
     for (const item of processedItems) {
-      if (item.itemType === "bo" && item.item) {
-        // Decrease current stock
+      if (jobWorkType !== "route-card" && item.itemType === "bo" && item.item) {
+        // Decrease current stock & log returnable DC transaction
         await updateInventoryStock(
           req,
           item.item, // material ID
           -Number(item.quantitySent), // Negative to decrement stock
-          item.unit || "PCS"
+          item.unit || "PCS",
+          undefined,
+          {
+            transactionCategory: "RETURNABLE_DC_JOB_WORK_OUTWARD",
+            referenceDocType: "JobWorkChallan",
+            referenceDocId: jobWork._id,
+            referenceDocNumber: challanNumber,
+            recipientOrSource: vendorName,
+            purpose: item.processType || "Subcontractor Job Work Conversion",
+            performedBy: req.user?.id || req.user?._id,
+          }
         );
         
         // Update Monthly Outward Flow
@@ -264,6 +303,7 @@ export const createJobWorkChallan = async (req, res) => {
     }
 
     await jobWork.populate("vendor");
+
 
     res.status(201).json({ message: "Job Work Challan created successfully", jobWork });
 

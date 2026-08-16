@@ -56,3 +56,6 @@ export { getRMMonthlyInventory, getFGMonthlyInventory } from './getMonthlyInvent
 export { updateRMMonthlyInventory, updateFGMonthlyInventory } from './updateMonthlyInventory.controller.js';
 export { getStorePrefixSettings, updateStorePrefixSettings } from './storePrefix.controller.js';
 export { getWipInventory } from './getWipInventory.controller.js';
+export { getStockTransactions } from './getStockTransactions.controller.js';
+export { getItemTransactionHistory } from './getItemTransactionHistory.controller.js';
+

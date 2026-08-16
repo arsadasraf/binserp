@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Package, Factory, History, FileText } from 'lucide-react';
+import { Package, Factory, History, FileText, Layers } from 'lucide-react';
 import InventoryTable from '../tables/InventoryTable';
+import StockTransactionLedgerTable from '../tables/StockTransactionLedgerTable';
 import GRNModal from '../modals/GRNModal';
 import ItemDetailsModal from '../modals/ItemDetailsModal';
 import MastersTable from '../tables/MastersTable'; // For GRN History
@@ -11,8 +12,9 @@ interface InventoryTabProps {
     token: string | null;
     masterTab?: string;
     setMasterTab?: (tab: any) => void;
-    activeSubTab: 'bo' | 'inhouse' | 'history' | 'fg-history';
+    activeSubTab: 'bo' | 'inhouse' | 'history' | 'fg-history' | 'ledger';
 }
+
 
 export default function InventoryTab({ storeData, token, masterTab, setMasterTab, activeSubTab }: InventoryTabProps) {
 
@@ -179,8 +181,12 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             </div>
 
             {/* Content Container */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm min-h-[400px] overflow-hidden p-1">
-                {activeSubTab === 'history' || activeSubTab === 'fg-history' ? (
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm min-h-[400px] overflow-hidden p-1">
+                {activeSubTab === 'ledger' ? (
+                    <div className="p-3">
+                        <StockTransactionLedgerTable token={token} />
+                    </div>
+                ) : activeSubTab === 'history' || activeSubTab === 'fg-history' ? (
                     <MastersTable
                         data={data}
                         masterTab={activeSubTab === 'history' ? "grn-history" : "fg-grn-history"}
@@ -204,6 +210,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     />
                 )}
             </div>
+
 
             {/* Modals */}
             <GRNModal

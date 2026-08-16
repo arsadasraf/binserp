@@ -1,5 +1,7 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import mongoose from "mongoose";
+
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
@@ -128,6 +130,7 @@ export const createMaterialIssue = async (req, res) => {
     });
 
     // Auto-update inventory when material is issued
+
     if (status === "Issued") {
       console.log(`>>> [createMaterialIssue] Status is Issued. Updating Stock...`);
       const currentDate = new Date();
@@ -138,6 +141,10 @@ export const createMaterialIssue = async (req, res) => {
 
       for (const item of processedItems) {
         if (isInhouse) {
+          const compDoc = await FGItem.findById(item.component);
+          const previousStock = compDoc ? (compDoc.quantity || 0) : 0;
+          const newStock = Math.max(0, previousStock - item.quantity);
+
           await updateFGItemStock(req, item.component, -item.quantity);
           
           try {
@@ -149,12 +156,40 @@ export const createMaterialIssue = async (req, res) => {
           } catch (monthlyErr) {
             console.error("Error updating FG monthly outward quantity:", monthlyErr);
           }
+
+          await recordStockTransaction(req, {
+            itemType: "FGItem",
+            item: item.component,
+            itemName: item.materialName,
+            unit: item.unit || "Nos",
+            movementType: "OUTWARD",
+            transactionCategory: "MATERIAL_ISSUE_FG_OUTWARD",
+            quantity: item.quantity,
+            previousStock,
+            newStock,
+            referenceDocType: "MaterialIssue",
+            referenceDocId: materialIssue._id,
+            referenceDocNumber: issueNumber,
+            recipientOrSource: department || "Shop Floor",
+            purpose: item.purpose || "Shop Floor Assembly Issue",
+            performedBy: req.user?.id || req.user?._id,
+          });
         } else {
           await updateInventoryStock(
             req,
             item.material, // Correct: Use ID
             -item.quantity, // Negative to decrement
-            item.unit || "PCS"
+            item.unit || "PCS",
+            undefined,
+            {
+              transactionCategory: "MATERIAL_ISSUE_SHOPFLOOR_OUTWARD",
+              referenceDocType: "MaterialIssue",
+              referenceDocId: materialIssue._id,
+              referenceDocNumber: issueNumber,
+              recipientOrSource: department || "Shop Floor",
+              purpose: item.purpose || "Shop Floor Production Issue",
+              performedBy: req.user?.id || req.user?._id,
+            }
           );
           
           try {
@@ -169,6 +204,7 @@ export const createMaterialIssue = async (req, res) => {
         }
       }
     }
+
 
     res.status(201).json({ message: "Material issue created successfully", materialIssue });
   } catch (error) {

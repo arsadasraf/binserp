@@ -550,8 +550,46 @@ export default function JobWorkForm({
                 {/* Form Body */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 sm:p-7 space-y-6">
                     
+                    {/* Workflow Type Selector */}
+                    <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-200/80 dark:border-indigo-800/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <span className="text-xs font-black uppercase tracking-wider text-indigo-900 dark:text-indigo-200 block">
+                                Job-Work Workflow Type
+                            </span>
+                            <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 mt-0.5">
+                                Select purpose of subcontracting dispatch: Store Inventory RM/BO Conversion vs PPC Route-Card Operation
+                            </p>
+                        </div>
+
+                        <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                            <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, jobWorkType: 'inventory-conversion' })}
+                                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    (formData.jobWorkType || 'inventory-conversion') === 'inventory-conversion'
+                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                Store RM/BO Conversion
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setFormData({ ...formData, jobWorkType: 'route-card' })}
+                                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    formData.jobWorkType === 'route-card'
+                                        ? 'bg-indigo-600 text-white shadow-sm'
+                                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                PPC Route-Card Operation
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Section 1: Supplier & Dispatch Info */}
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/70 space-y-4">
+
                         <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                             <User size={14} />
                             1. Supplier & Dispatch Information
