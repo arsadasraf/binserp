@@ -17,7 +17,12 @@ export function RequirePermission({ module, tab, action, children, fallback = nu
   useEffect(() => {
     const checkPermission = () => {
       const userType = localStorage.getItem("userType");
-      if (userType === "company" || userType === "saasadmin") {
+      if (userType === "company") {
+        setHasPermission(module.toLowerCase() === "admin");
+        setIsChecking(false);
+        return;
+      }
+      if (userType === "saasadmin") {
         setHasPermission(true);
         setIsChecking(false);
         return;

@@ -11,7 +11,7 @@ import Swal from "sweetalert2";
 
 export default function SalesDCPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: dcList, loading, refetch, handleDCSubmit, handleDCUpdate, handleDelete, customers, fgItems } = useStoreData("dc", "customer", token);
+  const { data: dcList, loading, refetch, handleDCSubmit, handleDCUpdate, handleDelete, customers, fgItems, companyInfo } = useStoreData("dc", "customer", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingDC, setEditingDC] = useState<any>(null);
@@ -36,6 +36,7 @@ export default function SalesDCPage() {
 
       <DCTable
         data={dcList || []}
+        companyInfo={companyInfo}
         onEdit={(dc) => { setEditingDC(dc); setShowModal(true); }}
         onDelete={(id) => handleDelete(id)}
       />

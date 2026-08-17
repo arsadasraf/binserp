@@ -31,22 +31,28 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  if (isProtected && userType !== "company") {
-    const upperDept = department?.toUpperCase();
-    if (upperDept === "CEO" || upperDept === "MD" || upperDept === "MANAGER") {
-      // CEO, MD and Manager have full access, bypass restrictions
+  if (isProtected) {
+    if (userType === "company") {
+      if (pathname !== "/dashboard" && !pathname.startsWith("/dashboard/admin")) {
+        return NextResponse.redirect(new URL("/dashboard/admin/overview", request.url));
+      }
     } else {
-      for (const [route, allowedDepartments] of Object.entries(departmentAccess)) {
-        // also make allowed departments case insensitive
-        const allowedUpper = allowedDepartments.map(d => d.toUpperCase());
-        if (pathname.startsWith(route) && upperDept && !allowedUpper.includes(upperDept)) {
+      const upperDept = department?.toUpperCase();
+      if (upperDept === "CEO" || upperDept === "MD" || upperDept === "MANAGER") {
+        // CEO, MD and Manager have full access, bypass restrictions
+      } else {
+        for (const [route, allowedDepartments] of Object.entries(departmentAccess)) {
+          // also make allowed departments case insensitive
+          const allowedUpper = allowedDepartments.map(d => d.toUpperCase());
+          if (pathname.startsWith(route) && upperDept && !allowedUpper.includes(upperDept)) {
+            return NextResponse.redirect(new URL("/dashboard", request.url));
+          }
+        }
+        
+        // Admin should only access /dashboard and /dashboard/admin
+        if (pathname.startsWith("/dashboard/admin") && upperDept !== "ADMIN") {
           return NextResponse.redirect(new URL("/dashboard", request.url));
         }
-      }
-      
-      // Admin should only access /dashboard and /dashboard/admin
-      if (pathname.startsWith("/dashboard/admin") && upperDept !== "ADMIN") {
-        return NextResponse.redirect(new URL("/dashboard", request.url));
       }
     }
   }

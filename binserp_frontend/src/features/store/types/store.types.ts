@@ -226,13 +226,23 @@ export interface Process {
 export interface CompanyInfo {
     _id?: string;
     companyName: string;
-    contactPerson: string;
-    contactNumber: string;
+    name?: string;
+    contactPerson?: string;
+    contactNumber?: string;
     email?: string;
     logo?: string; // URL to Cloudinary image
     gstNumber?: string;
-    billingAddress: string;
-    shippingAddress: string;
+    gstin?: string;
+    gst?: string;
+    panNumber?: string;
+    pan?: string;
+    billingAddress?: string;
+    shippingAddress?: string;
+    address?: string;
+    location?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
     qualitySpecs?: string;
     commercialTerms?: string;
     bankDetails?: BankDetails;

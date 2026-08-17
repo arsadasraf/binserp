@@ -1477,3 +1477,710 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
 
     printWindow.document.close();
 };
+
+/**
+ * Generate Delivery Challan PDF matching Outward Sales Quotation PDF color theme (#3730a3, #4f46e5, #eef2ff)
+ * and native Indian Rupee symbol ₹ rendering.
+ */
+export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyType?: "all" | "original" | "duplicate" | "triplicate" }) => {
+    const { doc, companyInfo, copyType = "all" } = data;
+
+    if (!doc) {
+        alert("No Delivery Challan data provided for PDF generation");
+        return;
+    }
+
+    // Number to Words Converter (Indian Currency Format)
+    function numberToWords(num: number): string {
+        if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
+        const a = [
+            "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
+            "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
+        ];
+        const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+        function inWords(n: number): string {
+            if (n < 20) return a[n];
+            if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
+            if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
+            if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
+            if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
+            return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
+        }
+
+        const integerPart = Math.floor(num);
+        const decimalPart = Math.round((num - integerPart) * 100);
+
+        let str = "Rupees " + inWords(integerPart).trim();
+        if (decimalPart > 0) {
+            str += " and " + inWords(decimalPart).trim() + " Paise";
+        }
+        return str + " Only";
+    }
+
+    // 1. Resolve Company Master Details
+    let masterCompany = companyInfo;
+    if (!masterCompany || !masterCompany.companyName) {
+        try {
+            const storedCompany = localStorage.getItem("companyInfo");
+            const storedUser = localStorage.getItem("userInfo");
+            if (storedCompany) masterCompany = { ...JSON.parse(storedCompany), ...companyInfo };
+            else if (storedUser) masterCompany = { ...JSON.parse(storedUser), ...companyInfo };
+        } catch (e) {
+            console.warn("Could not parse cached company info:", e);
+        }
+    }
+
+    const compName = masterCompany?.companyName || masterCompany?.name || 'COMPANY MASTER';
+    const compAddressRaw = masterCompany?.billingAddress || masterCompany?.address || masterCompany?.location || '';
+    const compCityState = [masterCompany?.city, masterCompany?.state, masterCompany?.pincode ? `- ${masterCompany.pincode}` : ''].filter(Boolean).join(' ');
+    const compAddress = [compAddressRaw, compCityState].filter(Boolean).join(', ');
+    const compPhone = masterCompany?.contactNumber || masterCompany?.phone || masterCompany?.mobile || '';
+    const compEmail = masterCompany?.email || '';
+    const compGst = masterCompany?.gstin || masterCompany?.gstNumber || masterCompany?.gst || 'N/A';
+    const compPan = masterCompany?.panNumber || masterCompany?.pan || 'N/A';
+
+    const bankName = masterCompany?.bankDetails?.bankName || masterCompany?.bankName || '-';
+    const accountNumber = masterCompany?.bankDetails?.accountNumber || masterCompany?.accountNumber || '-';
+    const ifscCode = masterCompany?.bankDetails?.ifscCode || masterCompany?.ifscCode || '-';
+    const branchName = masterCompany?.bankDetails?.branchName || masterCompany?.branchName || '';
+
+    // 2. Resolve Customer Details
+    const custObj = typeof doc.customer === 'object' ? doc.customer : {};
+    const custName = doc.customerName || custObj?.name || custObj?.companyName || 'Internal Customer / Cash Sales';
+    const custAddressRaw = doc.customerAddress || custObj?.address || custObj?.billingAddress || custObj?.shippingAddress || '';
+    const custCityState = [custObj?.city, custObj?.state, custObj?.pincode].filter(Boolean).join(' ');
+    const custAddress = custAddressRaw && custCityState ? `${custAddressRaw}, ${custCityState}` : (custAddressRaw || '-');
+    const custGst = doc.customerGST || custObj?.gstin || custObj?.gstNumber || custObj?.gst || 'N/A';
+    const custPhone = doc.customerPhone || custObj?.phone || custObj?.contactNumber || '';
+    const custEmail = doc.customerEmail || custObj?.email || '';
+    const custPoRef = doc.customerPoReference || doc.poNumber || '-';
+    const custPoDate = doc.poDate ? new Date(doc.poDate).toLocaleDateString("en-IN") : '-';
+
+    // 3. Document Logistics Metadata
+    const docNum = doc.dcNumber || 'DC-001';
+    const creationDateTimeStr = doc.createdAt || doc.date ? new Date(doc.createdAt || doc.date).toLocaleString('en-IN', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
+    }) : '-';
+    const transportMode = doc.transportationType || doc.transportType || doc.transportMode || 'Road Transport';
+    const vehicleNo = doc.vehicleNumber || doc.vehicleNo || '-';
+    const packagingType = doc.packagingType || 'Standard Packaging';
+    const eWayNo = doc.eWayBillNo || doc.eWayNo || '-';
+
+    // 4. Resolve Copy Types
+    let copyTypes = [
+        'ORIGINAL FOR RECIPIENT',
+        'DUPLICATE FOR TRANSPORTER',
+        'TRIPLICATE FOR SUPPLIER'
+    ];
+
+    if (copyType === "original") copyTypes = ['ORIGINAL FOR RECIPIENT'];
+    else if (copyType === "duplicate") copyTypes = ['DUPLICATE FOR TRANSPORTER'];
+    else if (copyType === "triplicate") copyTypes = ['TRIPLICATE FOR SUPPLIER'];
+
+    // 5. Line Items HTML
+    const items = doc.items || [];
+    let itemsTableRowsHtml = '';
+
+    items.forEach((item: any, idx: number) => {
+        const qty = Number(item.quantity || item.qty || 0);
+        const rate = Number(item.rate || item.unitPrice || item.price || 0);
+        const amount = Number(item.amount || item.lineTotal || (qty * rate));
+        const itemName = item.materialName || item.productName || item.itemName || item.name || 'Item';
+        const hsn = item.hsnCode || item.hsn || '-';
+        const remarks = item.remarks || item.description || item.specifications || '-';
+
+        itemsTableRowsHtml += `
+            <tr>
+                <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                <td style="text-align: left; font-weight: bold; padding: 6px; color: #0f172a;">
+                    ${itemName}
+                </td>
+                <td style="text-align: center; padding: 6px; font-family: monospace;">${hsn}</td>
+                <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${item.unit || item.uom || 'PCS'}</td>
+                <td style="text-align: right; padding: 6px; font-family: monospace;">₹${rate ? rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">₹${amount ? amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td style="text-align: left; padding: 6px; color: #475569; font-size: 9.5px;">${remarks}</td>
+            </tr>
+        `;
+    });
+
+    // Pad blank rows if items < 5
+    for (let i = items.length; i < 5; i++) {
+        itemsTableRowsHtml += `
+            <tr>
+                <td style="height: 24px; padding: 6px;"></td>
+                <td></td><td></td><td></td><td></td><td></td><td></td>
+            </tr>
+        `;
+    }
+
+    const subtotal = doc.subtotal || items.reduce((acc: number, i: any) => acc + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
+    const transportCharges = Number(doc.transportationCharges || doc.freightCharges || 0);
+    const packagingCharges = Number(doc.packagingCharges || 0);
+    const discount = Number(doc.discount || 0);
+    const taxAmount = doc.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
+    const grandTotal = doc.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+
+    const pagesHtml = copyTypes.map((copyBadge) => `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 11px; color: #111; margin-bottom: 20px; page-break-after: always; position: relative; box-sizing: border-box;">
+            
+            <!-- Company Header & Copy Badge -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 10px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #3730a3; text-transform: uppercase; letter-spacing: -0.5px;">${compName}</h1>
+                    <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                    <div style="font-size: 9.5px; color: #1e293b; font-weight: bold; margin-top: 4px;">
+                        GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="display: inline-block; background: #3730a3; color: #ffffff; font-size: 9px; font-weight: 900; padding: 4px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        ${copyBadge}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #eef2ff; border: 1px solid #c7d2fe; font-weight: bold; font-size: 14px; padding: 7px; text-transform: uppercase; letter-spacing: 1px; color: #3730a3; margin-bottom: 12px;">
+                DELIVERY CHALLAN
+            </div>
+
+            <!-- Buyer & Logistics Details Grid -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px;">
+                <tr>
+                    <td style="width: 52%; vertical-align: top; border: 1px solid #94a3b8; padding: 10px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #4f46e5; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">BUYER / CONSIGNEE DETAILS</div>
+                        <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${custName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${custAddress ? '<b>Address:</b> ' + custAddress + '<br>' : ''}
+                            ${custPhone ? '<b>Contact:</b> ' + custPhone + '<br>' : ''}
+                            ${custEmail ? '<b>Email:</b> ' + custEmail + '<br>' : ''}
+                        </div>
+                        ${custGst && custGst !== 'N/A' ? `<div style="margin-top: 6px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 4px;"><b>GSTIN:</b> ${custGst}</div>` : ''}
+                        ${custPoRef && custPoRef !== '-' ? `<div style="margin-top: 4px; font-size: 10px; color: #3730a3;"><b>PO Ref:</b> ${custPoRef} ${custPoDate !== '-' ? `(Date: ${custPoDate})` : ''}</div>` : ''}
+                    </td>
+
+                    <td style="width: 48%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>DC Number:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: 900; font-size: 12.5px; color: #3730a3; font-family: monospace;">${docNum}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Creation Date & Time:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold;">${creationDateTimeStr}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Transport Mode:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold;">${transportMode}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Vehicle Number:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold; font-family: monospace;">${vehicleNo}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Packaging Type:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold;">${packagingType}</td>
+                            </tr>
+                            ${eWayNo && eWayNo !== '-' ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>E-Way Bill No:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold; font-family: monospace; color: #3730a3;">${eWayNo}</td>
+                            </tr>
+                            ` : ''}
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Itemized Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #eef2ff; text-transform: uppercase; font-weight: bold; color: #3730a3;">
+                    <tr>
+                        <th style="width: 5%; padding: 6px 4px; text-align: center;">S.No</th>
+                        <th style="width: 32%; padding: 6px 8px; text-align: left;">Product / Item Description</th>
+                        <th style="width: 11%; padding: 6px 4px; text-align: center;">HSN</th>
+                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Qty</th>
+                        <th style="width: 13%; padding: 6px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount</th>
+                        <th style="width: 15%; padding: 6px 6px; text-align: left;">Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+            </table>
+
+            <!-- Bottom Docked Summary & Financial Calculations -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 10px; background: #fafafa;">
+                        <div style="font-weight: bold; color: #3730a3; font-size: 9.5px; text-transform: uppercase; margin-bottom: 4px;">BANK DETAILS & REMARKS</div>
+                        <div style="font-size: 9.5px; color: #334155; line-height: 1.4;">
+                            Bank: <b>${bankName}</b> | A/c: <b>${accountNumber}</b> | IFSC: <b>${ifscCode}</b> ${branchName ? `| Branch: ${branchName}` : ''}<br>
+                            ${doc.remarks || doc.otherDetails ? `Remarks: ${doc.remarks || doc.otherDetails}<br>` : ''}
+                            Terms: Subject to local jurisdiction. Goods dispatched in good condition.
+                        </div>
+                        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 10px; font-style: italic;">
+                            Amount in Words: ${numberToWords(grandTotal)}
+                        </div>
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Subtotal:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ${transportCharges > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${transportCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${packagingCharges > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${packagingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${discount > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Discount:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ₹${discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${taxAmount > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Tax Amount (GST):</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            <tr style="background: #eef2ff; color: #3730a3; font-weight: 900; font-size: 11.5px;">
+                                <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL:</td>
+                                <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Signatures Pinned at Bottom -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 20px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Receiver's Signature / Seal
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 25px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center; font-size: 9.5px;">
+                            Authorized Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `).join('');
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Delivery_Challan_${docNum}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; margin-bottom: 0 !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Delivery Challan PDF: ${custName}</span>
+                <button onclick="window.print()" style="background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${pagesHtml}
+            </div>
+            <script>
+                setTimeout(function() {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+};
+
+/**
+ * Generate Tax Invoice PDF matching Outward Sales Quotation PDF color theme (#3730a3, #4f46e5, #eef2ff)
+ * and native Indian Rupee symbol ₹ rendering.
+ */
+export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; copyType?: "all" | "original" | "duplicate" | "triplicate" }) => {
+    const { doc, companyInfo, copyType = "all" } = data;
+
+    if (!doc) {
+        alert("No Tax Invoice data provided for PDF generation");
+        return;
+    }
+
+    // Number to Words Converter (Indian Currency Format)
+    function numberToWords(num: number): string {
+        if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
+        const a = [
+            "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
+            "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
+        ];
+        const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+        function inWords(n: number): string {
+            if (n < 20) return a[n];
+            if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
+            if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
+            if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
+            if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
+            return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
+        }
+
+        const integerPart = Math.floor(num);
+        const decimalPart = Math.round((num - integerPart) * 100);
+
+        let str = "Rupees " + inWords(integerPart).trim();
+        if (decimalPart > 0) {
+            str += " and " + inWords(decimalPart).trim() + " Paise";
+        }
+        return str + " Only";
+    }
+
+    // 1. Resolve Company Master Details
+    let masterCompany = companyInfo;
+    if (!masterCompany || !masterCompany.companyName) {
+        try {
+            const storedCompany = localStorage.getItem("companyInfo");
+            const storedUser = localStorage.getItem("userInfo");
+            if (storedCompany) masterCompany = { ...JSON.parse(storedCompany), ...companyInfo };
+            else if (storedUser) masterCompany = { ...JSON.parse(storedUser), ...companyInfo };
+        } catch (e) {
+            console.warn("Could not parse cached company info:", e);
+        }
+    }
+
+    const compName = masterCompany?.companyName || masterCompany?.name || 'COMPANY MASTER';
+    const compAddressRaw = masterCompany?.billingAddress || masterCompany?.address || masterCompany?.location || '';
+    const compCityState = [masterCompany?.city, masterCompany?.state, masterCompany?.pincode ? `- ${masterCompany.pincode}` : ''].filter(Boolean).join(' ');
+    const compAddress = [compAddressRaw, compCityState].filter(Boolean).join(', ');
+    const compPhone = masterCompany?.contactNumber || masterCompany?.phone || masterCompany?.mobile || '';
+    const compEmail = masterCompany?.email || '';
+    const compGst = masterCompany?.gstin || masterCompany?.gstNumber || masterCompany?.gst || 'N/A';
+    const compPan = masterCompany?.panNumber || masterCompany?.pan || 'N/A';
+
+    const bankName = masterCompany?.bankDetails?.bankName || masterCompany?.bankName || '-';
+    const accountNumber = masterCompany?.bankDetails?.accountNumber || masterCompany?.accountNumber || '-';
+    const ifscCode = masterCompany?.bankDetails?.ifscCode || masterCompany?.ifscCode || '-';
+    const branchName = masterCompany?.bankDetails?.branchName || masterCompany?.branchName || '';
+
+    // 2. Resolve Customer Details
+    const custObj = typeof doc.customer === 'object' ? doc.customer : {};
+    const custName = doc.customerName || custObj?.name || custObj?.companyName || 'Internal Customer / Cash Sales';
+    const custAddressRaw = doc.customerAddress || custObj?.address || custObj?.billingAddress || custObj?.shippingAddress || '';
+    const custCityState = [custObj?.city, custObj?.state, custObj?.pincode].filter(Boolean).join(' ');
+    const custAddress = custAddressRaw && custCityState ? `${custAddressRaw}, ${custCityState}` : (custAddressRaw || '-');
+    const custGst = doc.customerGST || custObj?.gstin || custObj?.gstNumber || custObj?.gst || 'N/A';
+    const custPhone = doc.customerPhone || custObj?.phone || custObj?.contactNumber || '';
+    const custEmail = doc.customerEmail || custObj?.email || '';
+    const custPoRef = doc.customerPoReference || doc.poNumber || '-';
+    const custPoDate = doc.poDate ? new Date(doc.poDate).toLocaleDateString("en-IN") : '-';
+
+    // 3. Document Logistics Metadata
+    const docNum = doc.invoiceNumber || 'INV-001';
+    const creationDateTimeStr = doc.createdAt || doc.date ? new Date(doc.createdAt || doc.date).toLocaleString('en-IN', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
+    }) : '-';
+    const transportMode = doc.transportationType || doc.transportType || doc.transportMode || 'Road Transport';
+    const vehicleNo = doc.vehicleNumber || doc.vehicleNo || '-';
+    const packagingType = doc.packagingType || 'Standard Packaging';
+    const eWayNo = doc.eWayBillNo || doc.eWayNo || '-';
+
+    // 4. Resolve Copy Types
+    let copyTypes = [
+        'ORIGINAL FOR RECIPIENT',
+        'DUPLICATE FOR TRANSPORTER',
+        'TRIPLICATE FOR SUPPLIER'
+    ];
+
+    if (copyType === "original") copyTypes = ['ORIGINAL FOR RECIPIENT'];
+    else if (copyType === "duplicate") copyTypes = ['DUPLICATE FOR TRANSPORTER'];
+    else if (copyType === "triplicate") copyTypes = ['TRIPLICATE FOR SUPPLIER'];
+
+    // 5. Line Items HTML
+    const items = doc.items || [];
+    let itemsTableRowsHtml = '';
+
+    items.forEach((item: any, idx: number) => {
+        const qty = Number(item.quantity || item.qty || 0);
+        const rate = Number(item.rate || item.unitPrice || item.price || 0);
+        const amount = Number(item.amount || (qty * rate));
+        const taxRate = Number(item.taxRate || 0);
+        const totalAmt = amount + (amount * (taxRate / 100));
+        const itemName = item.materialName || item.productName || item.itemName || item.name || 'Item';
+        const hsn = item.hsnCode || item.hsn || '-';
+
+        itemsTableRowsHtml += `
+            <tr>
+                <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                <td style="text-align: left; font-weight: bold; padding: 6px; color: #0f172a;">${itemName}</td>
+                <td style="text-align: center; padding: 6px; font-family: monospace;">${hsn}</td>
+                <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${item.unit || item.uom || 'PCS'}</td>
+                <td style="text-align: right; padding: 6px; font-family: monospace;">₹${rate ? rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</td>
+                <td style="text-align: center; padding: 6px;">${taxRate > 0 ? taxRate + '%' : '-'}</td>
+                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">₹${totalAmt ? totalAmt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</td>
+            </tr>
+        `;
+    });
+
+    // Pad blank rows if items < 5
+    for (let i = items.length; i < 5; i++) {
+        itemsTableRowsHtml += `
+            <tr>
+                <td style="height: 24px; padding: 6px;"></td>
+                <td></td><td></td><td></td><td></td><td></td><td></td>
+            </tr>
+        `;
+    }
+
+    const subtotal = doc.subtotal || items.reduce((acc: number, i: any) => acc + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
+    const transportCharges = Number(doc.transportationCharges || doc.freightCharges || 0);
+    const packagingCharges = Number(doc.packagingCharges || 0);
+    const discount = Number(doc.discount || 0);
+    const taxAmount = doc.taxAmount || items.reduce((acc: number, i: any) => acc + ((Number(i.quantity || 0) * Number(i.rate || 0)) * (Number(i.taxRate || 0) / 100)), 0);
+    const grandTotal = doc.totalAmount || (subtotal + taxAmount + transportCharges + packagingCharges - discount);
+
+    const pagesHtml = copyTypes.map((copyBadge) => `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #cbd5e1; font-family: Arial, sans-serif; font-size: 11px; color: #111; margin-bottom: 20px; page-break-after: always; position: relative; box-sizing: border-box;">
+            
+            <!-- Company Header & Copy Badge -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 10px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #3730a3; text-transform: uppercase; letter-spacing: -0.5px;">${compName}</h1>
+                    <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                    <div style="font-size: 9.5px; color: #1e293b; font-weight: bold; margin-top: 4px;">
+                        GSTIN: <b>${compGst}</b> | PAN: <b>${compPan}</b>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="display: inline-block; background: #3730a3; color: #ffffff; font-size: 9px; font-weight: 900; padding: 4px 10px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        ${copyBadge}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #eef2ff; border: 1px solid #c7d2fe; font-weight: bold; font-size: 14px; padding: 7px; text-transform: uppercase; letter-spacing: 1px; color: #3730a3; margin-bottom: 12px;">
+                TAX INVOICE
+            </div>
+
+            <!-- Buyer & Logistics Details Grid -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px;">
+                <tr>
+                    <td style="width: 52%; vertical-align: top; border: 1px solid #94a3b8; padding: 10px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #4f46e5; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">BUYER / CONSIGNEE DETAILS</div>
+                        <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${custName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${custAddress ? '<b>Address:</b> ' + custAddress + '<br>' : ''}
+                            ${custPhone ? '<b>Contact:</b> ' + custPhone + '<br>' : ''}
+                            ${custEmail ? '<b>Email:</b> ' + custEmail + '<br>' : ''}
+                        </div>
+                        ${custGst && custGst !== 'N/A' ? `<div style="margin-top: 6px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 4px;"><b>GSTIN:</b> ${custGst}</div>` : ''}
+                        ${custPoRef && custPoRef !== '-' ? `<div style="margin-top: 4px; font-size: 10px; color: #3730a3;"><b>PO Ref:</b> ${custPoRef} ${custPoDate !== '-' ? `(Date: ${custPoDate})` : ''}</div>` : ''}
+                    </td>
+
+                    <td style="width: 48%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Invoice Number:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: 900; font-size: 12.5px; color: #3730a3; font-family: monospace;">${docNum}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Creation Date & Time:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold;">${creationDateTimeStr}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Transport Mode:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold;">${transportMode}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Vehicle Number:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold; font-family: monospace;">${vehicleNo}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Packaging Type:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold;">${packagingType}</td>
+                            </tr>
+                            ${eWayNo && eWayNo !== '-' ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>E-Way Bill No:</b></td>
+                                <td style="padding: 2.5px 0; font-weight: bold; font-family: monospace; color: #3730a3;">${eWayNo}</td>
+                            </tr>
+                            ` : ''}
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Itemized Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #eef2ff; text-transform: uppercase; font-weight: bold; color: #3730a3;">
+                    <tr>
+                        <th style="width: 5%; padding: 6px 4px; text-align: center;">S.No</th>
+                        <th style="width: 36%; padding: 6px 8px; text-align: left;">Product / Item Description</th>
+                        <th style="width: 12%; padding: 6px 4px; text-align: center;">HSN</th>
+                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Qty</th>
+                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 9%; padding: 6px 4px; text-align: center;">GST %</th>
+                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+            </table>
+
+            <!-- Bottom Docked Summary & Financial Calculations -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 10px; background: #fafafa;">
+                        <div style="font-weight: bold; color: #3730a3; font-size: 9.5px; text-transform: uppercase; margin-bottom: 4px;">BANK DETAILS & REMARKS</div>
+                        <div style="font-size: 9.5px; color: #334155; line-height: 1.4;">
+                            Bank: <b>${bankName}</b> | A/c: <b>${accountNumber}</b> | IFSC: <b>${ifscCode}</b> ${branchName ? `| Branch: ${branchName}` : ''}<br>
+                            ${doc.remarks || doc.otherDetails ? `Remarks: ${doc.remarks || doc.otherDetails}<br>` : ''}
+                            Terms: Subject to local jurisdiction. Payment due as per agreed billing terms.
+                        </div>
+                        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 10px; font-style: italic;">
+                            Amount in Words: ${numberToWords(grandTotal)}
+                        </div>
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Subtotal:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ${transportCharges > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${transportCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${packagingCharges > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${packagingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${discount > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Discount:</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ₹${discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            ${taxAmount > 0 ? `
+                            <tr>
+                                <td style="padding: 2.5px 0; color: #475569;">Tax Amount (GST):</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                            ` : ''}
+                            <tr style="background: #eef2ff; color: #3730a3; font-weight: 900; font-size: 11.5px;">
+                                <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL:</td>
+                                <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Signatures Pinned at Bottom -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 20px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Receiver's Signature / Seal
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 25px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center; font-size: 9.5px;">
+                            Authorized Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `).join('');
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Tax_Invoice_${docNum}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; margin-bottom: 0 !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Tax Invoice PDF: ${custName}</span>
+                <button onclick="window.print()" style="background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${pagesHtml}
+            </div>
+            <script>
+                setTimeout(function() {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+};

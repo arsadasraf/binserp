@@ -10,7 +10,7 @@ import Swal from "sweetalert2";
 
 export default function SalesBillingPage() {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: bills, loading, refetch, handleBillingSubmit, handleBillingUpdate, handleDelete, customers, fgItems } = useStoreData("billing", "customer", token);
+  const { data: bills, loading, refetch, handleBillingSubmit, handleBillingUpdate, handleDelete, customers, fgItems, companyInfo } = useStoreData("billing", "customer", token);
 
   const [showModal, setShowModal] = useState(false);
   const [editingBilling, setEditingBilling] = useState<any>(null);
@@ -35,6 +35,7 @@ export default function SalesBillingPage() {
 
       <BillingTable
         data={bills || []}
+        companyInfo={companyInfo}
         onEdit={(b) => { setEditingBilling(b); setShowModal(true); }}
         onDelete={(id) => handleDelete(id)}
       />
