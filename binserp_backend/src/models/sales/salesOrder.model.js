@@ -47,8 +47,20 @@ export const salesOrderSchema = new mongoose.Schema(
         targetDate: { type: Date },
         dispatchDate: { type: Date },
         dispatchedQuantity: { type: Number, default: 0 },
+        allocatedFgQty: { type: Number, default: 0 },
       },
     ],
+    allocatedFgQty: {
+      type: Number,
+      default: 0,
+    },
+    fulfillmentStatus: {
+      type: String,
+      enum: ["Pending", "Partially Allocated", "Fully Allocated", "In Production", "Ready for Dispatch", "Dispatched"],
+      default: "Pending",
+    },
+    mrpId: String,
+    workOrderIds: [{ type: String }],
     totalAmount: {
       type: Number,
       required: true,

@@ -173,15 +173,15 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
   } catch (error) {
     console.error("[Auth] Error:", error.message);
     if (error instanceof ApiError) {
-      throw error;
+      return next(error);
     }
     if (error.name === "TokenExpiredError") {
-      throw new ApiError(401, "Token expired. Please log in again.");
+      return next(new ApiError(401, "Token expired. Please log in again."));
     }
     if (error.name === "JsonWebTokenError") {
-      throw new ApiError(401, "Invalid token. Authentication failed.");
+      return next(new ApiError(401, "Invalid token. Authentication failed."));
     }
-    throw new ApiError(500, "Something went wrong while verifying token");
+    return next(new ApiError(500, "Something went wrong while verifying token"));
   }
 });
 

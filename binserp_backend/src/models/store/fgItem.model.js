@@ -47,6 +47,19 @@ export const fgItemSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    allocatedQuantity: {
+      type: Number,
+      default: 0,
+    },
+    allocations: [
+      {
+        salesOrder: { type: mongoose.Schema.Types.ObjectId, ref: "SalesOrder" },
+        salesOrderNo: { type: String },
+        customerName: { type: String },
+        allocatedQty: { type: Number, required: true },
+        allocatedAt: { type: Date, default: Date.now }
+      }
+    ],
     reorderLevel: {
       type: Number,
       default: 0,
@@ -60,8 +73,12 @@ export const fgItemSchema = new mongoose.Schema(
     },
     bom: [fgBOMItemSchema],
   },
-  { timestamps: true }
+  { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
+
+fgItemSchema.virtual("availableQuantity").get(function () {
+  return Math.max(0, (this.quantity || 0) - (this.allocatedQuantity || 0));
+});
 
 // Indexes
 // Removed unique code index as code was removed.

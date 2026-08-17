@@ -87,6 +87,7 @@ export default function SalesOrdersPage() {
           setViewingOrder(order);
         }}
         onDelete={handleDelete}
+        onRefetch={refetch}
       />
 
       {/* Form Modal (Create / Edit) */}

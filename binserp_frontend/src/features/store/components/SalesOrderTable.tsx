@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { Plus, Search, Eye, Edit2, Trash2, Download, ShoppingCart, Filter, FileText, Building2, Tag } from "lucide-react";
+import { Plus, Search, Eye, Edit2, Trash2, Download, ShoppingCart, Filter, FileText, Building2, Tag, GitBranch } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import SalesOrderMRPModal from "./modals/SalesOrderMRPModal";
 
 interface SalesOrderTableProps {
   orders: any[];
@@ -11,6 +12,7 @@ interface SalesOrderTableProps {
   onEdit: (order: any) => void;
   onView: (order: any) => void;
   onDelete: (id: string) => void;
+  onRefetch?: () => void;
 }
 
 export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
@@ -20,11 +22,13 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
   onCreate,
   onEdit,
   onView,
-  onDelete
+  onDelete,
+  onRefetch
 }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<"ALL" | "PO_BASED" | "DIRECT">("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [selectedMrpOrder, setSelectedMrpOrder] = useState<any | null>(null);
 
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
@@ -384,6 +388,14 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
+                          onClick={() => setSelectedMrpOrder(order)}
+                          title="Move Sales Order to Purchase MRP Tab for FG Allocation, BOM Explosion & PPC Routing"
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                        >
+                          <GitBranch size={14} /> Send to Purchase MRP
+                        </button>
+
+                        <button
                           onClick={() => onView(order)}
                           title="View Details"
                           className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition-colors"
@@ -423,6 +435,16 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* MRP & FG Allocation Modal */}
+      {selectedMrpOrder && (
+        <SalesOrderMRPModal
+          isOpen={!!selectedMrpOrder}
+          onClose={() => setSelectedMrpOrder(null)}
+          salesOrder={selectedMrpOrder}
+          onRefetch={onRefetch}
+        />
+      )}
     </div>
   );
 };

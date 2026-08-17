@@ -206,4 +206,14 @@ import { createPurchaseRFQ, getPurchaseRFQs, updatePurchaseRFQ, deletePurchaseRF
 router.route("/purchase-rfq").post(createPurchaseRFQ).get(getPurchaseRFQs);
 router.route("/purchase-rfq/:id").put(updatePurchaseRFQ).delete(deletePurchaseRFQ);
 
+// FG Allocation, Nested MRP Explosion & Action Routing Routes
+import { allocateFGStock } from "../controllers/store/allocateFGStock.controller.js";
+import { explodeSalesOrderMRP } from "../controllers/store/nestedMRP.controller.js";
+import { createIndentFromMRP, createWorkOrderFromMRP } from "../controllers/purchase/mrpRouting.controller.js";
+
+router.post("/fg/allocate", allocateFGStock);
+router.post("/mrp/explode-so", explodeSalesOrderMRP);
+router.post("/purchase/indent-from-mrp", createIndentFromMRP);
+router.post("/ppc/workorder-from-mrp", createWorkOrderFromMRP);
+
 export default router;

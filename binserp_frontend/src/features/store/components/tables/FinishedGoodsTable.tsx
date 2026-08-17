@@ -40,6 +40,56 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: Fi
     { id: 'description', label: 'Description', render: (item) => item.description || '-' },
     { id: 'type', label: 'Type', render: (item) => item.type || item.category || '-' },
     { id: 'unit', label: 'Unit', render: (item) => item.unit || '-' },
+    {
+      id: 'totalQuantity',
+      label: 'Total Stock',
+      render: (item) => (
+        <span className="font-extrabold text-slate-900 dark:text-white font-mono">
+          {item.quantity || 0} {item.unit || 'PCS'}
+        </span>
+      )
+    },
+    {
+      id: 'allocatedQuantity',
+      label: 'Allocated Stock',
+      render: (item) => {
+        const allocQty = item.allocatedQuantity || 0;
+        const allocations = item.allocations || [];
+        const tooltipText = allocations.length > 0
+          ? allocations.map((a: any) => `#${a.salesOrderNo || 'SO'}: ${a.allocatedQty} pcs (${a.customerName || 'Cust'})`).join(' | ')
+          : 'No active allocations';
+
+        return (
+          <div className="flex items-center gap-1" title={tooltipText}>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-black font-mono border ${
+              allocQty > 0 
+                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                : 'bg-slate-100 text-slate-500 border-slate-200'
+            }`}>
+              {allocQty} {item.unit || 'PCS'}
+            </span>
+          </div>
+        );
+      }
+    },
+    {
+      id: 'availableQuantity',
+      label: 'Available Stock',
+      render: (item) => {
+        const total = Number(item.quantity || 0);
+        const alloc = Number(item.allocatedQuantity || 0);
+        const free = Math.max(0, total - alloc);
+        return (
+          <span className={`font-mono font-extrabold px-2 py-0.5 rounded-lg text-xs border ${
+            free > 0
+              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+              : 'bg-rose-50 text-rose-600 border-rose-200'
+          }`}>
+            {free} {item.unit || 'PCS'}
+          </span>
+        );
+      }
+    },
     { id: 'location', label: 'Location', render: (item) => item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : '') || '-' },
     {
       id: 'actions',
