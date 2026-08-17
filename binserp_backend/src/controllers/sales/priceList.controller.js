@@ -11,24 +11,24 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
-  const { fgItem, price, taxRate, remarks } = req.body;
+  const { fgItem, price, taxRate, hsnCode, remarks } = req.body;
 
-  if (!fgItem || price === undefined || taxRate === undefined) {
-    return res.status(400).json({ message: "FG Item, price, and tax rate are required." });
+  if (!fgItem || price === undefined || taxRate === undefined || !hsnCode) {
+    return res.status(400).json({ message: "FG Item, price, tax rate, and HSN code are required." });
   }
 
   const fgItemObjectId = new mongoose.Types.ObjectId(fgItem);
 
   const priceListEntry = await PriceList.findOneAndUpdate(
     { company: companyId, fgItem: fgItemObjectId },
-    { price: Number(price), taxRate: Number(taxRate), remarks },
+    { price: Number(price), taxRate: Number(taxRate), hsnCode: String(hsnCode).trim(), remarks },
     { new: true, upsert: true }
   );
 
   try {
-    await FGItem.findByIdAndUpdate(fgItemObjectId, { sellingPrice: Number(price), taxRate: Number(taxRate) });
+    await FGItem.findByIdAndUpdate(fgItemObjectId, { sellingPrice: Number(price), taxRate: Number(taxRate), hsnCode: String(hsnCode).trim() });
   } catch (err) {
-    console.error("Failed to sync FGItem sellingPrice", err);
+    console.error("Failed to sync FGItem sellingPrice and hsnCode", err);
   }
 
   res.status(200).json({

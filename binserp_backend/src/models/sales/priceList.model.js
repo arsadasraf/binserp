@@ -22,6 +22,11 @@ export const priceListSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    hsnCode: {
+      type: String,
+      required: true,
+      trim: true,
+    },
     remarks: {
       type: String,
     },

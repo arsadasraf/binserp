@@ -50,9 +50,11 @@ export const updateDC = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
+    const userId = req.user?.id || req.user?._id;
+
     const dc = await DeliveryChallan.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      { ...req.body, updatedBy: userId },
       { new: true }
     );
 

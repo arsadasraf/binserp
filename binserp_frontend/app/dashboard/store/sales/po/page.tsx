@@ -1,115 +1,43 @@
 "use client";
 
-import React, { useState } from 'react';
-import { IncomingPOTable } from "../../components/IncomingPOTable";
-import { IncomingPOForm } from "../../components/IncomingPOForm";
-import { IncomingPODetailsModal } from "../../components/IncomingPODetailsModal";
-import { useStoreData } from "../../components/hooks/useStoreData";
+import React, { useState, useEffect } from 'react';
+import CustomerPoTab from "@/src/features/store/components/tabs/CustomerPoTab";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
-import { Plus, ShoppingCart } from "lucide-react";
-import {
-  useCreateStoreRecordMutation,
-  useUpdateStoreRecordMutation,
-  useDeleteStoreRecordMutation,
-  useGenerateSalesOrderFromPOMutation,
-} from "@/src/store/services/storeService";
 
-export default function SalesInwardPOPage() {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { data: poList, customers, fgItems, priceLists, companyInfo, loading, refetch } = useStoreData("incoming-po", "vendor", token);
+export default function SalesCustomerPoPage() {
+  const [token, setToken] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const [createStoreRecord] = useCreateStoreRecordMutation();
-  const [updateStoreRecord] = useUpdateStoreRecordMutation();
-  const [deleteStoreRecord] = useDeleteStoreRecordMutation();
-  const [generateSalesOrder, { isLoading: isGenerating }] = useGenerateSalesOrderFromPOMutation();
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingPO, setEditingPO] = useState<any>(null);
-  const [viewingPO, setViewingPO] = useState<any>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  if (loading) return <LoadingSpinner />;
-
-  const handleGenerateOrder = async (id: string) => {
-    try {
-      await generateSalesOrder(id).unwrap();
-      alert("Sales order generated successfully from Inward PO!");
-      refetch();
-    } catch (error: any) {
-      console.error("Failed to generate sales order:", error);
-      alert(error?.data?.message || error?.message || "Failed to generate sales order");
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setToken(localStorage.getItem("token"));
     }
-  };
+  }, []);
 
-  const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete Inward PO "${name}"?`)) {
-      try {
-        await deleteStoreRecord({ tab: "incoming-po", id }).unwrap();
-        refetch();
-      } catch (error: any) {
-        console.error("Failed to delete PO:", error);
-        alert(error?.data?.message || error?.message || "Failed to delete PO");
-      }
-    }
-  };
+  if (!token) return <LoadingSpinner />;
 
   return (
     <div className="space-y-4">
-      <IncomingPOTable
-        pos={poList || []}
-        customers={customers || []}
-        onCreate={() => { setEditingPO(null); setShowModal(true); }}
-        onEdit={(po) => { setEditingPO(po); setShowModal(true); }}
-        onView={(po) => { setViewingPO(po); }}
-        onDelete={handleDelete}
-        onGenerateOrder={handleGenerateOrder}
-        isGeneratingOrder={isGenerating}
+      {errorMsg && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold flex justify-between items-center">
+          <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg(null)} className="text-rose-500 hover:text-rose-700">✕</button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold flex justify-between items-center">
+          <span>{successMsg}</span>
+          <button onClick={() => setSuccessMsg(null)} className="text-emerald-500 hover:text-emerald-700">✕</button>
+        </div>
+      )}
+
+      <CustomerPoTab
+        token={token}
+        onError={(msg) => setErrorMsg(msg)}
+        onSuccess={(msg) => setSuccessMsg(msg)}
       />
-
-      {showModal && (
-        <IncomingPOForm
-          isOpen={showModal}
-          onClose={() => { setShowModal(false); setEditingPO(null); }}
-          onCancel={() => { setShowModal(false); setEditingPO(null); }}
-          onSubmit={async (formData) => {
-            try {
-              setIsSubmitting(true);
-              if (editingPO) {
-                await updateStoreRecord({ tab: "incoming-po", id: editingPO._id, body: formData }).unwrap();
-              } else {
-                await createStoreRecord({ tab: "incoming-po", body: formData }).unwrap();
-              }
-              setShowModal(false);
-              setEditingPO(null);
-              refetch();
-            } catch (error: any) {
-              console.error("Failed to save Inward PO:", error);
-              alert(error?.data?.message || error?.message || "Failed to save Inward PO");
-            } finally {
-              setIsSubmitting(false);
-            }
-          }}
-          initialData={editingPO}
-          customers={customers || []}
-          fgItems={fgItems || []}
-          priceLists={priceLists || []}
-          companyInfo={companyInfo}
-          isSubmitting={isSubmitting}
-        />
-      )}
-
-      {viewingPO && (
-        <IncomingPODetailsModal
-          isOpen={!!viewingPO}
-          onClose={() => setViewingPO(null)}
-          po={viewingPO}
-          customers={customers || []}
-          fgItems={fgItems || []}
-          companyInfo={companyInfo}
-          onGenerateOrder={handleGenerateOrder}
-          isGeneratingOrder={isGenerating}
-        />
-      )}
     </div>
   );
 }

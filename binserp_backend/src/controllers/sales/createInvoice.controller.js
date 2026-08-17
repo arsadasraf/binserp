@@ -75,26 +75,73 @@ export const createInvoice = async (req, res) => {
       });
     }
 
+    let finalPoReference = customerPoReference;
     if (customerPoReference) {
       const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
-      const po = await IncomingPO.findOne({ _id: customerPoReference, company: companyId });
+      const po = await IncomingPO.findOne({
+        company: companyId,
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(customerPoReference) ? customerPoReference : null },
+          { poNumber: customerPoReference }
+        ]
+      });
       
-      if (po && Array.isArray(items)) {
-        // Validate quantities
-        for (const invoiceItem of items) {
-          const poItem = po.items.find(i => i.productName === invoiceItem.materialName || (invoiceItem.fgItem && i.fgItem?.toString() === invoiceItem.fgItem.toString()));
-          if (poItem) {
-            const remainingQty = poItem.quantity - (poItem.billedQuantity || 0);
-            if (invoiceItem.quantity > remainingQty) {
-              return res.status(400).json({ 
-                message: `Cannot bill more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${invoiceItem.quantity}` 
-              });
+      if (po) {
+        if (po.poNumber) {
+          finalPoReference = po.poNumber;
+        }
+        if (Array.isArray(items)) {
+          // Validate quantities
+          for (const invoiceItem of items) {
+            const poItem = po.items.find(i => i.productName === invoiceItem.materialName || (invoiceItem.fgItem && i.fgItem?.toString() === invoiceItem.fgItem.toString()));
+            if (poItem) {
+              const remainingQty = poItem.quantity - (poItem.billedQuantity || 0);
+              if (invoiceItem.quantity > remainingQty) {
+                return res.status(400).json({ 
+                  message: `Cannot bill more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${invoiceItem.quantity}` 
+                });
+              }
+              // Update billed quantity
+              poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity);
             }
-            // Update billed quantity
-            poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity);
+          }
+
+          // Auto-update Customer PO fulfillment status
+          const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+          const totalFulfilled = po.items.reduce((acc, item) => acc + Math.max(Number(item.dispatchedQuantity || 0), Number(item.billedQuantity || 0)), 0);
+          if (totalOrdered > 0) {
+            if (totalFulfilled >= totalOrdered) {
+              po.status = "Completed";
+            } else if (totalFulfilled > 0) {
+              po.status = "Partially Dispatched";
+            }
+          }
+
+          await po.save();
+        }
+      }
+    }
+
+    // Validate FG item inventory stock for direct invoices (not created from DC)
+    const isLinkedToDC = !!(req.body.deliveryChallan || req.body.dcNumber || req.body.isLinkedToDC || req.body.deliveryChallanId);
+    if (!isLinkedToDC && Array.isArray(req.body.items)) {
+      const FGItem = req.getModel("FGItem", fgItemSchema);
+      for (const invItem of req.body.items) {
+        const fgId = invItem.fgItem || invItem.material || invItem.component;
+        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
+          const fgDoc = await FGItem.findById(fgId);
+          const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
+          if (!fgDoc || availableStock <= 0) {
+            return res.status(400).json({
+              message: `Cannot create Tax Invoice for item '${invItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
+            });
+          }
+          if (Number(invItem.quantity) > availableStock) {
+            return res.status(400).json({
+              message: `Requested billing quantity (${invItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${invItem.materialName || fgDoc.name}'.`
+            });
           }
         }
-        await po.save();
       }
     }
 
@@ -102,12 +149,12 @@ export const createInvoice = async (req, res) => {
 
       company: companyId,
       ...req.body,
-      preparedBy: req.user?.id || req.user?._id
+      customerPoReference: finalPoReference,
+      preparedBy: req.user?.id || req.user?._id,
+      createdBy: req.user?.id || req.user?._id
     });
 
     // Stock deduction logic for direct (standalone) Invoices NOT created from a DC
-    const isLinkedToDC = !!(req.body.deliveryChallan || req.body.dcNumber || req.body.isLinkedToDC || req.body.deliveryChallanId);
-
     if (!isLinkedToDC && (invoice.status === "Sent" || invoice.status === "Paid" || !invoice.status || invoice.status === "Draft")) {
       const FGItem = req.getModel("FGItem", fgItemSchema);
       const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);

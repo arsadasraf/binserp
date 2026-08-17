@@ -20,8 +20,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
     const copies = [
       "ORIGINAL FOR RECIPIENT",
       "DUPLICATE FOR TRANSPORTER",
-      "TRIPLICATE FOR SUPPLIER",
-      "QUADRUPLICATE / EXTRA COPY"
+      "TRIPLICATE FOR SUPPLIER"
     ];
 
     const isInvoice = type === "invoice";
@@ -33,25 +32,25 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
         pdf.addPage();
       }
 
-      // Border frame around page
+      // High-contrast Black & White Outer Frame
       pdf.setLineWidth(0.5);
-      pdf.setDrawColor(30, 41, 59); // Slate dark
+      pdf.setDrawColor(0, 0, 0);
       pdf.rect(8, 8, 194, 281);
 
-      // Header top bar background
-      pdf.setFillColor(248, 250, 252);
+      // Header Top Bar Background (Grayscale)
+      pdf.setFillColor(245, 245, 245);
       pdf.rect(8.5, 8.5, 193, 28, "F");
 
-      // Copy Type Badge in Top Right
-      pdf.setFillColor(30, 41, 59);
+      // Black Copy Type Badge in Top Right
+      pdf.setFillColor(0, 0, 0);
       pdf.rect(130, 10, 70, 7, "F");
       pdf.setTextColor(255, 255, 255);
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "bold");
       pdf.text(copyTitle, 165, 15, { align: "center" });
 
-      // Company Info Header
-      pdf.setTextColor(15, 23, 42);
+      // Company Info Header (Black Text)
+      pdf.setTextColor(0, 0, 0);
       pdf.setFontSize(14);
       pdf.setFont("helvetica", "bold");
       const companyName = companyInfo?.companyName || companyInfo?.name || "COMPANY MASTER";
@@ -59,7 +58,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
 
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(71, 85, 105);
+      pdf.setTextColor(50, 50, 50);
       const address = companyInfo?.billingAddress || companyInfo?.address || companyInfo?.location || "";
       const contact = `Phone: ${companyInfo?.contactNumber || companyInfo?.phone || "-"} | Email: ${companyInfo?.email || "-"}`;
       const gstin = companyInfo?.gstin || companyInfo?.gstNumber || companyInfo?.gst ? `GSTIN: ${companyInfo?.gstin || companyInfo?.gstNumber || companyInfo?.gst}` : "";
@@ -67,17 +66,17 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       pdf.text(address.substring(0, 70), 12, 22);
       pdf.text(`${contact} ${gstin ? ` | ${gstin}` : ""}`, 12, 26);
 
-      // Title bar
-      pdf.setFillColor(224, 231, 255); // Soft blue fill
+      // Document Title Bar (Black & White)
+      pdf.setFillColor(230, 230, 230);
       pdf.rect(8.5, 36.5, 193, 9, "F");
       pdf.setFontSize(11);
       pdf.setFont("helvetica", "bold");
-      pdf.setTextColor(30, 58, 138);
+      pdf.setTextColor(0, 0, 0);
       pdf.text(documentTitle, 105, 42.5, { align: "center" });
 
-      // Customer & Document Details Section Grid
+      // Customer & Document Details Section Grid (Black Dividers)
       pdf.setLineWidth(0.3);
-      pdf.setDrawColor(203, 213, 225);
+      pdf.setDrawColor(0, 0, 0);
       pdf.line(8.5, 45.5, 201.5, 45.5);
       pdf.line(105, 45.5, 105, 78);
       pdf.line(8.5, 78, 201.5, 78);
@@ -85,8 +84,8 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       // Customer Details (Left Panel)
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "bold");
-      pdf.setTextColor(30, 41, 59);
-      pdf.text("DETAILS OF BUYER / CONSIGNEE:", 12, 50);
+      pdf.setTextColor(0, 0, 0);
+      pdf.text("BUYER / CONSIGNEE DETAILS:", 12, 50);
 
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(9);
@@ -95,7 +94,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
 
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(8);
-      pdf.setTextColor(71, 85, 105);
+      pdf.setTextColor(50, 50, 50);
       const custAddress = doc.customerAddress || doc.customer?.address || "-";
       pdf.text(`Address: ${custAddress.substring(0, 50)}`, 12, 60);
       if (doc.customerGST || doc.customer?.gstNumber) {
@@ -103,40 +102,45 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       }
       if (doc.customerPoReference) {
         pdf.setFont("helvetica", "bold");
+        pdf.setTextColor(0, 0, 0);
         pdf.text(`Customer PO Ref: ${doc.customerPoReference}`, 12, 70);
       }
 
-      // Document Info (Right Panel)
+      // Document Info & Logistics (Right Panel)
       pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(8.5);
-      pdf.setTextColor(30, 41, 59);
+      pdf.setFontSize(8);
+      pdf.setTextColor(0, 0, 0);
       
       pdf.text(`${isInvoice ? "Invoice No:" : "DC No:"} `, 108, 50);
       pdf.setFont("helvetica", "bold");
-      pdf.text(docNum, 140, 50);
+      pdf.text(docNum, 145, 50);
 
       pdf.setFont("helvetica", "normal");
       pdf.text("Date:", 108, 55);
       pdf.setFont("helvetica", "bold");
-      pdf.text(new Date(doc.date || Date.now()).toLocaleDateString("en-IN"), 140, 55);
-
-      if (doc.transportationType || doc.transportType || doc.vehicleNumber) {
-        pdf.setFont("helvetica", "normal");
-        pdf.text("Transport Method:", 108, 60);
-        pdf.text(doc.transportationType || doc.transportType || "Road Freight", 140, 60);
-
-        if (doc.vehicleNumber) {
-          pdf.text("Vehicle No:", 108, 65);
-          pdf.text(doc.vehicleNumber, 140, 65);
-        }
-      }
+      pdf.text(new Date(doc.date || Date.now()).toLocaleDateString("en-IN"), 145, 55);
 
       pdf.setFont("helvetica", "normal");
-      pdf.text("Status:", 108, 70);
+      pdf.text("Transport Method:", 108, 60);
       pdf.setFont("helvetica", "bold");
-      pdf.text(doc.status || "Issued", 140, 70);
+      pdf.text(doc.transportationType || doc.transportType || "Road Transport", 145, 60);
 
-      // Line Items AutoTable
+      pdf.setFont("helvetica", "normal");
+      pdf.text("Vehicle No:", 108, 65);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(doc.vehicleNumber || "-", 145, 65);
+
+      pdf.setFont("helvetica", "normal");
+      pdf.text("Packaging Type:", 108, 70);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(doc.packagingType || "Standard Packaging", 145, 70);
+
+      pdf.setFont("helvetica", "normal");
+      pdf.text("Status:", 108, 75);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(doc.status || "Issued", 145, 75);
+
+      // Line Items AutoTable (Solid Black Header, White Text)
       const tableHeaders = isInvoice
         ? [["Sl", "Product / Material Description", "HSN Code", "Qty", "Unit", "Rate (₹)", "Tax %", "Amount (₹)"]]
         : [["Sl", "Product / Material Description", "HSN Code", "Qty", "Unit", "Rate (₹)", "Remarks"]];
@@ -173,7 +177,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
         }
       });
 
-      // Pad rows to look complete if items < 6
+      // Pad rows to look complete if items < 5
       while (tableRows.length < 5) {
         tableRows.push(["", "", "", "", "", "", ...(isInvoice ? [""] : [])]);
       }
@@ -184,7 +188,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
         body: tableRows,
         theme: "grid",
         headStyles: {
-          fillColor: [30, 41, 59],
+          fillColor: [0, 0, 0],
           textColor: [255, 255, 255],
           fontSize: 8,
           fontStyle: "bold",
@@ -192,7 +196,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
         },
         bodyStyles: {
           fontSize: 8,
-          textColor: [30, 41, 59]
+          textColor: [0, 0, 0]
         },
         columnStyles: {
           0: { halign: "center", cellWidth: 10 },
@@ -211,7 +215,7 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
 
       // Summary Breakdown Card & Footer Details
       pdf.setLineWidth(0.3);
-      pdf.setDrawColor(203, 213, 225);
+      pdf.setDrawColor(0, 0, 0);
       pdf.line(8.5, finalY + 4, 201.5, finalY + 4);
 
       // Financial Calculation Block (Right Column)
@@ -225,10 +229,11 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       // Left Column: Bank & Terms
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(0, 0, 0);
       pdf.text("BANK DETAILS & REMARKS:", 12, finalY + 10);
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(7.5);
-      pdf.setTextColor(71, 85, 105);
+      pdf.setTextColor(50, 50, 50);
 
       const bankName = companyInfo?.bankDetails?.bankName || companyInfo?.bankName || "-";
       const accNo = companyInfo?.bankDetails?.accountNumber || companyInfo?.accountNumber || "-";
@@ -240,10 +245,10 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       }
       pdf.text(`Terms: Subject to local jurisdiction. Goods once sold will not be taken back.`, 12, finalY + 25);
 
-      // Right Column: Summary Table
+      // Right Column: Summary Table (Black & White)
       pdf.setFontSize(8);
       pdf.setFont("helvetica", "normal");
-      pdf.setTextColor(30, 41, 59);
+      pdf.setTextColor(0, 0, 0);
 
       let calcY = finalY + 10;
       pdf.text("Items Subtotal:", 135, calcY);
@@ -274,10 +279,12 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       }
 
       calcY += 6;
-      pdf.setFillColor(241, 245, 249);
-      pdf.rect(132, calcY - 4, 69.5, 8, "F");
+      pdf.setFillColor(240, 240, 240);
+      pdf.setDrawColor(0, 0, 0);
+      pdf.rect(132, calcY - 4, 69.5, 8, "FD");
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(9);
+      pdf.setTextColor(0, 0, 0);
       pdf.text("GRAND TOTAL:", 135, calcY + 1);
       pdf.text(`₹ ${grandTotal.toFixed(2)}`, 198, calcY + 1, { align: "right" });
 
@@ -291,12 +298,14 @@ export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo }: D
       pdf.text("Authorized Signatory", 198, signY + 12, { align: "right" });
     });
 
-    pdf.save(`${type.toUpperCase()}_4COPY_${docNum}.pdf`);
+    pdf.save(`${type.toUpperCase()}_3PAGE_${docNum}.pdf`);
   } catch (error) {
-    console.error("Failed to generate 4-copy PDF:", error);
+    console.error("Failed to generate PDF document:", error);
     alert("Failed to generate PDF document. Please try again.");
   }
 };
+
+export const download3CopyPDF = download4CopyPDF;
 
 /**
  * Generate Itemized Excel/CSV Export directly in Browser

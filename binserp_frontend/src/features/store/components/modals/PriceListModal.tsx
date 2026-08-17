@@ -24,6 +24,7 @@ export default function PriceListModal({
     fgItem: "",
     price: "",
     taxRate: "18",
+    hsnCode: "",
     remarks: "",
   });
 
@@ -40,6 +41,7 @@ export default function PriceListModal({
           fgItem: itemObj?._id || initialData.fgItem || "",
           price: (initialData.price ?? existingConfig?.price ?? itemObj?.sellingPrice ?? "")?.toString(),
           taxRate: (initialData.taxRate ?? existingConfig?.taxRate ?? itemObj?.taxRate ?? "18")?.toString(),
+          hsnCode: initialData.hsnCode || existingConfig?.hsnCode || itemObj?.hsnCode || "",
           remarks: initialData.remarks || existingConfig?.remarks || "",
         });
       } else {
@@ -47,6 +49,7 @@ export default function PriceListModal({
           fgItem: "",
           price: "",
           taxRate: "18",
+          hsnCode: "",
           remarks: "",
         });
       }
@@ -65,6 +68,7 @@ export default function PriceListModal({
       fgItem: selectedId,
       price: (existingConfig?.price ?? selectedFg?.sellingPrice ?? prev.price)?.toString(),
       taxRate: (existingConfig?.taxRate ?? selectedFg?.taxRate ?? prev.taxRate ?? "18")?.toString(),
+      hsnCode: existingConfig?.hsnCode || selectedFg?.hsnCode || prev.hsnCode || "",
       remarks: existingConfig?.remarks || prev.remarks
     }));
   };
@@ -83,6 +87,10 @@ export default function PriceListModal({
       setError("Please select a valid tax rate.");
       return;
     }
+    if (!formData.hsnCode.trim()) {
+      setError("Please enter a valid HSN Code.");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -91,6 +99,7 @@ export default function PriceListModal({
         ...formData,
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
+        hsnCode: formData.hsnCode.trim(),
       });
     } catch (err: any) {
       setError(err?.data?.message || err?.message || "Failed to save price list.");
@@ -161,8 +170,8 @@ export default function PriceListModal({
               )}
             </div>
 
-            {/* Price & Tax Rate Inputs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Price, Tax Rate & HSN Code Inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Selling Price (₹) <span className="text-red-500">*</span>
@@ -198,6 +207,20 @@ export default function PriceListModal({
                   <option value="18">18% GST (Standard)</option>
                   <option value="28">28% GST</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  HSN Code <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.hsnCode}
+                  onChange={(e) => setFormData({ ...formData, hsnCode: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                  placeholder="e.g. 8471"
+                  required
+                />
               </div>
             </div>
 

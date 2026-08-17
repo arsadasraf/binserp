@@ -54,12 +54,23 @@ export const createDC = async (req, res) => {
 
     console.log("Creating DC:", { dcNumber, companyId });
 
+    let finalPoReference = customerPoReference;
     if (customerPoReference) {
       const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
-      const po = await IncomingPO.findOne({ _id: customerPoReference, company: companyId });
+      const po = await IncomingPO.findOne({
+        company: companyId,
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(customerPoReference) ? customerPoReference : null },
+          { poNumber: customerPoReference }
+        ]
+      });
       
       if (!po) {
         return res.status(404).json({ message: "Customer PO not found" });
+      }
+
+      if (po.poNumber) {
+        finalPoReference = po.poNumber;
       }
 
       // Validate quantities
@@ -77,7 +88,39 @@ export const createDC = async (req, res) => {
           poItem.dispatchedQuantity = (poItem.dispatchedQuantity || 0) + Number(dcItem.quantity);
         }
       }
+
+      // Auto-update Customer PO fulfillment status
+      const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+      const totalDispatched = po.items.reduce((acc, item) => acc + (Number(item.dispatchedQuantity) || 0), 0);
+      if (totalOrdered > 0) {
+        if (totalDispatched >= totalOrdered) {
+          po.status = "Completed";
+        } else if (totalDispatched > 0) {
+          po.status = "Partially Dispatched";
+        }
+      }
+
       await po.save();
+    }
+
+    // Validate FG item inventory stock
+    const FGItem = req.getModel("FGItem", fgItemSchema);
+    for (const dcItem of items) {
+      const fgId = dcItem.fgItem || dcItem.material || dcItem.component;
+      if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
+        const fgDoc = await FGItem.findById(fgId);
+        const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
+        if (!fgDoc || availableStock <= 0) {
+          return res.status(400).json({
+            message: `Cannot create Delivery Challan for item '${dcItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
+          });
+        }
+        if (Number(dcItem.quantity) > availableStock) {
+          return res.status(400).json({
+            message: `Requested dispatch quantity (${dcItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${dcItem.materialName || fgDoc.name}'.`
+          });
+        }
+      }
     }
 
     const dc = await DeliveryChallan.create({
@@ -88,12 +131,13 @@ export const createDC = async (req, res) => {
       customerName: req.body.customerName, // Fallback or direct
       customer,
       customerAddress: req.body.customerAddress,
-      customerPoReference,
+      customerPoReference: finalPoReference,
       items,
       discount: req.body.discount,
       otherDetails: req.body.otherDetails,
       status: status || 'Draft',
-      preparedBy: req.user?.id || req.user?._id
+      preparedBy: req.user?.id || req.user?._id,
+      createdBy: req.user?.id || req.user?._id
     });
 
     // Auto-deduct FG item stock and log SALES_DC_OUTWARD transaction when DC is Issued or Delivered

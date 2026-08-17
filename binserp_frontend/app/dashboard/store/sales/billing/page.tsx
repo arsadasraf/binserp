@@ -59,7 +59,7 @@ export default function SalesBillingPage() {
               refetch();
             } catch (error: any) {
               console.error("Failed to save Tax Invoice:", error);
-              const errorMsg = error?.data?.message || error?.error || error?.message || "Failed to save Tax Invoice. Please verify server connection.";
+              const errorMsg = error?.data?.message || error?.response?.data?.message || error?.error || error?.message || (typeof error === 'string' ? error : "Failed to save Tax Invoice.");
               Swal.fire("Save Error", typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg), "error");
             }
           }}

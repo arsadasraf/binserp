@@ -17,6 +17,11 @@ export const quotationSchema = new mongoose.Schema(
       required: true,
       default: Date.now,
     },
+    rfqNumber: String,
+    rfq: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "IncomingRFQ",
+    },
     customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
@@ -26,6 +31,8 @@ export const quotationSchema = new mongoose.Schema(
       required: true,
     },
     customerAddress: String,
+    customerEmail: String,
+    customerPhone: String,
     items: [
       {
         material: {
@@ -35,6 +42,10 @@ export const quotationSchema = new mongoose.Schema(
         component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component",
+        },
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
         },
         productName: { type: String, required: true },
         quantity: { type: Number, required: true },
@@ -55,6 +66,27 @@ export const quotationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    statusHistory: [
+      {
+        status: String,
+        updatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        updatedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     transportationType: { type: String, default: "Included" },
     transportationCharges: { type: Number, default: 0 },
     packagingType: { type: String, default: "Standard" },
@@ -63,7 +95,7 @@ export const quotationSchema = new mongoose.Schema(
     attachedDocumentName: String,
     status: {
       type: String,
-      enum: ["Draft", "Sent", "Accepted", "Rejected"],
+      enum: ["Draft", "Pending Approval", "Approved", "Sent", "Accepted", "Rejected", "Closed"],
       default: "Draft",
     },
   },

@@ -16,6 +16,11 @@ export const updateQuotation = async (req, res) => {
       delete body.customer;
     }
 
+    if (!body.rfq || typeof body.rfq !== 'string' || !body.rfq.trim() || !mongoose.Types.ObjectId.isValid(body.rfq)) {
+      delete body.rfq;
+      delete body.rfqId;
+    }
+
     if (Array.isArray(body.items)) {
       body.items = body.items.map(item => {
         const newItem = { ...item };
@@ -29,12 +34,36 @@ export const updateQuotation = async (req, res) => {
       });
     }
 
+    const existing = await Quotation.findOne({ _id: id, company: companyId });
+    if (!existing) return res.status(404).json({ message: "Quotation not found" });
+
+    const userId = req.user?.id || req.user?._id;
+    body.updatedBy = userId;
+
+    if (body.status && body.status !== existing.status) {
+      body.$push = {
+        statusHistory: {
+          status: body.status,
+          updatedBy: userId,
+          updatedAt: new Date(),
+        },
+      };
+    }
+
     const quotation = await Quotation.findOneAndUpdate(
       { _id: id, company: companyId },
       body,
       { new: true }
-    );
-    if (!quotation) return res.status(404).json({ message: "Quotation not found" });
+    )
+      .populate("preparedBy", "name email")
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email")
+      .populate("statusHistory.updatedBy", "name email")
+      .populate("customer", "name customerName companyName email phone city code gst")
+      .populate("rfq", "rfqNumber status")
+      .populate("items.component", "componentName componentCode")
+      .populate("items.fgItem", "name code unit");
+
     res.status(200).json({ message: "Quotation updated successfully", quotation });
   } catch (error) {
     console.error("Error updating quotation:", error);

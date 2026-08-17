@@ -16,6 +16,10 @@ export const incomingRFQSchema = new mongoose.Schema(
       required: true,
       default: Date.now,
     },
+    customer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+    },
     customerName: {
       type: String,
       required: true,
@@ -44,16 +48,38 @@ export const incomingRFQSchema = new mongoose.Schema(
       },
     ],
     expectedDeliveryDate: Date,
+    dueDate: Date,
     remarks: String,
     status: {
       type: String,
-      enum: ["Open", "Quoted", "Closed", "Rejected"],
+      enum: ["Draft", "Open", "Quoted", "Closed", "Rejected"],
       default: "Open",
     },
     receivedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    statusHistory: [
+      {
+        status: String,
+        updatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        updatedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     pdf: String,
     attachedDocument: String,
     attachedDocumentName: String,

@@ -84,22 +84,25 @@ export default function QuotationModal({
   useEffect(() => {
     const fetchPrefix = async () => {
       try {
-        const token = localStorage.getItem("token");
+        const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
+        if (!token) return;
         const res = await fetch(`${API_BASE_URL}/api/store/prefix`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
-        });
-        const data = await res.json();
-        if (data.settings?.quotationOutwardPrefix) {
-          const loadedPrefix = data.settings.quotationOutwardPrefix;
-          setPrefix(loadedPrefix);
-          if (!initialData) {
-            setFormData(prev => ({ ...prev, quotationNumber: generateQuotationNumber(loadedPrefix) }));
+        }).catch(() => null);
+        if (res && res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data && data.settings?.quotationOutwardPrefix) {
+            const loadedPrefix = data.settings.quotationOutwardPrefix;
+            setPrefix(loadedPrefix);
+            if (!initialData) {
+              setFormData(prev => ({ ...prev, quotationNumber: generateQuotationNumber(loadedPrefix) }));
+            }
           }
         }
       } catch (error) {
-        console.error("Failed to fetch prefix settings", error);
+        // Ignore silent prefix fetch error
       }
     };
     if (isOpen && !initialData) fetchPrefix();
@@ -225,6 +228,11 @@ export default function QuotationModal({
         const resolvedTax = priceConfig?.taxRate ?? selectedFg?.taxRate;
         if (resolvedTax !== undefined && resolvedTax !== null && resolvedTax !== "") {
           newItems[index].taxRate = Number(resolvedTax);
+        }
+
+        const resolvedHsn = priceConfig?.hsnCode || selectedFg?.hsnCode;
+        if (resolvedHsn) {
+          (newItems[index] as any).hsnCode = resolvedHsn;
         }
       }
     }

@@ -49,9 +49,10 @@ export const updateInvoice = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+    const userId = req.user?.id || req.user?._id;
     const invoice = await Invoice.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      { ...req.body, updatedBy: userId },
       { new: true }
     );
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });

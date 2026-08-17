@@ -54,13 +54,34 @@ export const incomingPOSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Received", "Accepted", "Sales Order Generated", "Cancelled"],
+      enum: ["Received", "Accepted", "Processing", "Sales Order Generated", "Partially Dispatched", "Completed", "Cancelled"],
       default: "Received",
     },
     receivedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    statusHistory: [
+      {
+        status: String,
+        updatedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        updatedAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     pdf: {
       type: String,
     },

@@ -55,8 +55,21 @@ export const invoiceSchema = new mongoose.Schema(
     discount: { type: Number, default: 0 },
     taxAmount: { type: Number, default: 0 },
     totalAmount: { type: Number, required: true },
+    transportationType: String,
+    transportationCharges: { type: Number, default: 0 },
+    vehicleNumber: String,
+    packagingType: String,
+    packagingCharges: { type: Number, default: 0 },
     otherDetails: String,
     preparedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },

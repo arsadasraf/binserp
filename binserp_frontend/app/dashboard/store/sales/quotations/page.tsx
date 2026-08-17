@@ -1,83 +1,47 @@
 "use client";
 
-import React, { useState } from 'react';
-import QuotationTable from "../../components/tables/QuotationTable";
-import QuotationModal from "../../components/modals/QuotationModal";
-import { useStoreData } from "../../components/hooks/useStoreData";
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import OutwardQuotationTab from "@/src/features/store/components/tabs/OutwardQuotationTab";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 
 export default function SalesQuotationsPage() {
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
-  const { quotations, fgItems, customers, priceLists, companyInfo, loading, refetch, handleQuotationSubmit, handleQuotationUpdate, handleDelete } = useStoreData("quotation", "vendor", token);
+  const searchParams = useSearchParams();
+  const rfqId = searchParams.get('rfqId');
+  const [token, setToken] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const [showModal, setShowModal] = useState(false);
-  const [editingQuotation, setEditingQuotation] = useState<any>(null);
-  const [viewingQuotation, setViewingQuotation] = useState<any>(null);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setToken(localStorage.getItem("token"));
+    }
+  }, []);
 
-  if (loading) return <LoadingSpinner />;
+  if (!token) return <LoadingSpinner />;
 
   return (
     <div className="space-y-4">
-      <QuotationTable
-        data={quotations || []}
-        companyInfo={companyInfo}
-        onCreate={() => { setEditingQuotation(null); setShowModal(true); }}
-        onEdit={(q) => { setEditingQuotation(q); setShowModal(true); }}
-        onView={(q) => { setViewingQuotation(q); }}
-        onDelete={async (id) => {
-          if (confirm("Are you sure you want to delete this Outward Quotation?")) {
-            await handleDelete(id);
-            refetch();
-          }
-        }}
+      {errorMsg && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-xl text-xs font-bold flex justify-between items-center">
+          <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg(null)} className="text-rose-500 hover:text-rose-700">✕</button>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs font-bold flex justify-between items-center">
+          <span>{successMsg}</span>
+          <button onClick={() => setSuccessMsg(null)} className="text-emerald-500 hover:text-emerald-700">✕</button>
+        </div>
+      )}
+
+      <OutwardQuotationTab
+        token={token}
+        initialRfqId={rfqId}
+        onError={(msg) => setErrorMsg(msg)}
+        onSuccess={(msg) => setSuccessMsg(msg)}
       />
-
-      {/* Edit or Create Modal */}
-      {showModal && (
-        <QuotationModal
-          isOpen={showModal}
-          isPreview={false}
-          onClose={() => { setShowModal(false); setEditingQuotation(null); }}
-          components={fgItems || []}
-          customers={customers || []}
-          priceLists={priceLists || []}
-          companyInfo={companyInfo}
-          onSubmit={async (formData) => {
-            try {
-              if (editingQuotation) {
-                await handleQuotationUpdate(editingQuotation._id, formData);
-                alert("Outward Quotation updated successfully!");
-              } else {
-                await handleQuotationSubmit(formData);
-                alert("Outward Quotation created successfully!");
-              }
-              setShowModal(false);
-              setEditingQuotation(null);
-              refetch();
-            } catch (error: any) {
-              console.error("Failed to save Quotation:", error);
-              const errMsg = error?.data?.message || error?.message || "Failed to save Outward Quotation";
-              alert(errMsg);
-            }
-          }}
-          initialData={editingQuotation}
-        />
-      )}
-
-      {/* Read-Only Preview Modal */}
-      {viewingQuotation && (
-        <QuotationModal
-          isOpen={!!viewingQuotation}
-          isPreview={true}
-          onClose={() => setViewingQuotation(null)}
-          components={fgItems || []}
-          customers={customers || []}
-          priceLists={priceLists || []}
-          companyInfo={companyInfo}
-          initialData={viewingQuotation}
-          onSubmit={() => setViewingQuotation(null)}
-        />
-      )}
     </div>
   );
 }

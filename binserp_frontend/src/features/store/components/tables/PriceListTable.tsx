@@ -56,6 +56,7 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
               <th className="p-4 font-medium">Name</th>
               <th className="p-4 font-medium">Description</th>
               <th className="p-4 font-medium">Type</th>
+              <th className="p-4 font-medium">HSN Code</th>
               <th className="p-4 font-medium text-right">Price (₹)</th>
               <th className="p-4 font-medium text-right">Tax Rate (%)</th>
               <th className="p-4 font-medium text-right last:pr-6 w-48">Actions</th>
@@ -64,7 +65,7 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-gray-500">
+                <td colSpan={8} className="p-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Tag className="w-8 h-8 text-gray-300" />
                     <p>No finished goods found.</p>
@@ -75,6 +76,7 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
               filteredItems.map((item, index) => {
                 const priceConfig = priceListMap[item._id?.toString()];
                 const isAssigned = !!priceConfig;
+                const hsnDisplay = priceConfig?.hsnCode || item.hsnCode || "-";
 
                 return (
                   <motion.tr
@@ -102,6 +104,11 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
                     <td className="p-4 text-gray-600 dark:text-gray-300">
                       <span className="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded-md text-xs">
                         {item.type || "FG"}
+                      </span>
+                    </td>
+                    <td className="p-4 text-gray-700 dark:text-gray-300 font-mono text-xs font-semibold">
+                      <span className="px-2 py-1 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-800">
+                        {hsnDisplay}
                       </span>
                     </td>
                     <td className="p-4 text-right font-medium">

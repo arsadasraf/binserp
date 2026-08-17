@@ -55,13 +55,30 @@ export const getAllDCs = async (req, res) => {
     const dcs = await DeliveryChallan.find({ company: companyId })
       .populate('items.material')
       .populate('customer')
+      .populate('createdBy', 'name email username')
+      .populate('updatedBy', 'name email username')
+      .populate('preparedBy', 'name email username')
       .sort({ createdAt: -1 }); // Newest first
+
+    const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
+    const poList = await IncomingPO.find({ company: companyId }, 'poNumber _id');
+    const poMap = new Map();
+    poList.forEach(p => poMap.set(p._id.toString(), p.poNumber));
+
+    const formattedDcs = dcs.map(dc => {
+      const docObj = dc.toObject ? dc.toObject() : { ...dc };
+      if (docObj.customerPoReference && mongoose.Types.ObjectId.isValid(docObj.customerPoReference)) {
+        const resolvedPoNumber = poMap.get(docObj.customerPoReference.toString());
+        if (resolvedPoNumber) {
+          docObj.customerPoReference = resolvedPoNumber;
+        }
+      }
+      return docObj;
+    });
 
     console.log(`Found ${dcs.length} DCs`);
 
-    // transform for frontend if needed, or just send
-    // using 'data' key to ensure useStoreData hook picks it up correctly (result.data)
-    res.status(200).json({ data: dcs, count: dcs.length });
+    res.status(200).json({ data: formattedDcs, count: formattedDcs.length });
   } catch (error) {
     console.error("Error fetching DCs:", error);
     res.status(500).json({ message: error.message });

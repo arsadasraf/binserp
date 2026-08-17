@@ -57,7 +57,20 @@ export const deliveryChallanSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
     discount: { type: Number, default: 0 },
+    transportationType: String,
+    transportationCharges: { type: Number, default: 0 },
+    vehicleNumber: String,
+    packagingType: String,
+    packagingCharges: { type: Number, default: 0 },
     otherDetails: String,
     status: {
       type: String,

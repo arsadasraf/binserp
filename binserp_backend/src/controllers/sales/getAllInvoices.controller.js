@@ -55,12 +55,31 @@ export const getAllInvoices = async (req, res) => {
     const invoices = await Invoice.find({ company: companyId })
       .populate('items.material')
       .populate('customer')
+      .populate('createdBy', 'name email username')
+      .populate('updatedBy', 'name email username')
+      .populate('preparedBy', 'name email username')
       .sort({ createdAt: -1 });
+
+    const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
+    const poList = await IncomingPO.find({ company: companyId }, 'poNumber _id');
+    const poMap = new Map();
+    poList.forEach(p => poMap.set(p._id.toString(), p.poNumber));
+
+    const formattedInvoices = invoices.map(inv => {
+      const docObj = inv.toObject ? inv.toObject() : { ...inv };
+      if (docObj.customerPoReference && mongoose.Types.ObjectId.isValid(docObj.customerPoReference)) {
+        const resolvedPoNumber = poMap.get(docObj.customerPoReference.toString());
+        if (resolvedPoNumber) {
+          docObj.customerPoReference = resolvedPoNumber;
+        }
+      }
+      return docObj;
+    });
 
     console.log(`Found ${invoices.length} Invoices`);
 
     // using 'data' key to ensure useStoreData hook picks it up correctly
-    res.status(200).json({ data: invoices, count: invoices.length });
+    res.status(200).json({ data: formattedInvoices, count: formattedInvoices.length });
   } catch (error) {
     console.error("Error fetching Invoices:", error);
     res.status(500).json({ message: error.message });

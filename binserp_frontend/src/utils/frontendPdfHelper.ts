@@ -501,6 +501,474 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
     printWindow.document.close();
 };
 
+export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; companyInfo?: any }) => {
+    const { rfq, customer, companyInfo } = data;
+
+    if (!rfq) {
+        alert("No Inward RFQ data provided for PDF generation");
+        return;
+    }
+
+    // Resolve Customer Details
+    const custObj = customer || rfq.customer;
+    const custName = custObj?.name || custObj?.companyName || rfq.customerName || 'CUSTOMER / CLIENT';
+    const custAddress = custObj?.address || custObj?.billingAddress || custObj?.street || '';
+    const custCityState = `${custObj?.city || ''} ${custObj?.state || ''} ${custObj?.pincode ? '-' + custObj?.pincode : ''}`.trim();
+    const custGst = custObj?.gst || custObj?.gstNumber || custObj?.gstin || rfq.customerGst || 'N/A';
+    const custPhone = custObj?.phone || custObj?.contactNumber || custObj?.mobile || rfq.customerPhone || '';
+    const custEmail = custObj?.email || rfq.customerEmail || '';
+
+    // Resolve Company Details
+    const compName = companyInfo?.companyName || 'COMPANY NAME';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
+    const compEmail = companyInfo?.email || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+
+    const items = rfq.items || [];
+    let totalQty = 0;
+    let itemsTableRowsHtml = '';
+
+    if (items.length > 0) {
+        items.forEach((item: any, idx: number) => {
+            const qty = Number(item.quantity || 0);
+            totalQty += qty;
+            const itemName = item.fgItem?.name || item.customItemName || item.itemName || item.materialName || 'Requested Item';
+
+            itemsTableRowsHtml += `
+                <tr>
+                    <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                    <td style="text-align: left; font-weight: bold; padding: 6px;">
+                        ${itemName}
+                        ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
+                    </td>
+                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
+                    <td style="text-align: center; padding: 6px; color: #64748b;">${item.targetPrice ? '₹' + item.targetPrice : '-'}</td>
+                    <td style="text-align: left; padding: 6px;">${item.remarks || item.specifications || ''}</td>
+                </tr>
+            `;
+        });
+
+        // Fill empty rows for neat spacing
+        for (let i = items.length; i < 5; i++) {
+            itemsTableRowsHtml += `
+                <tr>
+                    <td style="height: 28px;"></td>
+                    <td></td><td></td><td></td><td></td>
+                </tr>
+            `;
+        }
+    } else {
+        itemsTableRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 30px;">No items specified</td></tr>`;
+    }
+
+    const htmlContent = `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 12px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #3730a3; text-transform: uppercase;">${compName}</h1>
+                    <div style="font-size: 10px; color: #444; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <span style="display: inline-block; background: #4f46e5; color: #fff; font-size: 10px; font-weight: bold; padding: 4px 12px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        INWARD CUSTOMER RFQ
+                    </span>
+                    ${compGst && compGst !== 'N/A' ? `<div style="font-size: 9px; color: #666; margin-top: 4px;">GSTIN: <b>${compGst}</b></div>` : ''}
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #eef2ff; border: 1px solid #c7d2fe; font-weight: bold; font-size: 14px; padding: 8px; text-transform: uppercase; letter-spacing: 1px; color: #3730a3; margin-bottom: 14px;">
+                INWARD REQUEST FOR QUOTATION (INWARD RFQ)
+            </div>
+
+            <!-- Customer & RFQ Logistics -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #4f46e5; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">FROM (CUSTOMER / CLIENT)</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${custName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${custAddress ? custAddress + '<br>' : ''}
+                            ${custCityState ? custCityState + '<br>' : ''}
+                            ${custPhone ? '<b>Ph:</b> ' + custPhone + '<br>' : ''}
+                            ${custEmail ? '<b>Email:</b> ' + custEmail + '<br>' : ''}
+                        </div>
+                        ${(custGst && custGst !== 'N/A') ? `<div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;"><b>GSTIN:</b> ${custGst}</div>` : ''}
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 12px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>RFQ No:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; font-size: 13px; color: #3730a3;">${rfq.rfqNumber || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>RFQ Date:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold;">${new Date(rfq.date || rfq.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Expected Delivery:</b></td>
+                                <td style="padding: 4px 0; font-weight: 900; color: #b91c1c;">${rfq.dueDate || rfq.expectedDeliveryDate ? new Date(rfq.dueDate || rfq.expectedDeliveryDate).toLocaleDateString('en-GB') : 'Immediate'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Status:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold; color: #4f46e5;">${rfq.status || 'Open'}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Requested Materials Table -->
+            <div style="font-weight: bold; color: #334155; font-size: 11px; margin-bottom: 6px;">CUSTOMER REQUESTED ITEMS & SPECIFICATIONS</div>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #eef2ff; text-transform: uppercase; font-weight: bold; color: #3730a3;">
+                    <tr>
+                        <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
+                        <th style="width: 40%; padding: 7px 8px; text-align: left;">Item Description & Specifications</th>
+                        <th style="width: 15%; padding: 7px 4px; text-align: center;">Req. Qty</th>
+                        <th style="width: 15%; padding: 7px 4px; text-align: center;">Target Rate</th>
+                        <th style="width: 25%; padding: 7px 8px; text-align: left;">Remarks / Specs</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #4f46e5;">
+                    <tr>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Required Quantity =</td>
+                        <td style="padding: 6px; text-align: center;">${totalQty}</td>
+                        <td colspan="2"></td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Special Instructions & Terms -->
+            <div style="border: 1px solid #94a3b8; padding: 10px; background: #fafafa; margin-bottom: 14px; font-size: 9.5px; line-height: 1.4;">
+                <b style="color: #3730a3; font-size: 10px;">Customer Notes / Instructions:</b><br>
+                ${rfq.remarks ? `${rfq.remarks}<br>` : 'Standard Customer Inquiry'}
+            </div>
+
+            <!-- Signatures -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 20px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Received By: <b>Sales Department</b>
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 30px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center;">
+                            Authorized Sales Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Inward_RFQ_${rfq.rfqNumber || 'Document'}_${custName.replace(/[^a-zA-Z0-9]/g, '_')}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Inward Customer RFQ PDF: ${custName}</span>
+                <button onclick="window.print()" style="background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${htmlContent}
+            </div>
+            <script>
+                setTimeout(() => {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+
+    printWindow.document.close();
+};
+
+export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; customer?: any; companyInfo?: any }) => {
+    const { quotation, customer, companyInfo } = data;
+
+    if (!quotation) {
+        alert("No Outward Quotation data provided for PDF generation");
+        return;
+    }
+
+    // Resolve Customer Details
+    const custObj = customer || quotation.customer;
+    const custName = custObj?.name || custObj?.companyName || quotation.customerName || 'CUSTOMER / CLIENT';
+    const custAddress = custObj?.address || custObj?.billingAddress || quotation.customerAddress || '';
+    const custCityState = `${custObj?.city || ''} ${custObj?.state || ''} ${custObj?.pincode ? '-' + custObj?.pincode : ''}`.trim();
+    const custGst = custObj?.gst || custObj?.gstNumber || custObj?.gstin || quotation.customerGst || 'N/A';
+    const custPhone = custObj?.phone || custObj?.contactNumber || custObj?.mobile || quotation.customerPhone || '';
+    const custEmail = custObj?.email || quotation.customerEmail || '';
+
+    // Resolve Company Details
+    const compName = companyInfo?.companyName || 'COMPANY NAME';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
+    const compEmail = companyInfo?.email || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+
+    const items = quotation.items || [];
+    let totalQty = 0;
+    let itemsTableRowsHtml = '';
+
+    if (items.length > 0) {
+        items.forEach((item: any, idx: number) => {
+            const qty = Number(item.quantity || 0);
+            const rate = Number(item.rate || item.unitPrice || 0);
+            const tax = Number(item.taxRate != null ? item.taxRate : (item.tax != null ? item.tax : 18));
+            const lineTotal = item.amount ? Number(item.amount) : (item.total ? Number(item.total) : (qty * rate * (1 + tax / 100)));
+            const itemName = item.productName || item.fgItem?.name || item.component?.componentName || item.material?.name || 'Quoted Product';
+
+            totalQty += qty;
+
+            itemsTableRowsHtml += `
+                <tr>
+                    <td style="text-align: center; padding: 6px;">${idx + 1}</td>
+                    <td style="text-align: left; font-weight: bold; padding: 6px;">
+                        ${itemName}
+                        ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
+                    </td>
+                    <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || 'PCS'}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: bold;">₹${rate.toLocaleString()}</td>
+                    <td style="text-align: center; padding: 6px;">${tax > 0 ? tax + '%' : '-'}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: 800; color: #0f172a;">₹${lineTotal.toLocaleString()}</td>
+                </tr>
+            `;
+        });
+    } else {
+        itemsTableRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No quoted items specified</td></tr>`;
+    }
+
+    const subtotal = quotation.subtotal ? Number(quotation.subtotal) : 0;
+    const taxAmount = quotation.taxAmount ? Number(quotation.taxAmount) : (quotation.totalTax ? Number(quotation.totalTax) : 0);
+    const transCharges = quotation.transportationCharges ? Number(quotation.transportationCharges) : 0;
+    const packCharges = quotation.packagingCharges ? Number(quotation.packagingCharges) : 0;
+    const grandTotal = quotation.totalAmount ? Number(quotation.totalAmount) : (quotation.grandTotal ? Number(quotation.grandTotal) : subtotal + taxAmount + transCharges + packCharges);
+
+    const transMode = quotation.transportationType || 'Standard Freight';
+    const packType = quotation.packagingType || 'Standard Packing';
+
+    const htmlContent = `
+        <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
+            
+            <!-- Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 12px;">
+                <div>
+                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #3730a3; text-transform: uppercase;">${compName}</h1>
+                    <div style="font-size: 10px; color: #444; margin-top: 4px; line-height: 1.4;">
+                        ${compAddress}<br>
+                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 10px; color: #475569; font-weight: bold;">GSTIN: <b>${compGst}</b></div>
+                </div>
+            </div>
+
+            <!-- Title Bar -->
+            <div style="text-align: center; background: #eef2ff; border: 1px solid #c7d2fe; font-weight: bold; font-size: 15px; padding: 8px; text-transform: uppercase; letter-spacing: 1px; color: #3730a3; margin-bottom: 14px;">
+                QUOTATION
+            </div>
+
+            <!-- Address & Quotation Details -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11px;">
+                <tr>
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
+                        <div style="font-weight: bold; color: #4f46e5; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">QUOTATION PREPARED FOR (CUSTOMER / CLIENT)</div>
+                        <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${custName}</div>
+                        <div style="line-height: 1.4; color: #334155;">
+                            ${custAddress ? custAddress + '<br>' : ''}
+                            ${custCityState ? custCityState + '<br>' : ''}
+                            ${custPhone ? '<b>Ph:</b> ' + custPhone + '<br>' : ''}
+                            ${custEmail ? '<b>Email:</b> ' + custEmail + '<br>' : ''}
+                        </div>
+                        ${custGst && custGst !== 'N/A' ? `<div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;"><b>GSTIN:</b> ${custGst}</div>` : ''}
+                    </td>
+
+                    <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 12px; background: #ffffff;">
+                        <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Quote No:</b></td>
+                                <td style="padding: 3px 0; font-weight: 900; font-size: 13px; color: #3730a3;">${quotation.quotationNumber || '-'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Linked RFQ No:</b></td>
+                                <td style="padding: 3px 0; font-weight: bold; color: #4f46e5;">${quotation.rfqNumber || quotation.rfq?.rfqNumber || 'Direct'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Quote Date:</b></td>
+                                <td style="padding: 3px 0; font-weight: bold;">${new Date(quotation.date || quotation.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Valid Until:</b></td>
+                                <td style="padding: 3px 0; font-weight: bold; color: #b91c1c;">${quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-GB') : 'N/A'}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Transportation:</b></td>
+                                <td style="padding: 3px 0; font-weight: bold;">${transMode}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Packaging:</b></td>
+                                <td style="padding: 3px 0; font-weight: bold;">${packType}</td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Quoted Material Items Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #eef2ff; text-transform: uppercase; font-weight: bold; color: #3730a3;">
+                    <tr>
+                        <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
+                        <th style="width: 35%; padding: 7px 8px; text-align: left;">Product / Item Description</th>
+                        <th style="width: 12%; padding: 7px 4px; text-align: center;">Quantity</th>
+                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 11%; padding: 7px 4px; text-align: center;">GST %</th>
+                        <th style="width: 22%; padding: 7px 8px; text-align: right;">Total Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #4f46e5;">
+                    ${subtotal ? `
+                        <tr>
+                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Subtotal =</td>
+                            <td style="padding: 5px 8px; text-align: right;">₹${subtotal.toLocaleString()}</td>
+                        </tr>
+                    ` : ''}
+                    ${taxAmount ? `
+                        <tr>
+                            <td colspan="5" style="padding: 5px 8px; text-align: right;">GST Tax =</td>
+                            <td style="padding: 5px 8px; text-align: right;">₹${taxAmount.toLocaleString()}</td>
+                        </tr>
+                    ` : ''}
+                    ${transCharges > 0 ? `
+                        <tr>
+                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Freight / Transport Charges (${transMode}) =</td>
+                            <td style="padding: 5px 8px; text-align: right;">₹${transCharges.toLocaleString()}</td>
+                        </tr>
+                    ` : ''}
+                    ${packCharges > 0 ? `
+                        <tr>
+                            <td colspan="5" style="padding: 5px 8px; text-align: right;">Packaging Charges (${packType}) =</td>
+                            <td style="padding: 5px 8px; text-align: right;">₹${packCharges.toLocaleString()}</td>
+                        </tr>
+                    ` : ''}
+                    <tr style="font-size: 11px; background: #eef2ff; color: #3730a3;">
+                        <td colspan="5" style="padding: 7px 8px; text-align: right;">Grand Total Amount =</td>
+                        <td style="padding: 7px 8px; text-align: right; font-weight: 900;">₹${grandTotal.toLocaleString()}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Special Instructions & Commercial Terms -->
+            <div style="border: 1px solid #94a3b8; padding: 10px; background: #fafafa; margin-bottom: 14px; font-size: 9.5px; line-height: 1.4;">
+                <b style="color: #3730a3; font-size: 10px;">Terms & Conditions:</b><br>
+                ${quotation.otherDetails || quotation.remarks || quotation.termsAndConditions || 'Standard Sales Commercial Terms Apply'}
+            </div>
+
+            <!-- Signatures -->
+            <table style="width: 100%; border: none; font-size: 10px; margin-top: 25px;">
+                <tr>
+                    <td style="width: 50%; vertical-align: bottom;">
+                        <div style="font-size: 9px; color: #64748b;">
+                            Prepared By: <b>Sales Department</b>
+                        </div>
+                    </td>
+                    <td style="width: 50%; text-align: right; vertical-align: bottom;">
+                        <div style="font-weight: bold; margin-bottom: 30px;">For ${compName}</div>
+                        <div style="border-top: 1px solid #333; width: 180px; display: inline-block; padding-top: 4px; text-align: center;">
+                            Authorized Sales Signatory
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+        </div>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=900');
+    if (!printWindow) {
+        alert("Print popup blocked by browser. Please allow popups to view/print PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Outward_Quotation_${quotation.quotationNumber || 'Document'}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f8fafc; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+                th, td { border-color: #cbd5e1; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>Outward Sales Quotation PDF: ${custName}</span>
+                <button onclick="window.print()" style="background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${htmlContent}
+            </div>
+            <script>
+                setTimeout(() => {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+
+    printWindow.document.close();
+};
+
 export const generateFrontendVendorQuotationPDF = (data: { quotation: any; vendor?: any; companyInfo?: any }) => {
     const { quotation, vendor, companyInfo } = data;
 

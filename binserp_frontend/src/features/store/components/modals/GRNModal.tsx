@@ -16,6 +16,7 @@ import { X, Plus, Trash2, FileText, Camera } from 'lucide-react';
 import { GRNModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
 import { API_BASE_URL } from '@/src/utils/config';
+import { apiGet } from '@/src/lib/api';
 
 interface MaterialEntry {
     material: string;
@@ -122,18 +123,14 @@ export default function GRNModal({
     useEffect(() => {
         const fetchPrefixes = async () => {
             try {
-                const token = localStorage.getItem('token');
-                const res = await fetch(`${API_BASE_URL}/api/store/prefix`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data.settings) {
-                        setPrefixSettings(data.settings);
-                    }
+                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+                if (!token) return;
+                const data = await apiGet('/api/store/prefix', token).catch(() => null);
+                if (data && data.settings) {
+                    setPrefixSettings(data.settings);
                 }
             } catch (e) {
-                console.error("Failed to fetch prefix settings:", e);
+                // Ignore silent fetch prefix error
             }
         };
         fetchPrefixes();

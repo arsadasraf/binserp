@@ -1,4 +1,5 @@
 import { incomingPOSchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+import { customerSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 const getCompanyId = (req) => {
@@ -6,6 +7,7 @@ const getCompanyId = (req) => {
 };
 
 export const getIncomingPODispatchHistory = asyncHandler(async (req, res) => {
+  req.getModel("Customer", customerSchema);
   const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
   const Invoice = req.getModel("Invoice", invoiceSchema);
   const companyId = getCompanyId(req);

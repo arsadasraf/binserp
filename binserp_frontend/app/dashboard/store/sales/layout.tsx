@@ -12,7 +12,7 @@ export default function SalesLayout({ children }: { children: React.ReactNode })
   const tabs = [
     { name: 'Inward RFQ', href: '/dashboard/store/sales/rfq', icon: Inbox },
     { name: 'Outward Quotation', href: '/dashboard/store/sales/quotations', icon: FileText },
-    { name: 'Inward PO', href: '/dashboard/store/sales/po', icon: FileCheck },
+    { name: 'Customer PO', href: '/dashboard/store/sales/po', icon: FileCheck },
     { name: 'Sales Order', href: '/dashboard/store/sales/orders', icon: ShoppingBag },
     { name: 'DC', href: '/dashboard/store/sales/dc', icon: Truck },
     { name: 'Invoice', href: '/dashboard/store/sales/billing', icon: IndianRupee },

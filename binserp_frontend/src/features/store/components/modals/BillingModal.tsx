@@ -8,7 +8,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText, Truck, Calculator, IndianRupee } from "lucide-react";
+import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText, Truck, Calculator, IndianRupee, CheckCircle2, AlertTriangle } from "lucide-react";
 import { BillingModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from "../SearchableSelect";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
@@ -31,8 +31,8 @@ interface InvoiceItemEntry {
     unit: string;
     rate: number;
     amount: number;
-    taxRate: number;
-    taxAmount: number;
+    taxRate?: number;
+    taxAmount?: number;
     description?: string;
 }
 
@@ -175,6 +175,18 @@ export default function BillingModal({
         }
     }, [initialData, isOpen]);
 
+    const availablePOs = useMemo(() => {
+        if (!incomingPOs || !Array.isArray(incomingPOs)) return [];
+        return incomingPOs.filter((po: any) => {
+            if (po.status === 'Completed' || po.status === 'Cancelled') return false;
+            if (customer && customer !== '') {
+                const poCustId = typeof po.customer === 'object' ? po.customer?._id : po.customer;
+                return poCustId?.toString() === customer?.toString();
+            }
+            return true;
+        });
+    }, [incomingPOs, customer]);
+
     const handleCustomerChange = (customerId: string) => {
         setCustomer(customerId);
         const selectedCustomer = customers.find(c => (c._id || (c as any).id) === customerId);
@@ -182,6 +194,15 @@ export default function BillingModal({
             setCustomerName(selectedCustomer.name || (selectedCustomer as any).customerName || "");
             setCustomerAddress(selectedCustomer.address || (selectedCustomer as any).billingAddress || "");
             setCustomerGST((selectedCustomer as any).gstNumber || (selectedCustomer as any).gst || "");
+        }
+        if (customerPoReference && Array.isArray(incomingPOs)) {
+            const currentPo = incomingPOs.find((p: any) => p._id === customerPoReference);
+            if (currentPo) {
+                const poCustId = typeof currentPo.customer === 'object' ? currentPo.customer?._id : currentPo.customer;
+                if (poCustId?.toString() !== customerId?.toString()) {
+                    setCustomerPoReference("");
+                }
+            }
         }
     };
 
@@ -238,7 +259,7 @@ export default function BillingModal({
         const rate = Number(priceConfig?.price ?? selectedFG?.sellingPrice ?? selectedFG?.rate ?? 0);
         const taxRate = Number(priceConfig?.taxRate ?? selectedFG?.taxRate ?? globalTaxRate ?? 0);
         const name = selectedFG?.name || selectedFG?.partName || selectedFG?.componentName || "";
-        const hsn = selectedFG?.hsnCode || priceConfig?.hsnCode || "";
+        const hsn = priceConfig?.hsnCode || selectedFG?.hsnCode || "";
         const unit = selectedFG?.unit || "PCS";
         const qty = newItems[index].quantity || 1;
         const amt = qty * rate;
@@ -273,7 +294,7 @@ export default function BillingModal({
             const taxRate = field === 'taxRate' ? Number(value) : item.taxRate;
 
             item.amount = qty * rate;
-            item.taxAmount = (item.amount * taxRate) / 100;
+            item.taxAmount = (item.amount * (taxRate || 0)) / 100;
         }
 
         newItems[index] = item;
@@ -315,6 +336,33 @@ export default function BillingModal({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validation for FG Inventory Stock
+        for (const item of items) {
+            if (item.itemType === 'fg' || item.fgItem) {
+                const fgId = item.fgItem || item.material || item.component;
+                const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === fgId);
+                const stock = fg ? Number(fg.quantity || 0) : 0;
+                if (!fg || stock <= 0) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Zero Inventory Stock',
+                        text: `Cannot save Tax Invoice. Item '${item.materialName || fg?.name || 'Selected Item'}' has 0 available inventory stock.`,
+                        confirmButtonColor: '#d33'
+                    });
+                    return;
+                }
+                if (Number(item.quantity) > stock) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Insufficient Inventory Stock',
+                        text: `Billing quantity (${item.quantity} PCS) exceeds available inventory stock (${stock} PCS) for '${item.materialName || fg.name}'.`,
+                        confirmButtonColor: '#d33'
+                    });
+                    return;
+                }
+            }
+        }
 
         // Validation against Customer PO
         if (customerPoReference && incomingPOs) {
@@ -373,17 +421,23 @@ export default function BillingModal({
         };
 
         if (customer && customer !== "") payload.customer = customer;
-        if (customerPoReference && customerPoReference !== "") payload.customerPoReference = customerPoReference;
+        if (customerPoReference && customerPoReference !== "") {
+            const selectedPoObj = (incomingPOs || []).find((p: any) => p._id === customerPoReference || p.poNumber === customerPoReference);
+            payload.customerPoReference = selectedPoObj ? selectedPoObj.poNumber : customerPoReference;
+        }
 
         onSubmit(payload);
     };
 
     if (!isOpen) return null;
 
-    const fgOptions = availableFGItems.map((fg) => ({
-        value: fg._id,
-        label: `${fg.name || fg.partName} ${fg.itemCode ? `(${fg.itemCode})` : ''}`
-    }));
+    const fgOptions = (availableFGItems || []).map((fg: any) => {
+        const stock = Number(fg.quantity || 0);
+        return {
+            value: fg._id || fg.id,
+            label: `${fg.name || fg.partName || 'FG Product'} (${fg.code || fg.itemCode || 'FG'}) — Stock: ${stock} ${fg.unit || 'PCS'}`
+        };
+    });
 
     return (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[105] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
@@ -456,15 +510,18 @@ export default function BillingModal({
                                 </div>
 
                                 <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Inward PO Ref (Auto-Fill)</label>
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Inward PO Ref (Optional Auto-Fill)</label>
                                     <SearchableSelect
-                                        options={Array.isArray(incomingPOs) ? incomingPOs.map((po: any) => ({
-                                            value: po._id,
-                                            label: `${po.poNumber} (${po.customer?.name || 'Customer'})`
-                                        })) : []}
+                                        options={[
+                                            { value: "", label: "Direct / No PO" },
+                                            ...availablePOs.map((po: any) => ({
+                                                value: po._id,
+                                                label: `${po.poNumber} (${po.customerName || po.customer?.name || 'Customer'}) - ${po.status || 'Received'}`
+                                            }))
+                                        ]}
                                         value={customerPoReference || ""}
                                         onChange={(val: any) => handlePOSelect(val)}
-                                        placeholder="Link Customer PO..."
+                                        placeholder="Link Customer PO (Optional)..."
                                     />
                                 </div>
                             </div>
@@ -473,19 +530,24 @@ export default function BillingModal({
                         {/* Freight & Logistics */}
                         <div className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
                             <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                                <Truck className="w-4 h-4 text-blue-600" />
-                                <span>Freight & Freight Charges</span>
+                                <Truck className="w-4 h-4 text-indigo-600" />
+                                <span>Logistics & Freight Information</span>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                                 <div className="space-y-1">
                                     <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Transport Method</label>
-                                    <input
-                                        type="text"
+                                    <select
                                         value={transportationType}
                                         onChange={(e) => setTransportationType(e.target.value)}
-                                        placeholder="e.g. By Road, Express"
                                         className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
-                                    />
+                                    >
+                                        <option value="Road Transport">Road Transport (By Truck / Lorry)</option>
+                                        <option value="Express Courier">Express Courier (Gati / BlueDart / DTDC)</option>
+                                        <option value="Air Freight">Air Freight</option>
+                                        <option value="Sea Freight">Sea Freight</option>
+                                        <option value="Customer Self-Pickup">Customer Self-Pickup</option>
+                                        <option value="Other / Custom">Other / Custom</option>
+                                    </select>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Vehicle Number</label>
@@ -498,7 +560,7 @@ export default function BillingModal({
                                     />
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Freight Cost (₹)</label>
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Freight Charges (₹)</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -507,6 +569,21 @@ export default function BillingModal({
                                         placeholder="0.00"
                                         className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
                                     />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Type</label>
+                                    <select
+                                        value={packagingType}
+                                        onChange={(e) => setPackagingType(e.target.value)}
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    >
+                                        <option value="Standard Packaging">Standard Packaging (Carton Boxes)</option>
+                                        <option value="Wooden Crating">Wooden Crating</option>
+                                        <option value="Heavy Duty Pallet Packaging">Heavy Duty Pallet Packaging</option>
+                                        <option value="Bubble Wrap & Stretch Film">Bubble Wrap & Stretch Film</option>
+                                        <option value="Export Grade Packaging">Export Grade Packaging</option>
+                                        <option value="Other / Custom">Other / Custom</option>
+                                    </select>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Charges (₹)</label>
@@ -586,12 +663,33 @@ export default function BillingModal({
                                                 </div>
 
                                                 {entry.itemType === 'fg' ? (
-                                                    <SearchableSelect
-                                                        options={fgOptions}
-                                                        value={entry.fgItem || entry.material || ''}
-                                                        onChange={(val: any) => handleFGSelection(index, val)}
-                                                        placeholder="Select Finished Good"
-                                                    />
+                                                    <>
+                                                        <SearchableSelect
+                                                            options={fgOptions}
+                                                            value={entry.fgItem || entry.material || ''}
+                                                            onChange={(val: any) => handleFGSelection(index, val)}
+                                                            placeholder="Select Finished Good"
+                                                        />
+                                                        {(() => {
+                                                            const selectedFgId = entry.fgItem || entry.material || entry.component;
+                                                            const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === selectedFgId);
+                                                            if (!fg) return null;
+                                                            const stock = Number(fg.quantity || 0);
+                                                            return (
+                                                                <div className="mt-1">
+                                                                    {stock > 0 ? (
+                                                                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
+                                                                            <CheckCircle2 size={12} className="text-emerald-600" /> Available Stock: {stock} {fg.unit || 'PCS'}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
+                                                                            <AlertTriangle size={12} className="text-rose-600" /> Out of Stock (0 {fg.unit || 'PCS'}) — Billing Blocked
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </>
                                                 ) : (
                                                     <input
                                                         type="text"

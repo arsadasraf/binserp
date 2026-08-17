@@ -50,9 +50,14 @@ export const getAllQuotations = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const quotations = await Quotation.find({ company: companyId })
-      .populate("preparedBy", "name userId")
-      .populate("customer", "customerName companyName customerEmail")
+      .populate("preparedBy", "name email")
+      .populate("createdBy", "name email")
+      .populate("updatedBy", "name email")
+      .populate("statusHistory.updatedBy", "name email")
+      .populate("customer", "name customerName companyName email phone city code gst")
+      .populate("rfq", "rfqNumber status")
       .populate("items.component", "componentName componentCode")
+      .populate("items.fgItem", "name code unit")
       .sort({ createdAt: -1 });
     res.status(200).json({ quotations, count: quotations.length });
   } catch (error) {
