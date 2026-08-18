@@ -43,22 +43,32 @@ export const createUser = async (req, res) => {
       return res.status(404).json({ message: "Company not found" });
     }
 
-    // Check if userId or email already exists
     const UserModel = req.getModel('User', userSchema);
-    const existingUser = await UserModel.findOne({ userId });
 
+    // Drop legacy unique index on email if present on tenant users collection
+    try {
+      await UserModel.collection.dropIndex('email_1');
+    } catch (e) {
+      // Ignore if index doesn't exist
+    }
+
+    // Check if userId already exists
+    const existingUser = await UserModel.findOne({ userId });
     if (existingUser) {
       return res.status(400).json({
         message: "User ID already exists"
       });
     }
 
+    // Clean email value (avoid empty string indexing conflict)
+    const cleanEmail = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : undefined;
+
     // Create new user
     const newUser = await UserModel.create({
       company: companyId,
       name,
       userId,
-      email: email || "",
+      email: cleanEmail,
       password,
       department: department || "",
       role,

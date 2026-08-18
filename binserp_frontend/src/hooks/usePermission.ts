@@ -83,8 +83,104 @@ export function usePermission() {
    */
   const hasTabAccess = (moduleName: string, tabName: string): boolean => {
     if (userType === "saasadmin") return true;
-    if (userType === "company") return moduleName.toLowerCase() === "admin";
-    return permissionSet.has(`${moduleName}:${tabName}`) || permissionSet.has(`${moduleName}:${tabName}:all`) || permissionSet.has(`${moduleName.toLowerCase()}:${tabName.toLowerCase()}`);
+    if (userType === "company") return true;
+
+    let mod = moduleName.toLowerCase();
+    if (mod === "gate-entry" || mod === "gateentry") mod = "security";
+
+    const tab = tabName.toLowerCase();
+
+    // Check GM / Full Access
+    const rolesToCheck: UserRole[] = [];
+    if (user?.role) rolesToCheck.push(user.role);
+    if (Array.isArray(user?.roles)) rolesToCheck.push(...user.roles);
+    for (const r of rolesToCheck) {
+      if (r?.name === "GM" || r?.name === "Admin Default Role" || r?.name === "Company Management") {
+        return true;
+      }
+    }
+
+    // Direct key matches
+    if (
+      permissionSet.has(`${moduleName}:${tabName}`) ||
+      permissionSet.has(`${moduleName}:${tabName}:all`) ||
+      permissionSet.has(`${mod}:${tab}`) ||
+      permissionSet.has(`${mod}:${tab}:all`)
+    ) {
+      return true;
+    }
+
+    // Tab Aliases
+    // 1. Overview / Home
+    if ((tab === "home" || tab === "overview") && (
+      permissionSet.has(`${mod}:overview`) ||
+      permissionSet.has(`${mod}:home`) ||
+      permissionSet.has(`${moduleName}:overview`) ||
+      permissionSet.has(`${moduleName}:home`)
+    )) {
+      return true;
+    }
+
+    // 2. Store: Inventory
+    if ((tab === "inventory" || tab === "home") && mod === "store" && (
+      permissionSet.has("store:inventory") ||
+      permissionSet.has("store:home") ||
+      permissionSet.has("Store:inventory") ||
+      permissionSet.has("Store:home")
+    )) {
+      return true;
+    }
+
+    // 3. HR: Kiosk / Attendance
+    if ((tab === "kiosk" || tab === "attendance") && mod === "hr" && (
+      permissionSet.has("hr:kiosk") ||
+      permissionSet.has("hr:attendance") ||
+      permissionSet.has("HR:kiosk") ||
+      permissionSet.has("HR:attendance")
+    )) {
+      return true;
+    }
+
+    // 4. Masters / Master
+    if ((tab === "masters" || tab === "master") && (
+      permissionSet.has(`${mod}:masters`) ||
+      permissionSet.has(`${mod}:master`) ||
+      permissionSet.has(`${moduleName}:masters`) ||
+      permissionSet.has(`${moduleName}:master`)
+    )) {
+      return true;
+    }
+
+    // 5. Security / Gate Entry: Employee Movement
+    if ((tab === "employee-movement" || tab === "movement") && (mod === "security" || mod === "gate-entry") && (
+      permissionSet.has("security:employee-movement") ||
+      permissionSet.has("security:movement") ||
+      permissionSet.has("Security:employee-movement")
+    )) {
+      return true;
+    }
+
+    // Sub-route prefix matching (e.g., policy has "inventory" -> allows "inventory/rm-bo-stock", or policy has "purchase/po" -> allows "purchase")
+    for (const key of permissionSet) {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.startsWith(`${mod}:${tab}/`) || lowerKey.startsWith(`${mod}:${tab}:`)) {
+        return true;
+      }
+      const prefix = `${mod}:`;
+      if (lowerKey.startsWith(prefix)) {
+        const storedTab = lowerKey.replace(prefix, "").split(":")[0];
+        if (
+          storedTab.startsWith(`${tab}/`) || 
+          (tab === "inventory" && storedTab.startsWith("inventory/")) ||
+          (tab === "masters" && storedTab.startsWith("master")) ||
+          (tab === "kiosk" && (storedTab.startsWith("kiosk/") || storedTab.startsWith("attendance/")))
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   };
 
   /**
@@ -92,7 +188,8 @@ export function usePermission() {
    */
   const hasPermission = (moduleName: string, tabName: string, action: string = "read"): boolean => {
     if (userType === "saasadmin") return true;
-    if (userType === "company") return moduleName.toLowerCase() === "admin";
+    if (userType === "company") return true;
+    if (hasTabAccess(moduleName, tabName)) return true;
     return permissionSet.has(`${moduleName}:${tabName}:${action}`) || permissionSet.has(`${moduleName}:${tabName}`) || permissionSet.has(`${moduleName}:${tabName}:all`);
   };
 
@@ -101,7 +198,7 @@ export function usePermission() {
    */
   const isModuleAllowed = (moduleName: string): boolean => {
     if (userType === "saasadmin") return true;
-    if (userType === "company") return moduleName.toLowerCase() === "admin";
+    if (userType === "company") return true;
     
     for (const key of permissionSet) {
       if (key.startsWith(`${moduleName}:`) || key.startsWith(`${moduleName.toLowerCase()}:`)) return true;

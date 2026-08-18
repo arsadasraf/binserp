@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
+import { usePermission } from "@/src/hooks/usePermission";
 import { LayoutDashboard, FileText, Calendar, Database, Activity } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -15,23 +16,7 @@ interface PPCTabsProps {
 export default function PPCTabs({ activeTab }: PPCTabsProps) {
     const { showBottomNav } = useHeader();
     const pathname = usePathname();
-    const [department, setDepartment] = useState<string>("");
-
-    useEffect(() => {
-        if (typeof window !== "undefined") {
-            const userStr = localStorage.getItem("userInfo");
-            if (userStr) {
-                try {
-                    const user = JSON.parse(userStr);
-                    setDepartment(user.department || "");
-                } catch (e) {
-                    console.error("Failed to parse userInfo", e);
-                }
-            }
-        }
-    }, []);
-
-    const isExecutive = department === "PPC Executive";
+    const { hasTabAccess, userType } = usePermission();
     
     // Determine active tab from URL pathname if activeTab prop is omitted
     const currentTab = activeTab || (
@@ -42,13 +27,19 @@ export default function PPCTabs({ activeTab }: PPCTabsProps) {
         "overview"
     );
 
-    const tabs = [
-        { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/ppc/overview" },
-        { id: "orders", label: "Orders", icon: FileText, href: "/dashboard/ppc/orders" },
-        { id: "planning", label: "Planning", icon: Calendar, href: "/dashboard/ppc/planning" },
-        { id: "tracing", label: "Traceability", icon: Activity, href: "/dashboard/ppc/tracing" },
-        { id: "master", label: "Master", icon: Database, href: "/dashboard/ppc/master/shop-floor/workstation" },
-    ].filter(tab => !(tab.id === "master" && isExecutive));
+    const allTabs = [
+        { id: "overview", key: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/ppc/overview" },
+        { id: "orders", key: "orders", label: "Orders", icon: FileText, href: "/dashboard/ppc/orders" },
+        { id: "planning", key: "planning", label: "Planning", icon: Calendar, href: "/dashboard/ppc/planning" },
+        { id: "tracing", key: "tracing", label: "Traceability", icon: Activity, href: "/dashboard/ppc/tracing" },
+        { id: "master", key: "masters", label: "Master", icon: Database, href: "/dashboard/ppc/master/shop-floor/workstation" },
+    ];
+
+    const tabs = allTabs.filter(tab => {
+        if (userType === "saasadmin" || userType === "company") return true;
+        return hasTabAccess("PPC", tab.key) || hasTabAccess("PPC", tab.id);
+    });
+
 
     return (
         <>

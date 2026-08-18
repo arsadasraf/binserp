@@ -147,9 +147,26 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
                                 </div>
                             </div>
 
+                            {/* Email Address (Optional) */}
+                            <div className="md:col-span-2">
+                                <label className={labelClass}>Email Address (Optional)</label>
+                                <div className="relative">
+                                    <input
+                                        type="email"
+                                        className={inputClass}
+                                        value={formData.email}
+                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                        placeholder="e.g. john.doe@company.com"
+                                    />
+                                    <div className="absolute left-3 top-3.5 text-gray-400">
+                                        <Mail size={18} />
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* User ID */}
                             <div>
-                                <label className={labelClass}>User ID (Login ID)</label>
+                                <label className={labelClass}>User ID (Login ID) <span className="text-red-500">*</span></label>
                                 <div className="relative flex shadow-sm rounded-xl">
                                     <span className="inline-flex items-center px-4 rounded-l-xl border border-r-0 border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400 sm:text-sm font-semibold">
                                         {companyProfile?.companyId ? companyProfile.companyId : 'CompanyID'}
@@ -167,7 +184,7 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
                             </div>
                             {/* Password */}
                             <div>
-                                <label className={labelClass}>Password {editingUser && "(Optional)"}</label>
+                                <label className={labelClass}>Password {editingUser ? "(Optional)" : <span className="text-red-500">*</span>}</label>
                                 <div className="relative">
                                     <input
                                         type="password"
@@ -175,7 +192,7 @@ export default function UserFormModal({ isOpen, onClose, onSubmit, editingUser, 
                                         value={formData.password}
                                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                         required={!editingUser}
-                                        placeholder={editingUser ? "Check to keep current" : "Set password"}
+                                        placeholder={editingUser ? "Leave blank to keep current" : "Set login password"}
                                     />
                                     <div className="absolute left-3 top-3.5 text-gray-400">
                                         <Lock size={18} />

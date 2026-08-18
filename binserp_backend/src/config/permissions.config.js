@@ -1,121 +1,92 @@
-// Central Registry of Actual System Modules, Real Tabs, and URL Sub-Routes for RBAC
+// Central Registry of Actual System Modules, Main Tabs, and Entry Routes for RBAC
 export const SYSTEM_PERMISSIONS = [
-  {
-    module: "Admin",
-    label: "Admin & User Management",
-    tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/admin/overview" },
-      { id: "users", label: "User Management", route: "/dashboard/admin" },
-      { id: "roles", label: "Role Management", route: "/dashboard/admin/roles" }
-    ]
-  },
   {
     module: "Store",
     label: "Store & Inventory",
     tabs: [
-      { id: "inventory/rm-bo-stock", label: "Inventory RM & BO Stock", route: "/dashboard/store/inventory/rm-bo-stock" },
-      { id: "inventory/inhouse-stock", label: "Inventory InHouse Stock", route: "/dashboard/store/inventory/inhouse-stock" },
-      { id: "inventory/grn-history", label: "Inventory GRN History", route: "/dashboard/store/inventory/grn-history" },
-      { id: "inventory/fg-grn-history", label: "Inventory FG GRN History", route: "/dashboard/store/inventory/fg-grn-history" },
-      { id: "wip/requests", label: "WIP Material Requests", route: "/dashboard/store/wip/requests" },
-      { id: "wip/history", label: "WIP Material Issue History", route: "/dashboard/store/wip/history" },
-      { id: "sales/orders", label: "Sales Orders", route: "/dashboard/store/sales/orders" },
-      { id: "sales/quotations", label: "Sales Quotations", route: "/dashboard/store/sales/quotations" },
-      { id: "sales/billing", label: "Sales Billing / Invoices", route: "/dashboard/store/sales/billing" },
-      { id: "sales/dc", label: "Sales Delivery Challans (DC)", route: "/dashboard/store/sales/dc" },
-      { id: "sales/price-list", label: "Sales Price List", route: "/dashboard/store/sales/price-list" },
-      { id: "sales/rfq", label: "Sales Incoming RFQ", route: "/dashboard/store/sales/rfq" },
-      { id: "purchase/po", label: "Purchase Orders (PO)", route: "/dashboard/store/purchase/po" },
-      { id: "purchase/mrp", label: "Purchase MRP & Planning", route: "/dashboard/store/purchase/mrp" },
-      { id: "purchase/vendor-quotation", label: "Purchase Vendor Quotations", route: "/dashboard/store/purchase/vendor-quotation" },
-      { id: "purchase/purchase-bill", label: "Purchase Bills & Invoices", route: "/dashboard/store/purchase/purchase-bill" },
-      { id: "purchase/vendor-price-list", label: "Purchase Vendor Price List", route: "/dashboard/store/purchase/vendor-price-list" },
-      { id: "masters/materials", label: "Materials Master", route: "/dashboard/store/masters/materials" },
-      { id: "masters/vendors", label: "Vendors Master", route: "/dashboard/store/masters/vendors" },
-      { id: "masters/customers", label: "Customers Master", route: "/dashboard/store/masters/customers" },
-      { id: "masters/categories", label: "Categories Master", route: "/dashboard/store/masters/categories" },
-      { id: "masters/locations", label: "Locations Master", route: "/dashboard/store/masters/locations" },
-      { id: "masters/finished-goods", label: "Finished Goods Master", route: "/dashboard/store/masters/finished-goods" }
+      { id: "inventory", label: "Inventory", description: "RM & BO Stock, In-House Stock, GRN & FG GRN History", route: "/dashboard/store/inventory/rm-bo-stock" },
+      { id: "wip", label: "WIP", description: "WIP Material Requests & Issue History", route: "/dashboard/store/wip/requests" },
+      { id: "sales", label: "Sales", description: "Sales Orders, Quotations, Invoices, Delivery Challans, Price List, RFQ", route: "/dashboard/store/sales/orders" },
+      { id: "purchase", label: "Purchase", description: "Purchase Orders (PO), MRP Planning, Vendor Quotes, Purchase Bills", route: "/dashboard/store/purchase/po" },
+      { id: "masters", label: "Masters", description: "Materials, Vendors, Customers, Categories, Locations, Finished Goods", route: "/dashboard/store/masters/vendors" }
     ]
   },
   {
     module: "HR",
     label: "Human Resources",
     tabs: [
-      { id: "hr/overview", label: "Overview", route: "/dashboard/hr/overview" },
-      { id: "hr/kiosk", label: "Attendance Kiosk", route: "/dashboard/hr/kiosk" },
-      { id: "hr/present", label: "Present Log", route: "/dashboard/hr/present" },
-      { id: "hr/salaries", label: "Salaries & Payroll", route: "/dashboard/hr/salaries" },
-      { id: "hr/master/employee", label: "Employee Master", route: "/dashboard/hr/master/employee" },
-      { id: "hr/master/employee-type", label: "Employee Type Master", route: "/dashboard/hr/master/employee-type" },
-      { id: "hr/master/department", label: "Department Master", route: "/dashboard/hr/master/department" },
-      { id: "hr/master/designation", label: "Designation Master", route: "/dashboard/hr/master/designation" },
-      { id: "hr/master/face-data", label: "Face Data Master", route: "/dashboard/hr/master/face-data" },
-      { id: "hr/master/holiday", label: "Holiday Master", route: "/dashboard/hr/master/holiday" },
-      { id: "hr/master/settings", label: "HR Prefix Settings", route: "/dashboard/hr/master/settings" }
+      { id: "overview", label: "Overview", description: "HR Dashboard & Analytics", route: "/dashboard/hr?tab=home" },
+      { id: "kiosk", label: "Attendance Kiosk", description: "Live Camera & Manual Check-in Kiosk", route: "/dashboard/hr?tab=attendance" },
+      { id: "present", label: "Present Log", description: "Live Attendance & Presence Records", route: "/dashboard/hr?tab=present" },
+      { id: "salaries", label: "Salaries & Payroll", description: "Salaries, Overtime & Payout Slips", route: "/dashboard/hr?tab=salaries" },
+      { id: "masters", label: "HR Masters", description: "Employees, Departments, Designations, Holidays, Settings", route: "/dashboard/hr?tab=master" }
     ]
   },
   {
     module: "PPC",
     label: "PPC (Production Planning)",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/ppc/overview" },
-      { id: "orders", label: "Orders List", route: "/dashboard/ppc/orders" },
-      { id: "planning", label: "Planning", route: "/dashboard/ppc/planning" },
-      { id: "tracing", label: "Traceability", route: "/dashboard/ppc/tracing" },
-      { id: "master", label: "PPC Masters", route: "/dashboard/ppc/master" }
+      { id: "overview", label: "Overview", description: "Production Analytics & KPIs", route: "/dashboard/ppc/overview" },
+      { id: "orders", label: "Orders List", description: "PPC Production Orders & Batches", route: "/dashboard/ppc/orders" },
+      { id: "planning", label: "Planning", description: "Machine & Material Scheduling", route: "/dashboard/ppc/planning" },
+      { id: "tracing", label: "Traceability", description: "Route Cards & Work-in-Progress Tracking", route: "/dashboard/ppc/tracing" },
+      { id: "masters", label: "PPC Masters", description: "Work Centers, Machines & Routing Masters", route: "/dashboard/ppc/master" }
     ]
   },
   {
     module: "Security",
     label: "Gate Security & Entry",
     tabs: [
-      { id: "security/overview", label: "Overview", route: "/dashboard/gate-entry/overview" },
-      { id: "security/kiosk/manual", label: "Manual Attendance Kiosk", route: "/dashboard/gate-entry/kiosk/manual" },
-      { id: "security/kiosk/face", label: "Face Kiosk", route: "/dashboard/gate-entry/kiosk/face" },
-      { id: "security/visitor/active", label: "Active Visitor Log", route: "/dashboard/gate-entry/visitor/active" },
-      { id: "security/visitor/history", label: "Visitor History Log", route: "/dashboard/gate-entry/visitor/history" },
-      { id: "security/vehicle/active/unloading", label: "Vehicle Log (Unloading)", route: "/dashboard/gate-entry/vehicle/active/unloading" },
-      { id: "security/vehicle/active/loading", label: "Vehicle Log (Loading)", route: "/dashboard/gate-entry/vehicle/active/loading" },
-      { id: "security/vehicle/history/unloading", label: "Vehicle History (Unloading)", route: "/dashboard/gate-entry/vehicle/history/unloading" },
-      { id: "security/vehicle/history/loading", label: "Vehicle History (Loading)", route: "/dashboard/gate-entry/vehicle/history/loading" },
-      { id: "security/employee-movement/active", label: "Active Employee Movement", route: "/dashboard/gate-entry/employee-movement/active" },
-      { id: "security/employee-movement/history", label: "Employee Movement History", route: "/dashboard/gate-entry/employee-movement/history" }
+      { id: "overview", label: "Overview", description: "Gate Entry Real-Time Overview", route: "/dashboard/gate-entry?tab=overview" },
+      { id: "kiosk", label: "Kiosk Mode", description: "Gate Face & Manual Attendance Kiosks", route: "/dashboard/gate-entry?tab=kiosk" },
+      { id: "visitor", label: "Visitor Log", description: "Active Visitor Passes & History", route: "/dashboard/gate-entry?tab=visitor" },
+      { id: "vehicle", label: "Vehicle Log", description: "Loading & Unloading Gate Vehicle Movement", route: "/dashboard/gate-entry?tab=vehicle" },
+      { id: "employee-movement", label: "Employee Movement", description: "Gate In/Out Activity Log", route: "/dashboard/gate-entry?tab=employee-movement" }
+    ]
+  },
+  {
+    module: "Admin",
+    label: "Admin & User Management",
+    tabs: [
+      { id: "overview", label: "Overview", description: "Company Profile & Overview", route: "/dashboard/admin/overview" },
+      { id: "users", label: "User Management", description: "User Accounts & Credentials", route: "/dashboard/admin" },
+      { id: "roles", label: "Role Management", description: "Roles & RBAC Access Control", route: "/dashboard/admin/roles" }
     ]
   },
   {
     module: "CRM",
     label: "CRM & Sales",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/crm" }
+      { id: "overview", label: "CRM Overview", description: "Lead Pipeline, Customers & Deals", route: "/dashboard/crm" }
     ]
   },
   {
     module: "Accounts",
     label: "Accounts & Finance",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/accounts" }
+      { id: "overview", label: "Accounts Overview", description: "Ledgers, Receivables & Payables", route: "/dashboard/accounts" }
     ]
   },
   {
     module: "Maintenance",
     label: "Maintenance",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/maintenance" }
+      { id: "overview", label: "Maintenance Overview", description: "Equipment Status & Preventive Schedules", route: "/dashboard/maintenance" }
     ]
   },
   {
     module: "Quality",
     label: "Quality Control",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/quality" }
+      { id: "overview", label: "Quality Overview", description: "Inspection Sheets & Quality Audits", route: "/dashboard/quality" }
     ]
   },
   {
     module: "Reports",
     label: "Reports & Analytics",
     tabs: [
-      { id: "overview", label: "Overview", route: "/dashboard/reports" }
+      { id: "overview", label: "Reports Overview", description: "Cross-departmental BI & Export Reports", route: "/dashboard/reports" }
     ]
   }
 ];
+

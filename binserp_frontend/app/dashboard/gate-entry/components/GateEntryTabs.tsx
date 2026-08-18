@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useHeader } from "@/src/context/HeaderContext";
+import { usePermission } from "@/src/hooks/usePermission";
 
 import { LayoutDashboard, ScanFace, Users, Truck, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
@@ -14,14 +15,21 @@ interface GateEntryTabsProps {
 export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
     const { showBottomNav } = useHeader();
     const pathname = usePathname();
+    const { hasTabAccess, userType } = usePermission();
 
-    const tabs = [
-        { id: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/gate-entry/overview" },
-        { id: "kiosk", label: "Kiosk Mode", icon: ScanFace, href: "/dashboard/gate-entry/kiosk" },
-        { id: "visitor", label: "Visitor Log", icon: Users, href: "/dashboard/gate-entry/visitor" },
-        { id: "vehicle", label: "Vehicle Log", icon: Truck, href: "/dashboard/gate-entry/vehicle" },
-        { id: "employee-movement", label: "Employee Movement", icon: LogOut, href: "/dashboard/gate-entry/employee-movement" },
+    const allTabs = [
+        { id: "overview", key: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/gate-entry/overview" },
+        { id: "kiosk", key: "kiosk", label: "Kiosk Mode", icon: ScanFace, href: "/dashboard/gate-entry/kiosk" },
+        { id: "visitor", key: "visitor", label: "Visitor Log", icon: Users, href: "/dashboard/gate-entry/visitor" },
+        { id: "vehicle", key: "vehicle", label: "Vehicle Log", icon: Truck, href: "/dashboard/gate-entry/vehicle" },
+        { id: "employee-movement", key: "employee-movement", label: "Employee Movement", icon: LogOut, href: "/dashboard/gate-entry/employee-movement" },
     ];
+
+    const tabs = allTabs.filter(tab => {
+        if (userType === "saasadmin" || userType === "company") return true;
+        return hasTabAccess("Security", tab.key) || hasTabAccess("Security", tab.id) || hasTabAccess("Gate-Entry", tab.key) || hasTabAccess("Gate-Entry", tab.id);
+    });
+
 
     return (
         <>

@@ -30,6 +30,13 @@ export const updateUser = async (req, res) => {
     const { name, email, role, password, roleLevel, allowedIP, allowedLocation } = req.body;
 
     const UserModel = req.getModel('User', userSchema);
+
+    try {
+      await UserModel.collection.dropIndex('email_1');
+    } catch (e) {
+      // Ignore if index doesn't exist
+    }
+
     const user = await UserModel.findOne({ _id: id });
 
     if (!user) {
@@ -38,7 +45,9 @@ export const updateUser = async (req, res) => {
 
     // Update fields
     if (name) user.name = name;
-    if (email) user.email = email;
+    if (email !== undefined) {
+      user.email = email && typeof email === 'string' && email.trim() !== '' ? email.trim().toLowerCase() : undefined;
+    }
     if (role !== undefined) {
       user.role = role;
       user.roles = role ? [role] : [];

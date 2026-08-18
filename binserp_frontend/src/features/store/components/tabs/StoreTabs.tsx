@@ -5,10 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
 import { Package, Settings, IndianRupee, ShoppingCart, ClipboardList } from "lucide-react";
+import { usePermission } from "@/src/hooks/usePermission";
 
 export default function StoreTabs() {
   const { showBottomNav } = useHeader();
   const pathname = usePathname();
+  const { hasTabAccess, userType, isModuleAllowed } = usePermission();
 
   const isSalesActive = pathname.startsWith("/dashboard/store/sales");
   const isPurchaseActive = pathname.startsWith("/dashboard/store/purchase");
@@ -16,31 +18,20 @@ export default function StoreTabs() {
   const isWipActive = pathname.startsWith("/dashboard/store/wip");
   const isHomeActive = pathname.startsWith("/dashboard/store/inventory") || pathname === "/dashboard/store";
 
-  const [department, setDepartment] = useState<string>("");
+  const allTabs = [
+    { id: "inventory", key: "inventory", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-bo-stock", isActive: isHomeActive },
+    { id: "wip", key: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store/wip/requests", isActive: isWipActive },
+    { id: "sales", key: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
+    { id: "purchase", key: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store/purchase/po", isActive: isPurchaseActive },
+    { id: "masters", key: "masters", label: "Masters", icon: Settings, href: "/dashboard/store/masters/vendors", isActive: isMastersActive },
+  ];
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const userStr = localStorage.getItem("userInfo");
-      if (userStr) {
-        try {
-          const user = JSON.parse(userStr);
-          setDepartment(user.department || "");
-        } catch (e) {
-          console.error("Failed to parse userInfo", e);
-        }
-      }
-    }
-  }, []);
+  // Dynamic filter based on role policy permissions
+  const tabs = allTabs.filter((tab) => {
+    if (userType === "saasadmin" || userType === "company") return true;
+    return hasTabAccess("Store", tab.key) || hasTabAccess("Store", tab.id);
+  });
 
-  const isExecutive = department.includes("Executive");
-
-  const tabs = [
-    { id: "home", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-bo-stock", isActive: isHomeActive },
-    { id: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store/wip/requests", isActive: isWipActive },
-    { id: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
-    { id: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store/purchase/po", isActive: isPurchaseActive },
-    { id: "masters", label: "Masters", icon: Settings, href: "/dashboard/store/masters/vendors", isActive: isMastersActive },
-  ].filter((tab) => !(tab.id === "masters" && isExecutive));
 
   return (
     <>

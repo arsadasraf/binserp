@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
+import { usePermission } from "@/src/hooks/usePermission";
 
 import { Home, Database, UserCheck, Banknote, ScanFace, ClipboardList } from "lucide-react";
 import { motion } from "framer-motion";
@@ -14,32 +15,22 @@ interface HRTabsProps {
 export default function HRTabs({ activeTab }: HRTabsProps) {
     const { showBottomNav } = useHeader();
     const pathname = usePathname();
+    const { hasTabAccess, userType } = usePermission();
 
-    const [department, setDepartment] = useState<string>("");
+    const allTabs = [
+        { id: "home", key: "overview", label: "Overview", icon: Home, href: "/dashboard/hr/overview" },
+        { id: "attendance", key: "kiosk", label: "Kiosk", icon: ScanFace, href: "/dashboard/hr/kiosk" },
+        { id: "present", key: "present", label: "Present", icon: ClipboardList, href: "/dashboard/hr/present" },
+        { id: "salaries", key: "salaries", label: "Salaries", icon: Banknote, href: "/dashboard/hr/salaries" },
+        { id: "master", key: "masters", label: "Masters", icon: Database, href: "/dashboard/hr/master/employee" },
+    ];
 
-    useEffect(() => {
-        if (typeof window !== "undefined") {
-            const userStr = localStorage.getItem("userInfo");
-            if (userStr) {
-                try {
-                    const user = JSON.parse(userStr);
-                    setDepartment(user.department || "");
-                } catch (e) {
-                    console.error("Failed to parse userInfo", e);
-                }
-            }
-        }
-    }, []);
+    // Filter based on user's granted HR tabs
+    const tabs = allTabs.filter(tab => {
+        if (userType === "saasadmin" || userType === "company") return true;
+        return hasTabAccess("HR", tab.key) || hasTabAccess("HR", tab.id);
+    });
 
-    const isExecutive = department === "HR Executive";
-
-    const tabs = [
-        { id: "home", label: "Overview", icon: Home, href: "/dashboard/hr/overview" },
-        { id: "attendance", label: "Kiosk", icon: ScanFace, href: "/dashboard/hr/kiosk" },
-        { id: "present", label: "Present", icon: ClipboardList, href: "/dashboard/hr/present" },
-        { id: "salaries", label: "Salaries", icon: Banknote, href: "/dashboard/hr/salaries" },
-        { id: "master", label: "Masters", icon: Database, href: "/dashboard/hr/master/employee" },
-    ].filter(tab => !(tab.id === "master" && isExecutive));
 
     return (
         <>
