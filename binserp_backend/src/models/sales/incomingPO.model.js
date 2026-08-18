@@ -40,6 +40,7 @@ export const incomingPOSchema = new mongoose.Schema(
         taxRate: { type: Number, default: 0 },
         taxAmount: { type: Number, default: 0 },
         expectedDeliveryDate: Date,
+        committedDeliveryDate: Date,
         dispatchedQuantity: { type: Number, default: 0 },
         billedQuantity: { type: Number, default: 0 },
       },
@@ -56,6 +57,25 @@ export const incomingPOSchema = new mongoose.Schema(
       type: String,
       enum: ["Received", "Accepted", "Processing", "Sales Order Generated", "Partially Dispatched", "Completed", "Cancelled"],
       default: "Received",
+    },
+    acknowledgementNumber: {
+      type: String,
+    },
+    acknowledgementDate: {
+      type: Date,
+    },
+    committedDispatchDate: {
+      type: Date,
+    },
+    acknowledgementRemarks: {
+      type: String,
+    },
+    acknowledgementTerms: {
+      type: String,
+    },
+    acknowledgedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
     receivedBy: {
       type: mongoose.Schema.Types.ObjectId,

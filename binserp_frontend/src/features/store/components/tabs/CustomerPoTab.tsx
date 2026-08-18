@@ -1,7 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileCheck, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, ShoppingBag, ShoppingCart, Truck, IndianRupee, FileText, CheckCircle, PackageCheck, Lock } from 'lucide-react';
+import { 
+    FileCheck, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, 
+    ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, 
+    History, ShieldCheck, Download, ShoppingBag, ShoppingCart, Truck, IndianRupee, 
+    FileText, CheckCircle, PackageCheck, Lock, Upload, Paperclip, ExternalLink, Image as ImageIcon 
+} from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
+import OrderAcknowledgementModal from '../modals/OrderAcknowledgementModal';
+import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
 
 interface CustomerPoTabProps {
     token: string | null;
@@ -27,6 +34,15 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [submitting, setSubmitting] = useState(false);
     const [selectedQuoteId, setSelectedQuoteId] = useState<string>('');
 
+    // Order Acknowledgement Modal State
+    const [acknowledgingPo, setAcknowledgingPo] = useState<any | null>(null);
+
+    // Document / Photo Attachment State
+    const [poFile, setPoFile] = useState<File | null>(null);
+    const [poFilePreview, setPoFilePreview] = useState<string | null>(null);
+    const [existingPdf, setExistingPdf] = useState<string | null>(null);
+    const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+
     const [newPo, setNewPo] = useState({
         poNumber: '',
         quotationReference: '',
@@ -49,6 +65,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [timelineLoading, setTimelineLoading] = useState(false);
     const [generatingOrder, setGeneratingOrder] = useState(false);
     const [activeViewTab, setActiveViewTab] = useState<'overview' | 'dispatch'>('overview');
+
 
     const fetchData = async () => {
         if (!token) return;
@@ -140,6 +157,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const handleOpenCreateModal = () => {
         setEditingPo(null);
         setSelectedQuoteId('');
+        setPoFile(null);
+        setPoFilePreview(null);
+        setExistingPdf(null);
+        setExistingPhotos([]);
         setNewPo({
             poNumber: generatePoNo(),
             quotationReference: '',
@@ -167,6 +188,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         }
         setEditingPo(po);
         setSelectedQuoteId(po.quotationReference?._id || po.quotationReference || '');
+        setPoFile(null);
+        setPoFilePreview(null);
+        setExistingPdf(po.pdf || null);
+        setExistingPhotos(Array.isArray(po.photos) ? po.photos : (po.photos ? [po.photos] : []));
         setNewPo({
             poNumber: po.poNumber || '',
             quotationReference: po.quotationReference?._id || po.quotationReference || '',
@@ -195,6 +220,36 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             totalAmount: po.totalAmount || 0
         });
         setIsCreateModalOpen(true);
+    };
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.size > 15 * 1024 * 1024) {
+            onError("File size exceeds 15MB limit");
+            return;
+        }
+
+        const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'application/pdf'];
+        const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+        const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(file.name);
+
+        if (!isPdf && !isImg && !validTypes.includes(file.type)) {
+            onError("Please upload a PDF document or JPEG/PNG image");
+            return;
+        }
+
+        setPoFile(file);
+        if (isImg) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                setPoFilePreview(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        } else {
+            setPoFilePreview(null);
+        }
     };
 
     const handleSelectQuotation = (quotId: string) => {
@@ -387,15 +442,46 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
         setSubmitting(true);
         try {
+            const formData = new FormData();
+            formData.append('poNumber', newPo.poNumber);
+            formData.append('customer', newPo.customer);
+            formData.append('customerName', newPo.customerName);
+            if (newPo.quotationReference) {
+                formData.append('quotationReference', newPo.quotationReference);
+            }
+            formData.append('date', newPo.date);
+            formData.append('transportationMethod', newPo.transportationMethod);
+            formData.append('transportationCharges', String(newPo.transportationCharges || 0));
+            formData.append('remarks', newPo.remarks || '');
+            formData.append('status', newPo.status || 'Received');
+            formData.append('subtotal', String(newPo.subtotal || 0));
+            formData.append('taxAmount', String(newPo.taxAmount || 0));
+            formData.append('totalAmount', String(newPo.totalAmount || 0));
+            formData.append('items', JSON.stringify(newPo.items));
+
+            if (poFile) {
+                const isPdf = poFile.name.toLowerCase().endsWith('.pdf') || poFile.type === 'application/pdf';
+                if (isPdf) {
+                    formData.append('pdf', poFile);
+                } else {
+                    formData.append('photos', poFile);
+                    formData.append('document', poFile);
+                }
+            }
+
             if (editingPo && editingPo._id) {
-                await apiPut(`/api/sales/incoming-po/${editingPo._id}`, newPo, token);
+                if (existingPdf) formData.append('existingPdf', existingPdf);
+                if (existingPhotos.length > 0) formData.append('existingPhotos', JSON.stringify(existingPhotos));
+                await apiPut(`/api/sales/incoming-po/${editingPo._id}`, formData, token);
                 onSuccess(`Customer PO #${newPo.poNumber} updated successfully`);
             } else {
-                await apiPost('/api/sales/incoming-po', newPo, token);
+                await apiPost('/api/sales/incoming-po', formData, token);
                 onSuccess("Customer PO created successfully");
             }
             setIsCreateModalOpen(false);
             setEditingPo(null);
+            setPoFile(null);
+            setPoFilePreview(null);
             fetchData();
         } catch (err: any) {
             onError(err.message || "Failed to save Customer PO");
@@ -526,7 +612,26 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     return (
                                         <tr key={po._id || po.poNumber} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                                             <td className="px-4 py-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">
-                                                {po.poNumber}
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span>{po.poNumber}</span>
+                                                    {(po.pdf || (Array.isArray(po.photos) && po.photos.length > 0)) && (
+                                                        <a
+                                                            href={po.pdf || po.photos[0]}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            title={po.pdf ? "View Attached Customer PO (PDF)" : "View Attached Customer PO (Photo)"}
+                                                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                                po.pdf 
+                                                                    ? "bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400 border border-red-200 dark:border-red-800" 
+                                                                    : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
+                                                            } hover:scale-105 transition-transform`}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {po.pdf ? <FileText size={11} /> : <Paperclip size={11} />}
+                                                            {po.pdf ? "PDF" : "Photo"}
+                                                        </a>
+                                                    )}
+                                                </div>
                                                 {po.quotationReference?.quotationNumber && (
                                                     <span className="block text-[10px] text-slate-400 font-sans font-normal">
                                                         Ref Quote: {po.quotationReference.quotationNumber}
@@ -586,6 +691,14 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
                                                 >
                                                     <Eye size={13} /> View
+                                                </button>
+
+                                                <button
+                                                    onClick={() => setAcknowledgingPo(po)}
+                                                    title="Order Acknowledgement & Commitment Schedule"
+                                                    className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                >
+                                                    <FileText size={13} /> OA / Accept
                                                 </button>
 
                                                 {(() => {
@@ -930,6 +1043,136 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 </div>
                             </div>
 
+                            {/* Step 3: PO Document / Photo Attachment & Remarks */}
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                                <h3 className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider flex items-center gap-2">
+                                    <Paperclip size={15} /> 3. Customer PO Attachment (PDF or JPEG / PNG Photo) & Notes
+                                </h3>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                    {/* Upload Zone */}
+                                    <div className="space-y-2">
+                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                                            Upload Customer PO File / Photo <span className="text-slate-400 font-normal">(PDF, JPG, JPEG, PNG up to 15MB)</span>
+                                        </label>
+
+                                        {!poFile && !existingPdf && existingPhotos.length === 0 ? (
+                                            <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 rounded-2xl cursor-pointer bg-white dark:bg-slate-900 transition-all group">
+                                                <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                                                    <Upload size={22} />
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                                    Click to upload or drag & drop PO
+                                                </span>
+                                                <span className="text-[11px] text-slate-400 mt-0.5">
+                                                    PDF Document or JPEG / PNG Photo of Customer PO
+                                                </span>
+                                                <input
+                                                    type="file"
+                                                    accept=".pdf, .jpg, .jpeg, .png, image/*, application/pdf"
+                                                    onChange={handleFileChange}
+                                                    className="hidden"
+                                                />
+                                            </label>
+                                        ) : (
+                                            <div className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                                                {/* New File Selected */}
+                                                {poFile && (
+                                                    <div className="flex items-center justify-between gap-3 p-3 bg-blue-50/70 dark:bg-blue-950/40 rounded-xl border border-blue-200 dark:border-blue-800">
+                                                        <div className="flex items-center gap-3 min-w-0">
+                                                            {poFilePreview ? (
+                                                                <img src={poFilePreview} alt="PO Preview" className="w-12 h-12 object-cover rounded-lg border border-blue-300 shadow-sm" />
+                                                            ) : (
+                                                                <div className="w-12 h-12 bg-red-100 dark:bg-red-950/80 text-red-600 rounded-lg flex flex-col items-center justify-center font-bold text-[10px] shadow-sm">
+                                                                    <FileText size={18} />
+                                                                    PDF
+                                                                </div>
+                                                            )}
+                                                            <div className="min-w-0">
+                                                                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{poFile.name}</p>
+                                                                <p className="text-[10px] text-slate-500 font-mono">{(poFile.size / 1024).toFixed(1)} KB • {poFile.type || 'Document'}</p>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setPoFile(null);
+                                                                setPoFilePreview(null);
+                                                            }}
+                                                            className="p-1.5 text-rose-500 hover:bg-rose-100 dark:hover:bg-rose-950 rounded-lg transition-colors"
+                                                            title="Remove File"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {/* Existing Attached File (if in edit mode without new file) */}
+                                                {!poFile && (existingPdf || existingPhotos.length > 0) && (
+                                                    <div className="space-y-2">
+                                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Current Attached Document</span>
+                                                        {existingPdf && (
+                                                            <div className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                                                                <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400">
+                                                                    <FileText size={16} className="text-red-500" /> Attached Customer PO (PDF)
+                                                                </div>
+                                                                <a
+                                                                    href={existingPdf}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                                                                >
+                                                                    <Eye size={13} /> View
+                                                                </a>
+                                                            </div>
+                                                        )}
+                                                        {existingPhotos.map((photoUrl, idx) => (
+                                                            <div key={idx} className="flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                                                                <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200">
+                                                                    <img src={photoUrl} alt="PO photo" className="w-8 h-8 object-cover rounded border" /> PO Photo #{idx + 1}
+                                                                </div>
+                                                                <a
+                                                                    href={photoUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1"
+                                                                >
+                                                                    <Eye size={13} /> View
+                                                                </a>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                <label className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer">
+                                                    <Upload size={13} /> Change / Replace Attachment
+                                                    <input
+                                                        type="file"
+                                                        accept=".pdf, .jpg, .jpeg, .png, image/*, application/pdf"
+                                                        onChange={handleFileChange}
+                                                        className="hidden"
+                                                    />
+                                                </label>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Remarks / Customer Instructions */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            Remarks / Customer PO Terms & Notes
+                                        </label>
+                                        <textarea
+                                            rows={4}
+                                            value={newPo.remarks}
+                                            onChange={(e) => setNewPo({ ...newPo, remarks: e.target.value })}
+                                            placeholder="Enter any special customer delivery instructions, payment terms, or inspection notes..."
+                                            className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
                             {/* Summary Card */}
                             <div className="bg-blue-50/70 dark:bg-blue-950/40 p-5 rounded-2xl border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="text-xs space-y-1">
@@ -1117,44 +1360,81 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </div>
                                     </div>
 
-                                    {/* Ordered Items Breakdown */}
-                                    <div>
-                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ordered Items Breakdown</h4>
-                                        <div className="border rounded-xl overflow-hidden">
-                                            <table className="w-full text-xs text-left">
-                                                <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
-                                                    <tr>
-                                                        <th className="p-3">Product Name</th>
-                                                        <th className="p-3 text-center">Ordered Qty</th>
-                                                        <th className="p-3 text-right">Unit Rate (₹)</th>
-                                                        <th className="p-3 text-center">GST %</th>
-                                                        <th className="p-3 text-right">Line Total (₹)</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y">
-                                                    {(selectedPo.items || []).map((item: any, idx: number) => {
-                                                        const qty = Number(item.quantity) || 1;
-                                                        const rate = Number(item.rate) || 0;
-                                                        const tax = Number(item.taxRate != null ? item.taxRate : 18);
-                                                        const lineTotal = item.amount ? Number(item.amount) : (qty * rate * (1 + tax / 100));
+                                    {/* Customer PO Attachment Card */}
+                                    {(selectedPo.pdf || (Array.isArray(selectedPo.photos) && selectedPo.photos.length > 0)) ? (
+                                        <div className="p-5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                                <h4 className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                    <Paperclip size={16} /> Customer Purchase Order Attachment (Original Copy)
+                                                </h4>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {selectedPo.pdf && (
+                                                        <a
+                                                            href={selectedPo.pdf}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-sm"
+                                                        >
+                                                            <FileText size={14} /> Open Original PDF <ExternalLink size={12} />
+                                                        </a>
+                                                    )}
+                                                    {Array.isArray(selectedPo.photos) && selectedPo.photos.map((photo: string, idx: number) => (
+                                                        <a
+                                                            key={idx}
+                                                            href={photo}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-sm"
+                                                        >
+                                                            <ImageIcon size={14} /> View Photo #{idx + 1} <ExternalLink size={12} />
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
 
-                                                        return (
-                                                            <tr key={idx}>
-                                                                <td className="p-3 font-bold">
-                                                                    {item.productName || item.fgItem?.name || 'Product Item'}
-                                                                    {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
-                                                                </td>
-                                                                <td className="p-3 text-center font-bold text-blue-600">{qty} {item.unit || 'PCS'}</td>
-                                                                <td className="p-3 text-right font-bold font-mono">₹{rate.toLocaleString()}</td>
-                                                                <td className="p-3 text-center font-bold text-slate-600">{tax}%</td>
-                                                                <td className="p-3 text-right font-extrabold font-mono text-blue-600">₹{lineTotal.toLocaleString()}</td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
+                                            {/* PDF Embedded Frame or Image Display */}
+                                            {selectedPo.pdf ? (
+                                                <div className="w-full h-96 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-white shadow-inner">
+                                                    <iframe
+                                                        src={`${selectedPo.pdf}#toolbar=0`}
+                                                        className="w-full h-full"
+                                                        title="Customer PO PDF"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-wrap gap-4 pt-2">
+                                                    {(selectedPo.photos || []).map((photo: string, idx: number) => (
+                                                        <a
+                                                            key={idx}
+                                                            href={photo}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="group block relative rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-lg transition-all"
+                                                        >
+                                                            <img src={photo} alt={`PO photo ${idx + 1}`} className="h-48 w-auto object-cover group-hover:scale-105 transition-transform duration-300" />
+                                                            <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-bold text-xs gap-1.5 backdrop-blur-[2px]">
+                                                                <Eye size={16} /> Open Full Size
+                                                            </div>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-center text-xs text-slate-400">
+                                            No PO document copy or photo was attached when this order was created.
+                                        </div>
+                                    )}
+
+                                    {/* Remarks & Notes */}
+                                    {selectedPo.remarks && (
+                                        <div className="p-4 bg-amber-50/60 dark:bg-amber-950/30 rounded-2xl border border-amber-200 dark:border-amber-900/50 space-y-1 text-xs">
+                                            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block">
+                                                Customer Notes / Remarks
+                                            </span>
+                                            <p className="text-slate-700 dark:text-slate-300 font-medium whitespace-pre-wrap">{selectedPo.remarks}</p>
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 /* TAB 2: DISPATCH TIMELINE & ITEM BALANCE TRACKING */
@@ -1356,8 +1636,24 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                         </div>
 
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800 flex justify-between items-center border-t border-slate-200 dark:border-slate-700">
-                            <div className="flex gap-2">
+                        <div className="p-4 bg-slate-50 dark:bg-slate-800 flex flex-wrap justify-between items-center gap-3 border-t border-slate-200 dark:border-slate-700">
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={() => setAcknowledgingPo(selectedPo)}
+                                    className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-sm"
+                                    title="Acknowledge Order, Set Commitment Dates & Print OA"
+                                >
+                                    <FileText size={14} /> Order Acceptance (OA)
+                                </button>
+
+                                <button
+                                    onClick={() => generateFrontendOrderAcknowledgementPDF({ po: selectedPo, companyInfo })}
+                                    className="px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs"
+                                    title="Print / Save Order Acknowledgement Document"
+                                >
+                                    <Printer size={14} /> Print OA
+                                </button>
+
                                 <button
                                     onClick={() => handleGenerateSalesOrder(selectedPo._id)}
                                     disabled={generatingOrder || selectedPo.status === 'Sales Order Generated'}
@@ -1389,6 +1685,25 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                     </div>
                 </div>
+            )}
+
+            {/* Order Acknowledgement / Acceptance Modal */}
+            {acknowledgingPo && (
+                <OrderAcknowledgementModal
+                    isOpen={!!acknowledgingPo}
+                    po={acknowledgingPo}
+                    companyInfo={companyInfo}
+                    token={token}
+                    onClose={() => setAcknowledgingPo(null)}
+                    onSuccess={(updatedPo) => {
+                        setPoList(prev => prev.map(p => p._id === updatedPo._id ? updatedPo : p));
+                        if (selectedPo && selectedPo._id === updatedPo._id) {
+                            setSelectedPo(updatedPo);
+                        }
+                        onSuccess("Customer PO Acknowledged & Accepted successfully!");
+                    }}
+                    onError={onError}
+                />
             )}
 
         </div>

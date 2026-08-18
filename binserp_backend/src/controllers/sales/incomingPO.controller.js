@@ -347,3 +347,93 @@ export const deleteIncomingPO = asyncHandler(async (req, res) => {
 
   res.status(200).json({ message: "Incoming PO deleted successfully" });
 });
+
+export const acknowledgeIncomingPO = asyncHandler(async (req, res) => {
+  const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
+  const { id } = req.params;
+  const companyId = getCompanyId(req);
+  const userId = req.user?.id || req.user?._id;
+
+  const incomingPO = await IncomingPO.findOne({ _id: id, company: companyId });
+  if (!incomingPO) {
+    return res.status(404).json({ message: "Customer PO not found" });
+  }
+
+  const {
+    committedDispatchDate,
+    acknowledgementRemarks,
+    acknowledgementTerms,
+    items: updatedItems,
+  } = req.body;
+
+  // 1. Update line item commitment dates (individual dates are optional per item)
+  if (Array.isArray(updatedItems) && updatedItems.length > 0) {
+    incomingPO.items.forEach((item) => {
+      const match = updatedItems.find(
+        (u) =>
+          (u._id && u._id.toString() === item._id?.toString()) ||
+          (u.fgItem && u.fgItem.toString() === item.fgItem?.toString()) ||
+          (u.productName && u.productName.trim() === item.productName?.trim())
+      );
+      if (match) {
+        if (match.committedDeliveryDate) {
+          item.committedDeliveryDate = new Date(match.committedDeliveryDate);
+        } else if (committedDispatchDate) {
+          item.committedDeliveryDate = new Date(committedDispatchDate);
+        }
+      } else if (committedDispatchDate && !item.committedDeliveryDate) {
+        item.committedDeliveryDate = new Date(committedDispatchDate);
+      }
+    });
+  } else if (committedDispatchDate) {
+    incomingPO.items.forEach((item) => {
+      if (!item.committedDeliveryDate) {
+        item.committedDeliveryDate = new Date(committedDispatchDate);
+      }
+    });
+  }
+
+  // 2. Acknowledgement Metadata
+  const cleanPoNo = (incomingPO.poNumber || "PO").replace(/[^a-zA-Z0-9-]/g, "");
+  incomingPO.acknowledgementNumber = incomingPO.acknowledgementNumber || `OA-${cleanPoNo}`;
+  incomingPO.acknowledgementDate = new Date();
+  if (committedDispatchDate) {
+    incomingPO.committedDispatchDate = new Date(committedDispatchDate);
+  }
+  if (acknowledgementRemarks !== undefined) {
+    incomingPO.acknowledgementRemarks = acknowledgementRemarks;
+  }
+  if (acknowledgementTerms !== undefined) {
+    incomingPO.acknowledgementTerms = acknowledgementTerms;
+  }
+  incomingPO.acknowledgedBy = userId;
+  incomingPO.updatedBy = userId;
+
+  // 3. Update Status to Accepted if currently Received
+  if (incomingPO.status === "Received") {
+    incomingPO.status = "Accepted";
+    incomingPO.statusHistory.push({
+      status: "Accepted",
+      updatedBy: userId,
+      updatedAt: new Date(),
+    });
+  }
+
+  await incomingPO.save();
+
+  const populated = await IncomingPO.findById(incomingPO._id)
+    .populate("customer", "name companyName code email phone address city state gstin pan")
+    .populate("quotationReference", "quotationNumber totalAmount date")
+    .populate("acknowledgedBy", "name email")
+    .populate("receivedBy", "name email")
+    .populate("createdBy", "name email")
+    .populate("updatedBy", "name email")
+    .populate("statusHistory.updatedBy", "name email")
+    .populate("items.fgItem", "name code unit sellingPrice hsnCode");
+
+  res.status(200).json({
+    message: "Order Acknowledgement & Commitment saved successfully",
+    incomingPO: populated,
+  });
+});
+

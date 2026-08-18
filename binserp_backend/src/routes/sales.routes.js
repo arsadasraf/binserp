@@ -32,6 +32,7 @@ import {
   updateIncomingPO,
   deleteIncomingPO,
   generateSalesOrderFromPO,
+  acknowledgeIncomingPO,
   getIncomingPODispatchHistory,
   createOrUpdatePriceList,
   getAllPriceLists,
@@ -68,6 +69,7 @@ router.put("/incoming-po/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { na
 router.delete("/incoming-po/:id", deleteIncomingPO);
 router.get("/incoming-po/:id/dispatch-history", getIncomingPODispatchHistory);
 router.post("/incoming-po/:id/generate-order", generateSalesOrderFromPO);
+router.post("/incoming-po/:id/acknowledge", acknowledgeIncomingPO);
 
 // Sales Order routes (Internal Order)
 router.post("/order", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'photos', maxCount: 3 }]), createSalesOrder);
