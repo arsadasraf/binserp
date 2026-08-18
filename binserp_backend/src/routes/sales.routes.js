@@ -77,6 +77,7 @@ router.put("/order/:id", upload.fields([{ name: 'pdf', maxCount: 1 }, { name: 'p
 router.post("/order/:id/plan", planSalesOrder);
 router.get("/order/:id/stock-status", getSalesOrderStockStatus);
 router.post("/order/:id/move-to-mrp", moveSalesOrderToMRP);
+router.post("/orders/:id/move-to-mrp", moveSalesOrderToMRP);
 router.delete("/order/:id", deleteSalesOrder);
 
 // Sales Order Dispatch routes

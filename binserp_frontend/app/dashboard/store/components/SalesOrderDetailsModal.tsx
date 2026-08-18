@@ -1,7 +1,9 @@
-import React from "react";
-import { X, Download, ShoppingCart, Calendar, User, Package, FileText, Truck, Building2, Tag, ArrowRight } from "lucide-react";
+import React, { useState } from "react";
+import { X, Download, ShoppingCart, Calendar, User, Package, FileText, Truck, Building2, Tag, ArrowRight, GitBranch, Sparkles, CheckCircle2, ShieldCheck, RefreshCw } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import Swal from "sweetalert2";
+import { API_BASE_URL } from "@/src/utils/config";
 
 interface SalesOrderDetailsModalProps {
   isOpen: boolean;
@@ -10,6 +12,7 @@ interface SalesOrderDetailsModalProps {
   customers?: any[];
   onClose: () => void;
   onEdit?: () => void;
+  onOpenMrp?: (order: any) => void;
 }
 
 export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
@@ -18,7 +21,8 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
   companyInfo,
   customers = [],
   onClose,
-  onEdit
+  onEdit,
+  onOpenMrp
 }) => {
   if (!isOpen || !order) return null;
 
@@ -28,6 +32,114 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
   const custAddress = custObj?.address || custObj?.location || "";
   const custPhone = custObj?.phone || custObj?.contactNumber || "";
   const custEmail = custObj?.email || "";
+
+  const [reserving, setReserving] = useState(false);
+  const [allocatingItemFgId, setAllocatingItemFgId] = useState<string | null>(null);
+
+  const handleReserveStock = async () => {
+    setReserving(true);
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`${API_BASE_URL}/api/sales/order/${order._id}/move-to-mrp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error("Invalid response from server.");
+      }
+
+      if (res.ok && data.success) {
+        Swal.fire("Stock Reserved!", data.message, "success");
+        onClose();
+        if (typeof window !== "undefined") window.location.reload();
+      } else {
+        Swal.fire("Error", data.message || "Failed to reserve stock.", "error");
+      }
+    } catch (err: any) {
+      Swal.fire("Error", err.message || "Failed to reserve stock.", "error");
+    } finally {
+      setReserving(false);
+    }
+  };
+
+  const handleAllocateFGItem = async (fgItemId: string, maxAvailable: number, orderUnfilled: number) => {
+    const defaultQty = Math.min(maxAvailable, orderUnfilled);
+    const { value: qtyStr } = await Swal.fire({
+      title: "Reserve Finished Goods Stock",
+      text: `Enter quantity to reserve for Sales Order #${order.orderNumber} (Available Store Stock: ${maxAvailable} PCS, Needed: ${orderUnfilled} PCS):`,
+      input: "number",
+      inputValue: defaultQty,
+      showCancelButton: true,
+      inputValidator: (val) => {
+        const n = Number(val);
+        if (!n || n <= 0) return "Please enter a valid positive quantity!";
+        if (n > maxAvailable) return `Cannot allocate more than available stock (${maxAvailable} PCS)!`;
+        return null;
+      }
+    });
+
+    if (!qtyStr) return;
+
+    const allocateQty = Number(qtyStr);
+    setAllocatingItemFgId(fgItemId);
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`${API_BASE_URL}/api/store/fg/allocate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          salesOrderId: order._id,
+          fgItemId,
+          allocateQty,
+          action: "allocate"
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        Swal.fire("Stock Reserved!", data.message, "success");
+        onClose();
+        if (typeof window !== "undefined") window.location.reload();
+      } else {
+        Swal.fire("Allocation Failed", data.message, "error");
+      }
+    } catch (err: any) {
+      console.error("Allocation error:", err);
+      Swal.fire("Error", "Failed to reserve FG stock.", "error");
+    } finally {
+      setAllocatingItemFgId(null);
+    }
+  };
+
+  const currentStatus = order.status || order.fulfillmentStatus || "Pending";
+
+  const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+      case "Items Allocated":
+      case "Fully Allocated":
+        return "bg-cyan-100 text-cyan-800 border-cyan-200 dark:bg-cyan-900/50 dark:text-cyan-300";
+      case "Moved to MRP":
+      case "Moved MRP":
+        return "bg-indigo-100 text-indigo-800 border-indigo-200 dark:bg-indigo-900/50 dark:text-indigo-300";
+      case "Completed":
+      case "Dispatched":
+        return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300";
+      case "In-Progress":
+      case "Partially Dispatched":
+        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300";
+      default:
+        return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300";
+    }
+  };
 
   const handleDownloadPDF = () => {
     try {
@@ -194,41 +306,57 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col my-auto border border-gray-100 dark:border-gray-800">
         
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50">
+        <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-slate-900 text-white">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg">
+            <div className="p-2 bg-indigo-600/30 text-indigo-300 rounded-xl border border-indigo-500/30">
               <ShoppingCart size={20} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                <h2 className="text-lg font-bold text-white">
                   Sales Order #{order.orderNumber}
                 </h2>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${getStatusBadgeClass(currentStatus)}`}>
+                  {currentStatus}
+                </span>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
                   orderType === "PO_BASED" 
-                    ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" 
-                    : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                    ? "bg-purple-900/50 text-purple-200 border border-purple-700" 
+                    : "bg-blue-900/50 text-blue-200 border border-blue-700"
                 }`}>
-                  {orderType === "PO_BASED" ? "PO-BASED" : "DIRECT / INTERNAL"}
+                  {orderType === "PO_BASED" ? "PO-BASED" : "DIRECT"}
                 </span>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-300 mt-0.5">
                 Target Date: {order.targetDate ? new Date(order.targetDate).toLocaleDateString() : 'N/A'}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenMrp && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenMrp(order);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm"
+                title="Move Order to Purchase MRP for FG Stock Allocation & BOM Explosion"
+              >
+                <GitBranch size={14} /> Move to Purchase MRP
+              </button>
+            )}
+
             <button
               onClick={handleDownloadPDF}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 rounded-xl hover:bg-blue-100 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors border border-slate-700"
             >
               <Download size={14} />
-              Download PDF
+              PDF
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="p-1.5 text-slate-400 hover:text-white rounded-full hover:bg-slate-800 transition-colors"
             >
               <X size={18} />
             </button>
@@ -263,8 +391,10 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
                   <span className="font-semibold text-gray-800 dark:text-gray-200">{order.poReference || "None"}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500 block">Order Status:</span>
-                  <span className="font-semibold text-blue-600 dark:text-blue-400">{order.status || "Pending"}</span>
+                  <span className="text-gray-500 block">Lifecycle Status:</span>
+                  <span className={`font-bold text-xs px-2 py-0.5 rounded-full inline-block mt-0.5 border ${getStatusBadgeClass(currentStatus)}`}>
+                    {currentStatus}
+                  </span>
                 </div>
                 <div>
                   <span className="text-gray-500 block">Order Date:</span>
@@ -283,6 +413,78 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Stock Availability & Allocation Summary Cards */}
+          <div className="bg-indigo-50/70 dark:bg-indigo-950/30 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-extrabold text-indigo-950 dark:text-indigo-200 uppercase tracking-wider flex items-center gap-1.5">
+                <ShieldCheck size={16} className="text-indigo-600" />
+                Finished Goods Stock Availability & Allocation Phase
+              </h4>
+              {onOpenMrp && (
+                <button
+                  onClick={() => {
+                    onClose();
+                    onOpenMrp(order);
+                  }}
+                  className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+                >
+                  <GitBranch size={13} /> Check & Move to Purchase MRP
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              {(order.items || []).map((item: any, idx: number) => {
+                const fgObj = typeof item.fgItem === 'object' ? item.fgItem : {};
+                const fgId = fgObj._id || item.fgItem;
+                const currentStock = Number(fgObj.quantity || 0);
+                const currentAllocated = Number(fgObj.allocatedQuantity || 0);
+                const unreservedStock = Math.max(0, currentStock - currentAllocated);
+                const orderedQty = Number(item.quantity || 0);
+                const allocatedQty = Number(item.allocatedFgQty || 0);
+                const shortage = Math.max(0, orderedQty - allocatedQty);
+
+                return (
+                  <div key={idx} className="bg-white dark:bg-gray-900 p-3.5 rounded-xl border border-indigo-100 dark:border-gray-800 text-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div className="space-y-0.5">
+                      <p className="font-extrabold text-gray-900 dark:text-white text-sm">{item.name || item.productName || fgObj.name}</p>
+                      <div className="flex flex-wrap gap-2.5 text-gray-600 dark:text-gray-300">
+                        <span>SO Needed: <b className="font-mono text-gray-900 dark:text-white">{orderedQty} PCS</b></span>
+                        <span>Allocated: <b className="font-mono text-amber-600">{allocatedQty} PCS</b></span>
+                        <span>Shortage: <b className="font-mono text-rose-600">{shortage} PCS</b></span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100 dark:border-gray-800">
+                      <span className="px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono font-bold rounded-lg text-[11px]">
+                        Store Stock: {unreservedStock} PCS
+                      </span>
+
+                      {allocatedQty >= orderedQty ? (
+                        <span className="px-2.5 py-1 bg-cyan-100 text-cyan-800 dark:bg-cyan-900/50 dark:text-cyan-300 rounded-lg font-bold text-[10px] flex items-center gap-1">
+                          <CheckCircle2 size={13} /> Fully Covered
+                        </span>
+                      ) : unreservedStock > 0 ? (
+                        <button
+                          onClick={() => handleAllocateFGItem(fgId, unreservedStock, shortage)}
+                          disabled={allocatingItemFgId === fgId}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1"
+                          title={`Reserve up to ${Math.min(unreservedStock, shortage)} PCS for this item`}
+                        >
+                          <Sparkles size={13} /> Reserve {Math.min(unreservedStock, shortage)} PCS
+                        </button>
+                      ) : (
+                        <span className="px-2.5 py-1 bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300 rounded-lg font-bold text-[10px]">
+                          No Store Stock
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -360,8 +562,16 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 flex justify-between items-center">
-          <div>
+        <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/50 flex justify-between items-center flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReserveStock}
+              disabled={reserving}
+              className="px-4 py-2 text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <ShieldCheck size={14} />
+              {reserving ? "Reserving..." : "Reserve Available Stock"}
+            </button>
             {onEdit && (
               <button
                 onClick={onEdit}
@@ -370,10 +580,21 @@ export const SalesOrderDetailsModal: React.FC<SalesOrderDetailsModalProps> = ({
                 Edit Order
               </button>
             )}
+            {onOpenMrp && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenMrp(order);
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5"
+              >
+                <GitBranch size={14} /> Move to Purchase MRP
+              </button>
+            )}
           </div>
           <button
             onClick={onClose}
-            className="px-5 py-2 text-xs font-bold text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-colors"
+            className="px-5 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors"
           >
             Close
           </button>

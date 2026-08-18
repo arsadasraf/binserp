@@ -56,7 +56,7 @@ export const salesOrderSchema = new mongoose.Schema(
     },
     fulfillmentStatus: {
       type: String,
-      enum: ["Pending", "Partially Allocated", "Fully Allocated", "In Production", "Ready for Dispatch", "Dispatched"],
+      enum: ["Pending", "Partially Allocated", "Fully Allocated", "Items Allocated", "In Production", "Ready for Dispatch", "Moved to MRP", "Moved MRP", "Dispatched", "Completed"],
       default: "Pending",
     },
     mrpId: String,
@@ -68,7 +68,7 @@ export const salesOrderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "In-Progress", "Partially Dispatched", "Dispatched", "Completed", "Cancelled", "Moved MRP"],
+      enum: ["Pending", "Items Allocated", "In-Progress", "Partially Dispatched", "Dispatched", "Completed", "Cancelled", "Moved MRP", "Moved to MRP"],
       default: "Pending",
     },
     createdBy: {

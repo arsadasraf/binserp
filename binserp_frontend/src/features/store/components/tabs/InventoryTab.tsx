@@ -77,6 +77,8 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 materialId: m,
                 materialName: m.name,
                 materialCode: m.code || 'N/A', // RM/BO doesn't have code anymore, but we can put N/A
+                description: m.descriptions || m.description || invItem?.description || '-',
+                descriptions: m.descriptions || m.description || invItem?.description || '-',
                 currentStock: invItem ? invItem.currentStock : 0,
                 qcPendingStock: invItem ? invItem.qcPendingStock : 0,
                 reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
@@ -144,42 +146,6 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
 
     return (
         <div className="">
-            {/* Header / Sub-tabs & Actions */}
-            <div className="flex flex-col max-w-full sm:flex-row justify-between items-start  sm:items-center gap-4">
-                {/* Actions */}
-                <div className="flex items-center gap-2 mb-4">
-                    {activeSubTab === 'bo' && (
-                        <>
-                            <button
-                                onClick={() => {
-                                    setEditingGRN(undefined);
-                                    setShowGRNModal(true);
-                                }}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white rounded-xl hover:shadow-lg hover:shadow-indigo-200 transition-all font-medium text-sm active:scale-95"
-                            >
-                                <Package size={18} />
-                                Create GRN
-                            </button>
-                        </>
-                    )}
-                    {activeSubTab === 'inhouse' && (
-                        <>
-
-                            <button
-                                onClick={() => {
-                                    setEditingGRN(undefined);
-                                    setShowGRNModal(true);
-                                }}
-                                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl hover:shadow-lg hover:shadow-violet-200 transition-all font-medium text-sm active:scale-95"
-                            >
-                                <Factory size={18} />
-                                Create FG Items GRN
-                            </button>
-                        </>
-                    )}
-                </div>
-            </div>
-
             {/* Content Container */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm min-h-[400px] overflow-hidden p-1">
                 {activeSubTab === 'ledger' ? (
@@ -207,6 +173,10 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                             setShowDetails(true);
                         }}
                         refetch={refetch}
+                        onCreateGRN={() => {
+                            setEditingGRN(undefined);
+                            setShowGRNModal(true);
+                        }}
                     />
                 )}
             </div>

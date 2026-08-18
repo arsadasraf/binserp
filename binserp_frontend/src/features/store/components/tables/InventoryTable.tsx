@@ -12,9 +12,9 @@
  * @param data - Array of inventory items to display
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { InventoryItem, MasterType } from "@/src/features/store/types/store.types";
-import { Package, Factory, Download, Search, Edit2, FileSpreadsheet } from 'lucide-react';
+import { Package, Factory, Download, Search, Edit2, FileSpreadsheet, ChevronDown, FileDown } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
 import { apiPost } from '@/src/lib/api';
@@ -31,6 +31,7 @@ interface InventoryTableProps {
     hideTabs?: boolean;
     onItemClick?: (item: InventoryItem) => void;
     refetch?: () => void;
+    onCreateGRN?: () => void;
 }
 
 export default function InventoryTable({
@@ -42,15 +43,30 @@ export default function InventoryTable({
     onSubTabChange,
     hideTabs,
     onItemClick,
-    refetch
+    refetch,
+    onCreateGRN
 }: InventoryTableProps) {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isExcelMenuOpen, setIsExcelMenuOpen] = useState(false);
     const [filters, setFilters] = useState<Record<string, string[]>>({});
     const [searchQuery, setSearchQuery] = useState('');
 
     const [editingStockId, setEditingStockId] = useState<string | null>(null);
     const [editingStockValue, setEditingStockValue] = useState<number>(0);
     const [isUpdating, setIsUpdating] = useState(false);
+
+    const excelMenuRef = useRef<HTMLDivElement>(null);
+
+    // Close Excel menu on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (excelMenuRef.current && !excelMenuRef.current.contains(event.target as Node)) {
+                setIsExcelMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const handleOpeningStockEditClick = (e: React.MouseEvent, item: any) => {
         e.stopPropagation();
@@ -97,13 +113,14 @@ export default function InventoryTable({
 
     const applyFilters = (items: any[]) => {
         return items.filter(item => {
-            // Global Search Filter (Name or Code)
+            // Global Search Filter (Name, Code, or Description)
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 const name = (item.materialName || item.componentName || '').toLowerCase();
                 const code = (item.materialCode || item.componentCode || item.code || '').toLowerCase();
+                const desc = (item.descriptions || item.description || '').toLowerCase();
 
-                if (!name.includes(query) && !code.includes(query)) {
+                if (!name.includes(query) && !code.includes(query) && !desc.includes(query)) {
                     return false;
                 }
             }
@@ -154,8 +171,9 @@ export default function InventoryTable({
         const exportData = currentData.map(item => ({
             'Material Name': item.materialName || item.componentName || '-',
             'Code': item.materialCode || '-',
-            'Stock': item.currentStock,
-            'Unit': item.unit,
+            'Description': item.descriptions || item.description || '-',
+            'Stock': item.currentStock ?? item.quantity ?? 0,
+            'Unit': item.unit || '-',
             'Category': getCategoryValue(item),
             'Location': getLocationValue(item)
         }));
@@ -169,46 +187,85 @@ export default function InventoryTable({
     };
 
     return (
-        <div className="w-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-200 flex justify-between items-center bg-gray-50/50">
-                <span className="text-sm text-gray-500">
-                    Showing {activeSubTab === 'bo' ? filteredData.length : filteredInHouseData.length} items
+        <div className="w-full bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-gray-50/50 dark:bg-gray-900/50">
+                <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                    Showing <span className="font-bold text-gray-900 dark:text-gray-100">{activeSubTab === 'bo' ? filteredData.length : filteredInHouseData.length}</span> items
                 </span>
-                <div className="flex items-center gap-3">
-                    <div className="relative">
+                <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+                    {/* Search Bar */}
+                    <div className="relative flex-1 sm:flex-initial">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                         <input
                             type="text"
-                            placeholder="Search by Name or Code..."
+                            placeholder="Search by Name, Code, Description..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-9 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 w-64"
+                            className="w-full sm:w-64 pl-9 pr-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-sm text-gray-900 dark:text-gray-100 placeholder-gray-400"
                         />
                     </div>
-                    <button
-                        onClick={() => downloadMasterExcelTemplate(activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm"
-                        title="Download standard Excel template format for this inventory view"
-                    >
-                        <Download size={14} className="text-emerald-600" />
-                        Template
-                    </button>
-                    <button
-                        onClick={() => setIsImportModalOpen(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-md shadow-emerald-600/20"
-                        title="Import Inventory items from Excel Spreadsheet"
-                    >
-                        <FileSpreadsheet size={14} />
-                        Import Excel
-                    </button>
-                    <button
-                        onClick={exportToExcel}
-                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-200"
-                        title="Download Excel"
-                    >
-                        <Download size={16} />
-                        Export List
-                    </button>
+
+                    {/* Create GRN Button - Next to Search Button */}
+                    {onCreateGRN && (
+                        <button
+                            onClick={onCreateGRN}
+                            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white rounded-xl shadow-sm hover:shadow-indigo-200 dark:hover:shadow-none transition-all font-medium text-sm active:scale-95 whitespace-nowrap cursor-pointer"
+                            title="Create a new Goods Receipt Note (GRN)"
+                        >
+                            <Package size={17} />
+                            <span>Create GRN</span>
+                        </button>
+                    )}
+
+                    {/* Single Excel Actions Dropdown Button (Export, Import, Template) */}
+                    <div className="relative" ref={excelMenuRef}>
+                        <button
+                            onClick={() => setIsExcelMenuOpen(!isExcelMenuOpen)}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-xl shadow-sm hover:shadow-emerald-200 dark:hover:shadow-none transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                            title="Excel Import, Export, and Template options"
+                        >
+                            <FileSpreadsheet size={17} />
+                            <span>Excel Actions</span>
+                            <ChevronDown size={15} className={`transition-transform duration-200 ${isExcelMenuOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {/* Dropdown Options Menu */}
+                        {isExcelMenuOpen && (
+                            <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 py-1.5 z-30 animate-in fade-in slide-in-from-top-2 duration-150">
+                                <button
+                                    onClick={() => {
+                                        exportToExcel();
+                                        setIsExcelMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-700 transition-colors text-left"
+                                >
+                                    <Download size={15} className="text-emerald-600" />
+                                    <span>Export List (Excel)</span>
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsImportModalOpen(true);
+                                        setIsExcelMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-700 transition-colors text-left"
+                                >
+                                    <FileSpreadsheet size={15} className="text-blue-600" />
+                                    <span>Import Excel</span>
+                                </button>
+                                <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
+                                <button
+                                    onClick={() => {
+                                        downloadMasterExcelTemplate(activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items');
+                                        setIsExcelMenuOpen(false);
+                                    }}
+                                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-700 transition-colors text-left"
+                                >
+                                    <FileDown size={15} className="text-indigo-600" />
+                                    <span>Download Template</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
             {/* Sub Tabs */}
@@ -263,6 +320,7 @@ export default function InventoryTable({
                                             onFilterChange={(vals) => handleFilterChange('materialName', vals)}
                                         />
                                     </th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Stock</th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Monthly Flow</th>
                                     <th className="px-6 py-3 text-left">
@@ -299,7 +357,7 @@ export default function InventoryTable({
                             <tbody className="divide-y divide-gray-200">
                                 {filteredData.length === 0 ? (
                                     <tr>
-                                        <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
+                                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                                             No Bought Out items found.
                                         </td>
                                     </tr>
@@ -310,7 +368,15 @@ export default function InventoryTable({
                                             onClick={() => onItemClick && onItemClick(item)}
                                             className="hover:bg-gray-50 transition-colors cursor-pointer"
                                         >
-                                            <td className="px-6 py-4 font-medium text-gray-900">{item.materialName}</td>
+                                            <td className="px-6 py-4 font-medium text-gray-900">
+                                                <div>{item.materialName}</div>
+                                                {item.materialCode && item.materialCode !== 'N/A' && (
+                                                    <div className="text-xs text-gray-400 font-mono">{item.materialCode}</div>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-gray-600 max-w-xs truncate" title={item.descriptions || item.description || '-'}>
+                                                {item.descriptions || item.description || '-'}
+                                            </td>
                                             <td className={`px-6 py-4 font-medium ${item.currentStock < item.reorderLevel ? "text-red-600" : "text-green-600"}`}>
                                                 {item.currentStock}
                                                 {item.qcPendingStock ? <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">({item.qcPendingStock})</span> : null}
@@ -467,7 +533,8 @@ export default function InventoryTable({
                                         />
                                     </th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Description</th>
-                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Stock</th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Total Stock</th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Reserved Stock</th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Monthly Flow</th>
                                     <th className="px-6 py-3 text-left">
                                         <ColumnFilter
@@ -493,7 +560,7 @@ export default function InventoryTable({
                             <tbody className="divide-y divide-gray-200">
                                 {filteredInHouseData.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                                        <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
                                             No InHouse components found.
                                         </td>
                                     </tr>
@@ -509,6 +576,27 @@ export default function InventoryTable({
                                             <td className="px-6 py-4 text-gray-600 truncate max-w-xs" title={item.description}>{item.description || '-'}</td>
                                             <td className={`px-6 py-4 font-medium ${item.quantity <= (item.reorderLevel || 0) ? "text-red-600" : "text-green-600"}`}>
                                                 {item.quantity}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {(() => {
+                                                    const allocQty = item.allocatedQuantity || 0;
+                                                    const breakdown = item.reservedBreakdown || item.allocations || [];
+                                                    const tooltipText = breakdown.length > 0
+                                                        ? breakdown.map((a: any) => `#${a.orderNumber || a.salesOrderNo || 'SO'}${a.poReference ? ` [PO: ${a.poReference}]` : ''}: ${a.reservedQuantity || a.allocatedQty} PCS (${a.customerName || 'Customer'})`).join(' | ')
+                                                        : 'No active PO/SO stock allocations';
+
+                                                    return (
+                                                        <div className="flex items-center gap-1 cursor-help" title={tooltipText}>
+                                                            <span className={`px-2 py-0.5 rounded-full text-xs font-black font-mono border ${
+                                                                allocQty > 0 
+                                                                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800 shadow-xs'
+                                                                    : 'bg-slate-100 text-slate-500 border-slate-200'
+                                                            }`}>
+                                                                {allocQty} {item.unit || 'PCS'}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="px-6 py-4">
                                                 {editingStockId === item._id ? (

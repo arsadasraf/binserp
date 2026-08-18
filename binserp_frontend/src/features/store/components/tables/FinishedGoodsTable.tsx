@@ -54,16 +54,16 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: Fi
       label: 'Allocated Stock',
       render: (item) => {
         const allocQty = item.allocatedQuantity || 0;
-        const allocations = item.allocations || [];
-        const tooltipText = allocations.length > 0
-          ? allocations.map((a: any) => `#${a.salesOrderNo || 'SO'}: ${a.allocatedQty} pcs (${a.customerName || 'Cust'})`).join(' | ')
-          : 'No active allocations';
+        const breakdown = item.reservedBreakdown || item.allocations || [];
+        const tooltipText = breakdown.length > 0
+          ? breakdown.map((a: any) => `#${a.orderNumber || a.salesOrderNo || 'SO'}${a.poReference ? ` [PO: ${a.poReference}]` : ''}: ${a.reservedQuantity || a.allocatedQty} PCS (${a.customerName || 'Customer'})`).join(' | ')
+          : 'No active PO/SO stock allocations';
 
         return (
-          <div className="flex items-center gap-1" title={tooltipText}>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-black font-mono border ${
+          <div className="flex items-center gap-1 group relative cursor-help" title={tooltipText}>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-black font-mono border transition-all ${
               allocQty > 0 
-                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800 shadow-xs'
                 : 'bg-slate-100 text-slate-500 border-slate-200'
             }`}>
               {allocQty} {item.unit || 'PCS'}

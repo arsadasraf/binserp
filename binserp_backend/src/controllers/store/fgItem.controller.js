@@ -1,4 +1,5 @@
-import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, storeOrderFulfillmentSchema } from "../../models/store/index.js";
+import { salesOrderSchema } from "../../models/sales/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 
 const getCompanyId = (req) => {
@@ -79,6 +80,40 @@ export const getAllFGItems = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
+    // Fetch active StoreOrderFulfillment to compute PO & Sales Order reserved breakdown
+    const StoreOrderFulfillment = req.getModel('StoreOrderFulfillment', storeOrderFulfillmentSchema);
+    req.getModel('SalesOrder', salesOrderSchema);
+    req.getModel('Customer', customerSchema);
+
+    const activeFulfillments = await StoreOrderFulfillment.find({
+      company: companyId,
+      reservedQuantity: { $gt: 0 }
+    }).populate({
+      path: 'storeOrder',
+      select: 'orderNumber poReference orderType customer',
+      populate: { path: 'customer', select: 'name customerName' }
+    }).lean();
+
+    const reservedMap = new Map();
+    for (const ful of activeFulfillments) {
+      if (!ful.fgItem) continue;
+      const fgIdStr = ful.fgItem.toString();
+      const soObj = ful.storeOrder || {};
+      const custName = soObj.customer?.name || soObj.customer?.customerName || 'Customer';
+      const entry = {
+        salesOrderId: soObj._id,
+        orderNumber: soObj.orderNumber || 'SO-Direct',
+        poReference: soObj.poReference || '',
+        customerName: custName,
+        reservedQuantity: Number(ful.reservedQuantity || 0),
+        dispatchedQuantity: Number(ful.dispatchedQuantity || 0)
+      };
+      if (!reservedMap.has(fgIdStr)) {
+        reservedMap.set(fgIdStr, []);
+      }
+      reservedMap.get(fgIdStr).push(entry);
+    }
+
     // Fetch monthly tracking for the current month
     const currentDate = new Date();
     const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -94,8 +129,13 @@ export const getAllFGItems = async (req, res) => {
 
     const fgItemsWithMonthly = fgItems.map(item => {
         const itemMonthly = monthlyMap.get(item._id.toString());
+        const breakdown = reservedMap.get(item._id.toString()) || [];
+        const totalReservedFromBreakdown = breakdown.reduce((acc, curr) => acc + curr.reservedQuantity, 0);
+
         return {
             ...item,
+            allocatedQuantity: totalReservedFromBreakdown || item.allocatedQuantity || 0,
+            reservedBreakdown: breakdown,
             monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }
         };
     });

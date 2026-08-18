@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { SalesOrderTable } from "../../components/SalesOrderTable";
 import { SalesOrderForm } from "../../components/SalesOrderForm";
 import { SalesOrderDetailsModal } from "../../components/SalesOrderDetailsModal";
+import SalesOrderMRPModal from "@/src/features/store/components/modals/SalesOrderMRPModal";
 import { useStoreData } from "../../components/hooks/useStoreData";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
 import {
@@ -23,6 +24,7 @@ export default function SalesOrdersPage() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState<any>(null);
   const [viewingOrder, setViewingOrder] = useState<any>(null);
+  const [mrpOrder, setMrpOrder] = useState<any>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (loading) return <LoadingSpinner />;
@@ -125,6 +127,20 @@ export default function SalesOrdersPage() {
             setViewingOrder(null);
             setShowFormModal(true);
           }}
+          onOpenMrp={(order) => {
+            setViewingOrder(null);
+            setMrpOrder(order);
+          }}
+        />
+      )}
+
+      {/* MRP & FG Allocation Modal */}
+      {mrpOrder && (
+        <SalesOrderMRPModal
+          isOpen={!!mrpOrder}
+          onClose={() => setMrpOrder(null)}
+          salesOrder={mrpOrder}
+          onRefetch={refetch}
         />
       )}
     </div>

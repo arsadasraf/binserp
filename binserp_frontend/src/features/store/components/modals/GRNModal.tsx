@@ -67,7 +67,7 @@ export default function GRNModal({
         rate: 0,
     }]);
 
-    // Fetch active POs when supplier changes
+    // Fetch active Outward POs released from Purchase tab when supplier changes
     useEffect(() => {
         if (supplier && type === 'bo') {
             const fetchPOs = async () => {
@@ -93,17 +93,24 @@ export default function GRNModal({
 
     const handleSelectPO = (poId: string) => {
         setSelectedPO(poId);
+        if (!poId) return;
+
         const po = vendorActivePOs.find(p => p._id === poId);
         if (po) {
-            setPoReference(po.poNumber);
+            setPoReference(po.poNumber || '');
             if (Array.isArray(po.items) && po.items.length > 0) {
                 const entries = po.items.map((it: any) => {
-                    const pendQty = it.pendingQuantity !== undefined ? it.pendingQuantity : Math.max(0, (it.quantity || 0) - (it.receivedQuantity || 0));
+                    const pendQty = it.pendingQuantity !== undefined 
+                        ? it.pendingQuantity 
+                        : Math.max(0, (Number(it.quantity) || 0) - (Number(it.receivedQuantity) || 0));
+                    
+                    const calculatedQty = pendQty > 0 ? pendQty : (Number(it.quantity) || 0);
+
                     return {
                         material: it.material?._id || it.material || '',
-                        materialName: it.materialName || it.material?.name || '',
-                        quantity: pendQty,
-                        unit: it.unit || 'PCS',
+                        materialName: it.materialName || it.material?.name || it.name || '',
+                        quantity: calculatedQty,
+                        unit: it.unit || it.material?.unit || 'PCS',
                         category: it.category || 'RmBo',
                         locationId: '',
                         rate: it.rate || 0,
@@ -464,6 +471,7 @@ export default function GRNModal({
                                         </div>
                                     </div>
 
+                                     {/* Customer Selection */}
                                      {/* Supplier - BO Only */}
                                      {type === 'bo' && (
                                          <div>
@@ -473,44 +481,48 @@ export default function GRNModal({
                                              <SearchableSelect
                                                  options={safeVendors.map(vendor => ({ value: vendor._id, label: `${vendor.name || ''} ${vendor.code ? `(${vendor.code})` : ''}` }))}
                                                  value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
-                                                 onChange={(val: any) => setSupplier(val)}
+                                                 onChange={(val: any) => {
+                                                     setSupplier(val);
+                                                     setSelectedPO('');
+                                                 }}
                                                  placeholder="Select Supplier"
                                              />
                                          </div>
                                      )}
 
-                                     {/* Link Active Purchase Order - BO Only */}
+                                     {/* Link Active Outward Purchase Order - Released from Purchase Tab */}
                                      {type === 'bo' && supplier && vendorActivePOs.length > 0 && (
-                                         <div>
-                                             <label className="block text-xs font-bold text-indigo-600 mb-1">
-                                                 Link Outward PO (Auto-fill)
+                                         <div className="col-span-2">
+                                             <label className="block text-xs font-bold text-indigo-600 mb-1 flex items-center justify-between">
+                                                 <span>Outward PO Reference (Optional - Auto-fills items)</span>
+                                                 <span className="text-[10px] text-indigo-500 font-normal">Select Released Outward PO to auto-populate items & pending qty</span>
                                              </label>
                                              <select
                                                  value={selectedPO}
                                                  onChange={(e) => handleSelectPO(e.target.value)}
-                                                 className="w-full px-3 py-1.5 border border-indigo-300 bg-indigo-50/50 rounded-md focus:ring-1 focus:ring-indigo-500 text-xs font-bold text-indigo-900"
+                                                 className="w-full px-3 py-1.5 border border-indigo-300 bg-indigo-50/60 rounded-md focus:ring-1 focus:ring-indigo-500 text-xs font-bold text-indigo-900 shadow-sm cursor-pointer"
                                              >
-                                                 <option value="">-- Select Active PO --</option>
+                                                 <option value="">-- Select Active Outward PO (Optional) --</option>
                                                  {vendorActivePOs.map(p => (
                                                      <option key={p._id} value={p._id}>
-                                                         {p.poNumber} ({new Date(p.date || p.createdAt).toLocaleDateString('en-GB')} - {p.status})
+                                                         [Outward PO] {p.poNumber} ({new Date(p.date || p.createdAt).toLocaleDateString('en-GB')} - {p.status || 'Active'})
                                                      </option>
                                                  ))}
                                              </select>
                                          </div>
                                      )}
 
-                                     {/* PO Reference - BO Only */}
+                                     {/* Manual PO Reference Input - BO Only */}
                                      {type === 'bo' && (
                                          <div>
                                              <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                 PO Reference
+                                                 PO Reference Number
                                              </label>
                                              <input
                                                  type="text"
                                                  value={poReference}
                                                  onChange={(e) => setPoReference(e.target.value)}
-                                                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                                 className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs"
                                                  placeholder="Enter PO No."
                                              />
                                          </div>

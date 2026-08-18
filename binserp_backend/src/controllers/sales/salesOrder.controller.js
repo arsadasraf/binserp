@@ -257,6 +257,7 @@ export const moveSalesOrderToMRP = asyncHandler(async (req, res) => {
   const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const StoreOrderFulfillment = req.getModel("StoreOrderFulfillment", storeOrderFulfillmentSchema);
   const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
+  const FGItem = req.getModel("FGItem", fgItemSchema);
   const StoreMRP = req.getModel("StoreMRP", storeMRPSchema);
   const companyId = getCompanyId(req);
   const orderId = req.params.id;
@@ -281,28 +282,45 @@ export const moveSalesOrderToMRP = asyncHandler(async (req, res) => {
       // Check if user provided custom allocation for this FG item
       const customAlloc = Array.isArray(allocations) ? allocations.find(a => String(a.fgItem) === fgId) : null;
 
+      // Check FG stock in FGItem model
+      const fgDoc = await FGItem.findById(item.fgItem);
+      const totalStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
+      const currentAllocated = fgDoc ? Number(fgDoc.allocatedQuantity || 0) : 0;
+      const unreservedStock = Math.max(0, totalStock - currentAllocated);
+
+      const alreadyAllocatedSO = Number(item.allocatedFgQty || 0);
+      const remainingNeeded = Math.max(0, orderedQty - alreadyAllocatedSO);
+
+      const reservedQuantity = customAlloc !== null && customAlloc !== undefined
+        ? Number(customAlloc.reservedQuantity || 0)
+        : Math.min(remainingNeeded, unreservedStock);
+
+      const shortfallQuantity = Math.max(0, remainingNeeded - reservedQuantity);
+
+      totalReserved += reservedQuantity;
+      totalShortfall += shortfallQuantity;
+
+      // Update item allocatedFgQty
+      item.allocatedFgQty = alreadyAllocatedSO + reservedQuantity;
+
+      // Update FGItem allocatedQuantity in store
+      if (reservedQuantity > 0 && fgDoc) {
+        fgDoc.allocatedQuantity = (fgDoc.allocatedQuantity || 0) + reservedQuantity;
+        await fgDoc.save();
+      }
+
+      // Update FGInventoryMonthly
       const invRecord = await FGInventoryMonthly.findOne({
         company: companyId,
         fgItem: item.fgItem,
         month: currentMonth
       });
+      if (reservedQuantity > 0 && invRecord) {
+        invRecord.totalReservedQuantity = (invRecord.totalReservedQuantity || 0) + reservedQuantity;
+        await invRecord.save();
+      }
 
-      const closingStock = invRecord ? Number(invRecord.closingStock || 0) : 0;
-      const reservedInMonth = invRecord ? Number(invRecord.totalReservedQuantity || 0) : 0;
-      const availableStock = Math.max(0, closingStock - reservedInMonth);
-
-      const reservedQuantity = customAlloc !== null && customAlloc !== undefined
-        ? Number(customAlloc.reservedQuantity || 0)
-        : Math.min(orderedQty, availableStock);
-
-      const shortfallQuantity = customAlloc !== null && customAlloc !== undefined
-        ? Number(customAlloc.shortfallQuantity || 0)
-        : Math.max(0, orderedQty - reservedQuantity);
-
-      totalReserved += reservedQuantity;
-      totalShortfall += shortfallQuantity;
-
-      // Update or create fulfillment
+      // Update or create StoreOrderFulfillment
       let fulfillment = await StoreOrderFulfillment.findOne({ storeOrder: order._id, fgItem: item.fgItem });
       if (!fulfillment) {
         fulfillment = await StoreOrderFulfillment.create({
@@ -310,23 +328,19 @@ export const moveSalesOrderToMRP = asyncHandler(async (req, res) => {
           storeOrder: order._id,
           fgItem: item.fgItem,
           orderedQuantity: orderedQty,
-          reservedQuantity,
+          reservedQuantity: item.allocatedFgQty,
           mrpMovedQuantity: shortfallQuantity,
-          status: shortfallQuantity > 0 ? (reservedQuantity > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved',
+          status: shortfallQuantity > 0 ? (item.allocatedFgQty > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved',
           targetDate: item.targetDate || order.targetDate || new Date(),
         });
       } else {
-        fulfillment.reservedQuantity = reservedQuantity;
+        fulfillment.reservedQuantity = item.allocatedFgQty;
         fulfillment.mrpMovedQuantity = shortfallQuantity;
-        fulfillment.status = shortfallQuantity > 0 ? (reservedQuantity > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved';
+        fulfillment.status = shortfallQuantity > 0 ? (item.allocatedFgQty > 0 ? 'Partial Stock' : 'Moved MRP') : 'Reserved';
         await fulfillment.save();
       }
 
-      if (reservedQuantity > 0 && invRecord) {
-        invRecord.totalReservedQuantity = (invRecord.totalReservedQuantity || 0) + reservedQuantity;
-        await invRecord.save();
-      }
-
+      // If there is net shortage, send ONLY this FG item shortfall to Purchase MRP Intake Bucket
       if (shortfallQuantity > 0) {
         let existingMRP = await StoreMRP.findOne({
           company: companyId,
@@ -344,23 +358,31 @@ export const moveSalesOrderToMRP = asyncHandler(async (req, res) => {
             dueDate: item.targetDate || order.targetDate || new Date(),
             status: "Pending",
             createdBy: req.user?._id,
-            remarks: `Moved from Sales Order #${order.orderNumber}`
+            remarks: `Shortage intake from Sales Order #${order.orderNumber}`
           });
         } else {
           existingMRP.requiredQuantity = shortfallQuantity;
+          existingMRP.status = "Pending";
           await existingMRP.save();
         }
       }
     }
   }
 
-  order.status = "Moved MRP";
+  const isFullyAllocated = totalShortfall === 0;
+  order.allocatedFgQty = (order.allocatedFgQty || 0) + totalReserved;
+  order.status = isFullyAllocated ? "Items Allocated" : "Moved MRP";
+  order.fulfillmentStatus = isFullyAllocated ? "Fully Allocated" : "Moved to MRP";
   await order.save();
 
   res.status(200).json({
     success: true,
-    message: `Sales Order stock allocated & shortfall moved to MRP. Reserved Stock: ${totalReserved}, Shortfall to MRP: ${totalShortfall}`,
-    order
+    message: isFullyAllocated 
+      ? `Sales Order #${order.orderNumber} fully allocated from FG stock (${totalReserved} pcs reserved).`
+      : `Sales Order #${order.orderNumber}: ${totalReserved} pcs reserved from FG stock, ${totalShortfall} shortage FG item(s) sent to Purchase MRP Intake Bucket.`,
+    order,
+    totalReserved,
+    totalShortfall
   });
 });
 
@@ -369,15 +391,41 @@ export const getAllSalesOrders = asyncHandler(async (req, res) => {
   // Register required models for populate
   req.getModel('Customer', customerSchema);
   req.getModel('FGItem', fgItemSchema);
+  const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
   
   const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
   const companyId = getCompanyId(req);
 
-  const orders = await SalesOrder.find({ company: companyId })
+  const rawOrders = await SalesOrder.find({ company: companyId })
     .populate("customer", "name code email phone")
-    .populate("items.fgItem", "name type description")
+    .populate("items.fgItem", "name code type description quantity allocatedQuantity unit")
     .populate("createdBy", "name")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
+
+  const currentMonth = getCurrentMonthStr();
+  const monthlyRecords = await FGInventoryMonthly.find({ company: companyId, month: currentMonth }).lean();
+  const monthlyMap = new Map();
+  for (const rec of monthlyRecords) {
+    if (rec.fgItem) monthlyMap.set(rec.fgItem.toString(), rec);
+  }
+
+  const orders = rawOrders.map(order => {
+    if (order.items && Array.isArray(order.items)) {
+      order.items = order.items.map(item => {
+        if (item.fgItem && typeof item.fgItem === 'object') {
+          const fgIdStr = item.fgItem._id ? item.fgItem._id.toString() : item.fgItem.toString();
+          const monthlyRec = monthlyMap.get(fgIdStr);
+          const closingStock = monthlyRec ? Number(monthlyRec.closingStock || 0) : Number(item.fgItem.quantity || 0);
+          const reservedQty = monthlyRec ? Number(monthlyRec.totalReservedQuantity || 0) : Number(item.fgItem.allocatedQuantity || 0);
+          item.fgItem.quantity = closingStock;
+          item.fgItem.allocatedQuantity = reservedQty;
+        }
+        return item;
+      });
+    }
+    return order;
+  });
 
   res.status(200).json({ success: true, orders, count: orders.length });
 });
@@ -385,16 +433,42 @@ export const getAllSalesOrders = asyncHandler(async (req, res) => {
 export const getSalesOrderById = asyncHandler(async (req, res) => {
   req.getModel('Customer', customerSchema);
   req.getModel('FGItem', fgItemSchema);
+  const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
   const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
   const Invoice = req.getModel('Invoice', invoiceSchema);
   
   const SalesOrder = req.getModel("SalesOrder", salesOrderSchema);
-  const order = await SalesOrder.findById(req.params.id)
-    .populate("customer", "name code email phone")
-    .populate("items.fgItem", "name type description");
+  const companyId = getCompanyId(req);
 
-  if (!order) {
+  const rawOrder = await SalesOrder.findOne({ _id: req.params.id, company: companyId })
+    .populate("customer", "name code email phone")
+    .populate("items.fgItem", "name code type description quantity allocatedQuantity unit")
+    .lean();
+
+  if (!rawOrder) {
     return res.status(404).json({ success: false, message: "Order not found" });
+  }
+
+  const currentMonth = getCurrentMonthStr();
+  const monthlyRecords = await FGInventoryMonthly.find({ company: companyId, month: currentMonth }).lean();
+  const monthlyMap = new Map();
+  for (const rec of monthlyRecords) {
+    if (rec.fgItem) monthlyMap.set(rec.fgItem.toString(), rec);
+  }
+
+  const order = { ...rawOrder };
+  if (order.items && Array.isArray(order.items)) {
+    order.items = order.items.map(item => {
+      if (item.fgItem && typeof item.fgItem === 'object') {
+        const fgIdStr = item.fgItem._id ? item.fgItem._id.toString() : item.fgItem.toString();
+        const monthlyRec = monthlyMap.get(fgIdStr);
+        const closingStock = monthlyRec ? Number(monthlyRec.closingStock || 0) : Number(item.fgItem.quantity || 0);
+        const reservedQty = monthlyRec ? Number(monthlyRec.totalReservedQuantity || 0) : Number(item.fgItem.allocatedQuantity || 0);
+        item.fgItem.quantity = closingStock;
+        item.fgItem.allocatedQuantity = reservedQty;
+      }
+      return item;
+    });
   }
 
   const deliveryChallans = await DeliveryChallan.find({ salesOrderReference: order._id }).lean();

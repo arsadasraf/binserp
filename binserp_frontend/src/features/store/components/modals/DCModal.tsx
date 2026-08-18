@@ -213,7 +213,9 @@ export default function DCModal({
 
                 const mappedItems: DCItemEntry[] = pendingItems.map((i: any) => {
                     const fgId = typeof i.fgItem === 'object' ? i.fgItem?._id : i.fgItem || "";
-                    const remainingQty = (i.quantity || 0) - (i.dispatchedQuantity || 0);
+                    const reservedStock = i.allocatedFgQty !== undefined ? Number(i.allocatedFgQty || 0) : Number(i.quantity || 0);
+                    const alreadyDispatched = Number(i.dispatchedQuantity || 0);
+                    const availableForDispatch = Math.max(1, reservedStock > 0 ? (reservedStock - alreadyDispatched) : ((i.quantity || 1) - alreadyDispatched));
                     const rate = i.pricePerQuantity || i.rate || 0;
                     return {
                         itemType: fgId ? 'fg' : 'custom',
@@ -221,11 +223,11 @@ export default function DCModal({
                         component: fgId,
                         materialName: i.productName || i.name || "",
                         hsnCode: i.hsnCode || "",
-                        quantity: remainingQty,
+                        quantity: availableForDispatch,
                         unit: i.unit || "PCS",
                         rate: rate,
-                        amount: remainingQty * rate,
-                        description: `PO ${po.poNumber} Pending Item`
+                        amount: availableForDispatch * rate,
+                        description: `Reserved for PO ${po.poNumber || po.poReference}`
                     };
                 });
                 setItems(mappedItems);

@@ -274,8 +274,9 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
           >
             <option value="ALL">All Statuses</option>
             <option value="Pending">Pending</option>
+            <option value="Items Allocated">Items Allocated</option>
+            <option value="Moved to MRP">Moved to MRP</option>
             <option value="In-Progress">In-Progress</option>
-            <option value="Dispatched">Dispatched</option>
             <option value="Completed">Completed</option>
           </select>
 
@@ -317,6 +318,7 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
               filteredOrders.map((order) => {
                 const orderType = order.orderType || (order.poReference ? "PO_BASED" : "DIRECT");
                 const custName = order.customer?.name || order.customer?.customerName || (typeof order.customer === "string" ? order.customer : "Internal Stock Production");
+                const currentStat = order.status || order.fulfillmentStatus || "Pending";
                 
                 return (
                   <tr key={order._id} className="hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition-colors">
@@ -375,26 +377,20 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
                     </td>
 
                     <td className="px-4 py-3 text-center">
-                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                        order.status === 'Completed' || order.status === 'Dispatched' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
-                        order.status === 'In-Progress' || order.status === 'Partially Dispatched' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
-                        order.status === 'Cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300' :
-                        'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300'
+                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                        currentStat === 'Items Allocated' || currentStat === 'Fully Allocated' ? 'bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/50 dark:text-cyan-300' :
+                        currentStat === 'Moved to MRP' || currentStat === 'Moved MRP' ? 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/50 dark:text-indigo-300' :
+                        currentStat === 'Completed' || currentStat === 'Dispatched' ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300' :
+                        currentStat === 'In-Progress' || currentStat === 'Partially Dispatched' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300' :
+                        currentStat === 'Cancelled' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/50 dark:text-red-300' :
+                        'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300'
                       }`}>
-                        {order.status || 'Pending'}
+                        {currentStat}
                       </span>
                     </td>
 
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => setSelectedMrpOrder(order)}
-                          title="Move Sales Order to Purchase MRP Tab for FG Allocation, BOM Explosion & PPC Routing"
-                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-                        >
-                          <GitBranch size={14} /> Send to Purchase MRP
-                        </button>
-
                         <button
                           onClick={() => onView(order)}
                           title="View Details"
