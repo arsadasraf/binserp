@@ -33,10 +33,12 @@ export default function ManualAttendanceTab() {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
-            // Fetch today's attendance using local date
+            // Fetch attendance spanning from yesterday to today (supports active night/cross-midnight shifts)
             const now = new Date();
-            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-            const attRes = axios.get(`${API_BASE_URL}/api/hr/attendance?startDate=${today}&endDate=${today}`, {
+            const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+            const startDate = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
+            const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const attRes = axios.get(`${API_BASE_URL}/api/hr/attendance?startDate=${startDate}&endDate=${endDate}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -46,13 +48,16 @@ export default function ManualAttendanceTab() {
             
             const attData = attendanceResponse.data.attendance || [];
             const attMap: Record<string, any> = {};
+            
+            // Prioritize active unclosed shift first, otherwise keep most recent
             attData.forEach((att: any) => {
-                // Populate employee _id (employee field might be populated object or just _id string)
                 const empId = att.employee?._id || att.employee;
                 if (empId) {
                     const empIdStr = empId.toString();
-                    // Since backend returns sorted by date DESC (newest first), we only keep the first one we see
-                    if (!attMap[empIdStr]) {
+                    const isOpen = att.checkIn?.time && !att.checkOut?.time;
+                    if (isOpen) {
+                        attMap[empIdStr] = att;
+                    } else if (!attMap[empIdStr]) {
                         attMap[empIdStr] = att;
                     }
                 }

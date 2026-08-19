@@ -5,6 +5,7 @@ import { Plus, Trash2, Search, Edit2, X, Calendar as CalendarIcon } from "lucide
 import axios from "axios";
 import { Holiday } from "../../types/hr.types";
 import { API_BASE_URL } from "@/src/utils/config";
+import HrMasterExcelActions from "./HrMasterExcelActions";
 
 export default function HolidayMaster() {
     const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -151,13 +152,20 @@ export default function HolidayMaster() {
                     </div>
                 </div>
 
-                <button
-                    onClick={handleOpenAdd}
-                    className="bg-blue-600 flex gap-2 hover:bg-blue-700 items-center justify-center md:px-4 flex-none px-3 md:px-4 py-2 rounded-lg text-white transition-colors w-full md:w-auto"
-                >
-                    <Plus size={18} />
-                    <span>Add Holiday</span>
-                </button>
+                <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                    <HrMasterExcelActions
+                        masterTab="holiday"
+                        data={holidays.map((h: any) => ({ ...h, title: h.title || h.name }))}
+                        onSuccess={fetchHolidays}
+                    />
+                    <button
+                        onClick={handleOpenAdd}
+                        className="bg-blue-600 flex gap-2 hover:bg-blue-700 items-center justify-center md:px-4 flex-none px-3 md:px-4 py-2 rounded-lg text-white transition-colors text-sm font-bold shadow-sm"
+                    >
+                        <Plus size={18} />
+                        <span>Add Holiday</span>
+                    </button>
+                </div>
             </div>
 
             <div className="bg-gray-50/50 min-h-[200px]">

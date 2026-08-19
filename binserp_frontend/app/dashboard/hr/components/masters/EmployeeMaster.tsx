@@ -6,6 +6,8 @@ import axios from "axios";
 import { Employee, Department, Designation, Skill, EmployeeType } from "../../types/hr.types";
 import { API_BASE_URL } from "@/src/utils/config";
 import CompOffHistoryModal from "../modals/CompOffHistoryModal";
+import HrMasterExcelActions from "./HrMasterExcelActions";
+
 
 // Reusable Switch Component
 const Switch = ({ checked, onChange, label }: { checked: boolean; onChange: (checked: boolean) => void; label?: string }) => (
@@ -566,12 +568,19 @@ export default function EmployeeMaster() {
                         />
                     </div>
                 </div>
-                <button
-                    onClick={handleOpenAdd}
-                    className="bg-blue-600 flex flex-none font-medium gap-2 hover:bg-blue-700 hover:shadow-blue-200 hover:shadow-lg items-center justify-center md:px-5 px-3 py-2.5 rounded-xl text-white transition-all"
-                >
-                    <Plus size={20} /> <span className="hidden md:inline">Add Employee</span>
-                </button>
+                <div className="flex items-center gap-2">
+                    <HrMasterExcelActions
+                        masterTab="employee"
+                        data={employees}
+                        onSuccess={fetchEmployees}
+                    />
+                    <button
+                        onClick={handleOpenAdd}
+                        className="bg-blue-600 flex flex-none font-medium gap-2 hover:bg-blue-700 hover:shadow-blue-200 hover:shadow-lg items-center justify-center md:px-5 px-3 py-2.5 rounded-xl text-white transition-all text-sm font-bold shadow-sm"
+                    >
+                        <Plus size={20} /> <span className="hidden md:inline">Add Employee</span>
+                    </button>
+                </div>
             </div>
 
             {/* Employee List - Responsive */}

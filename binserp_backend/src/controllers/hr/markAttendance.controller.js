@@ -79,49 +79,25 @@ export const markAttendance = async (req, res) => {
             });
         }
 
-        // Logic Implementation
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Start of day
-
+        // Logic Implementation with 24-hour Lookback Window (Supports overnight/cross-midnight shifts)
         const now = new Date();
         const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        const lookbackWindow = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-        // Find today's attendance using the generated Date object for query
-        let attendance = await Attendance.findOne({
+        // 1. Check if there is an open check-in session in the last 20 hours
+        let openAttendance = await Attendance.findOne({
             employee: employeeId,
             company: companyId,
-            date: {
-                $gte: today,
-                $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
-            }
-        });
+            "checkIn.time": { $gte: lookbackWindow },
+            $or: [
+                { "checkOut.time": { $exists: false } },
+                { "checkOut.time": null }
+            ]
+        }).sort({ "checkIn.time": -1 });
 
-        if (!attendance) {
-            // === CHECK-IN ===
-            attendance = await Attendance.create({
-                employee: employeeId,
-                company: companyId,
-                date: now, // Stores full timestamp, but queried by range
-                checkIn: {
-                    time: now,
-                    location: "Office",
-                    markedBy: req.user?._id || req.user?.id
-                },
-                status: "Present",
-                hoursWorked: 0
-            });
-
-            return res.status(200).json({
-                status: "success",
-                type: "Check-In",
-                employee: employee.name,
-                time: currentTime
-            });
-
-        } else if (!attendance.checkOut?.time) {
+        if (openAttendance) {
             // === CHECK-OUT ATTEMPT ===
-
-            const checkInTime = new Date(attendance.checkIn.time);
+            const checkInTime = new Date(openAttendance.checkIn.time);
             const diffMs = now.getTime() - checkInTime.getTime();
             const diffHours = diffMs / (1000 * 60 * 60);
 
@@ -138,31 +114,66 @@ export const markAttendance = async (req, res) => {
             }
 
             // Perform Check-out
-            attendance.checkOut = {
+            openAttendance.checkOut = {
                 time: now,
                 location: "Office",
                 markedBy: req.user?._id || req.user?.id
             };
-            attendance.hoursWorked = parseFloat(diffHours.toFixed(2));
+            openAttendance.hoursWorked = parseFloat(diffHours.toFixed(2));
 
-            await attendance.save();
+            await openAttendance.save();
 
             return res.status(200).json({
                 status: "success",
                 type: "Check-Out",
                 employee: employee.name,
                 time: currentTime,
-                hoursWorked: attendance.hoursWorked
+                hoursWorked: openAttendance.hoursWorked
             });
+        }
 
-        } else {
-            // === ALREADY COMPLETED ===
+        // 2. Check if employee already completed a shift today (prevent duplicate check-ins in the same calendar day if already completed)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const completedToday = await Attendance.findOne({
+            employee: employeeId,
+            company: companyId,
+            date: {
+                $gte: today,
+                $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+            },
+            "checkOut.time": { $exists: true, $ne: null }
+        });
+
+        if (completedToday) {
             return res.status(200).json({
                 status: "warning",
-                message: "Attendance already marked for today",
+                message: "Attendance already completed for today",
                 employee: employee.name
             });
         }
+
+        // 3. Create a new Check-In
+        const newAttendance = await Attendance.create({
+            employee: employeeId,
+            company: companyId,
+            date: now,
+            checkIn: {
+                time: now,
+                location: "Office",
+                markedBy: req.user?._id || req.user?.id
+            },
+            status: "Present",
+            hoursWorked: 0
+        });
+
+        return res.status(200).json({
+            status: "success",
+            type: "Check-In",
+            employee: employee.name,
+            time: currentTime
+        });
 
     } catch (error) {
         console.error("Mark Attendance Error:", error.message);

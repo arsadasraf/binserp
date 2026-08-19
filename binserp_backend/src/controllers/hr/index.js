@@ -42,3 +42,5 @@ export { createHoliday } from './createHoliday.controller.js';
 export { getAllHolidays } from './getAllHolidays.controller.js';
 export { updateHoliday } from './updateHoliday.controller.js';
 export { deleteHoliday } from './deleteHoliday.controller.js';
+export { bulkImportHrMasters } from './hrMasterBulkImport.controller.js';
+

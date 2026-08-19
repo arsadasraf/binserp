@@ -62,40 +62,77 @@ export const recordAttendance = async (req, res) => {
       }
     }
 
+    const currentTime = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const lookback24h = new Date(currentTime.getTime() - 24 * 60 * 60 * 1000);
 
-    // Find or create today's attendance record
-    let attendance = await Attendance.findOne({
-      company: companyId,
-      employee: employee._id,
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    if (!attendance) {
-      attendance = await Attendance.create({
-        company: companyId,
-        employee: employee._id,
-        date: today,
-        status: "Present",
-      });
-    }
-
-    // Update check-in or check-out
-    const currentTime = new Date();
+    let attendance;
 
     if (type === "checkIn") {
-      attendance.checkIn = {
-        time: currentTime,
-        photo: photoUrl,
-        location: location || "",
-        markedBy: req.user?._id || req.user?.id
-      };
-      attendance.status = "Present";
+      // Check if employee is already checked in (active session in last 20 hours)
+      const openAttendance = await Attendance.findOne({
+        company: companyId,
+        employee: employee._id,
+        "checkIn.time": { $gte: new Date(currentTime.getTime() - 20 * 60 * 60 * 1000) },
+        $or: [
+          { "checkOut.time": { $exists: false } },
+          { "checkOut.time": null }
+        ]
+      }).sort({ "checkIn.time": -1 });
+
+      if (openAttendance) {
+        return res.status(400).json({
+          message: `Employee is already checked in since ${new Date(openAttendance.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Please check out first.`,
+        });
+      }
+
+      attendance = new Attendance({
+        company: companyId,
+        employee: employee._id,
+        date: currentTime,
+        status: "Present",
+        checkIn: {
+          time: currentTime,
+          photo: photoUrl,
+          location: location || "",
+          markedBy: req.user?._id || req.user?.id
+        },
+        hoursWorked: 0
+      });
+
+      await attendance.save();
+
     } else if (type === "checkOut") {
+      // Look for open check-in in the last 24 hours (cross-midnight shift support)
+      attendance = await Attendance.findOne({
+        company: companyId,
+        employee: employee._id,
+        "checkIn.time": { $gte: lookback24h },
+        $or: [
+          { "checkOut.time": { $exists: false } },
+          { "checkOut.time": null }
+        ]
+      }).sort({ "checkIn.time": -1 });
+
+      // Fallback: search for today's record
+      if (!attendance) {
+        attendance = await Attendance.findOne({
+          company: companyId,
+          employee: employee._id,
+          date: {
+            $gte: today,
+            $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+          },
+        });
+      }
+
+      if (!attendance) {
+        return res.status(400).json({
+          message: "No active check-in found for this employee to check out.",
+        });
+      }
+
       attendance.checkOut = {
         time: currentTime,
         photo: photoUrl,
@@ -106,12 +143,25 @@ export const recordAttendance = async (req, res) => {
       // Calculate hours worked
       if (attendance.checkIn?.time) {
         const hoursWorked =
-          (currentTime - new Date(attendance.checkIn.time)) / (1000 * 60 * 60);
+          (currentTime.getTime() - new Date(attendance.checkIn.time).getTime()) / (1000 * 60 * 60);
         attendance.hoursWorked = Math.round(hoursWorked * 100) / 100;
       }
+
+      await attendance.save();
+
     } else if (type === "undoCheckIn") {
-      if (!attendance.checkIn?.time) {
-        return res.status(400).json({ message: "No check-in found to undo" });
+      attendance = await Attendance.findOne({
+        company: companyId,
+        employee: employee._id,
+        "checkIn.time": { $gte: lookback24h },
+        $or: [
+          { "checkOut.time": { $exists: false } },
+          { "checkOut.time": null }
+        ]
+      }).sort({ "checkIn.time": -1 });
+
+      if (!attendance || !attendance.checkIn?.time) {
+        return res.status(400).json({ message: "No active check-in found to undo" });
       }
       const diffMins = (currentTime.getTime() - new Date(attendance.checkIn.time).getTime()) / 60000;
       if (diffMins > 5) {
@@ -119,8 +169,16 @@ export const recordAttendance = async (req, res) => {
       }
       attendance.checkIn = undefined;
       attendance.status = "Absent";
+      await attendance.save();
+
     } else if (type === "undoCheckOut") {
-      if (!attendance.checkOut?.time) {
+      attendance = await Attendance.findOne({
+        company: companyId,
+        employee: employee._id,
+        "checkOut.time": { $gte: lookback24h }
+      }).sort({ "checkOut.time": -1 });
+
+      if (!attendance || !attendance.checkOut?.time) {
         return res.status(400).json({ message: "No check-out found to undo" });
       }
       const diffMins = (currentTime.getTime() - new Date(attendance.checkOut.time).getTime()) / 60000;
@@ -128,10 +186,9 @@ export const recordAttendance = async (req, res) => {
         return res.status(400).json({ message: "Undo window (5 minutes) has expired for check-out" });
       }
       attendance.checkOut = undefined;
-      attendance.hoursWorked = undefined;
+      attendance.hoursWorked = 0;
+      await attendance.save();
     }
-
-    await attendance.save();
 
     let actionText = type;
     if (type === 'checkIn') actionText = 'Check-in';

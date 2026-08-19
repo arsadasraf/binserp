@@ -5,6 +5,7 @@ import { Plus, Trash2, Search, Edit2, X, Zap } from "lucide-react";
 import axios from "axios";
 import { Skill } from "../../types/hr.types";
 import { API_BASE_URL } from "@/src/utils/config";
+import HrMasterExcelActions from "./HrMasterExcelActions";
 
 export default function SkillMaster() {
     const [skills, setSkills] = useState<Skill[]>([]);
@@ -118,13 +119,20 @@ export default function SkillMaster() {
                         className="border focus:border-transparent focus:ring-2 focus:ring-blue-500 pl-10 pr-4 py-2 rounded-lg text-sm w-full"
                     />
                 </div>
-                <button
-                    onClick={handleOpenAdd}
-                    className="bg-blue-600 flex gap-2 hover:bg-blue-700 items-center justify-center md:px-4 flex-none px-3 md:px-4 py-2 rounded-lg text-white transition-colors"
-                >
-                    <Plus size={18} />
-                    <span className="hidden md:inline">Add Skill</span>
-                </button>
+                <div className="flex items-center gap-2">
+                    <HrMasterExcelActions
+                        masterTab="skill"
+                        data={skills}
+                        onSuccess={fetchSkills}
+                    />
+                    <button
+                        onClick={handleOpenAdd}
+                        className="bg-blue-600 flex gap-2 hover:bg-blue-700 items-center justify-center flex-none px-3 md:px-4 py-2 rounded-lg text-white transition-colors text-sm font-bold shadow-sm"
+                    >
+                        <Plus size={18} />
+                        <span className="hidden md:inline">Add Skill</span>
+                    </button>
+                </div>
             </div>
 
             {/* Content Area */}

@@ -37,12 +37,18 @@ import { upload } from "../middlewares/multer.middleware.js";
 import { trainFace, markAttendance, checkPythonHealth } from "../controllers/hr/index.js";
 import { createSalarySlip, getSalaries, updateSalary, deleteSalary, getSalaryGenerationStats } from "../controllers/hr/index.js";
 import { createHoliday, getAllHolidays, updateHoliday, deleteHoliday } from "../controllers/hr/index.js";
+import { bulkImportHrMasters } from "../controllers/hr/index.js";
+
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(verifyJWT);
 router.use(resolveTenant);
+
+// Master Bulk Import Route
+router.post("/masters/bulk-import", bulkImportHrMasters);
+
 
 // Restrict Master routes for Executives
 router.use(["/department", "/designation", "/skill", "/employee-type", "/holiday"], restrictExecutive);
