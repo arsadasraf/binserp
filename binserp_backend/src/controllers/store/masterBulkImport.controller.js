@@ -3,7 +3,7 @@ import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import {
   rmBoItemSchema, vendorSchema, customerSchema, locationSchema,
-  categorySchema, jobWorkSupplierSchema, fgItemSchema, inventorySchema
+  categorySchema, jobWorkSupplierSchema, fgItemSchema, inventorySchema, storePrefixSchema
 } from "../../models/store/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
 
@@ -195,11 +195,23 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
   } else if (masterTab === 'fg-items') {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const Location = req.getModel('Location', locationSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    const Inventory = req.getModel('Inventory', inventorySchema);
+    const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
+
+    const prefixSettings = await StorePrefix.findOne({ company: companyId });
+    const fgPrefix = prefixSettings?.finishedGoodsPrefix || "FG";
+    let currentCount = await FGItem.countDocuments({ company: companyId });
 
     for (const item of items) {
       if (!item.name) continue;
       const itemName = item.name.toString().trim();
-      const code = item.code ? String(item.code).trim() : `FG-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // Resolve or autogenerate code
+      let finalCode = (item.code || "").toString().trim();
+      if (!finalCode) {
+        finalCode = `${fgPrefix}-${String(++currentCount).padStart(4, '0')}`;
+      }
 
       // Resolve location if provided
       let locationId = undefined;
@@ -235,19 +247,103 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       else if (catType.includes('comp')) validType = 'Component';
       else validType = 'Assembly';
 
+      // Resolve BOM components if provided
+      const resolvedBOM = [];
+      const rawBOM = Array.isArray(item.bom) ? item.bom : [];
+
+      for (const bItem of rawBOM) {
+        const bName = (bItem.itemName || bItem.name || '').toString().trim();
+        if (!bName) continue;
+
+        const bQty = Number(bItem.quantity || 1) || 1;
+        const bUnit = (bItem.unit || 'Nos').toString().trim();
+        const rawTypeStr = (bItem.itemType || '').toString().trim().toLowerCase();
+        const isFG = rawTypeStr.includes('fg') || rawTypeStr.includes('sub') || rawTypeStr.includes('comp');
+
+        if (isFG) {
+          // Resolve or auto-create in FGItem
+          let subFg = await FGItem.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!subFg) {
+            try {
+              subFg = await FGItem.create({
+                company: companyId,
+                name: bName,
+                code: `${fgPrefix}-${String(++currentCount).padStart(4, '0')}`,
+                type: 'Component',
+                unit: bUnit,
+                description: 'Auto-created component from FG BOM import'
+              });
+            } catch (e) {
+              subFg = await FGItem.findOne({ company: companyId, name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+            }
+          }
+
+          if (subFg) {
+            resolvedBOM.push({
+              itemType: 'FGItem',
+              item: subFg._id,
+              itemName: subFg.name,
+              quantity: bQty,
+              unit: bUnit || subFg.unit || 'Nos'
+            });
+          }
+        } else {
+          // Resolve or auto-create in RmBoItem & Inventory
+          let rmItem = await RmBoItem.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!rmItem) {
+            try {
+              rmItem = await RmBoItem.create({
+                company: companyId,
+                name: bName,
+                descriptions: 'Auto-created raw material from FG BOM import'
+              });
+
+              const matCode = `RM-${Math.floor(10000 + Math.random() * 90000)}`;
+              await Inventory.create({
+                company: companyId,
+                materialCode: matCode,
+                materialName: bName,
+                unit: bUnit,
+                currentStock: 0,
+                reorderLevel: 0,
+                reorderQuantity: 0,
+                materialId: rmItem._id
+              });
+            } catch (e) {
+              rmItem = await RmBoItem.findOne({ company: companyId, name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+            }
+          }
+
+          if (rmItem) {
+            resolvedBOM.push({
+              itemType: 'Material',
+              item: rmItem._id,
+              itemName: rmItem.name,
+              quantity: bQty,
+              unit: bUnit || rmItem.unit || 'Nos'
+            });
+          }
+        }
+      }
+
       const query = { company: companyId, name: { $regex: new RegExp(`^${itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } };
       const doc = {
         company: companyId,
         name: itemName,
-        code,
+        code: finalCode,
         type: validType,
         unit: item.unit || 'Nos',
-        quantity: Number(item.openingStock ?? item.quantity ?? 0),
-        rate: Number(item.rate || 0),
-        gstRate: Number(item.gstRate || 18),
-        hsnCode: item.hsnCode ? String(item.hsnCode).trim() : '',
+        reorderLevel: Number(item.reorderLevel || 0),
+        revisionNumber: item.revisionNumber || '',
         description: item.description || '',
-        ...(locationId ? { location: locationId } : {})
+        ...(locationId ? { location: locationId } : {}),
+        ...(resolvedBOM.length > 0 ? { bom: resolvedBOM } : {})
       };
 
       if (overwrite) {

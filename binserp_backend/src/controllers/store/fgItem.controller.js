@@ -1,4 +1,4 @@
-import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, storeOrderFulfillmentSchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, storeOrderFulfillmentSchema, storePrefixSchema } from "../../models/store/index.js";
 import { salesOrderSchema } from "../../models/sales/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 
@@ -10,7 +10,7 @@ export const createFGItem = async (req, res) => {
   try {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
-    let { name, type, description, location, unit, bom, revisionNumber } = req.body;
+    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel } = req.body;
 
     if (!name || !type) {
       return res.status(400).json({ message: "Name and Type are required" });
@@ -21,6 +21,20 @@ export const createFGItem = async (req, res) => {
       await FGItem.collection.dropIndex('company_1_code_1');
     } catch (e) {
       // Ignore error if index doesn't exist
+    }
+
+    // Autogenerate code if missing
+    let finalCode = (code || "").toString().trim();
+    if (!finalCode) {
+      try {
+        const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
+        const prefixSettings = await StorePrefix.findOne({ company: companyId });
+        const prefix = prefixSettings?.finishedGoodsPrefix || "FG";
+        const count = await FGItem.countDocuments({ company: companyId });
+        finalCode = `${prefix}-${String(count + 1).padStart(4, '0')}`;
+      } catch {
+        finalCode = `FG-${Math.floor(1000 + Math.random() * 9000)}`;
+      }
     }
 
     // Parse bom if it's a string (from FormData)
@@ -48,13 +62,15 @@ export const createFGItem = async (req, res) => {
 
     const newFGItem = await FGItem.create({
       company: companyId,
-      name,
+      name: name.toString().trim(),
+      code: finalCode,
       type,
-      description,
-      location,
+      description: description || "",
+      location: location || undefined,
       unit: unit || "Nos",
+      reorderLevel: Number(reorderLevel || 0),
       bom: bom || [],
-      revisionNumber,
+      revisionNumber: revisionNumber || "",
       photos: photoUrls
     });
 
@@ -152,14 +168,14 @@ export const updateFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     
-    let { name, type, description, location, unit, bom, revisionNumber } = req.body;
+    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel } = req.body;
 
     // Parse bom if it's a string
     if (typeof bom === 'string') {
       try { bom = JSON.parse(bom); } catch(e) { console.error("Failed to parse bom", e); }
     }
 
-    let updateData = { name, type, description, location, unit, bom, revisionNumber };
+    let updateData = { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel };
     
     // Handle photo uploads
     let filesToUpload = [];

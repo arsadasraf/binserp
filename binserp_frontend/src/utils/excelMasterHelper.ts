@@ -27,33 +27,30 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         title: 'Raw Material & Bought Out Items Master Template',
         filename: 'Template_Raw_Material_Bought_Out_Items.xlsx',
         columns: [
-            { label: 'Item Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
-            { label: 'Item Code', key: 'code', sample: 'RM-STL-012' },
-            { label: 'Category', key: 'category', sample: 'Raw Material' },
-            { label: 'Unit', key: 'unit', sample: 'PCS' },
-            { label: 'Opening Stock', key: 'openingStock', sample: 100 },
-            { label: 'Min Stock', key: 'minStock', sample: 20 },
-            { label: 'Max Stock', key: 'maxStock', sample: 500 },
-            { label: 'Unit Rate (INR)', key: 'rate', sample: 450.50 },
-            { label: 'GST Rate (%)', key: 'gstRate', sample: 18 },
-            { label: 'HSN Code', key: 'hsnCode', sample: '7214' },
+            { label: 'Material Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
+            { label: 'Category Name*', key: 'category', required: true, sample: 'Raw Material' },
+            { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
+            { label: 'Minimum Stock', key: 'minStock', sample: 20 },
             { label: 'Storage Location', key: 'storageLocation', sample: 'Rack A1' },
             { label: 'Description', key: 'description', sample: 'High tensile steel rod grade EN8' }
         ]
     },
     'fg-items': {
         title: 'Finished Goods Items Master Template',
-        filename: 'Template_Finished_Goods.xlsx',
+        filename: 'Template_Finished_Goods_Master.xlsx',
         columns: [
             { label: 'FG Name*', key: 'name', required: true, sample: 'Electric Motor Assembly' },
-            { label: 'FG Code*', key: 'code', required: true, sample: 'FG-MOT-001' },
-            { label: 'Category', key: 'category', sample: 'Finished Goods' },
-            { label: 'Unit', key: 'unit', sample: 'NOS' },
-            { label: 'Opening Stock', key: 'openingStock', sample: 50 },
-            { label: 'Selling Price (INR)', key: 'rate', sample: 3500.00 },
-            { label: 'GST Rate (%)', key: 'gstRate', sample: 18 },
-            { label: 'HSN Code', key: 'hsnCode', sample: '8501' },
-            { label: 'Description', key: 'description', sample: '3-Phase AC Electric Motor 2HP' }
+            { label: 'FG Code', key: 'code', sample: 'FG-0001' },
+            { label: 'Item Type* (Assembly/Sub Assembly/Component)', key: 'type', required: true, sample: 'Assembly' },
+            { label: 'Unit*', key: 'unit', required: true, sample: 'Nos' },
+            { label: 'Storage Location', key: 'location', sample: 'Main Store' },
+            { label: 'Revision Number', key: 'revisionNumber', sample: 'Rev 1.0' },
+            { label: 'Reorder Level', key: 'reorderLevel', sample: 10 },
+            { label: 'Description', key: 'description', sample: '3-Phase AC Electric Motor 2HP' },
+            { label: 'BOM Item Name', key: 'bomItemName', sample: 'Copper Wire 0.5mm' },
+            { label: 'BOM Item Type (Material/FGItem)', key: 'bomItemType', sample: 'Material' },
+            { label: 'BOM Quantity', key: 'bomQuantity', sample: 2.5 },
+            { label: 'BOM Unit', key: 'bomUnit', sample: 'KG' }
         ]
     },
     'inhouse-items': {
@@ -108,33 +105,33 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         filename: 'Template_Storage_Locations.xlsx',
         columns: [
             { label: 'Location Name*', key: 'name', required: true, sample: 'Main Raw Material Warehouse' },
-            { label: 'Location Code*', key: 'code', required: true, sample: 'LOC-WH1' },
-            { label: 'Rack Number', key: 'rackNumber', sample: 'RACK-A2' },
-            { label: 'Bin Number', key: 'binNumber', sample: 'BIN-04' },
-            { label: 'Description', key: 'description', sample: 'Primary warehouse for storing raw materials & bought outs' }
+            { label: 'Location Code', key: 'code', sample: 'LOC-WH1' },
+            { label: 'Storage Type', key: 'type', sample: 'Rack' },
+            { label: 'Description', key: 'description', sample: 'Primary warehouse racking system' }
         ]
     },
     'category': {
-        title: 'Material Categories Master Template',
+        title: 'Item Categories Master Template',
         filename: 'Template_Categories.xlsx',
         columns: [
-            { label: 'Category Name*', key: 'name', required: true, sample: 'Fasteners & Hardware' },
-            { label: 'Category Code', key: 'code', sample: 'CAT-FST' },
-            { label: 'Category Type', key: 'type', sample: 'Raw Material' },
-            { label: 'Description', key: 'description', sample: 'Bolts, nuts, washers, and hardware consumables' }
+            { label: 'Category Name*', key: 'name', required: true, sample: 'Electrical Components' },
+            { label: 'Category Code', key: 'code', sample: 'CAT-ELEC' },
+            { label: 'Default Unit', key: 'unit', sample: 'PCS' },
+            { label: 'HSN Code', key: 'hsnCode', sample: '8501' },
+            { label: 'Description', key: 'description', sample: 'All electrical and motor parts' }
         ]
     },
     'job-work-supplier': {
         title: 'Job Work Suppliers Master Template',
         filename: 'Template_Job_Work_Suppliers.xlsx',
         columns: [
-            { label: 'Supplier Name*', key: 'name', required: true, sample: 'Precision Coating Works' },
-            { label: 'Supplier Code', key: 'code', sample: 'JW-SUP-01' },
+            { label: 'Supplier Name*', key: 'name', required: true, sample: 'Precision Heat Treaters' },
+            { label: 'Supplier Code', key: 'code', sample: 'JW-HT-01' },
             { label: 'Contact Person', key: 'contactPerson', sample: 'Suresh Patil' },
-            { label: 'Phone Number', key: 'phone', sample: '9988776655' },
-            { label: 'Email', key: 'email', sample: 'coating@precision.com' },
-            { label: 'GSTIN', key: 'gst', sample: '27CCCCC2222C1Z9' },
-            { label: 'Address', key: 'address', sample: 'Gat No 12, Chakan Industrial Estate' },
+            { label: 'Phone Number', key: 'phone', sample: '9822012345' },
+            { label: 'Email', key: 'email', sample: 'info@precisionheat.com' },
+            { label: 'GSTIN', key: 'gst', sample: '27CCCCC2222C1Z8' },
+            { label: 'Address', key: 'address', sample: 'Gat No 123, Chakan Industrial Zone' },
             { label: 'City', key: 'city', sample: 'Pune' },
             { label: 'State', key: 'state', sample: 'Maharashtra' }
         ]
@@ -204,40 +201,67 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
     }
 };
 
-export const resolveMasterTabKey = (tab: string) => {
+/**
+ * Normalizes master tab names across routes
+ */
+export const resolveMasterTabKey = (tabKey: string): string => {
     const map: Record<string, string> = {
         'materials': 'rm-bo-item',
+        'rm-bo': 'rm-bo-item',
+        'rm-bo-item': 'rm-bo-item',
         'finished-goods': 'fg-items',
+        'fg-item': 'fg-items',
+        'fg-items': 'fg-items',
+        'inhouse-items': 'inhouse-items',
+        'inhouse': 'inhouse-items',
         'vendors': 'vendor',
+        'vendor': 'vendor',
         'customers': 'customer',
+        'customer': 'customer',
         'locations': 'location',
+        'location': 'location',
         'categories': 'category',
-        'ppc-products': 'inhouse-items',
-        'job-work-suppliers': 'job-work-supplier'
+        'category': 'category',
+        'job-work-suppliers': 'job-work-supplier',
+        'job-work-supplier': 'job-work-supplier'
     };
-    return map[tab] || tab;
+    return map[tabKey] || tabKey;
 };
 
 /**
- * Downloads a standardized Excel template file for the given Master Tab
+ * Downloads a standardized sample Excel template for the specified Master Tab
  */
 export const downloadMasterExcelTemplate = (masterTab: string) => {
     const key = resolveMasterTabKey(masterTab);
     const config = MASTER_EXCEL_CONFIGS[key] || MASTER_EXCEL_CONFIGS['rm-bo-item'];
-    
-    // Header Row
-    const headers = config.columns.map(c => c.label);
-    
-    // Reference Sample Row
-    const sampleRow = config.columns.map(c => c.sample);
-
-    const worksheetData = [
-        headers,
-        sampleRow
-    ];
 
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(worksheetData);
+    const headers = config.columns.map(c => c.label);
+
+    let rows: any[][] = [];
+
+    if (key === 'fg-items') {
+        // Multi-row BOM demonstration in sample template
+        rows = [
+            [
+                'Electric Motor Assembly', 'FG-0001', 'Assembly', 'Nos', 'Main Store', 'Rev 1.0', 10,
+                '3-Phase AC Electric Motor 2HP', 'Copper Wire 0.5mm', 'Material', 2.5, 'KG'
+            ],
+            [
+                'Electric Motor Assembly', 'FG-0001', 'Assembly', 'Nos', 'Main Store', 'Rev 1.0', 10,
+                '3-Phase AC Electric Motor 2HP', 'Rotor Shaft 25mm', 'FGItem', 1, 'Nos'
+            ],
+            [
+                'Electric Motor Assembly', 'FG-0001', 'Assembly', 'Nos', 'Main Store', 'Rev 1.0', 10,
+                '3-Phase AC Electric Motor 2HP', 'Ball Bearing 6204', 'Material', 2, 'Nos'
+            ]
+        ];
+    } else {
+        const sampleRow = config.columns.map(c => c.sample);
+        rows = [sampleRow];
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
 
     // Set Column Widths nicely
     ws['!cols'] = config.columns.map(c => ({ wch: Math.max(c.label.length + 5, 20) }));
@@ -313,7 +337,7 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                     });
 
                     // Validate numeric types
-                    ['openingStock', 'minStock', 'maxStock', 'rate', 'gstRate'].forEach(numKey => {
+                    ['openingStock', 'minStock', 'maxStock', 'rate', 'gstRate', 'reorderLevel', 'bomQuantity'].forEach(numKey => {
                         if (mappedItem[numKey] !== undefined && mappedItem[numKey] !== '') {
                             const parsedNum = Number(mappedItem[numKey]);
                             if (isNaN(parsedNum)) {
@@ -330,6 +354,35 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                         invalidRows.push({ rowNumber, data: row, errors });
                     }
                 });
+
+                if (key === 'fg-items') {
+                    // Group rows by FG Name to assemble multi-row BOM components
+                    const groupedMap = new Map<string, any>();
+                    validRows.forEach(item => {
+                        const fgKey = (item.name || '').toLowerCase().trim();
+                        if (!groupedMap.has(fgKey)) {
+                            groupedMap.set(fgKey, {
+                                ...item,
+                                bom: []
+                            });
+                        }
+                        const existing = groupedMap.get(fgKey);
+                        if (item.bomItemName && String(item.bomItemName).trim() !== '') {
+                            existing.bom.push({
+                                itemName: String(item.bomItemName).trim(),
+                                itemType: (item.bomItemType || 'Material').trim(),
+                                quantity: Number(item.bomQuantity || 1) || 1,
+                                unit: (item.bomUnit || 'Nos').trim()
+                            });
+                        }
+                    });
+                    const aggregatedValidRows = Array.from(groupedMap.values());
+                    return resolve({
+                        validRows: aggregatedValidRows,
+                        invalidRows,
+                        totalCount: rawJsonData.length
+                    });
+                }
 
                 resolve({
                     validRows,

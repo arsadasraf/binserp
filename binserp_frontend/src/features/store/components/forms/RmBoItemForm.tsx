@@ -79,87 +79,128 @@ export default function RmBoItemForm({
 
                 <div className="p-5 overflow-y-auto custom-scrollbar flex-1">
                     <form id="rm-bo-item-form" onSubmit={onSubmit} className="flex flex-col gap-5 pb-32">
-                        <div className="grid grid-cols-12 gap-4">
-                            <div className="col-span-12 md:col-span-6 lg:col-span-3">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Item Name <span className="text-red-500">*</span></label>
-                                <input type="text" name="name" value={formData.name || ''} onChange={handleChange} required className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" placeholder="Item Name" />
-                            </div>
-                            
-                            <div className="col-span-12 md:col-span-6 lg:col-span-3">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Description</label>
-                                <input type="text" name="descriptions" value={formData.descriptions || ''} onChange={handleChange} className="w-full px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" placeholder="Description..." />
-                            </div>
-                            <div className="col-span-12 md:col-span-6 lg:col-span-3">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Minimum Stock</label>
-                                <input type="number" name="minimumStock" value={formData.minimumStock || ''} onChange={handleChange} className="w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" placeholder="0" />
-                            </div>
-                             <div className="col-span-12 md:col-span-6 lg:col-span-3">
-                                <label className="block text-xs font-semibold text-gray-700 mb-1.5">Photos & PDFs (Upload S3, Max 2)</label>
-                                <input type="file" multiple accept="image/*,application/pdf" onChange={handlePhotoChange} className="w-full px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg outline-none file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-                                {formData.photos && formData.photos.length > 0 && (
-                                    <div className="flex flex-wrap gap-2 mt-2">
-                                        {formData.photos.map((photo: any, idx: number) => {
-                                            const photoUrl = typeof photo === 'string' ? photo : URL.createObjectURL(photo);
-                                            const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo.type === 'application/pdf';
-                                            return (
-                                            <div 
-                                                key={idx} 
-                                                className="relative group w-12 h-12 rounded-md border border-gray-200 overflow-hidden bg-gray-50 flex items-center justify-center cursor-pointer hover:border-indigo-400 transition-colors"
-                                                onClick={() => window.open(photoUrl, '_blank')}
-                                                title="Click to preview"
-                                            >
-                                                {isPdf ? (
-                                                    <span className="text-xs font-bold text-red-500">PDF</span>
-                                                ) : (
-                                                    <img src={photoUrl} alt="preview" className="w-full h-full object-cover" />
-                                                )}
-                                                <button 
-                                                    type="button" 
-                                                    onClick={(e) => { e.stopPropagation(); removePhoto(idx); }} 
-                                                    className="absolute top-1 right-1 bg-red-500 text-white flex items-center justify-center p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
-                                                    title="Remove"
-                                                >
-                                                    <X size={10} />
-                                                </button>
-                                            </div>
-                                        )})}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="h-px bg-gray-100" />
-
-                        <div>
-                            <div className="flex justify-between items-center mb-3">
-                                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                                    <div className="w-1 h-4 bg-indigo-600 rounded-full"></div> Store Settings
-                                </h3>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        {/* Basic Details Section */}
+                        <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+                            <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-4">
+                                <div className="w-1.5 h-4 bg-indigo-600 rounded-full"></div> Basic Material Details
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Category</label>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                                        Material Name <span className="text-red-500">*</span>
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        name="name" 
+                                        value={formData.name || ''} 
+                                        onChange={handleChange} 
+                                        required 
+                                        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                                        placeholder="e.g. Copper Wire 0.5mm" 
+                                    />
+                                </div>
+                                
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                                        Category <span className="text-red-500">*</span>
+                                    </label>
                                     <SearchableSelect
                                         options={(categories || []).map(c => ({ value: c._id, label: c.name || '' }))}
                                         value={typeof formData.categoryId === 'object' ? formData.categoryId?._id : formData.categoryId || ''}
                                         onChange={handleCategoryChange}
-                                        placeholder="Select Category"
+                                        allowCustom={true}
+                                        placeholder="Select or type category..."
                                     />
                                 </div>
+
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Location</label>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Unit</label>
+                                    <input 
+                                        type="text" 
+                                        name="unit" 
+                                        value={formData.unit || ''} 
+                                        onChange={handleChange}
+                                        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                                        placeholder="e.g. KG, Nos, PCS, Mtr" 
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Storage Location</label>
                                     <SearchableSelect
                                         options={(locations || []).map(l => ({ value: l._id, label: l.name || '' }))}
                                         value={typeof formData.locationId === 'object' ? formData.locationId?._id : formData.locationId || ''}
                                         onChange={(val: any) => setFormData((prev: any) => ({ ...prev, locationId: val }))}
-                                        placeholder="Select Location"
+                                        allowCustom={true}
+                                        placeholder="Select or type location..."
                                     />
                                 </div>
+
                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Unit</label>
-                                    <input type="text" name="unit" value={formData.unit || ''} readOnly className="w-full px-3 py-2 text-sm bg-gray-100 border border-gray-200 rounded-lg text-gray-500 outline-none cursor-not-allowed" placeholder="Auto-filled" />
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Minimum / Reorder Stock</label>
+                                    <input 
+                                        type="number" 
+                                        name="minimumStock" 
+                                        value={formData.minimumStock || ''} 
+                                        onChange={handleChange} 
+                                        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                                        placeholder="0" 
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Photos & Drawings (Max 2)</label>
+                                    <input 
+                                        type="file" 
+                                        multiple 
+                                        accept="image/*,application/pdf" 
+                                        onChange={handlePhotoChange} 
+                                        className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg outline-none file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" 
+                                    />
+                                </div>
+
+                                <div className="col-span-1 md:col-span-2 lg:col-span-3">
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">Description / Technical Specifications</label>
+                                    <textarea 
+                                        name="descriptions" 
+                                        rows={2} 
+                                        value={formData.descriptions || ''} 
+                                        onChange={handleChange} 
+                                        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
+                                        placeholder="Enter specifications, grade, manufacturer or notes..." 
+                                    />
                                 </div>
                             </div>
+
+                            {formData.photos && formData.photos.length > 0 && (
+                                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-200">
+                                    {formData.photos.map((photo: any, idx: number) => {
+                                        const photoUrl = typeof photo === 'string' ? photo : URL.createObjectURL(photo);
+                                        const isPdf = typeof photo === 'string' ? photo.toLowerCase().includes('.pdf') : photo.type === 'application/pdf';
+                                        return (
+                                        <div 
+                                            key={idx} 
+                                            className="relative group w-14 h-14 rounded-lg border border-gray-200 overflow-hidden bg-white flex items-center justify-center cursor-pointer hover:border-indigo-400 transition-colors shadow-sm"
+                                            onClick={() => window.open(photoUrl, '_blank')}
+                                            title="Click to preview"
+                                        >
+                                            {isPdf ? (
+                                                <span className="text-xs font-bold text-red-500">PDF</span>
+                                            ) : (
+                                                <img src={photoUrl} alt="preview" className="w-full h-full object-cover" />
+                                            )}
+                                            <button 
+                                                type="button" 
+                                                onClick={(e) => { e.stopPropagation(); removePhoto(idx); }} 
+                                                className="absolute top-1 right-1 bg-red-500 text-white flex items-center justify-center p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-sm"
+                                                title="Remove"
+                                            >
+                                                <X size={10} />
+                                            </button>
+                                        </div>
+                                    )})}
+                                </div>
+                            )}
                         </div>
                     </form>
                 </div>

@@ -333,15 +333,11 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
             </div>
         `;
     } else if (tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods') {
-        docTitle = 'FINISHED GOODS ITEM SPECIFICATION & BOM';
+        docTitle = 'FINISHED GOODS PRODUCT SPECIFICATION & BOM';
         docThemeColor = '#7c3aed'; // Purple
         const fg = item;
         const locName = typeof fg.location === 'object' ? fg.location?.name : (typeof fg.locationId === 'object' ? fg.locationId?.name : (fg.location || '-'));
-        const totalStock = Number(fg.quantity || 0);
-        const allocStock = Number(fg.allocatedQuantity || 0);
-        const availStock = Math.max(0, totalStock - allocStock);
         const bomItems = fg.bom || [];
-        const allocations = fg.allocations || fg.reservedBreakdown || [];
 
         let bomRowsHtml = '';
         if (bomItems.length > 0) {
@@ -356,71 +352,39 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
                 `;
             });
         } else {
-            bomRowsHtml = `<tr><td colspan="4" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured</td></tr>`;
-        }
-
-        let allocRowsHtml = '';
-        if (allocations.length > 0) {
-            allocations.forEach((a: any, idx: number) => {
-                allocRowsHtml += `
-                    <tr>
-                        <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0;">${idx + 1}</td>
-                        <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold;">#${a.orderNumber || a.salesOrderNo || 'SO'}</td>
-                        <td style="padding: 6px; border: 1px solid #e2e8f0;">${a.customerName || '-'}</td>
-                        <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0; font-weight: bold; color: #b45309;">${a.reservedQuantity || a.allocatedQty} ${fg.unit || 'Nos'}</td>
-                        <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0; font-size: 10px;">${a.allocatedAt ? new Date(a.allocatedAt).toLocaleDateString() : '-'}</td>
-                    </tr>
-                `;
-            });
+            bomRowsHtml = `<tr><td colspan="4" style="text-align: center; padding: 16px; color: #64748b; border: 1px solid #e2e8f0;">No BOM components configured for this finished product.</td></tr>`;
         }
 
         specificContentHtml = `
             <!-- FG Identity -->
             <div style="margin-bottom: 16px;">
                 <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 6px 10px; font-weight: bold; font-size: 12px; color: #5b21b6; margin-bottom: 8px;">
-                    1. FINISHED PRODUCT SPECIFICATION
+                    1. FINISHED PRODUCT MASTER SPECIFICATION
                 </div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
                     <tr>
                         <td style="width: 25%; font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Product Name:</td>
                         <td style="width: 25%; padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold; color: #0f172a;">${fg.name || fg.productName || '-'}</td>
-                        <td style="width: 25%; font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Product Code:</td>
+                        <td style="width: 25%; font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Product Code / Part No:</td>
                         <td style="width: 25%; padding: 6px 8px; border: 1px solid #e2e8f0; font-family: monospace; font-weight: bold; color: #7c3aed;">${fg.code || fg.productCode || '-'}</td>
                     </tr>
                     <tr>
                         <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Assembly Type:</td>
-                        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold;">${fg.type || fg.category || 'Assembly'}</td>
-                        <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Default Unit:</td>
+                        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold;">${fg.type || fg.category || 'Component'}</td>
+                        <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Standard Unit:</td>
                         <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold;">${fg.unit || 'Nos'}</td>
                     </tr>
                     <tr>
                         <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Storage Location:</td>
                         <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${locName}</td>
-                        <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Selling Price / Rate:</td>
-                        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold;">${fg.rate ? '₹ ' + Number(fg.rate).toFixed(2) : '-'}</td>
+                        <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Revision Number:</td>
+                        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-family: monospace; font-weight: bold;">${fg.revisionNumber || '-'}</td>
                     </tr>
-                </table>
-            </div>
-
-            <!-- Stock Status Card -->
-            <div style="margin-bottom: 16px;">
-                <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 6px 10px; font-weight: bold; font-size: 12px; color: #5b21b6; margin-bottom: 8px;">
-                    2. CURRENT INVENTORY & STOCK ALLOCATION STATUS
-                </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                    <tr style="text-align: center;">
-                        <td style="width: 33.33%; padding: 12px; border: 1px solid #e2e8f0; background: #f8fafc;">
-                            <div style="font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase;">Total Physical Stock</div>
-                            <div style="font-size: 18px; font-weight: 900; color: #0f172a; margin-top: 4px;">${totalStock} <span style="font-size: 12px; font-weight: normal;">${fg.unit || 'Nos'}</span></div>
-                        </td>
-                        <td style="width: 33.33%; padding: 12px; border: 1px solid #e2e8f0; background: #fffbeb;">
-                            <div style="font-size: 10px; font-weight: bold; color: #b45309; text-transform: uppercase;">Allocated to Sales Orders</div>
-                            <div style="font-size: 18px; font-weight: 900; color: #d97706; margin-top: 4px;">${allocStock} <span style="font-size: 12px; font-weight: normal;">${fg.unit || 'Nos'}</span></div>
-                        </td>
-                        <td style="width: 33.33%; padding: 12px; border: 1px solid #e2e8f0; background: #f0fdf4;">
-                            <div style="font-size: 10px; font-weight: bold; color: #15803d; text-transform: uppercase;">Net Available for Sale</div>
-                            <div style="font-size: 18px; font-weight: 900; color: #16a34a; margin-top: 4px;">${availStock} <span style="font-size: 12px; font-weight: normal;">${fg.unit || 'Nos'}</span></div>
-                        </td>
+                    <tr>
+                        <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">Reorder Level:</td>
+                        <td style="padding: 6px 8px; border: 1px solid #e2e8f0;">${fg.reorderLevel !== undefined ? fg.reorderLevel + ' ' + (fg.unit || 'Nos') : '-'}</td>
+                        <td style="font-weight: bold; padding: 6px 8px; border: 1px solid #e2e8f0; background: #f8fafc;">BOM Components:</td>
+                        <td style="padding: 6px 8px; border: 1px solid #e2e8f0; font-weight: bold;">${bomItems.length} Items</td>
                     </tr>
                 </table>
             </div>
@@ -428,7 +392,7 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
             <!-- Bill of Materials (BOM) -->
             <div style="margin-bottom: 16px;">
                 <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 6px 10px; font-weight: bold; font-size: 12px; color: #5b21b6; margin-bottom: 8px;">
-                    3. BILL OF MATERIALS (BOM STRUCTURE)
+                    2. BILL OF MATERIALS (BOM STRUCTURE)
                 </div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
                     <thead>
@@ -445,33 +409,10 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
                 </table>
             </div>
 
-            ${allocations.length > 0 ? `
-            <!-- Active Allocations -->
-            <div style="margin-bottom: 16px;">
-                <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 6px 10px; font-weight: bold; font-size: 12px; color: #5b21b6; margin-bottom: 8px;">
-                    4. ACTIVE SALES ORDER ALLOCATIONS
-                </div>
-                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                    <thead>
-                        <tr style="background: #fef3c7; color: #92400e;">
-                            <th style="width: 8%; padding: 6px; border: 1px solid #e2e8f0; text-align: center;">#</th>
-                            <th style="width: 25%; padding: 6px; border: 1px solid #e2e8f0; text-align: left;">Order Reference</th>
-                            <th style="padding: 6px; border: 1px solid #e2e8f0; text-align: left;">Customer Name</th>
-                            <th style="width: 20%; padding: 6px; border: 1px solid #e2e8f0; text-align: center;">Reserved Qty</th>
-                            <th style="width: 15%; padding: 6px; border: 1px solid #e2e8f0; text-align: center;">Allocated Date</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${allocRowsHtml}
-                    </tbody>
-                </table>
-            </div>
-            ` : ''}
-
             <!-- Description -->
             <div style="margin-bottom: 16px;">
                 <div style="background: #f5f3ff; border-left: 4px solid #7c3aed; padding: 6px 10px; font-weight: bold; font-size: 12px; color: #5b21b6; margin-bottom: 8px;">
-                    ${allocations.length > 0 ? '5' : '4'}. DESCRIPTION & SPECIFICATIONS
+                    3. DESCRIPTION & SPECIFICATIONS
                 </div>
                 <div style="padding: 12px; border: 1px solid #e2e8f0; background: #f8fafc; font-size: 11px; line-height: 1.6; color: #334155; min-height: 50px;">
                     ${fg.description || 'No detailed technical descriptions provided for this finished good.'}

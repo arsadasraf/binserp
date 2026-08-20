@@ -39,11 +39,76 @@ export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }:
   };
 
   const columns: ColumnDef<any>[] = [
-    { id: 'name', label: 'Material Name', render: (item) => item.name || item.materialName || '-' },
-    { id: 'code', label: 'Material Code', render: (item) => item.code || item.materialCode || '-' },
-    { id: 'category', label: 'Category', render: (item) => item.category || (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || '-' },
-    { id: 'unit', label: 'Unit', render: (item) => item.unit || '-' },
-    { id: 'descriptions', label: 'Description', render: (item) => item.descriptions || item.description || '-' },
+    {
+      id: 'name',
+      label: 'Material Name',
+      render: (item) => (
+        <div className="flex items-center gap-2.5">
+          {item.photos && item.photos.length > 0 ? (
+            <img
+              src={item.photos[0]}
+              alt={item.name || item.materialName}
+              className="w-8 h-8 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center justify-center text-xs font-black text-blue-600 dark:text-blue-400 shrink-0">
+              {((item.name || item.materialName || 'RM').slice(0, 2)).toUpperCase()}
+            </div>
+          )}
+          <span className="font-bold text-slate-900 dark:text-white">
+            {item.name || item.materialName || '-'}
+          </span>
+        </div>
+      )
+    },
+    {
+      id: 'descriptions',
+      label: 'Description',
+      render: (item) => (
+        <span className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 max-w-[280px] block" title={item.descriptions || item.description || ''}>
+          {item.descriptions || item.description || '-'}
+        </span>
+      )
+    },
+    {
+      id: 'category',
+      label: 'Category',
+      render: (item) => {
+        const catName = (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || item.category || '-';
+        return (
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
+            {catName}
+          </span>
+        );
+      }
+    },
+    {
+      id: 'unit',
+      label: 'Unit',
+      render: (item) => (
+        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+          {item.unit || item.categoryId?.unit || '-'}
+        </span>
+      )
+    },
+    {
+      id: 'location',
+      label: 'Location',
+      render: (item) => (
+        <span className="text-xs text-slate-600 dark:text-slate-400">
+          {item.locationId?.name || (typeof item.location === 'object' ? item.location?.name : item.location) || item.storageLocation || '-'}
+        </span>
+      )
+    },
+    {
+      id: 'minimumStock',
+      label: 'Min Stock',
+      render: (item) => (
+        <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-300">
+          {item.minimumStock ?? item.minStock ?? '-'}
+        </span>
+      )
+    },
     {
       id: 'actions',
       label: 'Actions',
@@ -52,7 +117,7 @@ export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }:
           {onView && (
             <button
               onClick={() => onView(item)}
-              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+              className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 rounded-lg transition-colors"
               title="View Complete Profile & PDF"
             >
               <Eye size={16} />
@@ -60,14 +125,14 @@ export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }:
           )}
           <button
             onClick={() => onEdit(item)}
-            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors"
             title="Edit"
           >
             <Edit2 size={16} />
           </button>
           <button
             onClick={() => onDelete(item._id)}
-            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+            className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors"
             title="Delete"
           >
             <Trash2 size={16} />
@@ -83,7 +148,7 @@ export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }:
       data={data}
       onRowClick={onView}
       searchPlaceholder="Search materials..."
-      searchableKeys={['name', 'code', 'descriptions']}
+      searchableKeys={['name', 'descriptions', 'category', 'unit']}
       actionButton={
         <div className="flex flex-wrap items-center gap-2">
           <StoreMasterExcelActions

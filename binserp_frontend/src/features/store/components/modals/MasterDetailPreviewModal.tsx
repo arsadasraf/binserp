@@ -439,26 +439,33 @@ export default function MasterDetailPreviewModal({
                     {/* FINISHED GOODS (FG ITEM) VIEW */}
                     {(tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods') && (
                         <div className="space-y-6">
-                            {/* Stats Summary Bar */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            {/* Master Summary Bar */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Stock</div>
-                                    <div className="text-2xl font-extrabold font-mono text-slate-900 dark:text-white mt-1">
-                                        {item.quantity || 0} <span className="text-xs font-normal text-slate-500">{item.unit || 'Nos'}</span>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Item Type</div>
+                                    <div className="text-sm font-extrabold font-mono text-purple-600 dark:text-purple-400 mt-1">
+                                        {item.type || item.category || 'Component'}
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Primary Unit</div>
+                                    <div className="text-sm font-extrabold font-mono text-slate-900 dark:text-white mt-1">
+                                        {item.unit || 'Nos'}
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</div>
+                                    <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200 mt-1 truncate">
+                                        {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
                                     </div>
                                 </div>
 
                                 <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">Allocated to Sales Orders</div>
-                                    <div className="text-2xl font-extrabold font-mono text-amber-800 dark:text-amber-300 mt-1">
-                                        {item.allocatedQuantity || 0} <span className="text-xs font-normal text-amber-600">{item.unit || 'Nos'}</span>
-                                    </div>
-                                </div>
-
-                                <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Available For Dispatch</div>
-                                    <div className="text-2xl font-extrabold font-mono text-emerald-800 dark:text-emerald-300 mt-1">
-                                        {Math.max(0, Number(item.quantity || 0) - Number(item.allocatedQuantity || 0))} <span className="text-xs font-normal text-emerald-600">{item.unit || 'Nos'}</span>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">BOM Components</div>
+                                    <div className="text-sm font-extrabold font-mono text-amber-800 dark:text-amber-300 mt-1">
+                                        {Array.isArray(item.bom) ? item.bom.length : 0} Items
                                     </div>
                                 </div>
                             </div>
@@ -474,12 +481,12 @@ export default function MasterDetailPreviewModal({
                                         <span className="font-extrabold text-slate-900 dark:text-white">{item.name || item.productName || '-'}</span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Product Code:</span>
+                                        <span className="text-slate-500 dark:text-slate-400">Product Code / Part No:</span>
                                         <span className="font-mono font-bold text-purple-600 dark:text-purple-400">{item.code || item.productCode || '-'}</span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Type / Assembly:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || item.category || 'Assembly'}</span>
+                                        <span className="text-slate-500 dark:text-slate-400">Type / Classification:</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || item.category || 'Component'}</span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                         <span className="text-slate-500 dark:text-slate-400">Storage Location:</span>
@@ -488,12 +495,12 @@ export default function MasterDetailPreviewModal({
                                         </span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">Unit Price / Selling Rate:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.rate ? `₹ ${Number(item.rate).toFixed(2)}` : '-'}</span>
+                                        <span className="text-slate-500 dark:text-slate-400">Revision Number:</span>
+                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.revisionNumber || '-'}</span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
-                                        <span className="text-slate-500 dark:text-slate-400">HSN Code:</span>
-                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.hsnCode || '-'}</span>
+                                        <span className="text-slate-500 dark:text-slate-400">Reorder Level / Min Stock:</span>
+                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.reorderLevel !== undefined ? `${item.reorderLevel} ${item.unit || 'Nos'}` : '-'}</span>
                                     </div>
                                 </div>
                             </div>

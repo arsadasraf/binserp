@@ -27,13 +27,23 @@ export const fgItemSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
+      trim: true,
+    },
+    code: {
+      type: String,
+      trim: true,
     },
     type: {
       type: String,
       enum: ["Component", "Sub Assembly", "Assembly"],
+      default: "Component",
       required: true,
     },
     description: String,
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
 
     location: {
       type: mongoose.Schema.Types.ObjectId,

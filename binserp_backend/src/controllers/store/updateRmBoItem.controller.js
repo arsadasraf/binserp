@@ -46,9 +46,70 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const updateRmBoItem = async (req, res) => {
   try {
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    const Category = req.getModel('Category', categorySchema);
+    const Location = req.getModel('Location', locationSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+
+    const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
+
+    // Resolve Category if provided
+    if (req.body.categoryId) {
+      if (!isValidObjectId(req.body.categoryId)) {
+        const catName = req.body.categoryId.toString().trim();
+        let cat = await Category.findOne({
+          company: companyId,
+          $or: [
+            { name: { $regex: new RegExp(`^${catName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+            { code: catName }
+          ]
+        });
+        if (!cat) {
+          try {
+            cat = await Category.create({
+              company: companyId,
+              name: catName,
+              code: `CAT-${Math.floor(100 + Math.random() * 900)}`,
+              unit: req.body.unit || 'PCS',
+              description: `${catName} Category`
+            });
+          } catch {
+            cat = await Category.findOne({ company: companyId, name: { $regex: new RegExp(`^${catName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+          }
+        }
+        if (cat) req.body.categoryId = cat._id;
+      }
+    }
+
+    // Resolve Location if provided
+    if (req.body.locationId) {
+      if (!isValidObjectId(req.body.locationId)) {
+        const locName = req.body.locationId.toString().trim();
+        let loc = await Location.findOne({
+          company: companyId,
+          $or: [
+            { name: { $regex: new RegExp(`^${locName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+            { code: locName }
+          ]
+        });
+        if (!loc) {
+          try {
+            loc = await Location.create({
+              company: companyId,
+              name: locName,
+              code: `LOC-${Math.floor(100 + Math.random() * 900)}`,
+              type: 'Rack',
+              description: locName
+            });
+          } catch {
+            loc = await Location.findOne({ company: companyId, name: { $regex: new RegExp(`^${locName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+          }
+        }
+        if (loc) req.body.locationId = loc._id;
+      }
+    }
+
     let existingPhotos = [];
     if (req.body.photos) {
       if (Array.isArray(req.body.photos)) {
