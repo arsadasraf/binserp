@@ -139,7 +139,7 @@ export const markAttendance = async (req, res) => {
         const completedToday = await Attendance.findOne({
             employee: employeeId,
             company: companyId,
-            date: {
+            "checkIn.time": {
                 $gte: today,
                 $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
             },

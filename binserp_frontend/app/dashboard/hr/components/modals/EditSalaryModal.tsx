@@ -13,8 +13,10 @@ interface DayStatus {
     originalCheckIn?: string;
     originalCheckOut?: string;
     originalHours?: number;
+    otHours?: number;
     manualStatus: string; 
     manualHours: number;
+    manualOtHours?: number;
     useManual: boolean;
 }
 
@@ -32,11 +34,67 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
     const [otRatePH, setOtRatePH] = useState(0);
     const [saving, setSaving] = useState(false);
 
+    const formatPunchTime = (timeStr?: string | Date) => {
+        if (!timeStr) return '-';
+        try {
+            const d = new Date(timeStr);
+            if (isNaN(d.getTime())) return '-';
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+        } catch {
+            return '-';
+        }
+    };
+
+    const getDailyOtHours = (hours: number, dayName: string, isHoliday: boolean, emp: any) => {
+        if (!emp?.isOTApplicable) return 0;
+        const standardHours = emp?.standardWorkingHours || 9;
+        const weeklyOff = Array.isArray(emp?.weeklyOff) ? emp.weeklyOff : [emp?.weeklyOff || "Sunday"];
+        const holidayWorkPolicy = emp?.holidayWorkPolicy || "Overtime";
+        const weekOffWorkPolicy = emp?.weekOffWorkPolicy || "Overtime";
+
+        const daysMap: Record<string, string> = {
+            'Sun': 'Sunday', 'Mon': 'Monday', 'Tue': 'Tuesday',
+            'Wed': 'Wednesday', 'Thu': 'Thursday', 'Fri': 'Friday', 'Sat': 'Saturday'
+        };
+        const fullDayName = daysMap[dayName] || dayName;
+        const isWeeklyOff = weeklyOff.includes(fullDayName);
+
+        if (isWeeklyOff) {
+            return weekOffWorkPolicy === "Overtime" ? hours : 0;
+        }
+        if (isHoliday) {
+            return holidayWorkPolicy === "Overtime" ? hours : 0;
+        }
+        return Math.max(0, Number((hours - standardHours).toFixed(2)));
+    };
+
     useEffect(() => {
         if (isOpen && salary) {
-            setCalendarData(salary.dailyLogs || []);
+            const emp = employees.find(e => e._id === salary?.employee?._id) as any;
+            const standardHours = emp?.standardWorkingHours || 9;
+
+            const enrichedLogs = (salary.dailyLogs || []).map((log: any) => {
+                const computedHours = log.originalHours ?? 0;
+                const dailyOt = log.otHours !== undefined 
+                    ? log.otHours 
+                    : getDailyOtHours(computedHours, log.dayName, log.originalStatus === 'Holiday', emp);
+                
+                const manualHours = log.manualHours ?? computedHours;
+                const manualOt = log.manualOtHours !== undefined
+                    ? log.manualOtHours
+                    : getDailyOtHours(manualHours, log.dayName, log.manualStatus === 'Holiday' || log.originalStatus === 'Holiday', emp);
+
+                return {
+                    ...log,
+                    originalHours: computedHours,
+                    otHours: dailyOt,
+                    manualHours: manualHours,
+                    manualOtHours: manualOt,
+                };
+            });
+
+            setCalendarData(enrichedLogs);
             
-            const emp = employees.find(e => e._id === salary?.employee?._id);
             if (emp?.salary) {
                 const basis = emp.salary.perDayCalculationBasis || 'Basic';
                 if (basis === 'Gross') {
@@ -248,11 +306,11 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
         const newData = [...calendarData];
         newData[index] = { ...newData[index], [field]: value };
         
+        const emp = employees.find(e => e._id === salary?.employee?._id) as any;
+        const standardHours = emp?.standardWorkingHours || 9;
+
         // Auto-fill hours if changing status
         if (field === 'manualStatus') {
-            const emp = employees.find(e => e._id === salary?.employee?._id);
-            const standardHours = (emp as any)?.standardWorkingHours || 9;
-            
             if (value === 'Present' && newData[index].manualHours === 0) {
                 newData[index].manualHours = standardHours;
             } else if (value === 'HalfDay' && newData[index].manualHours === 0) {
@@ -262,6 +320,14 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
             }
         }
         
+        // Recalculate manual OT hours live
+        newData[index].manualOtHours = getDailyOtHours(
+            newData[index].manualHours || 0,
+            newData[index].dayName,
+            newData[index].manualStatus === 'Holiday' || newData[index].originalStatus === 'Holiday',
+            emp
+        );
+
         setCalendarData(newData);
     };
 
@@ -293,6 +359,7 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
                     basic: baseSalary
                 },
                 employerContributions: {
+                    ...salary.employerContributions,
                     pf: totals.employerPF,
                     esi: totals.employerESI
                 }
@@ -582,106 +649,170 @@ export default function EditSalaryModal({ isOpen, onClose, salary, employees, on
                             <table className="w-full text-sm text-left whitespace-nowrap">
                                 <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        <th className="px-4 py-3 font-semibold">Date</th>
-                                        <th className="px-4 py-3 font-semibold">Day</th>
-                                        <th className="px-4 py-3 font-semibold">DB Status</th>
+                                        <th className="px-3.5 py-3 font-semibold">Date</th>
+                                        <th className="px-3 py-3 font-semibold">Day</th>
+                                        <th className="px-3 py-3 font-semibold">Check-In</th>
+                                        <th className="px-3 py-3 font-semibold">Check-Out</th>
+                                        <th className="px-3 py-3 font-semibold">DB Status</th>
+                                        <th className="px-3 py-3 font-semibold">Total Duty Hrs</th>
                                         {(() => {
                                             const emp = employees.find(e => e._id === salary?.employee?._id) as any;
-                                            return emp?.isOTApplicable ? <th className="px-4 py-3 font-semibold">DB Hrs</th> : null;
+                                            return emp?.isOTApplicable ? <th className="px-3 py-3 font-semibold text-purple-600 dark:text-purple-400">OT Hrs</th> : null;
                                         })()}
-                                        <th className="px-4 py-3 font-semibold text-center">Override</th>
-                                        <th className="px-4 py-3 font-semibold">Final Status</th>
+                                        <th className="px-3 py-3 font-semibold text-center">Override</th>
+                                        <th className="px-3 py-3 font-semibold">Final Status</th>
+                                        <th className="px-3 py-3 font-semibold">Final Duty Hrs</th>
                                         {(() => {
                                             const emp = employees.find(e => e._id === salary?.employee?._id) as any;
-                                            return emp?.isOTApplicable ? <th className="px-4 py-3 font-semibold">Final Hrs</th> : null;
+                                            return emp?.isOTApplicable ? <th className="px-3 py-3 font-semibold text-purple-600 dark:text-purple-400">Final OT Hrs</th> : null;
                                         })()}
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                                    {calendarData.map((d, idx) => (
-                                        <tr key={d.date} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
-                                            d.dayName === 'Sun' || d.originalStatus === 'Holiday' ? 'bg-red-50/30 dark:bg-red-900/5' : ''
-                                        }`}>
-                                            <td className="px-4 py-2.5 font-medium text-slate-700 dark:text-slate-300">
-                                                {d.date}
-                                            </td>
-                                            <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
-                                                {d.dayName}
-                                            </td>
-                                            <td className="px-4 py-2.5">
-                                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                                    d.originalStatus === 'Present' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                                                    d.originalStatus === 'Holiday' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
-                                                    d.originalStatus === 'HalfDay' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
-                                                    ['CL', 'SL'].includes(d.originalStatus) ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                                                    'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                                }`}>
-                                                    {d.originalStatus || 'Absent'}
-                                                </span>
-                                            </td>
-                                            {(() => {
-                                                const emp = employees.find(e => e._id === salary?.employee?._id) as any;
-                                                return emp?.isOTApplicable ? (
-                                                    <td className="px-4 py-2.5 text-slate-500 dark:text-slate-400">
-                                                        {d.originalHours ? `${d.originalHours.toFixed(1)}h` : '-'}
-                                                    </td>
-                                                ) : null;
-                                            })()}
-                                            <td className="px-4 py-2.5 text-center">
-                                                <button
-                                                    onClick={() => toggleManual(idx)}
-                                                    className={`p-1.5 rounded-md transition-colors ${
-                                                        d.useManual 
-                                                            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400' 
-                                                            : 'bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700'
-                                                    }`}
-                                                    title={d.useManual ? "Revert to Original" : "Override manually"}
-                                                >
-                                                    <RefreshCw size={14} className={d.useManual ? "animate-spin-once" : ""} />
-                                                </button>
-                                            </td>
-                                            <td className="px-4 py-2.5">
-                                                {d.useManual ? (
-                                                    <select
-                                                        value={d.manualStatus}
-                                                        onChange={(e) => updateManualField(idx, 'manualStatus', e.target.value)}
-                                                        className="w-32 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/50 text-slate-700 dark:text-slate-200 text-xs rounded-md focus:ring-amber-500 focus:border-amber-500 px-2 py-1"
-                                                    >
-                                                        <option value="Present">Present</option>
-                                                        <option value="Absent">Absent</option>
-                                                        <option value="HalfDay">HalfDay</option>
-                                                        <option value="Holiday">Holiday</option>
-                                                        <option value="CL">CL</option>
-                                                        <option value="SL">SL</option>
-                                                        <option value="CO">Comp Off (CO)</option>
-                                                    </select>
-                                                ) : (
-                                                    <span className="text-slate-500 dark:text-slate-400 text-xs">-</span>
-                                                )}
-                                            </td>
-                                            {(() => {
-                                                const emp = employees.find(e => e._id === salary?.employee?._id) as any;
-                                                return emp?.isOTApplicable ? (
-                                                    <td className="px-4 py-2.5">
-                                                        {d.useManual ? (
-                                                            <div className="flex items-center gap-1 w-24">
-                                                                <input
-                                                                    type="number"
-                                                                    value={d.manualHours || 0}
-                                                                    onChange={(e) => updateManualField(idx, 'manualHours', Number(e.target.value))}
-                                                                    className="w-full bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/50 text-slate-700 dark:text-slate-200 text-xs rounded-md focus:ring-amber-500 focus:border-amber-500 px-2 py-1"
-                                                                    step="0.5"
-                                                                />
-                                                                <span className="text-xs text-slate-400">h</span>
-                                                            </div>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-xs">
+                                    {calendarData.map((d, idx) => {
+                                        const emp = employees.find(e => e._id === salary?.employee?._id) as any;
+                                        const isOT = Boolean(emp?.isOTApplicable);
+
+                                        return (
+                                            <tr key={d.date} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
+                                                d.useManual ? 'bg-amber-50/30 dark:bg-amber-950/20' : d.dayName === 'Sun' || d.originalStatus === 'Holiday' ? 'bg-red-50/30 dark:bg-red-900/5' : ''
+                                            }`}>
+                                                {/* Date */}
+                                                <td className="px-3.5 py-2.5 font-medium text-slate-700 dark:text-slate-300 font-mono">
+                                                    {d.date}
+                                                </td>
+
+                                                {/* Day */}
+                                                <td className={`px-3 py-2.5 font-bold ${d.dayName === 'Sun' || d.originalStatus === 'Holiday' ? 'text-red-500' : 'text-slate-500 dark:text-slate-400'}`}>
+                                                    {d.dayName}
+                                                </td>
+
+                                                {/* Check-In */}
+                                                <td className="px-3 py-2.5 font-mono">
+                                                    {d.originalCheckIn ? (
+                                                        <span className="text-emerald-700 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                                                            {formatPunchTime(d.originalCheckIn)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* Check-Out */}
+                                                <td className="px-3 py-2.5 font-mono">
+                                                    {d.originalCheckOut ? (
+                                                        <span className="text-rose-700 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                                                            {formatPunchTime(d.originalCheckOut)}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* Original DB Status */}
+                                                <td className="px-3 py-2.5">
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded font-medium text-[11px] ${
+                                                        d.originalStatus === 'Present' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                                        d.originalStatus === 'Holiday' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                                                        d.originalStatus === 'HalfDay' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                                                        ['CL', 'SL'].includes(d.originalStatus) ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
+                                                        'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                                    }`}>
+                                                        {d.originalStatus || 'Absent'}
+                                                    </span>
+                                                </td>
+
+                                                {/* Total Duty Hours */}
+                                                <td className="px-3 py-2.5 text-slate-700 dark:text-slate-300 font-mono font-bold">
+                                                    {d.originalHours ? `${d.originalHours.toFixed(1)}h` : '0h'}
+                                                </td>
+
+                                                {/* OT Hours */}
+                                                {isOT && (
+                                                    <td className="px-3 py-2.5 font-mono">
+                                                        {(d.otHours ?? 0) > 0 ? (
+                                                            <span className="px-2 py-0.5 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                                +{(d.otHours ?? 0).toFixed(1)}h
+                                                            </span>
                                                         ) : (
-                                                            <span className="text-slate-500 dark:text-slate-400 text-xs">-</span>
+                                                            <span className="text-slate-400">-</span>
                                                         )}
                                                     </td>
-                                                ) : null;
-                                            })()}
-                                        </tr>
-                                    ))}
+                                                )}
+
+                                                {/* Override Button */}
+                                                <td className="px-3 py-2.5 text-center">
+                                                    <button
+                                                        onClick={() => toggleManual(idx)}
+                                                        className={`p-1.5 rounded-md transition-colors ${
+                                                            d.useManual 
+                                                                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400' 
+                                                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700'
+                                                        }`}
+                                                        title={d.useManual ? "Revert to Original" : "Override manually"}
+                                                    >
+                                                        <RefreshCw size={14} className={d.useManual ? "animate-spin-once" : ""} />
+                                                    </button>
+                                                </td>
+
+                                                {/* Final Status */}
+                                                <td className="px-3 py-2.5">
+                                                    {d.useManual ? (
+                                                        <select
+                                                            value={d.manualStatus}
+                                                            onChange={(e) => updateManualField(idx, 'manualStatus', e.target.value)}
+                                                            className="w-32 bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/50 text-slate-700 dark:text-slate-200 text-xs rounded-md focus:ring-amber-500 focus:border-amber-500 px-2 py-1 font-bold"
+                                                        >
+                                                            <option value="Present">Present</option>
+                                                            <option value="Absent">Absent</option>
+                                                            <option value="HalfDay">HalfDay</option>
+                                                            <option value="Holiday">Holiday</option>
+                                                            <option value="CL">CL</option>
+                                                            <option value="SL">SL</option>
+                                                            <option value="CO">Comp Off (CO)</option>
+                                                        </select>
+                                                    ) : (
+                                                        <span className="text-slate-500 dark:text-slate-400 text-xs">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* Final Duty Hours Input */}
+                                                <td className="px-3 py-2.5">
+                                                    {d.useManual ? (
+                                                        <div className="flex items-center gap-1 w-24">
+                                                            <input
+                                                                type="number"
+                                                                value={d.manualHours || 0}
+                                                                onChange={(e) => updateManualField(idx, 'manualHours', Number(e.target.value))}
+                                                                className="w-full bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700/50 text-slate-700 dark:text-slate-200 text-xs rounded-md focus:ring-amber-500 focus:border-amber-500 px-2 py-1 font-mono font-bold"
+                                                                step="0.5"
+                                                            />
+                                                            <span className="text-xs text-slate-400">h</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-slate-500 dark:text-slate-400 text-xs">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* Final OT Hours */}
+                                                {isOT && (
+                                                    <td className="px-3 py-2.5 font-mono">
+                                                        {d.useManual ? (
+                                                            (d.manualOtHours ?? 0) > 0 ? (
+                                                                <span className="px-2 py-0.5 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                                    +{(d.manualOtHours ?? 0).toFixed(1)}h
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400">0h</span>
+                                                            )
+                                                        ) : (
+                                                            <span className="text-slate-400">-</span>
+                                                        )}
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

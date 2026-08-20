@@ -29,29 +29,89 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
   let insertedCount = 0;
   let updatedCount = 0;
   let skippedCount = 0;
+  const skippedItems = [];
 
   if (masterTab === "employee") {
     const Employee = req.getModel("Employee", employeeSchema);
+    const Department = req.getModel("Department", departmentSchema);
+    const Designation = req.getModel("Designation", designationSchema);
+    const EmployeeType = req.getModel("EmployeeType", employeeTypeSchema);
 
     for (const item of items) {
-      if (!item.name || !item.employeeId) {
+      const empId = item.employeeId || item.id;
+      const empName = item.name || item.fullName;
+
+      if (!empName || !empId) {
         skippedCount++;
         continue;
       }
 
-      const query = { company: companyId, employeeId: String(item.employeeId).trim() };
+      const cleanEmpId = String(empId).trim();
+      const cleanName = String(empName).trim();
+      const cleanDept = item.department ? String(item.department).trim() : "General";
+      const cleanDesig = item.designation ? String(item.designation).trim() : "Staff";
+      const cleanEmpType = item.employeeType ? String(item.employeeType).trim() : "Full-Time";
+
+      const query = { company: companyId, employeeId: cleanEmpId };
+      const exists = await Employee.findOne(query);
+
+      // If employee already exists and overwrite is NOT enabled, skip immediately
+      if (exists && !overwrite) {
+        skippedCount++;
+        skippedItems.push(`ID: ${cleanEmpId} (${cleanName})`);
+        continue;
+      }
+
+      // Auto-register Department if not existing
+      if (cleanDept) {
+        const deptExists = await Department.findOne({
+          company: companyId,
+          name: { $regex: new RegExp(`^${cleanDept.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+        });
+        if (!deptExists) {
+          try {
+            await Department.create({ company: companyId, name: cleanDept, description: "Auto-created from Employee import" });
+          } catch { /* ignore duplicate error */ }
+        }
+      }
+
+      // Auto-register Designation if not existing
+      if (cleanDesig) {
+        const desigExists = await Designation.findOne({
+          company: companyId,
+          name: { $regex: new RegExp(`^${cleanDesig.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+        });
+        if (!desigExists) {
+          try {
+            await Designation.create({ company: companyId, name: cleanDesig, department: cleanDept, description: "Auto-created from Employee import" });
+          } catch { /* ignore duplicate error */ }
+        }
+      }
+
+      // Auto-register EmployeeType if not existing
+      if (cleanEmpType) {
+        const typeExists = await EmployeeType.findOne({
+          company: companyId,
+          name: { $regex: new RegExp(`^${cleanEmpType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") }
+        });
+        if (!typeExists) {
+          try {
+            await EmployeeType.create({ company: companyId, name: cleanEmpType, description: "Auto-created from Employee import" });
+          } catch { /* ignore duplicate error */ }
+        }
+      }
 
       const doc = {
         company: companyId,
-        employeeId: String(item.employeeId).trim(),
-        name: String(item.name).trim(),
+        employeeId: cleanEmpId,
+        name: cleanName,
         contact: item.contact ? String(item.contact).trim() : "",
         email: item.email ? String(item.email).trim().toLowerCase() : "",
         gender: ["Male", "Female", "Other"].includes(item.gender) ? item.gender : "Male",
         bloodGroup: item.bloodGroup || "",
-        department: item.department ? String(item.department).trim() : "General",
-        designation: item.designation ? String(item.designation).trim() : "Staff",
-        employeeType: item.employeeType ? String(item.employeeType).trim() : "Full-Time",
+        department: cleanDept,
+        designation: cleanDesig,
+        employeeType: cleanEmpType,
         status: ["Active", "Inactive", "Terminated", "OnLeave"].includes(item.status) ? item.status : "Active",
         joiningDate: item.joiningDate ? new Date(item.joiningDate) : new Date(),
         salary: {
@@ -70,17 +130,12 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
         doc.dob = new Date(item.dob);
       }
 
-      if (overwrite) {
-        await Employee.findOneAndUpdate(query, { $set: doc }, { upsert: true, new: true });
+      if (exists && overwrite) {
+        await Employee.findOneAndUpdate(query, { $set: doc }, { new: true });
         updatedCount++;
       } else {
-        const exists = await Employee.findOne(query);
-        if (!exists) {
-          await Employee.create(doc);
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
+        await Employee.create(doc);
+        insertedCount++;
       }
     }
 
@@ -88,30 +143,34 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
     const Department = req.getModel("Department", departmentSchema);
 
     for (const item of items) {
-      if (!item.name) {
+      const deptName = item.name || item.departmentName || item.department;
+      if (!deptName) {
         skippedCount++;
         continue;
       }
 
-      const name = String(item.name).trim();
-      const query = { company: companyId, name: { $regex: new RegExp(`^${name}$`, "i") } };
+      const name = String(deptName).trim();
+      const query = { company: companyId, name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") } };
+      const exists = await Department.findOne(query);
+
+      if (exists && !overwrite) {
+        skippedCount++;
+        skippedItems.push(name);
+        continue;
+      }
+
       const doc = {
         company: companyId,
         name,
         description: item.description ? String(item.description).trim() : "",
       };
 
-      if (overwrite) {
-        await Department.findOneAndUpdate(query, { $set: doc }, { upsert: true, new: true });
+      if (exists && overwrite) {
+        await Department.findOneAndUpdate(query, { $set: doc }, { new: true });
         updatedCount++;
       } else {
-        const exists = await Department.findOne(query);
-        if (!exists) {
-          await Department.create(doc);
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
+        await Department.create(doc);
+        insertedCount++;
       }
     }
 
@@ -119,31 +178,34 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
     const Designation = req.getModel("Designation", designationSchema);
 
     for (const item of items) {
-      if (!item.name) {
+      const desigName = item.name || item.designationName || item.designation;
+      if (!desigName) {
         skippedCount++;
         continue;
       }
 
-      const name = String(item.name).trim();
-      const query = { company: companyId, name: { $regex: new RegExp(`^${name}$`, "i") } };
+      const name = String(desigName).trim();
+      const query = { company: companyId, name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") } };
+      const exists = await Designation.findOne(query);
+
+      if (exists && !overwrite) {
+        skippedCount++;
+        skippedItems.push(name);
+        continue;
+      }
+
       const doc = {
         company: companyId,
         name,
-        department: item.department ? String(item.department).trim() : "",
         description: item.description ? String(item.description).trim() : "",
       };
 
-      if (overwrite) {
-        await Designation.findOneAndUpdate(query, { $set: doc }, { upsert: true, new: true });
+      if (exists && overwrite) {
+        await Designation.findOneAndUpdate(query, { $set: doc }, { new: true });
         updatedCount++;
       } else {
-        const exists = await Designation.findOne(query);
-        if (!exists) {
-          await Designation.create(doc);
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
+        await Designation.create(doc);
+        insertedCount++;
       }
     }
 
@@ -151,30 +213,34 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
     const EmployeeType = req.getModel("EmployeeType", employeeTypeSchema);
 
     for (const item of items) {
-      if (!item.name) {
+      const typeName = item.name || item.typeName || item.employeeType;
+      if (!typeName) {
         skippedCount++;
         continue;
       }
 
-      const name = String(item.name).trim();
-      const query = { company: companyId, name: { $regex: new RegExp(`^${name}$`, "i") } };
+      const name = String(typeName).trim();
+      const query = { company: companyId, name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") } };
+      const exists = await EmployeeType.findOne(query);
+
+      if (exists && !overwrite) {
+        skippedCount++;
+        skippedItems.push(name);
+        continue;
+      }
+
       const doc = {
         company: companyId,
         name,
         description: item.description ? String(item.description).trim() : "",
       };
 
-      if (overwrite) {
-        await EmployeeType.findOneAndUpdate(query, { $set: doc }, { upsert: true, new: true });
+      if (exists && overwrite) {
+        await EmployeeType.findOneAndUpdate(query, { $set: doc }, { new: true });
         updatedCount++;
       } else {
-        const exists = await EmployeeType.findOne(query);
-        if (!exists) {
-          await EmployeeType.create(doc);
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
+        await EmployeeType.create(doc);
+        insertedCount++;
       }
     }
 
@@ -182,31 +248,34 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
     const Skill = req.getModel("Skill", skillSchema);
 
     for (const item of items) {
-      if (!item.name) {
+      const skillName = item.name || item.skillName || item.skill;
+      if (!skillName) {
         skippedCount++;
         continue;
       }
 
-      const name = String(item.name).trim();
-      const query = { company: companyId, name: { $regex: new RegExp(`^${name}$`, "i") } };
+      const name = String(skillName).trim();
+      const query = { company: companyId, name: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, "i") } };
+      const exists = await Skill.findOne(query);
+
+      if (exists && !overwrite) {
+        skippedCount++;
+        skippedItems.push(name);
+        continue;
+      }
+
       const doc = {
         company: companyId,
         name,
-        category: item.category ? String(item.category).trim() : "General",
         description: item.description ? String(item.description).trim() : "",
       };
 
-      if (overwrite) {
-        await Skill.findOneAndUpdate(query, { $set: doc }, { upsert: true, new: true });
+      if (exists && overwrite) {
+        await Skill.findOneAndUpdate(query, { $set: doc }, { new: true });
         updatedCount++;
       } else {
-        const exists = await Skill.findOne(query);
-        if (!exists) {
-          await Skill.create(doc);
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
+        await Skill.create(doc);
+        insertedCount++;
       }
     }
 
@@ -214,13 +283,20 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
     const Holiday = req.getModel("Holiday", holidaySchema);
 
     for (const item of items) {
-      if (!item.title || !item.date) {
+      const holidayName = item.name || item.title || item.holidayName || item.holidayTitle;
+      const rawDate = item.date || item.holidayDate;
+
+      if (!holidayName || !rawDate) {
         skippedCount++;
         continue;
       }
 
-      const title = String(item.title).trim();
-      const holidayDate = new Date(item.date);
+      const name = String(holidayName).trim();
+      const holidayDate = new Date(rawDate);
+      if (isNaN(holidayDate.getTime())) {
+        skippedCount++;
+        continue;
+      }
       holidayDate.setHours(0, 0, 0, 0);
 
       const nextDay = new Date(holidayDate);
@@ -231,26 +307,31 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
         date: { $gte: holidayDate, $lt: nextDay }
       };
 
+      const exists = await Holiday.findOne(query);
+
+      if (exists && !overwrite) {
+        skippedCount++;
+        skippedItems.push(`${name} (${holidayDate.toISOString().split('T')[0]})`);
+        continue;
+      }
+
+      const holidayType = ["Public", "Optional", "Company"].includes(item.type) ? item.type : "Public";
+
       const doc = {
         company: companyId,
-        title,
+        name,
         date: holidayDate,
+        type: holidayType,
         description: item.description ? String(item.description).trim() : "",
-        isRecurring: item.isRecurring === true || item.isRecurring === "Yes" || item.isRecurring === "true" || item.isRecurring === 1,
-        isActive: true
+        isActive: item.isActive !== false && item.status !== "Inactive"
       };
 
-      if (overwrite) {
-        await Holiday.findOneAndUpdate(query, { $set: doc }, { upsert: true, new: true });
+      if (exists && overwrite) {
+        await Holiday.findOneAndUpdate(query, { $set: doc }, { new: true });
         updatedCount++;
       } else {
-        const exists = await Holiday.findOne(query);
-        if (!exists) {
-          await Holiday.create(doc);
-          insertedCount++;
-        } else {
-          skippedCount++;
-        }
+        await Holiday.create(doc);
+        insertedCount++;
       }
     }
 
@@ -259,6 +340,6 @@ export const bulkImportHrMasters = asyncHandler(async (req, res) => {
   }
 
   return res.status(200).json(
-    new ApiResponse(200, { insertedCount, updatedCount, skippedCount }, "HR Master data imported successfully")
+    new ApiResponse(200, { insertedCount, updatedCount, skippedCount, skippedItems }, "HR Master data imported successfully")
   );
 });

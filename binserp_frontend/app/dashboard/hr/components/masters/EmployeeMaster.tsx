@@ -486,13 +486,13 @@ export default function EmployeeMaster() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm("Delete this employee? Only employees created within the last 24 hours can be deleted.")) return;
+        if (!confirm("Are you sure you want to delete this employee?\n\nNote: If attendance or salary has already been marked, the employee cannot be deleted and must be deactivated (toggle Active/Inactive).")) return;
         try {
             const token = localStorage.getItem("token");
             await axios.delete(`${API_BASE_URL}/api/hr/employee/${id}`, { headers: { Authorization: `Bearer ${token}` } });
             fetchEmployees();
         } catch (error: any) {
-            alert(error.response?.data?.message || "Failed to delete employee.");
+            alert(error.response?.data?.message || "Failed to delete employee. If attendance has been marked, deactivate the employee instead.");
         }
     };
 

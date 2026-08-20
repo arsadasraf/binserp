@@ -85,11 +85,13 @@ export const salarySchema = new mongoose.Schema(
         day: Number,
         dayName: String,
         originalStatus: String,
-        originalCheckIn: Date,
-        originalCheckOut: Date,
+        originalCheckIn: mongoose.Schema.Types.Mixed, // Can be Date or formatted time string
+        originalCheckOut: mongoose.Schema.Types.Mixed, // Can be Date or formatted time string
         originalHours: Number,
+        otHours: { type: Number, default: 0 },
         manualStatus: String,
         manualHours: Number,
+        manualOtHours: { type: Number, default: 0 },
         useManual: { type: Boolean, default: false }
       }
     ],

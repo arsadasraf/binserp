@@ -87,9 +87,26 @@ export default function HrMasterExcelImportModal({ isOpen, masterTab, onClose, o
             if (res.ok) {
                 const data = await res.json();
                 const resultData = data.data || {};
-                alert(`Successfully processed import!\n• Inserted: ${resultData.insertedCount || 0}\n• Updated: ${resultData.updatedCount || 0}\n• Skipped: ${resultData.skippedCount || 0}`);
-                onSuccess();
-                onClose();
+                const inserted = resultData.insertedCount || 0;
+                const updated = resultData.updatedCount || 0;
+                const skipped = resultData.skippedCount || 0;
+                const skippedItems = resultData.skippedItems || [];
+
+                if (inserted === 0 && updated === 0 && skipped > 0) {
+                    const sampleList = skippedItems.slice(0, 5).join('\n• ');
+                    const more = skippedItems.length > 5 ? `\n...and ${skippedItems.length - 5} more` : '';
+                    alert(`⚠️ No new items imported.\n\nAll ${skipped} item(s) already exist in the database:\n• ${sampleList}${more}\n\n💡 Tip: Enable the "Update existing items if ID / Name matches" checkbox before importing if you wish to overwrite existing records.`);
+                } else {
+                    let msg = `Successfully processed import!\n• Inserted: ${inserted}\n• Updated: ${updated}`;
+                    if (skipped > 0) {
+                        const sampleList = skippedItems.slice(0, 3).join(', ');
+                        const more = skippedItems.length > 3 ? ` and ${skippedItems.length - 3} more` : '';
+                        msg += `\n• Skipped (${skipped} already exist): ${sampleList}${more}`;
+                    }
+                    alert(msg);
+                    onSuccess();
+                    onClose();
+                }
             } else {
                 const errJson = await res.json();
                 alert(`Bulk import failed: ${errJson.message || 'Server error'}`);

@@ -32,6 +32,9 @@ const getCompanyLoginId = (req) => {
 export const deleteEmployee = async (req, res) => {
   try {
     const Employee = req.getModel('Employee', employeeSchema);
+    const Attendance = req.getModel('Attendance', attendanceSchema);
+    const Salary = req.getModel('Salary', salarySchema);
+    const EmployeeJob = req.getModel('EmployeeJob', employeeJobSchema);
 
     const { id } = req.params;
     const companyId = getCompanyId(req);
@@ -45,12 +48,37 @@ export const deleteEmployee = async (req, res) => {
       return res.status(404).json({ message: "Employee not found" });
     }
 
+    // 1. Strict Protection: If attendance exists, employee CANNOT be deleted (only deactivated)
+    const hasAttendance = await Attendance.exists({ employee: id, company: companyId });
+    if (hasAttendance) {
+      return res.status(400).json({ 
+        message: "Cannot delete this employee because attendance has already been marked for them. Employees with attendance history cannot be deleted and can only be deactivated (use the Active/Inactive toggle)." 
+      });
+    }
+
+    // 2. Strict Protection: If salary records exist, employee cannot be deleted
+    const hasSalary = await Salary.exists({ employee: id, company: companyId });
+    if (hasSalary) {
+      return res.status(400).json({ 
+        message: "Cannot delete this employee because salary records exist for them. The employee can only be deactivated." 
+      });
+    }
+
+    // 3. Strict Protection: If assigned jobs exist, employee cannot be deleted
+    const hasJobs = await EmployeeJob.exists({ employee: id, company: companyId });
+    if (hasJobs) {
+      return res.status(400).json({ 
+        message: "Cannot delete this employee because assigned jobs exist for them. The employee can only be deactivated." 
+      });
+    }
+
+    // 4. Time window check for freshly added employees without any records
     const ageMs = Date.now() - new Date(employee.createdAt || employee._id.getTimestamp()).getTime();
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
     if (ageMs > TWENTY_FOUR_HOURS) {
       return res.status(403).json({ 
-        message: "Employee records can only be deleted within 24 hours of creation. Use the Active/Inactive toggle instead." 
+        message: "Employee records can only be deleted within 24 hours of creation (with no attendance history). Use the Active/Inactive toggle instead." 
       });
     }
 

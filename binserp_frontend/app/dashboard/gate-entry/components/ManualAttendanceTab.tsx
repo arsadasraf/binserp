@@ -49,15 +49,27 @@ export default function ManualAttendanceTab() {
             const attData = attendanceResponse.data.attendance || [];
             const attMap: Record<string, any> = {};
             
-            // Prioritize active unclosed shift first, otherwise keep most recent
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+
+            // Map each employee to their current active or today's attendance record:
+            // 1. If an employee has an unclosed shift (checkIn exists, checkOut does not exist) -> active shift.
+            // 2. If an employee has a record for TODAY (checkIn or date is today) -> today's record.
+            // 3. Completed records from YESTERDAY or earlier are ignored for today's status so employee can Check In today.
             attData.forEach((att: any) => {
                 const empId = att.employee?._id || att.employee;
-                if (empId) {
-                    const empIdStr = empId.toString();
-                    const isOpen = att.checkIn?.time && !att.checkOut?.time;
-                    if (isOpen) {
-                        attMap[empIdStr] = att;
-                    } else if (!attMap[empIdStr]) {
+                if (!empId) return;
+                const empIdStr = empId.toString();
+
+                const checkInTime = att.checkIn?.time ? new Date(att.checkIn.time) : (att.date ? new Date(att.date) : null);
+                const isToday = checkInTime ? checkInTime >= todayStart : false;
+                const isOpen = Boolean(att.checkIn?.time && !att.checkOut?.time);
+
+                if (isOpen) {
+                    // Open session (e.g. overnight night shift or punched in earlier today)
+                    attMap[empIdStr] = att;
+                } else if (isToday) {
+                    // Today's completed session
+                    if (!attMap[empIdStr] || !attMap[empIdStr].checkIn?.time) {
                         attMap[empIdStr] = att;
                     }
                 }

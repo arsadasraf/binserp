@@ -141,20 +141,22 @@ export default function HRHomeTab() {
                 headers: { Authorization: `Bearer ${token}` },
                 params: { startDate: start, endDate: end }
             });
-            const attendanceRecords: any[] = attRes.data.attendance;
+            const attendanceRecords: any[] = attRes.data.attendance || [];
 
             // 3. Map Attendance
             const attendanceMap = new Map();
-            attendanceRecords.forEach(record => {
-                const empId = typeof record.employee === 'object' ? record.employee._id : record.employee;
-                attendanceMap.set(empId, record);
+            attendanceRecords.forEach((record: any) => {
+                const empId = record?.employee ? (typeof record.employee === 'object' ? record.employee?._id : record.employee) : null;
+                if (empId) {
+                    attendanceMap.set(String(empId), record);
+                }
             });
 
             // 4. Process Data
             let processedData: any[] = [];
 
             allEmployees.forEach(emp => {
-                const record = attendanceMap.get(emp._id);
+                const record = attendanceMap.get(String(emp._id));
                 // Basic status check
                 const hasRecord = !!record;
 

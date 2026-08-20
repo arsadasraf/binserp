@@ -60,7 +60,6 @@ export const HR_MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: 
         filename: 'Template_HR_Designations.xlsx',
         columns: [
             { label: 'Designation Name*', key: 'name', required: true, sample: 'Senior Machinist' },
-            { label: 'Department Name', key: 'department', sample: 'Production' },
             { label: 'Description', key: 'description', sample: 'Responsible for CNC turning operations' }
         ]
     },
@@ -77,7 +76,6 @@ export const HR_MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: 
         filename: 'Template_HR_Skills.xlsx',
         columns: [
             { label: 'Skill Name*', key: 'name', required: true, sample: 'CNC Programming' },
-            { label: 'Category', key: 'category', sample: 'Technical' },
             { label: 'Description', key: 'description', sample: 'Fanuc and Siemens G-code programming' }
         ]
     },
@@ -85,10 +83,10 @@ export const HR_MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: 
         title: 'Holiday Master Template',
         filename: 'Template_HR_Holidays.xlsx',
         columns: [
-            { label: 'Holiday Title*', key: 'title', required: true, sample: 'Independence Day' },
+            { label: 'Holiday Name*', key: 'name', required: true, sample: 'Independence Day' },
             { label: 'Holiday Date* (YYYY-MM-DD)', key: 'date', required: true, sample: '2026-08-15', type: 'date' },
-            { label: 'Description', key: 'description', sample: 'National Holiday' },
-            { label: 'Recurring (Yes/No)', key: 'isRecurring', sample: 'Yes' }
+            { label: 'Holiday Type (Public/Optional/Company)', key: 'type', sample: 'Public' },
+            { label: 'Description', key: 'description', sample: 'National Holiday' }
         ]
     }
 };
@@ -170,6 +168,32 @@ export interface ParsedHrMasterExcelResult {
     headers: string[];
 }
 
+// Common aliases for column header matching
+const COLUMN_ALIASES: Record<string, string[]> = {
+    'name': ['name', 'fullname', 'employeename', 'departmentname', 'designationname', 'typename', 'skillname', 'holidayname', 'holidaytitle', 'title', 'designation', 'department', 'skill', 'type', 'holiday'],
+    'employeeId': ['employeeid', 'empid', 'id', 'empcode'],
+    'department': ['department', 'departmentname', 'dept'],
+    'designation': ['designation', 'designationname', 'desig', 'role'],
+    'employeeType': ['employeetype', 'type', 'typename'],
+    'joiningDate': ['joiningdate', 'doj', 'dateofjoining', 'joining'],
+    'date': ['date', 'holidaydate'],
+    'type': ['type', 'holidaytype', 'employeetype'],
+    'status': ['status', 'employeestatus'],
+    'contact': ['contact', 'contactphone', 'phone', 'mobile', 'phonenumber'],
+    'email': ['email', 'emailid', 'emailaddress'],
+    'gender': ['gender', 'sex'],
+    'dob': ['dob', 'dateofbirth', 'birthdate'],
+    'basic': ['basic', 'basicsalary', 'basicpay'],
+    'hra': ['hra', 'houserentallowance'],
+    'conveyance': ['conveyance', 'conveyanceallowance'],
+    'medical': ['medical', 'medicalallowance'],
+    'specialAllowance': ['specialallowance', 'special'],
+    'pf': ['pf', 'providentfund'],
+    'esi': ['esi'],
+    'professionalTax': ['professionaltax', 'pt'],
+    'description': ['description', 'desc', 'remarks', 'notes']
+};
+
 /**
  * Parses an uploaded Excel file and validates each row according to the tab's column config
  */
@@ -200,21 +224,47 @@ export async function parseHrMasterExcelFile(file: File, tabKey: string): Promis
     const uploadedHeaders = rawData[0].map(h => String(h || '').trim());
     const rows = rawData.slice(1);
 
-    // Create a mapping from uploaded header index to config column
-    const headerToColIndex: Record<number, HrMasterColumnConfig> = {};
+    // Create a mapping from config column to uploaded header index
+    const colKeyToHeaderIndex: Record<string, number> = {};
+    const usedIndices = new Set<number>();
 
-    uploadedHeaders.forEach((uploadedHeader, index) => {
-        const cleanHeader = uploadedHeader.toLowerCase().replace(/[\*\(\)\s_-]/g, '');
-        const matchedCol = config.columns.find(c => {
-            const cleanColLabel = c.label.toLowerCase().replace(/[\*\(\)\s_-]/g, '');
-            const cleanColKey = c.key.toLowerCase().replace(/[\*\(\)\s_-]/g, '');
-            return cleanHeader === cleanColLabel || cleanHeader === cleanColKey;
+    const cleanStr = (s: string) => s.toLowerCase().replace(/[\*\(\)\s_:\-\/]/g, '');
+
+    // Pass 1: Exact label or key matching
+    config.columns.forEach(col => {
+        const cleanColLabel = cleanStr(col.label);
+        const cleanColKey = cleanStr(col.key);
+
+        uploadedHeaders.forEach((uploadedHeader, index) => {
+            if (usedIndices.has(index)) return;
+            const cleanUploaded = cleanStr(uploadedHeader);
+            if (cleanUploaded === cleanColLabel || cleanUploaded === cleanColKey) {
+                colKeyToHeaderIndex[col.key] = index;
+                usedIndices.add(index);
+            }
         });
-
-        if (matchedCol) {
-            headerToColIndex[index] = matchedCol;
-        }
     });
+
+    // Pass 2: Alias matching for remaining columns
+    config.columns.forEach(col => {
+        if (colKeyToHeaderIndex[col.key] !== undefined) return;
+
+        const aliases = COLUMN_ALIASES[col.key] || [];
+        uploadedHeaders.forEach((uploadedHeader, index) => {
+            if (usedIndices.has(index)) return;
+            const cleanUploaded = cleanStr(uploadedHeader);
+            if (aliases.some(alias => cleanUploaded === cleanStr(alias))) {
+                colKeyToHeaderIndex[col.key] = index;
+                usedIndices.add(index);
+            }
+        });
+    });
+
+    // Pass 3: Positional fallback if single column or exact count match and primary key missing
+    if (colKeyToHeaderIndex['name'] === undefined && uploadedHeaders.length > 0 && !usedIndices.has(0)) {
+        colKeyToHeaderIndex['name'] = 0;
+        usedIndices.add(0);
+    }
 
     const validRows: any[] = [];
     const invalidRows: { rowNumber: number; data: any; errors: string[] }[] = [];
@@ -229,9 +279,12 @@ export async function parseHrMasterExcelFile(file: File, tabKey: string): Promis
         const errors: string[] = [];
 
         // Extract values using mapped header indices
-        Object.entries(headerToColIndex).forEach(([indexStr, colConfig]) => {
-            const cellIndex = Number(indexStr);
-            let val = row[cellIndex];
+        config.columns.forEach(colConfig => {
+            const cellIndex = colKeyToHeaderIndex[colConfig.key];
+            let val = cellIndex !== undefined ? row[cellIndex] : undefined;
+            if (val === undefined || val === null) {
+                val = '';
+            }
 
             // Normalize Date
             if (colConfig.type === 'date') {

@@ -22,7 +22,7 @@ export default function HRMasterLayout({ children }: { children: React.ReactNode
       {/* Master Sub-tabs: Modern Pill Design */}
       <div className="flex flex-wrap gap-2 p-1 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-fit shadow-sm">
         {masterTabs.map((tab) => {
-          const isActive = pathname.startsWith(tab.href);
+          const isActive = pathname === tab.href || pathname.startsWith(tab.href + "/");
           return (
             <Link
               key={tab.id}

@@ -115,7 +115,7 @@ export const recordAttendance = async (req, res) => {
         ]
       }).sort({ "checkIn.time": -1 });
 
-      // Fallback: search for today's record
+      // Fallback: search for today's record that is still open
       if (!attendance) {
         attendance = await Attendance.findOne({
           company: companyId,
@@ -124,7 +124,11 @@ export const recordAttendance = async (req, res) => {
             $gte: today,
             $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
           },
-        });
+          $or: [
+            { "checkOut.time": { $exists: false } },
+            { "checkOut.time": null }
+          ]
+        }).sort({ "checkIn.time": -1 });
       }
 
       if (!attendance) {
