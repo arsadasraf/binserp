@@ -6,6 +6,7 @@ import FinishedGoodsTable from '@/src/features/store/components/tables/FinishedG
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import Modal from '@/src/components/Modal';
 import FGItemForm from '@/src/features/store/components/forms/FGItemForm';
+import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function FinishedGoodsPage() {
@@ -21,6 +22,7 @@ export default function FinishedGoodsPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [previewItem, setPreviewItem] = useState<any>(null);
   const [formData, setFormData] = useState<StoreFormData>({});
   const [photos, setPhotos] = useState<File[]>([]);
 
@@ -104,8 +106,18 @@ export default function FinishedGoodsPage() {
           data={finishedGoods} 
           onEdit={handleEdit} 
           onDelete={handleDelete} 
+          onView={(item) => setPreviewItem(item)}
         />
       </div>
+
+      <MasterDetailPreviewModal
+        isOpen={Boolean(previewItem)}
+        onClose={() => setPreviewItem(null)}
+        item={previewItem}
+        masterTab="fg-items"
+        onEdit={(item) => handleEdit(item)}
+        onDelete={(id) => handleDelete(id)}
+      />
 
       <Modal
         isOpen={isModalOpen}

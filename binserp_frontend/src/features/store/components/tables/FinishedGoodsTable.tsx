@@ -2,19 +2,20 @@
 
 import React, { useState } from 'react';
 import DataTable, { ColumnDef } from '@/src/components/ui/DataTable';
-import { Edit2, Trash2, Download, FileSpreadsheet, Plus } from 'lucide-react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Plus, Eye } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import MasterExcelImportModal from '../modals/MasterExcelImportModal';
-import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+import StoreMasterExcelActions from '../StoreMasterExcelActions';
+
 
 interface FinishedGoodsTableProps {
   data: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
+  onView?: (item: any) => void;
   onAdd?: () => void;
 }
 
-export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: FinishedGoodsTableProps) {
+export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onAdd }: FinishedGoodsTableProps) {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const exportToExcel = () => {
@@ -95,7 +96,16 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: Fi
       id: 'actions',
       label: 'Actions',
       render: (item) => (
-        <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+          {onView && (
+            <button
+              onClick={() => onView(item)}
+              className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+              title="View Complete Profile & PDF"
+            >
+              <Eye size={16} />
+            </button>
+          )}
           <button
             onClick={() => onEdit(item)}
             className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
@@ -120,38 +130,19 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: Fi
       <DataTable
         columns={columns}
         data={data}
+        onRowClick={onView}
         searchPlaceholder="Search finished goods..."
         searchableKeys={['name', 'code', 'description', 'type']}
         actionButton={
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => downloadMasterExcelTemplate('fg-items')}
-              className="px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-all border border-slate-200 flex items-center gap-1.5 shadow-sm"
-              title="Download standard Excel template format"
-            >
-              <Download size={14} className="text-emerald-600" />
-              Template
-            </button>
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-all flex items-center gap-1.5 shadow-sm"
-              title="Import Finished Goods from Excel"
-            >
-              <FileSpreadsheet size={14} />
-              Import Excel
-            </button>
-            <button
-              onClick={exportToExcel}
-              className="px-3 py-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-all border border-green-200 flex items-center gap-1.5"
-              title="Export to Excel"
-            >
-              <Download size={14} />
-              Excel
-            </button>
+            <StoreMasterExcelActions
+              masterTab="fg-items"
+              onExport={exportToExcel}
+            />
             {onAdd && (
               <button
                 onClick={onAdd}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-xs font-bold transition-colors flex items-center gap-1"
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
               >
                 <Plus size={14} /> Add Finished Good
               </button>
@@ -159,13 +150,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onAdd }: Fi
           </div>
         }
       />
-
-      <MasterExcelImportModal
-        isOpen={isImportModalOpen}
-        masterTab="fg-items"
-        onClose={() => setIsImportModalOpen(false)}
-        onSuccess={() => window.location.reload()}
-      />
     </>
   );
 }
+

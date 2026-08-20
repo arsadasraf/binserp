@@ -6,6 +6,7 @@ import VendorTable from '@/src/features/store/components/tables/VendorTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import Modal from '@/src/components/Modal';
 import MasterForm from '@/src/features/store/components/forms/MasterForm';
+import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function VendorsPage() {
@@ -16,6 +17,7 @@ export default function VendorsPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [previewItem, setPreviewItem] = useState<any>(null);
   const [formData, setFormData] = useState<StoreFormData>({});
 
   const handleEdit = (vendor: any) => {
@@ -60,6 +62,7 @@ export default function VendorsPage() {
           data={vendors}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onView={(vendor) => setPreviewItem(vendor)}
           onAdd={() => {
             setEditingItem(null);
             setFormData({});
@@ -68,6 +71,17 @@ export default function VendorsPage() {
         />
       </div>
 
+      {/* View / Informative Preview & PDF Modal */}
+      <MasterDetailPreviewModal
+        isOpen={Boolean(previewItem)}
+        onClose={() => setPreviewItem(null)}
+        item={previewItem}
+        masterTab="vendor"
+        onEdit={(item) => handleEdit(item)}
+        onDelete={(id) => handleDelete(id)}
+      />
+
+      {/* Edit / Add Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

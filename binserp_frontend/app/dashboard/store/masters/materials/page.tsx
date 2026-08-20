@@ -6,6 +6,7 @@ import MaterialTable from '@/src/features/store/components/tables/MaterialTable'
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import Modal from '@/src/components/Modal';
 import MasterForm from '@/src/features/store/components/forms/MasterForm';
+import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function MaterialsPage() {
@@ -19,6 +20,7 @@ export default function MaterialsPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [previewItem, setPreviewItem] = useState<any>(null);
   const [formData, setFormData] = useState<StoreFormData>({});
 
   const handleEdit = (material: any) => {
@@ -90,10 +92,22 @@ export default function MaterialsPage() {
           }} 
           data={materials} 
           onEdit={handleEdit} 
-          onDelete={handleDelete} 
+          onDelete={handleDelete}
+          onView={(item) => setPreviewItem(item)}
         />
       </div>
 
+      {/* View / Informative Preview & PDF Modal */}
+      <MasterDetailPreviewModal
+        isOpen={Boolean(previewItem)}
+        onClose={() => setPreviewItem(null)}
+        item={previewItem}
+        masterTab="rm-bo-item"
+        onEdit={(item) => handleEdit(item)}
+        onDelete={(id) => handleDelete(id)}
+      />
+
+      {/* Edit / Add Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

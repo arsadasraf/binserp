@@ -10,8 +10,7 @@ import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import GRNDetailModal from '../modals/GRNDetailModal';
 import MasterDetailModal from '../modals/MasterDetailModal';
-import MasterExcelImportModal from '../modals/MasterExcelImportModal';
-import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+import StoreMasterExcelActions from '../StoreMasterExcelActions';
 import ColumnFilter from './ColumnFilter';
 
 interface MastersTableProps {
@@ -377,63 +376,50 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
 
     return (
         <div className="w-full">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 p-4 bg-white rounded-xl shadow-sm border border-gray-200 gap-4">
-                <div className="flex items-center gap-4 w-full sm:w-auto flex-1">
-                    <span className="text-sm text-gray-500 font-medium whitespace-nowrap">
-                        Showing {filteredData.length} records
+            <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center mb-4 p-4 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 gap-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-slate-700/60 px-3.5 py-2 rounded-xl shadow-inner whitespace-nowrap">
+                        {filteredData.length} Records
                     </span>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto justify-end flex-wrap">
                     {!['grn-history', 'fg-grn-history', 'po-history', 'company-info', 'prefix-settings', 'print-settings'].includes(masterTab) && (
-                        <div className="relative w-full sm:max-w-md">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                        <div className="relative flex-1 sm:w-64 min-w-[200px]">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                             <input
                                 type="text"
                                 placeholder="Search by name or code..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm text-gray-900 dark:text-gray-100"
                             />
                         </div>
                     )}
-                </div>
-                
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
-                    {!['grn-history', 'fg-grn-history', 'po-history', 'company-info', 'prefix-settings', 'print-settings'].includes(masterTab) && (
-                        <>
+                    {!['grn-history', 'fg-grn-history', 'po-history', 'company-info', 'prefix-settings', 'print-settings'].includes(masterTab) ? (
+                        <StoreMasterExcelActions
+                            masterTab={masterTab}
+                            onExport={exportToExcel}
+                        />
+                    ) : (
+                        masterTab !== 'po-history' && (
                             <button
-                                onClick={() => downloadMasterExcelTemplate(masterTab)}
-                                className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all border border-slate-200 dark:border-slate-700 shadow-sm"
-                                title="Download standard Excel template format for this master tab"
+                                onClick={exportToExcel}
+                                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-xl transition-colors border border-green-200"
+                                title="Export to Excel"
                             >
-                                <Download size={15} className="text-emerald-600" />
-                                Template
+                                <Download size={15} />
+                                Excel
                             </button>
-                            <button
-                                onClick={() => setIsImportModalOpen(true)}
-                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition-all shadow-md shadow-emerald-600/20"
-                                title="Import Master Data from Excel Spreadsheet"
-                            >
-                                <FileSpreadsheet size={15} />
-                                Import Excel
-                            </button>
-                        </>
-                    )}
-                    {masterTab !== 'po-history' && (
-                        <button
-                            onClick={exportToExcel}
-                            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors border border-green-200"
-                            title="Export to Excel"
-                        >
-                            <Download size={16} />
-                            Excel
-                        </button>
+                        )
                     )}
                     {(masterTab !== 'grn-history' && masterTab !== 'fg-grn-history') && masterTab !== 'po-history' && (
                         <button
                             onClick={exportToPDF}
-                            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200"
+                            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200"
                             title="Export to PDF"
                         >
-                            <FileText size={16} />
+                            <FileText size={15} />
                             PDF
                         </button>
                     )}
@@ -941,16 +927,6 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     </div>
                 </div>
             )}
-
-            {/* Excel Master Data Import Modal */}
-            <MasterExcelImportModal
-                isOpen={isImportModalOpen}
-                masterTab={masterTab}
-                onClose={() => setIsImportModalOpen(false)}
-                onSuccess={() => {
-                    window.location.reload();
-                }}
-            />
         </div>
     );
 }

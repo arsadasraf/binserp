@@ -6,6 +6,7 @@ import CategoryTable from '@/src/features/store/components/tables/CategoryTable'
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import Modal from '@/src/components/Modal';
 import MasterForm from '@/src/features/store/components/forms/MasterForm';
+import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function CategoriesPage() {
@@ -16,6 +17,7 @@ export default function CategoriesPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
+  const [previewItem, setPreviewItem] = useState<any>(null);
   const [formData, setFormData] = useState<StoreFormData>({});
 
   const handleEdit = (category: any) => {
@@ -28,6 +30,7 @@ export default function CategoriesPage() {
     if (confirm("Are you sure you want to delete this category?")) {
       try {
         await deleteRecord({ tab: "category", id }).unwrap();
+        setPreviewItem(null);
       } catch (error) {
         console.error("Failed to delete category", error);
       }
@@ -72,9 +75,21 @@ export default function CategoriesPage() {
           data={categories} 
           onEdit={handleEdit} 
           onDelete={handleDelete} 
+          onView={(category) => setPreviewItem(category)}
         />
       </div>
 
+      {/* View / Informative Preview & PDF Modal */}
+      <MasterDetailPreviewModal
+        isOpen={Boolean(previewItem)}
+        onClose={() => setPreviewItem(null)}
+        item={previewItem}
+        masterTab="category"
+        onEdit={(item) => handleEdit(item)}
+        onDelete={(id) => handleDelete(id)}
+      />
+
+      {/* Edit / Add Modal */}
       <Modal 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)}
@@ -100,7 +115,7 @@ export default function CategoriesPage() {
               disabled={isCreating || isUpdating}
               className="px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
             >
-              {isCreating || isUpdating ? "Saving..." : "Save Rm/Bo Category"}
+              {isCreating || isUpdating ? "Saving..." : "Save Category"}
             </button>
           </div>
         </form>

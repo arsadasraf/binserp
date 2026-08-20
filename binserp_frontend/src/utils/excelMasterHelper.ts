@@ -28,7 +28,7 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         filename: 'Template_Raw_Material_Bought_Out_Items.xlsx',
         columns: [
             { label: 'Item Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
-            { label: 'Item Code*', key: 'code', required: true, sample: 'RM-STL-012' },
+            { label: 'Item Code', key: 'code', sample: 'RM-STL-012' },
             { label: 'Category', key: 'category', sample: 'Raw Material' },
             { label: 'Unit', key: 'unit', sample: 'PCS' },
             { label: 'Opening Stock', key: 'openingStock', sample: 100 },

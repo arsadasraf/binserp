@@ -81,55 +81,65 @@ export default function DataTable<T extends Record<string, any>>({
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
-      {/* Top Bar: Search and Settings */}
-      <div className="p-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-gray-50/50 gap-4">
-        <div className="flex w-full sm:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
-          {actionButton && <div>{actionButton}</div>}
-          <div className="relative flex-1 sm:max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+      {/* Top Bar: Column Filter on Left | Search, Excel Actions & Add Button on Right */}
+      <div className="p-4 border-b border-gray-200 flex flex-col md:flex-row justify-between items-stretch md:items-center bg-gray-50/50 gap-3">
+        {/* Left Side: Column Filter / Settings */}
+        <div className="flex items-center gap-2">
+          {enableColumnToggle && (
+            <div className="relative">
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                type="button"
+                className={`px-3.5 py-2 border rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-sm ${
+                  showSettings
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300'
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+                title="Toggle visible columns"
+              >
+                <Settings2 size={15} className="text-gray-500" />
+                <span>Columns</span>
+              </button>
+
+              {showSettings && (
+                <div className="absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-xl border border-gray-200 z-50 p-2 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="text-[10px] font-extrabold text-gray-400 mb-2 px-2 uppercase tracking-wider">Visible Columns</div>
+                  <div className="max-h-60 overflow-y-auto space-y-1">
+                    {columns.map(col => (
+                      <label key={col.id} className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded-lg cursor-pointer gap-2 text-xs font-semibold text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={!hiddenColumns.has(col.id)}
+                          onChange={() => toggleColumn(col.id)}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                        />
+                        <span className="select-none">{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Right Side: Search Bar, Excel Actions, Add Button */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto justify-end flex-wrap">
+          <div className="relative flex-1 sm:w-64 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
             <input
               type="text"
               placeholder={searchPlaceholder}
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
-                setCurrentPage(1); // Reset to page 1 on search
+                setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+              className="w-full pl-9 pr-4 py-2 text-xs border border-gray-200 bg-white rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm text-gray-900 transition-colors"
             />
           </div>
+          {actionButton && <div className="flex items-center gap-2 flex-wrap">{actionButton}</div>}
         </div>
-        
-        {enableColumnToggle && (
-          <div className="relative">
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className={`p-2 border rounded-lg transition-colors flex items-center gap-2 ${
-                showSettings ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              <Settings2 size={18} />
-              <span className="text-sm font-medium hidden sm:inline">Columns</span>
-            </button>
-
-            {showSettings && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-50 p-2">
-                <div className="text-xs font-semibold text-gray-500 mb-2 px-2 uppercase tracking-wider">Visible Columns</div>
-                {columns.map(col => (
-                  <label key={col.id} className="flex items-center px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer gap-2">
-                    <input
-                      type="checkbox"
-                      checked={!hiddenColumns.has(col.id)}
-                      onChange={() => toggleColumn(col.id)}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="text-sm text-gray-700 select-none">{col.label}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Table */}
