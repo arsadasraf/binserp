@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import Webcam from 'react-webcam';
-import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText, Upload } from 'lucide-react';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText, Upload, RotateCcw } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
@@ -50,11 +50,25 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
     const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
     const [entryLoading, setEntryLoading] = useState(false);
 
+    // Purpose dropdown options
+    const PURPOSE_OPTIONS = [
+        'Interview',
+        'Meeting',
+        'Delivery',
+        'Vendor Visit',
+        'Customer Visit',
+        'Maintenance / Service',
+        'Audit / Official',
+        'Personal',
+        'Other'
+    ];
+
     // --- Entry Form State ---
     const [visitorName, setVisitorName] = useState('');
     const [companyName, setCompanyName] = useState('');
     const [whomToMeet, setWhomToMeet] = useState('');
     const [purpose, setPurpose] = useState('');
+    const [customPurpose, setCustomPurpose] = useState('');
     const [address, setAddress] = useState('');
     const [phone, setPhone] = useState('');
     const [vehicleNumber, setVehicleNumber] = useState('');
@@ -64,6 +78,7 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
     // Webcam
     const webcamRef = useRef<Webcam>(null);
     const [captureMode, setCaptureMode] = useState<'visitor' | null>(null);
+    const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
 
     // Load Visitors
     const loadVisitors = useCallback(async () => {
@@ -153,7 +168,9 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
     // Submit Entry
     const handleCheckIn = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!visitorName || !phone || !whomToMeet || !purpose || !visitorPhoto) {
+        const finalPurpose = purpose === 'Other' ? customPurpose.trim() : purpose;
+
+        if (!visitorName || !phone || !whomToMeet || !finalPurpose || !visitorPhoto) {
             alert("Please fill all required fields:\n- Name\n- Phone\n- Whom to Meet\n- Purpose\n- Visitor Photo");
             return;
         }
@@ -166,7 +183,7 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                 companyName,
                 phone,
                 whomToMeet,
-                purpose,
+                purpose: finalPurpose,
                 address,
                 visitorPhoto
             }, {
@@ -180,6 +197,7 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
             setPhone('');
             setWhomToMeet('');
             setPurpose('');
+            setCustomPurpose('');
             setAddress('');
             setVisitorPhoto(null);
             setIsEntryModalOpen(false);
@@ -545,7 +563,16 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                                         <td className="px-4 py-3">{v.companyName || '-'}</td>
                                         <td className="px-4 py-3">{v.phone}</td>
                                         <td className="px-4 py-3">{v.whomToMeet}</td>
-                                        <td className="px-4 py-3">{v.purpose}</td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold inline-block ${
+                                                v.purpose === 'Interview' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800' :
+                                                v.purpose === 'Meeting' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800' :
+                                                v.purpose === 'Delivery' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800' :
+                                                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                            }`}>
+                                                {v.purpose}
+                                            </span>
+                                        </td>
                                         <td className="px-4 py-3 whitespace-nowrap">
                                             <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
                                             {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
@@ -628,9 +655,29 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Whom to Meet <span className="text-red-500">*</span></label>
                                             <input required type="text" value={whomToMeet} onChange={e => setWhomToMeet(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. HR Manager / Mr. Sharma" />
                                         </div>
-                                        <div className="md:col-span-1 lg:col-span-2">
+                                        <div className="md:col-span-1 lg:col-span-2 space-y-2">
                                             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Purpose of Visit <span className="text-red-500">*</span></label>
-                                            <input required type="text" value={purpose} onChange={e => setPurpose(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400" placeholder="e.g. Interview, Delivery, Meeting" />
+                                            <select
+                                                required
+                                                value={purpose}
+                                                onChange={e => setPurpose(e.target.value)}
+                                                className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800 text-gray-900 dark:text-gray-100 font-medium"
+                                            >
+                                                <option value="">Select Purpose...</option>
+                                                {PURPOSE_OPTIONS.map(opt => (
+                                                    <option key={opt} value={opt}>{opt}</option>
+                                                ))}
+                                            </select>
+                                            {purpose === 'Other' && (
+                                                <input
+                                                    required
+                                                    type="text"
+                                                    value={customPurpose}
+                                                    onChange={e => setCustomPurpose(e.target.value)}
+                                                    className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 text-sm mt-1"
+                                                    placeholder="Specify visitor's purpose..."
+                                                />
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -704,26 +751,86 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
             {/* Webcam Modal (Overlay on top of Entry Modal) */}
             {captureMode && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-800 rounded-2xl overflow-hidden shadow-2xl w-full max-w-lg border border-gray-800">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl overflow-hidden shadow-2xl w-full max-w-lg border border-gray-800 flex flex-col">
+                        
+                        {/* Modal Header with Switch Button */}
+                        <div className="p-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
+                            <div className="flex items-center gap-2 text-white font-bold text-sm">
+                                <Camera size={18} className="text-blue-400" />
+                                <span>Capture Visitor Photo</span>
+                            </div>
+
+                            {/* Camera Toggle Button (Front / Back) */}
+                            <button
+                                type="button"
+                                onClick={() => setFacingMode(prev => prev === 'user' ? 'environment' : 'user')}
+                                className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-blue-400 hover:text-blue-300 rounded-xl text-xs font-bold border border-gray-700 flex items-center gap-1.5 transition-colors active:scale-95"
+                                title="Switch between Front and Back camera"
+                            >
+                                <RotateCcw size={14} />
+                                <span>{facingMode === 'user' ? 'Front (Selfie)' : 'Back (Rear)'}</span>
+                            </button>
+                        </div>
+
+                        {/* Camera Stream Viewport */}
                         <div className="relative bg-black h-[400px] flex items-center justify-center overflow-hidden">
                             <Webcam
+                                key={facingMode}
                                 audio={false}
                                 ref={webcamRef}
                                 screenshotFormat="image/jpeg"
-                                videoConstraints={{ facingMode: { ideal: "environment" } }}
+                                videoConstraints={{ facingMode: { ideal: facingMode } }}
                                 onUserMediaError={(err) => alert("Could not access camera. Please check permissions.")}
                                 className="absolute inset-0 w-full h-full object-cover"
                             />
                             {/* Camera Frame Overlay */}
                             <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none"></div>
                             <div className="absolute inset-10 border-2 border-white/30 rounded-lg pointer-events-none"></div>
-                            <div className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-sm">Align face/vehicle within frame</div>
+                            
+                            {/* Floating Camera Flip Icon */}
+                            <div className="absolute top-4 right-4 z-10">
+                                <button
+                                    type="button"
+                                    onClick={() => setFacingMode(prev => prev === 'user' ? 'environment' : 'user')}
+                                    className="p-2.5 bg-black/60 hover:bg-black/80 text-white rounded-full backdrop-blur-md border border-white/30 shadow-lg active:scale-90 transition-transform flex items-center gap-1.5 text-xs font-bold"
+                                    title="Flip Camera"
+                                >
+                                    <RotateCcw size={16} />
+                                </button>
+                            </div>
+
+                            <div className="absolute bottom-4 left-0 right-0 text-center text-white/80 text-xs font-medium bg-black/50 py-1.5 backdrop-blur-xs">
+                                Camera: <strong className="text-white">{facingMode === 'user' ? 'Front / Selfie' : 'Back / Rear'}</strong> • Align within frame
+                            </div>
                         </div>
-                        <div className="p-6 flex justify-between bg-gray-900 border-t border-gray-800">
-                            <button onClick={() => setCaptureMode(null)} className="px-6 py-2 text-gray-300 font-bold hover:text-white transition-colors">Cancel</button>
-                            <button onClick={capture} className="px-8 py-2 bg-white dark:bg-slate-800 text-black rounded-lg font-bold hover:bg-gray-200 transition-colors flex items-center gap-2">
-                                <Camera size={18} /> Capture
+
+                        {/* Modal Footer Controls */}
+                        <div className="p-4 sm:p-6 flex justify-between items-center bg-gray-900 border-t border-gray-800 gap-3">
+                            <button 
+                                type="button" 
+                                onClick={() => setCaptureMode(null)} 
+                                className="px-6 py-2.5 text-gray-300 font-bold hover:text-white transition-colors text-sm"
+                            >
+                                Cancel
                             </button>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setFacingMode(prev => prev === 'user' ? 'environment' : 'user')}
+                                    className="sm:hidden p-2.5 bg-gray-800 hover:bg-gray-700 text-blue-400 rounded-xl border border-gray-700"
+                                    title="Flip Camera"
+                                >
+                                    <RotateCcw size={18} />
+                                </button>
+                                <button 
+                                    type="button" 
+                                    onClick={capture} 
+                                    className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold transition-all shadow-lg hover:shadow-blue-500/30 flex items-center gap-2 text-sm"
+                                >
+                                    <Camera size={18} /> Capture Photo
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
