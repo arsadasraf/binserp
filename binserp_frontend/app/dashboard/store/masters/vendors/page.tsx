@@ -57,7 +57,7 @@ export default function VendorsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="h-[calc(100vh-160px)]">
+      <div className="h-[calc(100vh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
         <VendorTable
           data={vendors}
           onEdit={handleEdit}

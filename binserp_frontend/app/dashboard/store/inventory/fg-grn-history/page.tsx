@@ -35,7 +35,7 @@ export default function FgGrnHistoryPage() {
   }
 
   return (
-    <div className="mt-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div>
       <InventoryTab
         storeData={storeData}
         token={token}

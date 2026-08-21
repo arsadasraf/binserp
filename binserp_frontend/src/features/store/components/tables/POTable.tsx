@@ -178,26 +178,26 @@ export default function POTable({ data = [], onEdit, onDelete, vendors = [], com
         <div className="w-full space-y-4">
             
             {/* Search & Filter Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="relative w-full sm:w-80">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input
-                        type="text"
-                        placeholder="Search PO #, Vendor, or Material..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                    />
-                </div>
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-[200px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search PO #, Vendor, or Material..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                     {/* Vendor Selector */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Vendor:</label>
                         <select
                             value={filterVendor}
                             onChange={(e) => setFilterVendor(e.target.value)}
-                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[180px] truncate"
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[220px] truncate"
                         >
                             <option value="All">All Vendors</option>
                             {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
@@ -207,23 +207,23 @@ export default function POTable({ data = [], onEdit, onDelete, vendors = [], com
                             ))}
                         </select>
                     </div>
+                </div>
 
-                    {/* Status Buttons */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar">
-                        {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
-                                    filterStatus === status
-                                        ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
-                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                }`}
-                            >
-                                {status}
-                            </button>
-                        ))}
-                    </div>
+                {/* Status Buttons - Scrollable on mobile */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                    {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
+                        <button
+                            key={status}
+                            onClick={() => setFilterStatus(status)}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
+                                filterStatus === status
+                                    ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            {status}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -357,50 +357,90 @@ export default function POTable({ data = [], onEdit, onDelete, vendors = [], com
                         </table>
                     </div>
 
-                    {/* Mobile View */}
-                    <div className="md:hidden flex flex-col gap-3">
-                        {filteredData.map((item) => (
-                            <div key={item._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col gap-3">
-                                <div className="flex justify-between items-start border-b border-gray-100 dark:border-slate-800 pb-2">
-                                    <div>
-                                        <span onClick={() => setSelectedPoPreview(item)} className="text-xs font-mono font-bold text-purple-600 cursor-pointer block mb-1">PO #{item.poNumber}</span>
-                                        <h4 className="font-bold text-gray-900 dark:text-white">{getVendorNameStr(item)}</h4>
+                    {/* Mobile Card View */}
+                    <div className="block md:hidden space-y-3 pb-28 sm:pb-20">
+                        {filteredData.map((item) => {
+                            const vendorName = getVendorNameStr(item);
+                            const materialName = getMaterialNameStr(item);
+                            const amount = Number(item.totalAmount || item.amount || 0);
+                            const poDate = new Date(item.date || item.createdAt || Date.now()).toLocaleDateString('en-GB');
+
+                            return (
+                                <div key={item._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col gap-3">
+                                    <div className="flex justify-between items-start border-b border-gray-100 dark:border-slate-800 pb-2.5">
+                                        <div>
+                                            <span onClick={() => setSelectedPoPreview(item)} className="text-xs font-mono font-extrabold text-purple-600 dark:text-purple-400 cursor-pointer block mb-0.5">
+                                                PO #{item.poNumber || '-'}
+                                            </span>
+                                            <h4 className="font-bold text-gray-900 dark:text-white text-sm">{vendorName}</h4>
+                                            <div className="text-[11px] text-gray-500 dark:text-slate-400 font-medium">{poDate}</div>
+                                        </div>
+                                        <select
+                                            disabled={updatingStatusId === item._id}
+                                            value={item.status || 'Released'}
+                                            onChange={(e) => handleUpdateStatus(item._id, e.target.value)}
+                                            className={`px-2.5 py-1 rounded-full text-xs font-bold border outline-none cursor-pointer shadow-sm ${
+                                                item.status === 'Released' || item.status === 'Approved' ? 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-950 dark:text-purple-300' :
+                                                item.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                item.status === 'Partially Received' ? 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-300' :
+                                                item.status === 'Cancelled' ? 'bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950 dark:text-rose-300' :
+                                                'bg-gray-100 text-gray-800 border-gray-200'
+                                            }`}
+                                        >
+                                            <option value="Released">Released</option>
+                                            <option value="Approved">Approved</option>
+                                            <option value="Partially Received">Partially Received</option>
+                                            <option value="Completed">Completed</option>
+                                            <option value="Cancelled">Cancelled</option>
+                                        </select>
                                     </div>
-                                    <select
-                                        value={item.status || 'Released'}
-                                        onChange={(e) => handleUpdateStatus(item._id, e.target.value)}
-                                        className="px-2 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border-none outline-none cursor-pointer"
-                                    >
-                                        <option value="Released">Released</option>
-                                        <option value="Approved">Approved</option>
-                                        <option value="Partially Received">Partially Received</option>
-                                        <option value="Completed">Completed</option>
-                                        <option value="Cancelled">Cancelled</option>
-                                    </select>
-                                </div>
 
-                                <div className="text-xs space-y-1.5">
-                                    <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(item.date).toLocaleDateString('en-GB')}</span></div>
-                                    <div className="flex justify-between"><span className="text-gray-500">Total Amount:</span> <span className="font-extrabold text-purple-600">₹ {Number(item.totalAmount || item.amount || 0).toLocaleString()}</span></div>
-                                </div>
+                                    {/* Items & Amount Summary */}
+                                    <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
+                                        <div className="flex justify-between items-center text-slate-600 dark:text-slate-300">
+                                            <span className="font-semibold text-slate-500">Items:</span>
+                                            <span className="font-bold truncate max-w-[200px]">
+                                                {materialName} {Array.isArray(item.items) && item.items.length > 1 && `(+${item.items.length - 1} more)`}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                                            <span className="font-bold text-slate-700 dark:text-slate-300">Total Value:</span>
+                                            <span className="font-extrabold text-purple-600 dark:text-purple-400 font-mono text-sm">
+                                                ₹ {amount.toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
 
-                                <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
-                                    <button onClick={() => setSelectedPoPreview(item)} className="flex-1 py-1.5 text-xs font-bold bg-slate-100 text-slate-700 rounded-xl flex items-center justify-center gap-1">
-                                        <Eye size={14} /> View
-                                    </button>
-                                    <button onClick={() => downloadPOAsPDF(item)} className="flex-1 py-1.5 text-xs font-bold bg-purple-600 text-white rounded-xl flex items-center justify-center gap-1">
-                                        <Download size={14} /> PDF
-                                    </button>
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-1.5 pt-1">
+                                        <button onClick={() => setSelectedPoPreview(item)} className="flex-1 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1">
+                                            <Eye size={14} /> View
+                                        </button>
+                                        <button onClick={() => downloadPOAsPDF(item)} className="flex-1 py-2 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-sm">
+                                            <Download size={14} /> PDF
+                                        </button>
+                                        <button onClick={() => downloadPOAsExcel(item)} className="p-2 text-xs font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 rounded-xl flex items-center justify-center" title="Excel">
+                                            <FileSpreadsheet size={15} />
+                                        </button>
+                                        <button onClick={() => onEdit(item)} className="p-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 rounded-xl flex items-center justify-center" title="Edit">
+                                            <Edit2 size={15} />
+                                        </button>
+                                        {isWithin24Hours(item.createdAt || item.date) && (
+                                            <button onClick={() => onDelete(item._id)} className="p-2 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 rounded-xl flex items-center justify-center" title="Delete">
+                                                <Trash2 size={15} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </>
             )}
 
             {/* Clickable Outward PO Preview Modal with User History & Audit */}
             {selectedPoPreview && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[95vw] lg:max-w-6xl xl:max-w-7xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         {/* Modal Header */}

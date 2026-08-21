@@ -29,10 +29,10 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
           scrollbar-width: none;
         }
       `}} />
-      <div className="flex flex-col h-full bg-gray-50/50 sm:rounded-2xl p-2 sm:p-4 md:p-6 gap-3 sm:gap-6">
-        {/* Sub-navigation for Purchase */}
-        <div className="w-full overflow-x-auto no-scrollbar scroll-smooth">
-          <div className="flex gap-1 sm:gap-2 bg-white p-1 sm:p-1.5 rounded-xl shadow-sm border border-gray-100 w-max">
+      <div className="flex flex-col h-full bg-gray-50/50 dark:bg-slate-900/40 rounded-2xl p-2 sm:p-4 md:p-6 gap-3 sm:gap-4 md:gap-6">
+        {/* Sub-navigation for Purchase (Sticky & Scrollable on desktop + mobile) */}
+        <div className="shrink-0 sticky top-0 z-20 bg-gray-50/95 dark:bg-slate-900/95 backdrop-blur-md pb-1">
+          <div className="flex overflow-x-auto max-w-full no-scrollbar bg-white dark:bg-slate-800 p-1 sm:p-1.5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 w-full sm:w-fit gap-1 scroll-smooth">
             {tabs.map(tab => {
               const isActive = pathname.startsWith(tab.href);
               const Icon = tab.icon;
@@ -41,23 +41,14 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
                 <Link
                   key={tab.href}
                   href={tab.href}
-                  className={`relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 rounded-lg font-medium text-xs sm:text-sm transition-all duration-300 whitespace-nowrap ${isActive
-                      ? "text-cyan-600 font-semibold"
-                      : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                    }`}
+                  className={`shrink-0 relative flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 rounded-lg font-semibold text-xs sm:text-sm whitespace-nowrap transition-all duration-200 ${
+                    isActive
+                      ? "text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/60 shadow-xs font-bold"
+                      : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-slate-700/50"
+                  }`}
                 >
-                  {isActive && (
-                    <motion.div
-                      layoutId="activePurchaseTab"
-                      className="absolute inset-0 bg-cyan-50 rounded-lg"
-                      initial={false}
-                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                    />
-                  )}
-                  <div className="relative z-10 flex items-center gap-2">
-                    <Icon size={16} />
-                    {tab.name}
-                  </div>
+                  <Icon size={15} />
+                  <span>{tab.name}</span>
                 </Link>
               );
             })}
@@ -65,7 +56,7 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 w-full overflow-x-auto">
+        <div className="flex-1 min-w-0">
           {children}
         </div>
       </div>

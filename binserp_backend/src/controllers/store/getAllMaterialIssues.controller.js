@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -38,19 +39,17 @@ const updateComponentStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
 // ========== GRN (Goods Receipt Note) ==========
-
 
 export const getAllMaterialIssues = async (req, res) => {
   try {
     const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
+    req.getModel('User', userSchema);
 
     const companyId = getCompanyId(req);
     const materialIssues = await MaterialIssue.find({ company: companyId })
-      .populate("issuedBy", "name userId")
-      .populate("issuedTo", "name userId")
+      .populate("issuedBy", "name userId email")
+      .populate("issuedTo", "name userId email department")
       .sort({ createdAt: -1 });
 
     res.status(200).json({ materialIssues, count: materialIssues.length });

@@ -11,8 +11,8 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
     if (!isOpen || !request) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-xl">
                 {/* Header */}
                 <div className="p-6 border-b border-gray-100 flex justify-between items-start bg-gray-50/50 sticky top-0 z-10 backdrop-blur-md">
                     <div>
@@ -36,28 +36,36 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                 <div className="p-6 space-y-6">
                     {/* Metadata Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
                                 <Calendar size={14} /> Created Date
                             </div>
-                            <div className="text-gray-900 font-medium">
+                            <div className="text-gray-900 dark:text-gray-100 font-medium">
                                 {new Date(request.createdAt).toLocaleDateString()}
                             </div>
                         </div>
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
                                 <User size={14} /> Requested By
                             </div>
-                            <div className="text-gray-900 font-medium truncate" title={request.requestedBy?.name || 'Unknown'}>
+                            <div className="text-gray-900 dark:text-gray-100 font-medium truncate" title={request.requestedBy?.name || 'Unknown'}>
                                 {request.requestedBy?.name || 'Unknown'}
                             </div>
                         </div>
-                        <div className="p-3 bg-indigo-50/80 rounded-xl border border-indigo-100">
-                            <div className="flex items-center gap-2 text-indigo-700 text-xs uppercase tracking-wider font-semibold mb-1">
-                                <ShoppingCart size={14} /> Target Sales Order
+                        <div className={`p-3 rounded-xl border ${
+                            request.type === 'consumable' 
+                                ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/60' 
+                                : 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-100 dark:border-indigo-900/60'
+                        }`}>
+                            <div className={`flex items-center gap-2 text-xs uppercase tracking-wider font-semibold mb-1 ${
+                                request.type === 'consumable' ? 'text-amber-700 dark:text-amber-300' : 'text-indigo-700 dark:text-indigo-300'
+                            }`}>
+                                <ShoppingCart size={14} /> {request.type === 'consumable' ? 'Request Scope' : 'Target Sales Order'}
                             </div>
-                            <div className="text-indigo-900 font-bold font-mono">
-                                {request.soNumber || request.salesOrder?.orderNumber || 'General Request'}
+                            <div className={`font-bold font-mono text-sm ${
+                                request.type === 'consumable' ? 'text-amber-900 dark:text-amber-200' : 'text-indigo-900 dark:text-indigo-200'
+                            }`}>
+                                {request.soNumber || request.salesOrder?.orderNumber || (request.type === 'consumable' ? 'Consumable Issue' : 'General Request')}
                             </div>
                         </div>
                     </div>

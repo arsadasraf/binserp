@@ -6,7 +6,7 @@ import { useStoreData } from '@/src/features/store/components/hooks/useStoreData
 import InventoryTab from '@/src/features/store/components/tabs/InventoryTab';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 
-export default function RmBoStockPage() {
+export default function ConsumableStockPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
 
@@ -21,7 +21,7 @@ export default function RmBoStockPage() {
     }
   }, [router]);
 
-  const storeData = useStoreData("home", "vendor", token);
+  const storeData = useStoreData("home", "consumable-item", token);
 
   if (!token) return <LoadingSpinner />;
   
@@ -38,7 +38,7 @@ export default function RmBoStockPage() {
       <InventoryTab
         storeData={storeData}
         token={token}
-        activeSubTab="bo"
+        activeSubTab="consumable"
       />
     </div>
   );

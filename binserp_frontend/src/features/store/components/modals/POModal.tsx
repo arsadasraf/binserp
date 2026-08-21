@@ -405,11 +405,11 @@ export default function POModal({
     return (
         <>
             {/* Modal backdrop with blur */}
-            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[105] transition-opacity" onClick={onClose} />
+            <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[200] transition-opacity" onClick={onClose} />
 
             {/* Modal content - Extra Wide Layout */}
-            <div className="fixed inset-0 flex items-center justify-center z-[110] p-2 sm:p-4">
-                <div className="bg-white/95 backdrop-blur-2xl rounded-3xl shadow-2xl max-w-[96vw] w-full h-[94vh] flex flex-col border border-white/60 overflow-hidden">
+            <div className="fixed inset-0 flex items-center justify-center z-[200] p-2 sm:p-4">
+                <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-[96vw] w-full max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800 overflow-hidden">
                     
                     {/* Modal header */}
                     <div className="flex items-center justify-between px-8 py-5 border-b border-gray-100 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex-shrink-0">

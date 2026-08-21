@@ -193,13 +193,13 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                     </button>
                 </div>
 
-                {/* Search & Create Button */}
-                <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
+                {/* Search & Create Button - Responsive Toolbar */}
+                <div className="flex flex-col sm:flex-row flex-wrap gap-2.5 sm:gap-3 w-full md:w-auto items-stretch sm:items-center">
                     {/* Workflow Selector */}
                     <select
                         value={workflowFilter}
                         onChange={(e) => setWorkflowFilter(e.target.value as any)}
-                        className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium text-gray-700 bg-white"
+                        className="px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium text-gray-700 bg-white max-w-full sm:max-w-[210px] truncate"
                     >
                         <option value="all">All Workflows</option>
                         <option value="inventory-conversion">Store RM/BO Subcontracting Conversion</option>
@@ -210,9 +210,8 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                     <select
                         value={filterSupplier}
                         onChange={(e) => setFilterSupplier(e.target.value)}
-                        className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        className="px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white max-w-full sm:max-w-[180px] truncate font-medium"
                     >
-
                         <option value="">All Suppliers</option>
                         {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
                             const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
@@ -220,35 +219,37 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                             return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
                         })}
                     </select>
-                    <input
-                        type="month"
-                        value={filterMonth}
-                        onChange={(e) => setFilterMonth(e.target.value)}
-                        className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                    <input
-                        type="date"
-                        value={filterDay}
-                        onChange={(e) => setFilterDay(e.target.value)}
-                        className="px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                    />
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        <input
+                            type="month"
+                            value={filterMonth}
+                            onChange={(e) => setFilterMonth(e.target.value)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
+                        />
+                        <input
+                            type="date"
+                            value={filterDay}
+                            onChange={(e) => setFilterDay(e.target.value)}
+                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
+                        />
+                    </div>
 
-                    <div className="relative flex-1 md:w-48">
+                    <div className="relative flex-1 sm:w-48">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                         <input
                             type="text"
                             placeholder="Search Challan..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                            className="w-full pl-10 pr-4 py-2 text-xs sm:text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
                         />
                     </div>
                     <button
                         onClick={() => handleCreateChallan()}
-                        className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                        className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs sm:text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm active:scale-95"
                     >
                         <Plus size={16} />
-                        Create New Challan
+                        <span>Create New Challan</span>
                     </button>
                 </div>
             </div>
@@ -258,7 +259,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
             {loading ? (
                 <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
             ) : filteredChallans.length === 0 ? (
-                <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200 pb-28 sm:pb-20">
                     <Truck className="mx-auto h-12 w-12 text-gray-300 mb-3" />
                     <p className="text-gray-500">No job work items found</p>
                     {subTab === 'challan' && (
@@ -273,48 +274,48 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                     )}
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-1 gap-4 pb-28 sm:pb-20">
                     {filteredChallans.map(challan => (
-                        <div key={challan._id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow group">
+                        <div key={challan._id} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow group">
                             {/* Clickable Card Header */}
                             <div
                                 onClick={() => openPreview(challan)}
-                                className="flex flex-col md:flex-row justify-between gap-4 mb-4 border-b border-gray-50 pb-3 cursor-pointer hover:bg-slate-50/80 -mx-4 -mt-4 p-4 rounded-t-xl transition-colors"
+                                className="flex flex-col sm:flex-row justify-between gap-3 mb-4 border-b border-gray-50 pb-3 cursor-pointer hover:bg-slate-50/80 -mx-4 -mt-4 p-4 rounded-t-2xl transition-colors"
                                 title="Click to view full challan details preview"
                             >
                                 <div>
-                                    <div className="flex items-center gap-3 mb-1">
-                                        <span className="font-extrabold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5">
+                                    <div className="flex items-center gap-2.5 mb-1 flex-wrap">
+                                        <span className="font-extrabold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5 text-sm sm:text-base">
                                             {challan.challanNumber}
-                                            <Eye size={15} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                            <Eye size={15} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:inline" />
                                         </span>
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
                                             challan.status === 'Partial' ? 'bg-amber-100 text-amber-800' :
                                                 challan.status === 'Closed' ? 'bg-green-100 text-green-800' :
                                                     'bg-red-100 text-red-800'
                                             }`}>{challan.status}</span>
                                         {challan.ewayBillNo && (
-                                            <span className="bg-indigo-50 text-indigo-700 font-mono text-xs px-2 py-0.5 rounded border border-indigo-100">
+                                            <span className="bg-indigo-50 text-indigo-700 font-mono text-[11px] px-2 py-0.5 rounded border border-indigo-100">
                                                 E-Way: {challan.ewayBillNo}
                                             </span>
                                         )}
                                     </div>
-                                    <div className="text-sm text-gray-600 flex items-center gap-2">
-                                        <Factory size={14} /> {challan.vendor?.name || 'Unknown Vendor'}
+                                    <div className="text-xs sm:text-sm text-gray-600 flex items-center gap-1.5">
+                                        <Factory size={14} className="text-slate-400 shrink-0" /> <span className="font-semibold">{challan.vendor?.name || 'Unknown Vendor'}</span>
                                     </div>
                                 </div>
-                                <div className="text-right text-sm text-gray-500">
-                                    <div className="flex items-center justify-end gap-1"><Calendar size={14} /> Sent: {new Date(challan.date).toLocaleDateString()}</div>
+                                <div className="text-left sm:text-right text-xs text-gray-500 flex sm:flex-col justify-between items-center sm:items-end gap-1">
+                                    <div className="flex items-center gap-1"><Calendar size={13} /> Sent: {new Date(challan.date).toLocaleDateString()}</div>
                                     {challan.expectedReturnDate && (
-                                        <div className={`mt-1 font-medium ${new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed' ? 'text-red-500' : 'text-gray-500'}`}>
+                                        <div className={`font-semibold ${new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed' ? 'text-red-500' : 'text-gray-500'}`}>
                                             Due: {new Date(challan.expectedReturnDate).toLocaleDateString()}
                                         </div>
                                     )}
                                 </div>
                             </div>
 
-                            {/* Items Table */}
-                            <div className="overflow-x-auto cursor-pointer" onClick={() => openPreview(challan)}>
+                            {/* Desktop Items Table */}
+                            <div className="hidden md:block overflow-x-auto cursor-pointer" onClick={() => openPreview(challan)}>
                                 <table className="w-full text-sm">
                                     <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
                                         <tr>
@@ -345,7 +346,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                                                 return (
                                                     <tr key={`${idx}_${rIdx}`}>
                                                         {rIdx === 0 && (
-                                                            <td rowSpan={retList.length} className="px-3 py-2 font-semibold text-gray-900 border-r border-gray-100 align-top">
+                                                             <td rowSpan={retList.length} className="px-3 py-2 font-semibold text-gray-900 border-r border-gray-100 align-top">
                                                                 {item.itemName}
                                                             </td>
                                                         )}
@@ -380,6 +381,60 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                                 </table>
                             </div>
 
+                            {/* Mobile Items Card View */}
+                            <div className="md:hidden flex flex-col gap-2.5 cursor-pointer" onClick={() => openPreview(challan)}>
+                                {challan.items.map((item, idx) => {
+                                    const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
+                                        receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                                        quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
+                                        quantityReceived: item.quantityReceived || 0,
+                                        receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                                        status: item.status
+                                    }];
+
+                                    return (
+                                        <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Sent Item</span>
+                                                    <span className="font-bold text-slate-900 text-xs">{item.itemName}</span>
+                                                    <span className="text-[11px] text-indigo-600 font-medium block">Process: {item.processType}</span>
+                                                </div>
+                                                <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded text-[11px] font-bold">
+                                                    {item.quantitySent} {item.unit}
+                                                </span>
+                                            </div>
+
+                                            {retList.map((ret, rIdx) => {
+                                                const expQty = Number(ret.quantityToBeReceived) || 0;
+                                                const recvQty = Number(ret.quantityReceived) || 0;
+                                                const pending = expQty - recvQty;
+
+                                                return (
+                                                    <div key={rIdx} className="pt-2 border-t border-slate-200/60 flex justify-between items-center text-xs">
+                                                        <div>
+                                                            <span className="text-[10px] text-slate-400 uppercase block">Returning</span>
+                                                            <span className="font-semibold text-indigo-700">{ret.receivedItemName || item.itemName}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 text-right">
+                                                            <div>
+                                                                <span className="text-[10px] text-slate-400 block">Recv / Pend</span>
+                                                                <span className="font-bold text-slate-800">{recvQty} / <strong className="text-indigo-600">{pending > 0 ? pending : 0}</strong></span>
+                                                            </div>
+                                                            {ret.status === 'Completed' || pending <= 0 ? (
+                                                                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                                                            ) : (
+                                                                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-bold">In WIP</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
                             {/* Receive Timeline */}
                             {(challan as any).receiveHistory && (challan as any).receiveHistory.length > 0 && (
                                 <div className="mt-3 bg-gray-50 rounded-lg p-3 text-xs">
@@ -400,27 +455,27 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                                 </div>
                             )}
 
-                            {/* Actions */}
-                            <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
-                                <div className="flex gap-2">
-                                    <button onClick={() => openPreview(challan)} className="px-3 py-1.5 text-sm font-semibold text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1">
-                                        <Eye size={15} /> Preview
+                            {/* Actions - Responsive Grid on Mobile */}
+                            <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
+                                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                                    <button onClick={() => openPreview(challan)} className="px-3 py-1.5 text-xs sm:text-sm font-semibold text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                                        <Eye size={14} /> Preview
                                     </button>
                                     {challan.status !== 'Partial' && challan.status !== 'Closed' && (
                                         <>
-                                            <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-slate-100 rounded hover:bg-slate-200 transition-colors">Edit</button>
-                                            <button onClick={() => handleDelete(challan._id)} className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded hover:bg-red-100 transition-colors">Delete</button>
+                                            <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors">Edit</button>
+                                            <button onClick={() => handleDelete(challan._id)} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
                                         </>
                                     )}
-                                    <button onClick={() => exportChallanToPDF(challan)} className="px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition-colors flex items-center gap-1" title="Download PDF"><FileText size={16}/></button>
-                                    <button onClick={() => exportChallanToExcel(challan)} className="px-3 py-1.5 text-sm font-medium text-green-600 bg-green-50 rounded hover:bg-green-100 transition-colors flex items-center gap-1" title="Download Excel"><FileSpreadsheet size={16}/></button>
+                                    <button onClick={() => exportChallanToPDF(challan)} className="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1" title="Download PDF"><FileText size={15}/></button>
+                                    <button onClick={() => exportChallanToExcel(challan)} className="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors flex items-center gap-1" title="Download Excel"><FileSpreadsheet size={15}/></button>
                                 </div>
                                 {challan.status !== 'Closed' && (
                                     <button
                                         onClick={() => openReceiveModal(challan)}
-                                        className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-black transition-colors flex items-center gap-2"
+                                        className="w-full sm:w-auto px-4 py-2 bg-gray-900 text-white text-xs sm:text-sm font-bold rounded-xl hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-sm"
                                     >
-                                        <Truck size={16} /> Mark Received / Return
+                                        <Truck size={15} /> Mark Received / Return
                                     </button>
                                 )}
                             </div>

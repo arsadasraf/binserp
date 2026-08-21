@@ -2,7 +2,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import {
-  rmBoItemSchema, vendorSchema, customerSchema, locationSchema,
+  rmBoItemSchema, consumableItemSchema, vendorSchema, customerSchema, locationSchema,
   categorySchema, jobWorkSupplierSchema, fgItemSchema, inventorySchema, storePrefixSchema
 } from "../../models/store/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
@@ -26,8 +26,9 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
   let insertedCount = 0;
   let updatedCount = 0;
 
-  if (masterTab === 'rm-bo-item' || masterTab === 'materials' || masterTab === 'inventory-bo') {
-    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+  if (masterTab === 'rm-bo-item' || masterTab === 'materials' || masterTab === 'inventory-bo' || masterTab === 'consumable-item' || masterTab === 'consumables' || masterTab === 'inventory-consumable') {
+    const isConsumable = masterTab === 'consumable-item' || masterTab === 'consumables' || masterTab === 'inventory-consumable';
+    const ItemModel = isConsumable ? req.getModel('ConsumableItem', consumableItemSchema) : req.getModel('RmBoItem', rmBoItemSchema);
     const Category = req.getModel('Category', categorySchema);
     const Location = req.getModel('Location', locationSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
@@ -149,22 +150,23 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       const rmBoQuery = { company: companyId, name: { $regex: new RegExp(`^${itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } };
 
       if (overwrite) {
-        rmBoItem = await RmBoItem.findOneAndUpdate(
+        rmBoItem = await ItemModel.findOneAndUpdate(
           rmBoQuery,
           { $set: rmBoDoc },
           { upsert: true, new: true }
         );
         updatedCount++;
       } else {
-        rmBoItem = await RmBoItem.findOne(rmBoQuery);
+        rmBoItem = await ItemModel.findOne(rmBoQuery);
         if (!rmBoItem) {
-          rmBoItem = await RmBoItem.create(rmBoDoc);
+          rmBoItem = await ItemModel.create(rmBoDoc);
           insertedCount++;
         }
       }
 
       // 4. Upsert or Create Inventory Record
-      const materialCode = (item.code || item.materialCode || '').toString().trim() || `RM-${Math.floor(10000 + Math.random() * 90000)}`;
+      const defaultPrefix = isConsumable ? 'CON' : 'RM';
+      const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
       const invDoc = {
         company: companyId,
         materialCode,

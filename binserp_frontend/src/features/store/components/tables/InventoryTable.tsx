@@ -26,8 +26,8 @@ interface InventoryTableProps {
     inHouseData?: any[];
     onEdit: (item: InventoryItem) => void;
     onDelete: (id: string) => void;
-    activeSubTab: 'bo' | 'inhouse';
-    onSubTabChange: (tab: 'bo' | 'inhouse') => void;
+    activeSubTab: 'bo' | 'inhouse' | 'consumable' | string;
+    onSubTabChange: (tab: any) => void;
     hideTabs?: boolean;
     onItemClick?: (item: InventoryItem) => void;
     refetch?: () => void;
@@ -167,7 +167,7 @@ export default function InventoryTable({
     };
 
     const exportToExcel = () => {
-        const currentData = activeSubTab === 'bo' ? filteredData : filteredInHouseData;
+        const currentData = activeSubTab !== 'inhouse' ? filteredData : filteredInHouseData;
         const exportData = currentData.map(item => ({
             'Material Name': item.materialName || item.componentName || '-',
             'Code': item.materialCode || '-',
@@ -217,8 +217,8 @@ export default function InventoryTable({
                         </button>
                     )}
 
-                    {/* Single Excel Actions Dropdown Button (Export, Import, Template) */}
-                    <div className="relative" ref={excelMenuRef}>
+                    {/* Single Excel Actions Dropdown Button (Desktop only) */}
+                    <div className="relative hidden md:block" ref={excelMenuRef}>
                         <button
                             onClick={() => setIsExcelMenuOpen(!isExcelMenuOpen)}
                             className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-sm rounded-xl shadow-sm hover:shadow-emerald-200 dark:hover:shadow-none transition-all active:scale-95 cursor-pointer whitespace-nowrap"
@@ -255,7 +255,7 @@ export default function InventoryTable({
                                 <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
                                 <button
                                     onClick={() => {
-                                        downloadMasterExcelTemplate(activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items');
+                                        downloadMasterExcelTemplate(activeSubTab === 'consumable' ? 'consumable-item' : activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items');
                                         setIsExcelMenuOpen(false);
                                     }}
                                     className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-700 transition-colors text-left"
@@ -303,8 +303,8 @@ export default function InventoryTable({
             )}
 
             {/* Display Content */}
-            {activeSubTab === 'bo' ? (
-                // Existing Inventory Table (BO)
+            {activeSubTab !== 'inhouse' ? (
+                // Inventory Table (RM/BO & Consumables)
                 <>
                     {/* Desktop Table View */}
                     <div className="hidden md:block overflow-x-auto min-h-[400px]">
@@ -431,7 +431,7 @@ export default function InventoryTable({
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex flex-col gap-3 p-4">
+                    <div className="md:hidden flex flex-col gap-3 p-3 sm:p-4 pb-28 sm:pb-20">
                         {filteredData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No Bought Out items found.</div>
                         ) : (
@@ -645,7 +645,7 @@ export default function InventoryTable({
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex flex-col gap-3 p-4">
+                    <div className="md:hidden flex flex-col gap-3 p-3 sm:p-4 pb-28 sm:pb-20">
                         {filteredInHouseData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No InHouse components found.</div>
                         ) : (
@@ -722,7 +722,7 @@ export default function InventoryTable({
 
             <MasterExcelImportModal
                 isOpen={isImportModalOpen}
-                masterTab={activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items'}
+                masterTab={activeSubTab === 'consumable' ? 'consumable-item' : activeSubTab === 'bo' ? 'rm-bo-item' : 'inhouse-items'}
                 onClose={() => setIsImportModalOpen(false)}
                 onSuccess={() => {
                     if (refetch) refetch();

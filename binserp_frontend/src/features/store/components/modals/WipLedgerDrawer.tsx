@@ -20,7 +20,7 @@ export default function WipLedgerDrawer({ isOpen, onClose, wipItem }: WipLedgerD
     const totalOutward = (wipItem.totalIssuedQty || 0) + (wipItem.totalJobWorkSentQty || 0) || wipItem.totalSentQty || 0;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-end bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-end bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 w-full max-w-2xl h-full shadow-2xl flex flex-col border-l border-slate-200 dark:border-slate-800 animate-in slide-in-from-right duration-300">
                 
                 {/* Drawer Header */}

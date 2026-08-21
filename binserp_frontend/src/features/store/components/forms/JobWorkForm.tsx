@@ -514,7 +514,7 @@ export default function JobWorkForm({
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-md overflow-y-auto">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-md overflow-y-auto">
             {/* Wider Modal Window (max-w-6xl / xl:max-w-7xl) with Single Cohesive Indigo/Slate Theme */}
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-6xl xl:max-w-7xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-200">
                 

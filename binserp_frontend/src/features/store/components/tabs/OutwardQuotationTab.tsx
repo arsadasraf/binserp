@@ -464,26 +464,26 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="relative w-full sm:w-80">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input
-                        type="text"
-                        placeholder="Search Quote #, RFQ #, Customer or Item..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                    />
-                </div>
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-[200px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search Quote #, RFQ #, Customer or Item..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-3">
                     {/* Customer Filter Dropdown */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Customer:</label>
                         <select
                             value={filterCustomer}
                             onChange={(e) => setFilterCustomer(e.target.value)}
-                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-[200px] truncate"
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-[220px] truncate"
                         >
                             <option value="All">All Customers</option>
                             {(Array.isArray(customers) ? customers : []).map((c: any) => (
@@ -493,19 +493,19 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             ))}
                         </select>
                     </div>
+                </div>
 
-                    {/* Status Filter Tabs */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-                        {['All', 'Draft', 'Pending Approval', 'Approved', 'Sent', 'Closed', 'Rejected'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-3 py-1.5 rounded-lg transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                {status}
-                            </button>
-                        ))}
-                    </div>
+                {/* Status Filter Tabs - Scrollable on mobile */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                    {['All', 'Draft', 'Pending Approval', 'Approved', 'Sent', 'Closed', 'Rejected'].map(status => (
+                        <button
+                            key={status}
+                            onClick={() => setFilterStatus(status)}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' : 'text-slate-500'}`}
+                        >
+                            {status}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -520,9 +520,10 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                     <p className="text-xs text-slate-500 mt-1">Create an Outward Quotation to send formal pricing proposals to customers.</p>
                 </div>
             ) : (
-                /* Table View */
+                /* Table & Cards View */
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto">
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                 <tr>
@@ -639,12 +640,99 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Mobile Card View */}
+                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
+                        {filteredQuotations.map((quote) => {
+                            const total = Number(quote.totalAmount || quote.grandTotal || quote.subtotal || 0);
+
+                            return (
+                                <div
+                                    key={quote._id || quote.quotationNumber}
+                                    className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3"
+                                >
+                                    <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2.5">
+                                        <div>
+                                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm block">{quote.quotationNumber}</span>
+                                            <span className="text-[10px] text-slate-400">{new Date(quote.date || quote.createdAt || Date.now()).toLocaleDateString('en-GB')}</span>
+                                        </div>
+                                        <select
+                                            value={quote.status || 'Draft'}
+                                            onChange={(e) => handleStatusChange(quote._id, e.target.value)}
+                                            className={`px-2.5 py-1 rounded-full text-xs font-bold border-none outline-none cursor-pointer ${
+                                                quote.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                                                quote.status === 'Sent' ? 'bg-blue-100 text-blue-800' :
+                                                quote.status === 'Closed' ? 'bg-slate-100 text-slate-600' :
+                                                quote.status === 'Rejected' ? 'bg-rose-100 text-rose-800' :
+                                                'bg-amber-100 text-amber-800'
+                                            }`}
+                                        >
+                                            <option value="Draft">Draft</option>
+                                            <option value="Pending Approval">Pending Approval</option>
+                                            <option value="Approved">Approved</option>
+                                            <option value="Sent">Sent</option>
+                                            <option value="Rejected">Rejected</option>
+                                            <option value="Closed">Closed</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Customer</span>
+                                            <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{quote.customerName || quote.customer?.name || 'Customer'}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Linked RFQ</span>
+                                            <p className="font-mono text-slate-700 dark:text-slate-300 font-semibold">{quote.rfqNumber || quote.rfq?.rfqNumber || "Direct Quote"}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Prepared By</span>
+                                            <p className="text-slate-600 dark:text-slate-400">{getUserName(quote.preparedBy || quote.createdBy)}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Grand Total</span>
+                                            <p className="font-extrabold text-sm text-indigo-600 dark:text-indigo-400">
+                                                ₹{total.toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-700">
+                                        <button
+                                            onClick={() => setSelectedQuote(quote)}
+                                            className="flex-1 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg flex items-center justify-center gap-1"
+                                        >
+                                            <Eye size={13} /> View
+                                        </button>
+                                        <button
+                                            onClick={() => handlePrintQuotePdf(quote)}
+                                            className="flex-1 py-1.5 text-xs font-bold text-white bg-indigo-600 rounded-lg flex items-center justify-center gap-1 shadow-sm"
+                                        >
+                                            <Printer size={13} /> PDF
+                                        </button>
+                                        <button
+                                            onClick={() => handleOpenEditModal(quote)}
+                                            className="py-1.5 px-2.5 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg border border-indigo-200 dark:border-indigo-800"
+                                        >
+                                            <Edit2 size={13} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteQuote(quote)}
+                                            className="py-1.5 px-2.5 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
             {/* Create / Edit Outward Quotation Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
@@ -1016,7 +1104,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             {/* View Quotation & User Audit Details Modal */}
             {selectedQuote && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">

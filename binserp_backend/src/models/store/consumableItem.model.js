@@ -1,0 +1,35 @@
+import mongoose from "mongoose";
+
+// Consumable Item Schema
+export const consumableItemSchema = new mongoose.Schema(
+  {
+    company: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+    },
+    name: { type: String, required: true },
+    descriptions: { type: String },
+    minimumStock: { type: Number, default: 0 },
+    categoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+    },
+    locationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Location",
+    },
+    unit: { type: String, default: "PCS" },
+    photos: {
+      type: [String],
+      validate: [
+        (val) => val.length <= 2,
+        '{PATH} exceeds the limit of 2'
+      ]
+    }
+  },
+  { timestamps: true }
+);
+
+// Indexes
+consumableItemSchema.index({ company: 1, name: 1 }, { unique: true });

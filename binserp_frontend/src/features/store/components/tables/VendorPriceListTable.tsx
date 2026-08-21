@@ -52,7 +52,8 @@ export default function VendorPriceListTable({ vendorPriceLists, materials, onEd
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Desktop Table View */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
@@ -167,6 +168,105 @@ export default function VendorPriceListTable({ vendorPriceLists, materials, onEd
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Cards View */}
+      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40">
+        {filteredItems.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            <Tag className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+            <p className="text-xs">No RM/BO items found.</p>
+          </div>
+        ) : (
+          filteredItems.map((item) => {
+            const assignedConfigs = priceListMap[item._id?.toString()] || [];
+            const config = assignedConfigs[0];
+            const hasPrice = !!config;
+
+            return (
+              <div
+                key={item._id}
+                onClick={() => onEdit(config ? { ...config, material: item } : { material: item, isNewAssignment: true })}
+                className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-3 cursor-pointer"
+              >
+                <div className="flex items-center gap-3">
+                  {item.photos && item.photos.length > 0 ? (
+                    <img src={item.photos[0]} alt={item.name} className="w-12 h-12 rounded-xl object-cover border border-gray-200 dark:border-gray-700 flex-shrink-0" />
+                  ) : (
+                    <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-xl flex items-center justify-center text-gray-400 flex-shrink-0">
+                      <ImageIcon size={20} />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-bold text-gray-900 dark:text-white text-sm truncate">{item.name || "N/A"}</h4>
+                    <p className="text-xs text-gray-500 font-mono mt-0.5">{item.code || "-"}</p>
+                  </div>
+                  {hasPrice ? (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 rounded flex-shrink-0">
+                      Price Set
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 rounded border border-amber-200 flex-shrink-0">
+                      No Price
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-gray-50 dark:bg-gray-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-gray-100 dark:border-gray-800">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 font-medium">Type:</span>
+                    <span className="font-semibold text-gray-700 dark:text-gray-300">{item.type || "Material"}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 font-medium">Price (₹):</span>
+                    {hasPrice && config.price != null ? (
+                      <span className="text-emerald-600 dark:text-emerald-400 font-extrabold font-mono text-sm">
+                        ₹{Number(config.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 font-medium">Tax Rate:</span>
+                    {hasPrice && config.taxRate != null ? (
+                      <span className="text-amber-600 dark:text-amber-400 font-bold">{Number(config.taxRate)}%</span>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                  {hasPrice ? (
+                    <>
+                      <button
+                        onClick={() => onEdit({ ...config, material: item })}
+                        className="flex-1 py-2 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 rounded-xl flex items-center justify-center gap-1 border border-blue-200 dark:border-blue-800"
+                      >
+                        <Edit2 size={13} /> Edit Price
+                      </button>
+                      <button
+                        onClick={() => onDelete(config._id)}
+                        className="p-2 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:text-red-400 rounded-xl flex items-center justify-center border border-red-200 dark:border-red-800"
+                        title="Delete"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => onEdit({ material: item, isNewAssignment: true })}
+                      className="w-full py-2 text-xs font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-300 rounded-xl flex items-center justify-center gap-1 border border-indigo-200 dark:border-indigo-800"
+                    >
+                      <Plus size={14} /> Set Price Configuration
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

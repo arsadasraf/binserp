@@ -50,7 +50,7 @@ export default function StoreMasterExcelActions({
 
     return (
         <>
-            <div className="relative inline-block" ref={menuRef}>
+            <div className="relative hidden md:inline-block" ref={menuRef}>
                 <button
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
                     type="button"

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, consumableItemSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -38,16 +38,12 @@ const updateComponentStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
-// ========== GRN (Goods Receipt Note) ==========
-
-
 export const createMaterialRequest = async (req, res) => {
   try {
     const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
-      const Material = req.getModel('RmBoItem', rmBoItemSchema);
-      const FGItem = req.getModel('FGItem', fgItemSchema);
+    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
 
     const companyId = getCompanyId(req);
     let { requestNumber, department, items, priority, type, salesOrder, soNumber } = req.body;
@@ -63,18 +59,54 @@ export const createMaterialRequest = async (req, res) => {
     }
 
     const processedItems = [];
-    const isInhouse = type === 'inhouse';
+    const isInhouse = type === 'inhouse' || type === 'fg';
+    const isConsumable = type === 'consumable';
 
     for (const item of items) {
-      if (isInhouse) {
-        // Inhouse Logic: Validate against Component
+      if (isConsumable) {
+        // Consumable Logic
+        let consumableId = item.consumable || item.material || item._id;
+        let consumableDoc;
+
+        if (consumableId) {
+          consumableDoc = await ConsumableItem.findById(consumableId);
+        }
+        if (!consumableDoc && item.materialName) {
+          consumableDoc = await ConsumableItem.findOne({ company: companyId, name: item.materialName });
+        }
+
+        if (consumableDoc) {
+          processedItems.push({
+            ...item,
+            consumable: consumableDoc._id,
+            material: consumableDoc._id,
+            materialCode: consumableDoc.code || item.materialCode || '',
+            materialName: consumableDoc.name,
+            quantity: Number(item.quantity),
+            unit: item.unit || consumableDoc.unit || "PCS"
+          });
+        } else {
+          processedItems.push({
+            ...item,
+            materialName: item.materialName,
+            materialCode: item.materialCode || '',
+            quantity: Number(item.quantity),
+            unit: item.unit || "PCS"
+          });
+        }
+      } else if (isInhouse) {
+        // Inhouse Logic: Validate against Component or FGItem
         const componentId = item.component || item._id || item.material; // Allow various keys from frontend
         if (!componentId) {
           return res.status(400).json({ message: "Component ID is required for Inhouse request" });
         }
 
         const Component = req.getModel('Component', componentSchema);
-        const componentDoc = await Component.findById(componentId);
+        let componentDoc = await Component.findById(componentId);
+        if (!componentDoc) {
+          componentDoc = await FGItem.findById(componentId);
+        }
+
         if (!componentDoc) {
           return res.status(400).json({ message: `Component not found: ${componentId}` });
         }

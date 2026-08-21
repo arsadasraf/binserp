@@ -47,11 +47,14 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                     {issue.issueNumber}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2 py-1 rounded text-xs font-medium border ${issue.type === 'inhouse'
-                                        ? 'bg-purple-50 text-purple-700 border-purple-100'
-                                        : 'bg-blue-50 text-blue-700 border-blue-100'
-                                        }`}>
-                                        {issue.type === 'inhouse' ? 'Inhouse' : 'BO'}
+                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                                        issue.type === 'consumable'
+                                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                            : issue.type === 'inhouse' || issue.type === 'fg'
+                                                ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                    }`}>
+                                        {issue.type === 'consumable' ? 'Consumable' : issue.type === 'inhouse' || issue.type === 'fg' ? 'FG / Inhouse' : 'RM / BO'}
                                     </span>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
@@ -92,7 +95,7 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
             </div>
 
             {/* Mobile Card View */}
-            <div className="md:hidden flex flex-col divide-y divide-gray-100">
+            <div className="md:hidden flex flex-col divide-y divide-gray-100 pb-28 sm:pb-20">
                 {issues.map((issue) => (
                     <div
                         key={issue._id}
@@ -105,11 +108,14 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                 <span className="text-xs font-medium text-gray-500 block mb-1">Issue #{issue.issueNumber}</span>
                                 <div className="flex items-center gap-2">
                                     <h4 className="font-bold text-gray-900">{issue.department} Department</h4>
-                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${issue.type === 'inhouse'
-                                        ? 'bg-purple-50 text-purple-700 border-purple-100'
-                                        : 'bg-blue-50 text-blue-700 border-blue-100'
-                                        }`}>
-                                        {issue.type === 'inhouse' ? 'Inhouse' : 'BO'}
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${
+                                        issue.type === 'consumable'
+                                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                            : issue.type === 'inhouse' || issue.type === 'fg'
+                                                ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                    }`}>
+                                        {issue.type === 'consumable' ? 'Consumable' : issue.type === 'inhouse' || issue.type === 'fg' ? 'Inhouse' : 'BO'}
                                     </span>
                                 </div>
                             </div>
@@ -125,6 +131,7 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                         <div className="text-sm space-y-2">
                             <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(issue.date).toLocaleDateString()}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Issued To:</span> <span className="font-medium">{issue.issuedTo?.name || 'Unknown'}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-500">Issued By:</span> <span className="font-bold text-blue-600 dark:text-blue-400">{issue.issuedBy?.name || issue.issuedBy?.username || issue.issuedBy || 'System'}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Items:</span>
                                 <div className="text-right">
                                     {issue.items?.length > 0 ? (

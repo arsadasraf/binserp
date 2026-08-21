@@ -279,9 +279,10 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
                 </table>
             </div>
         `;
-    } else if (tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material') {
-        docTitle = 'RAW MATERIAL & BOUGHT OUT ITEM SPECIFICATION';
-        docThemeColor = '#2563eb'; // Blue
+    } else if (tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material' || tabKey === 'consumable-item' || tabKey === 'consumables') {
+        const isConsumable = tabKey === 'consumable-item' || tabKey === 'consumables';
+        docTitle = isConsumable ? 'CONSUMABLE ITEM SPECIFICATION' : 'RAW MATERIAL & BOUGHT OUT ITEM SPECIFICATION';
+        docThemeColor = isConsumable ? '#0d9488' : '#2563eb'; // Teal / Blue
         const m = item;
         const catName = typeof m.categoryId === 'object' ? m.categoryId?.name : m.category || '-';
         const catUnit = typeof m.categoryId === 'object' ? m.categoryId?.unit : m.unit || 'PCS';

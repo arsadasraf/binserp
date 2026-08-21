@@ -252,31 +252,32 @@ export default function GRNModal({
     /**
      * Helper function to get category unit from material
      */
-    const getCategoryUnit = (material: RmBoItem | undefined): string => {
+    const getCategoryUnit = (material: any): string => {
         if (!material) return '';
+        if (material.unit) return material.unit;
         if (typeof material.categoryId === 'object' && material.categoryId?.unit) {
             return material.categoryId.unit;
         }
-        return material.category?.unit || '';
+        return material.category?.unit || 'PCS';
     };
 
     /**
      * Helper function to get category name from material
      */
-    const getCategoryName = (material: RmBoItem | undefined): string => {
+    const getCategoryName = (material: any): string => {
         if (!material) return '';
         if (typeof material.categoryId === 'object' && material.categoryId?.name) {
             return material.categoryId.name;
         }
+        if (typeof material.category === 'string') return material.category;
         return material.category?.name || '';
     };
 
     /**
      * Helper function to get location ID from material
      */
-    const getLocationId = (material: RmBoItem | undefined): string => {
+    const getLocationId = (material: any): string => {
         if (!material) return '';
-        // Handle InHouse component location if needed, otherwise standard logic
         if (typeof material.locationId === 'object' && material.locationId?._id) {
             return material.locationId._id;
         }

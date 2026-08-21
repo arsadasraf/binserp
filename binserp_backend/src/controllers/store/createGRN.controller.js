@@ -1,6 +1,6 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, consumableItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { purchaseOrderSchema } from "../../models/purchase/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
@@ -50,6 +50,7 @@ export const createGRN = async (req, res) => {
   const Vendor = req.getModel('Vendor', vendorSchema);
   const Customer = req.getModel('Customer', customerSchema);
   const Material = req.getModel('RmBoItem', rmBoItemSchema);
+  const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
   const Component = req.getModel('Component', componentSchema);
   console.log(">>> [createGRN] HIT! Request received. (ORIGINAL FUNCTION)");
   console.log(">>> [createGRN] Body Type:", typeof req.body);
@@ -199,14 +200,17 @@ export const createGRN = async (req, res) => {
           // itemLocationId = ??? Components don't usually have stored location in schema yet?
 
         } else {
-          // Processing Material (BO)
+          // Processing Material or Consumable (BO)
           if (!item.material) {
-            return res.status(400).json({ message: "Material is required for each item" });
+            return res.status(400).json({ message: "Material/Item is required for each entry" });
           }
 
-          const materialDoc = await Material.findById(item.material);
+          let materialDoc = await Material.findById(item.material);
           if (!materialDoc) {
-            return res.status(400).json({ message: `Material not found: ${item.material}` });
+            materialDoc = await ConsumableItem.findById(item.material);
+          }
+          if (!materialDoc) {
+            return res.status(400).json({ message: `Material or Consumable not found: ${item.material}` });
           }
 
           materialId = item.material;
@@ -246,9 +250,12 @@ export const createGRN = async (req, res) => {
       }
 
       // Fetch material details
-      const materialDoc = await Material.findById(material);
+      let materialDoc = await Material.findById(material);
       if (!materialDoc) {
-        return res.status(400).json({ message: "Material not found" });
+        materialDoc = await ConsumableItem.findById(material);
+      }
+      if (!materialDoc) {
+        return res.status(400).json({ message: "Material or Consumable not found" });
       }
 
       const derivedUnit = materialDoc.unit || unit || "PCS";

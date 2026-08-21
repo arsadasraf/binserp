@@ -13,6 +13,7 @@ export { companyInfoSchema } from './companyInfo.model.js';
 export { jobWorkSchema } from './jobWork.model.js';
 
 export { rmBoItemSchema } from './rmBoItem.model.js';
+export { consumableItemSchema } from './consumableItem.model.js';
 export { fgItemSchema } from './fgItem.model.js';
 export { fgGRNSchema } from './fgGRN.model.js';
 export { rmInventoryMonthlySchema } from './rmInventoryMonthly.model.js';

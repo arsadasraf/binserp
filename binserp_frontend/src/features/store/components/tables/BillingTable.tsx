@@ -123,11 +123,11 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                 <div className="flex flex-wrap gap-2.5 w-full md:w-auto items-center">
                     {/* Customer Filter */}
                     <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-                        <User size={14} className="text-indigo-500" />
+                        <User size={14} className="text-indigo-500 shrink-0" />
                         <select
                             value={selectedCustomerFilter}
                             onChange={(e) => setSelectedCustomerFilter(e.target.value)}
-                            className="bg-transparent font-medium text-slate-700 dark:text-slate-200 focus:outline-none"
+                            className="bg-transparent font-medium text-slate-700 dark:text-slate-200 focus:outline-none max-w-[160px] truncate"
                         >
                             <option value="all">All Customers ({uniqueCustomers.length})</option>
                             {uniqueCustomers.map((c) => (
@@ -277,30 +277,41 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex flex-col gap-3 p-2">
+                    <div className="md:hidden flex flex-col gap-3 p-2 pb-28 sm:pb-20">
                         {filteredData.map((item) => (
                             <div key={item._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col gap-3">
                                 <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2">
                                     <div>
-                                        <span onClick={() => setSelectedInvoicePreview(item)} className="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold block mb-0.5 cursor-pointer">INV #{item.invoiceNumber}</span>
+                                        <span onClick={() => setSelectedInvoicePreview(item)} className="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold block mb-0.5 cursor-pointer hover:underline">INV #{item.invoiceNumber}</span>
                                         <h4 className="font-bold text-slate-900 dark:text-white">{item.customerName || "Customer"}</h4>
                                     </div>
+                                    {item.customerPoReference && (
+                                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[10px] font-mono font-semibold">
+                                            PO: {item.customerPoReference}
+                                        </span>
+                                    )}
                                 </div>
 
                                 <div className="text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
                                     <div className="flex justify-between">
-                                        <span>Creation Date & Time:</span> 
-                                        <span className="font-medium">{formatDateTime(item.createdAt || item.date)}</span>
+                                        <span className="text-slate-400 font-medium">Creation Date & Time:</span> 
+                                        <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDateTime(item.createdAt || item.date)}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span>Items:</span> 
-                                        <span>{item.items?.[0]?.materialName || '-'}{item.items?.length > 1 && ` (+${item.items.length - 1} more)`}</span>
+                                        <span className="text-slate-400 font-medium">Items:</span> 
+                                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.items?.[0]?.materialName || '-'}{item.items?.length > 1 && ` (+${item.items.length - 1} more)`}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span className="text-slate-400 font-medium">Total Amount:</span> 
+                                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                            ₹{(item.grandTotal || item.totalAmount || item.subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                        </span>
                                     </div>
                                 </div>
 
                                 <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                                    <button onClick={() => setSelectedInvoicePreview(item)} className="flex-1 py-2 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-indigo-200 dark:border-indigo-800"><Eye size={15} /> Preview</button>
-                                    <button onClick={() => generateEWayBill(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800"><Truck size={15} /> E-Way</button>
+                                    <button onClick={() => setSelectedInvoicePreview(item)} className="flex-1 py-2 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 transition-all"><Eye size={15} /> Preview</button>
+                                    <button onClick={() => generateEWayBill(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800 transition-all"><Truck size={15} /> E-Way</button>
                                 </div>
                             </div>
                         ))}

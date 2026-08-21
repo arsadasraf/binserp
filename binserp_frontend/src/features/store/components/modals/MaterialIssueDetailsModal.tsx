@@ -11,8 +11,8 @@ export default function MaterialIssueDetailsModal({ isOpen, onClose, issue }: Ma
     if (!isOpen || !issue) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-xl">
                 {/* Header */}
                 <div className="p-6 border-b border-gray-100 flex justify-between items-start bg-gray-50/50 sticky top-0 z-10 backdrop-blur-md">
                     <div>
@@ -34,28 +34,36 @@ export default function MaterialIssueDetailsModal({ isOpen, onClose, issue }: Ma
 
                 <div className="p-6 space-y-6">
                     {/* Metadata Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
                                 <Calendar size={14} /> Date
                             </div>
-                            <div className="text-gray-900 font-medium">
+                            <div className="text-gray-900 dark:text-gray-100 font-medium">
                                 {new Date(issue.date).toLocaleDateString()}
                             </div>
                         </div>
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
                                 <User size={14} /> Issued To
                             </div>
-                            <div className="text-gray-900 font-medium truncate" title={issue.issuedTo?.name || 'Unknown'}>
+                            <div className="text-gray-900 dark:text-gray-100 font-medium truncate" title={issue.issuedTo?.name || 'Unknown'}>
                                 {issue.issuedTo?.name || 'Unknown'}
                             </div>
                         </div>
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
+                        <div className="p-3 bg-blue-50/80 dark:bg-blue-950/40 rounded-xl border border-blue-100 dark:border-blue-900/60">
+                            <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 text-xs uppercase tracking-wider font-semibold mb-1">
+                                <User size={14} /> Issued By (Done By)
+                            </div>
+                            <div className="text-blue-950 dark:text-blue-200 font-bold truncate" title={issue.issuedBy?.name || issue.issuedBy?.username || issue.issuedBy || 'Store Admin'}>
+                                {issue.issuedBy?.name || issue.issuedBy?.username || issue.issuedBy || 'Store Admin'}
+                            </div>
+                        </div>
+                        <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
                                 <Package size={14} /> Department
                             </div>
-                            <div className="text-gray-900 font-medium">
+                            <div className="text-gray-900 dark:text-gray-100 font-medium">
                                 {issue.department || 'N/A'}
                             </div>
                         </div>

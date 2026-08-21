@@ -2,15 +2,15 @@
 
 import React, { useState } from 'react';
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from '@/src/store/services/storeService';
-import MaterialTable from '@/src/features/store/components/tables/MaterialTable';
+import ConsumableTable from '@/src/features/store/components/tables/ConsumableTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import Modal from '@/src/components/Modal';
 import MasterForm from '@/src/features/store/components/forms/MasterForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
-export default function MaterialsPage() {
-  const { data: materials = [], isLoading } = useGetStoreDataQuery("rm-bo-item");
+export default function ConsumablesPage() {
+  const { data: consumables = [], isLoading } = useGetStoreDataQuery("consumable-item");
   const { data: categories = [] } = useGetStoreDataQuery("category");
   const { data: locations = [] } = useGetStoreDataQuery("location");
   
@@ -23,20 +23,20 @@ export default function MaterialsPage() {
   const [previewItem, setPreviewItem] = useState<any>(null);
   const [formData, setFormData] = useState<StoreFormData>({});
 
-  const handleEdit = (material: any) => {
-    setEditingItem(material);
-    setFormData(material);
+  const handleEdit = (consumable: any) => {
+    setEditingItem(consumable);
+    setFormData(consumable);
     setIsModalOpen(true);
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this RM/BO item?")) {
+    if (confirm("Are you sure you want to delete this consumable item?")) {
       try {
-        await deleteRecord({ tab: "rm-bo-item", id }).unwrap();
+        await deleteRecord({ tab: "consumable-item", id }).unwrap();
       } catch (error: any) {
-        console.error("Failed to delete RM/BO item", error);
+        console.error("Failed to delete consumable item", error);
         const errMsg = error?.data?.message || error?.message || "Failed to delete item";
-        alert(`Error deleting RM/BO Item: ${errMsg}`);
+        alert(`Error deleting Consumable Item: ${errMsg}`);
       }
     }
   };
@@ -50,14 +50,16 @@ export default function MaterialsPage() {
           formData.photos.forEach((photo: any) => {
             if (photo instanceof File) {
               submitData.append('photos', photo);
-            } else if (typeof photo === 'string') {
-              submitData.append('photos', photo);
+            } else if (typeof photo === 'string' && photo.trim()) {
+              submitData.append('photos', photo.trim());
             }
           });
         } else if (formData[key as keyof StoreFormData] !== undefined && formData[key as keyof StoreFormData] !== null) {
           const val = formData[key as keyof StoreFormData];
           if (typeof val === 'object' && val !== null && '_id' in val) {
-            submitData.append(key, (val as any)._id);
+            if ((val as any)._id) submitData.append(key, String((val as any)._id));
+          } else if (typeof val === 'string') {
+            if (val.trim()) submitData.append(key, val.trim());
           } else {
             submitData.append(key, String(val));
           }
@@ -65,17 +67,17 @@ export default function MaterialsPage() {
       });
 
       if (editingItem) {
-        await updateRecord({ tab: "rm-bo-item", id: editingItem._id, body: submitData, isFormData: true }).unwrap();
+        await updateRecord({ tab: "consumable-item", id: editingItem._id, body: submitData, isFormData: true }).unwrap();
       } else {
-        await createRecord({ tab: "rm-bo-item", body: submitData, isFormData: true }).unwrap();
+        await createRecord({ tab: "consumable-item", body: submitData, isFormData: true }).unwrap();
       }
       setIsModalOpen(false);
       setFormData({});
       setEditingItem(null);
     } catch (error: any) {
-      console.error("Failed to save RM/BO Item", error);
-      const errMsg = error?.data?.message || error?.message || "Failed to save RM/BO Item. Please check all fields.";
-      alert(`Error saving RM/BO Item: ${errMsg}`);
+      console.error("Failed to save Consumable Item", error);
+      const errMsg = error?.data?.message || error?.error || error?.message || "Failed to save Consumable Item. Please check all required fields.";
+      alert(`Error saving Consumable Item: ${errMsg}`);
     }
   };
 
@@ -84,13 +86,13 @@ export default function MaterialsPage() {
   return (
     <div className="space-y-4">
       <div className="h-[calc(100vh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
-        <MaterialTable
+        <ConsumableTable
           onAdd={() => {
             setEditingItem(null);
             setFormData({});
             setIsModalOpen(true);
           }} 
-          data={materials} 
+          data={consumables} 
           onEdit={handleEdit} 
           onDelete={handleDelete}
           onView={(item) => setPreviewItem(item)}
@@ -102,7 +104,7 @@ export default function MaterialsPage() {
         isOpen={Boolean(previewItem)}
         onClose={() => setPreviewItem(null)}
         item={previewItem}
-        masterTab="rm-bo-item"
+        masterTab="consumable-item"
         onEdit={(item) => handleEdit(item)}
         onDelete={(id) => handleDelete(id)}
       />
@@ -111,31 +113,31 @@ export default function MaterialsPage() {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingItem ? "Edit RM/BO Item" : "Add RM/BO Item"}
+        title={editingItem ? "Edit Consumable Item" : "Add Consumable Item"}
         maxWidth="6xl"
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <MasterForm
             formData={formData}
             setFormData={setFormData}
-            masterTab="rm-bo-item"
+            masterTab="consumable-item"
             categories={categories}
             locations={locations}
           />
-          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+          <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isCreating || isUpdating}
-              className="px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              className="px-4 py-2 text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50"
             >
-              {isCreating || isUpdating ? "Saving..." : "Save RM/BO Item"}
+              {isCreating || isUpdating ? "Saving..." : "Save Consumable Item"}
             </button>
           </div>
         </form>

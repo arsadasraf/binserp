@@ -29,6 +29,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
         updateMaterialRequest, // For Reject
         createMaterialIssue, // For Issue
         materials,
+        consumables,
         inventoryList, // Current Inventory for stock display
         inHouseComponents, // Added
         salesOrders,
@@ -87,7 +88,8 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
                 type: request.type || 'bo', // Pass type
                 issuedTo: request.requestedBy?._id,
                 items: request.items.map((item: any) => ({
-                    material: item.material || (request.type === 'inhouse' ? undefined : item._id),
+                    material: item.material || (request.type === 'inhouse' ? undefined : (item.consumable || item._id)),
+                    consumable: item.consumable || (request.type === 'consumable' ? (item.material || item._id) : undefined),
                     // Support component for Inhouse
                     component: item.component || (request.type === 'inhouse' ? (item.material || item._id) : undefined),
                     materialName: item.materialName,
@@ -283,6 +285,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
                 onClose={() => setIsRequestModalOpen(false)}
                 onSubmit={handleCreateRequest}
                 materials={materials}
+                consumables={consumables}
                 inventoryList={inventoryList}
                 loading={loading}
                 inHouseComponents={inHouseComponents}

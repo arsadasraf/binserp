@@ -214,7 +214,7 @@ export default function VendorPOBucketView() {
           <p className="text-xs text-slate-400 mt-1">Try adjusting your vendor search or status filters.</p>
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-6 pb-28 sm:pb-20">
           {filteredBuckets.map((bucket) => {
             const pos = (bucket.pos || []).filter((po: any) => {
               if (statusFilter === 'all') return true;

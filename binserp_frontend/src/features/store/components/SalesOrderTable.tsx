@@ -219,14 +219,13 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
       
       {/* Table Toolbar */}
       <div className="p-4 sm:p-5 border-b border-gray-100 dark:border-gray-800 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-gray-50/40 dark:bg-gray-800/30">
-        
         {/* Left: Type Filter Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-gray-200/60 dark:bg-gray-800 rounded-xl">
+        <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl max-w-full overflow-x-auto no-scrollbar shrink-0">
           <button
             onClick={() => setTypeFilter("ALL")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
               typeFilter === "ALL" 
-                ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm" 
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" 
                 : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
             }`}
           >
@@ -234,7 +233,7 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
           </button>
           <button
             onClick={() => setTypeFilter("PO_BASED")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
               typeFilter === "PO_BASED" 
                 ? "bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm" 
                 : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
@@ -244,7 +243,7 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
           </button>
           <button
             onClick={() => setTypeFilter("DIRECT")}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
               typeFilter === "DIRECT" 
                 ? "bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm" 
                 : "text-gray-600 dark:text-gray-400 hover:text-gray-900"
@@ -255,8 +254,8 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
         </div>
 
         {/* Right: Search, Status Filter & Create Button */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 sm:w-64">
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -282,7 +281,7 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
 
           <button
             onClick={onCreate}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition-all"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition-all whitespace-nowrap"
           >
             <Plus size={16} />
             <span>Create Sales Order</span>
@@ -290,8 +289,8 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
         </div>
       </div>
 
-      {/* Table Data */}
-      <div className="overflow-x-auto">
+      {/* Desktop Table Data */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-xs">
           <thead className="bg-gray-50/70 dark:bg-gray-800/50 text-gray-500 border-b border-gray-100 dark:border-gray-800">
             <tr>
@@ -430,6 +429,116 @@ export const SalesOrderTable: React.FC<SalesOrderTableProps> = ({
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Card View */}
+      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40">
+        {filteredOrders.length === 0 ? (
+          <div className="text-center py-10 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+            <ShoppingCart className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+            <p className="font-semibold text-xs text-gray-500">No Sales Orders Found</p>
+          </div>
+        ) : (
+          filteredOrders.map((order) => {
+            const orderType = order.orderType || (order.poReference ? "PO_BASED" : "DIRECT");
+            const custName = order.customer?.name || order.customer?.customerName || (typeof order.customer === "string" ? order.customer : "Internal Stock Production");
+            const currentStat = order.status || order.fulfillmentStatus || "Pending";
+
+            return (
+              <div
+                key={order._id}
+                className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col gap-3"
+              >
+                <div className="flex items-start justify-between gap-2 border-b border-gray-100 dark:border-gray-700 pb-2.5">
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-gray-900 dark:text-white text-sm">{order.orderNumber}</span>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                        orderType === "PO_BASED"
+                          ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+                          : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                      }`}>
+                        {orderType === "PO_BASED" ? "PO-BASED" : "DIRECT"}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-gray-400">
+                      Created: {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                    </span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
+                    currentStat === 'Items Allocated' || currentStat === 'Fully Allocated' ? 'bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/50 dark:text-cyan-300' :
+                    currentStat === 'Moved to MRP' || currentStat === 'Moved MRP' ? 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/50 dark:text-indigo-300' :
+                    currentStat === 'Completed' || currentStat === 'Dispatched' ? 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300' :
+                    currentStat === 'In-Progress' || currentStat === 'Partially Dispatched' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300' :
+                    currentStat === 'Cancelled' ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/50 dark:text-red-300' :
+                    'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300'
+                  }`}>
+                    {currentStat}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Customer</span>
+                    <p className="font-semibold text-gray-800 dark:text-gray-200 truncate">{custName}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">PO Reference</span>
+                    <p className="font-mono text-gray-700 dark:text-gray-300">{order.poReference || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Target Date</span>
+                    <p className="text-gray-700 dark:text-gray-300 font-medium">
+                      {order.targetDate ? new Date(order.targetDate).toLocaleDateString() : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Total Amount</span>
+                    <p className="font-bold text-indigo-600 dark:text-indigo-400">
+                      ₹{Number(order.totalAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                </div>
+
+                {order.items && order.items.length > 0 && (
+                  <div className="bg-gray-50 dark:bg-gray-700/40 p-2 rounded-lg text-xs text-gray-600 dark:text-gray-300 flex justify-between items-center">
+                    <span><strong>{order.items.length}</strong> Line Item{order.items.length > 1 ? 's' : ''}</span>
+                    <span className="text-[10px] text-gray-400 truncate max-w-[150px]">
+                      {order.items[0]?.name || order.items[0]?.productName || ''}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <button
+                    onClick={() => onView(order)}
+                    className="flex-1 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center gap-1 border border-blue-200 dark:border-blue-800"
+                  >
+                    <Eye size={13} /> View
+                  </button>
+                  <button
+                    onClick={() => handleDownloadPDF(order)}
+                    className="flex-1 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center gap-1 border border-indigo-200 dark:border-indigo-800"
+                  >
+                    <Download size={13} /> PDF
+                  </button>
+                  <button
+                    onClick={() => onEdit(order)}
+                    className="py-1.5 px-2.5 text-xs font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/30 rounded-lg border border-amber-200 dark:border-amber-800"
+                  >
+                    <Edit2 size={13} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(order._id)}
+                    className="py-1.5 px-2.5 text-xs font-bold text-red-600 bg-red-50 dark:bg-red-900/30 rounded-lg border border-red-200 dark:border-red-800"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* MRP & FG Allocation Modal */}

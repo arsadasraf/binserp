@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgGRNSchema } from "../../models/store/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -38,10 +39,7 @@ const updateComponentStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
 // ========== GRN (Goods Receipt Note) ==========
-
 
 export const getItemGRNHistory = async (req, res) => {
   try {
@@ -52,23 +50,32 @@ export const getItemGRNHistory = async (req, res) => {
       return res.status(400).json({ message: "Item ID and Type are required" });
     }
 
+    // Register referenced models for dynamic connection population
+    req.getModel('Vendor', vendorSchema);
+    req.getModel('Customer', customerSchema);
+    req.getModel('RmBoItem', rmBoItemSchema);
+    req.getModel('FGItem', fgGRNSchema);
+    req.getModel('User', userSchema);
+
     const query = { company: companyId };
     let grns = [];
 
-    if (type === 'bo') {
+    if (type === 'bo' || type === 'consumable' || type === 'rm-bo') {
       const GRN = req.getModel('GRN', grnSchema);
       query['items.material'] = id;
       grns = await GRN.find(query)
         .populate("supplier", "name")
         .populate("customer", "name")
+        .populate("receivedBy", "name userId email")
         .sort({ date: -1, createdAt: -1 })
-        .limit(5);
-    } else if (type === 'inhouse') {
+        .limit(15);
+    } else if (type === 'inhouse' || type === 'fg') {
       const FGGRN = req.getModel('FGGRN', fgGRNSchema);
       query['items.fgItem'] = id;
       grns = await FGGRN.find(query)
+        .populate("receivedBy", "name userId email")
         .sort({ date: -1, createdAt: -1 })
-        .limit(5);
+        .limit(15);
     }
 
     res.status(200).json({ grns });

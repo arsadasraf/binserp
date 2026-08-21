@@ -317,26 +317,26 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="relative w-full sm:w-80">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input
-                        type="text"
-                        placeholder="Search Quote #, RFQ #, or Vendor..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                    />
-                </div>
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-[200px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search Quote #, RFQ #, or Vendor..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-3">
                     {/* Vendor Filter Dropdown */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Vendor:</label>
                         <select
                             value={filterVendor}
                             onChange={(e) => setFilterVendor(e.target.value)}
-                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-cyan-500/20 max-w-[200px] truncate"
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-cyan-500/20 max-w-[220px] truncate"
                         >
                             <option value="All">All Vendors</option>
                             {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
@@ -346,19 +346,19 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                             ))}
                         </select>
                     </div>
+                </div>
 
-                    {/* Status Filter */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-                        {['All', 'Pending Approval', 'Approved', 'Rejected'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-3 py-1.5 rounded-lg transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                {status}
-                            </button>
-                        ))}
-                    </div>
+                {/* Status Filter - Scrollable on mobile */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                    {['All', 'Pending Approval', 'Approved', 'Rejected'].map(status => (
+                        <button
+                            key={status}
+                            onClick={() => setFilterStatus(status)}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm font-bold' : 'text-slate-500'}`}
+                        >
+                            {status}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -373,10 +373,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                     <p className="text-xs text-slate-500 mt-1">Select an Outward RFQ and log vendor quoted rates to auto-compare bids.</p>
                 </div>
             ) : (
-
-                /* Clean Inward Quotation Table List */
+                /* Table & Mobile Cards Views */
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto">
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                 <tr>
@@ -472,12 +472,92 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Mobile Cards View */}
+                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
+                        {filteredQuotations.map((q) => {
+                            const qId = (q._id || q.id || q.quotationNumber)?.toString();
+                            const rankInfo = rfqRankMap.get(qId) || { rank: 'L1', l1Total: Number(q.grandTotal || q.subtotal || 0), totalQuotes: 1 };
+                            const isL1 = rankInfo.rank === 'L1';
+                            const isL2 = rankInfo.rank === 'L2';
+
+                            return (
+                                <div key={q._id || q.quotationNumber} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                                    <div className="flex justify-between items-start">
+                                        <div>
+                                            <span onClick={() => setSelectedQuote(q)} className="text-xs font-mono font-extrabold text-cyan-600 dark:text-cyan-400 cursor-pointer block">
+                                                {q.quotationNumber}
+                                            </span>
+                                            <h4 className="font-bold text-slate-800 dark:text-slate-200 text-sm mt-0.5">{q.vendorName}</h4>
+                                            <div className="text-[11px] text-slate-400">
+                                                {new Date(q.date || q.createdAt || Date.now()).toLocaleDateString('en-GB')}
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col items-end gap-1">
+                                            {isL1 ? (
+                                                <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-full font-black text-[10px]">
+                                                    L1 (Lowest)
+                                                </span>
+                                            ) : isL2 ? (
+                                                <span className="px-2 py-0.5 bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-full font-bold text-[10px]">
+                                                    L2 (2nd Lowest)
+                                                </span>
+                                            ) : null}
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                q.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                            }`}>
+                                                {q.status || 'Pending'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-slate-100 dark:border-slate-800">
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500 font-semibold">Linked RFQ:</span>
+                                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                {q.rfqNumber || 'Direct'}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between items-center pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                                            <span className="font-bold text-slate-700 dark:text-slate-300">Grand Total:</span>
+                                            <span className="font-extrabold text-cyan-600 dark:text-cyan-400 font-mono text-sm">
+                                                ₹{Number(q.grandTotal || q.subtotal || 0).toLocaleString()}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 pt-1">
+                                        <button
+                                            onClick={() => setSelectedQuote(q)}
+                                            className="flex-1 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1"
+                                        >
+                                            <Eye size={14} /> View
+                                        </button>
+                                        <button
+                                            onClick={() => handlePrintQuotePdf(q)}
+                                            className="p-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center"
+                                            title="PDF"
+                                        >
+                                            <Printer size={15} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleOpenPoModal(q)}
+                                            className="flex-1 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-sm"
+                                        >
+                                            <ShoppingCart size={14} /> {q.status === 'Approved' ? 'Re-Gen PO' : 'Gen PO'}
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
             {/* Preview Quotation & Multi-Vendor Bid Evaluation Modal */}
             {selectedQuote && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         {/* Header Banner */}
@@ -666,8 +746,8 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
             {/* Create Inward Quotation Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[90vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         <div className="p-6 bg-cyan-950 text-white flex justify-between items-center flex-shrink-0 border-b border-cyan-900">
                             <div className="flex items-center gap-3">

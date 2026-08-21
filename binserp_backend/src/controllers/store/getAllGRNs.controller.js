@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { userSchema } from "../../models/user/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -38,10 +39,7 @@ const updateComponentStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
 // ========== GRN (Goods Receipt Note) ==========
-
 
 export const getAllGRNs = async (req, res) => {
   const GRN = req.getModel('GRN', grnSchema);
@@ -50,11 +48,12 @@ export const getAllGRNs = async (req, res) => {
   req.getModel('Customer', customerSchema);
   req.getModel('RmBoItem', rmBoItemSchema);
   req.getModel('Component', componentSchema);
+  req.getModel('User', userSchema);
 
   try {
     const companyId = getCompanyId(req);
     const grns = await GRN.find({ company: companyId })
-      .populate("receivedBy", "name userId")
+      .populate("receivedBy", "name userId email")
       .populate("supplier", "name code")
       .populate("customer", "name code")
       .populate("items.material", "name code category")

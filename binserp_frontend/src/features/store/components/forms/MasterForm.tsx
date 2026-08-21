@@ -94,11 +94,12 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
         </h3>
     );
 
-    if (masterTab === "rm-bo-item") {
+    if (masterTab === "rm-bo-item" || masterTab === "consumable-item") {
+        const isConsumable = masterTab === "consumable-item";
         return (
             <div className="space-y-6">
                 <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-                    {renderSectionHeader("RM/BO Item Details")}
+                    {renderSectionHeader(isConsumable ? "Consumable Item Details" : "RM/BO Item Details", isConsumable ? "bg-teal-600" : "bg-indigo-600")}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Row 1: Name, Description, Minimum Stock */}
                         <div>
@@ -143,15 +144,15 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         {/* Row 2: Category, Location, Unit */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Category <span className="text-red-500">*</span>
+                                Category {!isConsumable && <span className="text-red-500">*</span>}
                             </label>
                             <select
-                                required
+                                required={!isConsumable}
                                 value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
                                 onChange={(e) => handleCategoryChange(e.target.value)}
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                             >
-                                <option value="">Select Category</option>
+                                <option value="">Select Category (Optional)</option>
                                 {categories.map((category) => (
                                     <option key={category._id} value={category._id}>
                                         {category.name}

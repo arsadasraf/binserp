@@ -57,10 +57,10 @@ export default function StoreTabs() {
         })}
       </div>
 
-      {/* Mobile View: Fixed Bottom Navigation Bar */}
+      {/* Mobile View: Fixed Bottom Navigation Bar for Store Module */}
       <div
-        className={`md:hidden fixed bottom-2 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border border-gray-200 dark:border-gray-800 shadow-2xl rounded-2xl z-[100] flex justify-around py-3 px-4 transition-all duration-300 ${
-          showBottomNav ? "translate-y-0 opacity-100" : "translate-y-24 opacity-0 pointer-events-none"
+        className={`md:hidden fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800 shadow-2xl z-30 flex items-center justify-around h-16 px-2 pb-safe transition-all duration-300 ${
+          showBottomNav ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"
         }`}
       >
         {tabs.map((tab) => {
@@ -70,20 +70,20 @@ export default function StoreTabs() {
             <Link
               key={tab.id}
               href={tab.href}
-              className={`flex flex-col items-center justify-center gap-1 transition-all ${
+              className={`flex-1 flex flex-col items-center justify-center h-full transition-all ${
                 isActive
-                  ? "text-blue-600 dark:text-blue-400 scale-105 font-extrabold"
-                  : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                  ? "text-blue-600 dark:text-blue-400 font-extrabold"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
               }`}
             >
               <div
-                className={`p-2 rounded-xl transition-all ${
-                  isActive ? "bg-blue-50 dark:bg-blue-900/40" : "bg-transparent"
+                className={`p-1.5 rounded-xl transition-all ${
+                  isActive ? "bg-blue-50 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400" : "bg-transparent"
                 }`}
               >
-                <Icon size={18} />
+                <Icon size={20} />
               </div>
-              <span className="text-[10px] tracking-tight">{tab.label}</span>
+              <span className="text-[10px] tracking-tight font-medium mt-0.5">{tab.label}</span>
             </Link>
           );
         })}

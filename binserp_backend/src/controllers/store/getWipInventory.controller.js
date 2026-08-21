@@ -16,7 +16,7 @@ export const getWipInventory = async (req, res) => {
     req.getModel("JobWorkSupplier", jobWorkSupplierSchema);
 
     const companyId = getCompanyId(req);
-    const requestedType = (req.query.type || "rm-bo").toLowerCase(); // 'rm-bo' vs 'fg'
+    const requestedType = (req.query.type || "rm-bo").toLowerCase(); // 'consumable' vs 'rm-bo' vs 'fg'
 
     const wipMap = new Map();
 
@@ -26,11 +26,14 @@ export const getWipInventory = async (req, res) => {
       .sort({ date: -1 });
 
     materialIssues.forEach((issue) => {
-      const isIssueInhouse = issue.type === "inhouse";
+      const isConsumable = issue.type === "consumable";
+      const isIssueInhouse = issue.type === "inhouse" || issue.type === "fg";
+      const isRmBo = !isConsumable && !isIssueInhouse;
 
       // Filter by requested WIP inventory category
+      if (requestedType === "consumable" && !isConsumable) return;
       if (requestedType === "fg" && !isIssueInhouse) return;
-      if (requestedType === "rm-bo" && isIssueInhouse) return;
+      if (requestedType === "rm-bo" && !isRmBo) return;
 
       const issueDept = issue.department || issue.issuedTo?.department || "Shop Floor Assembly";
 
@@ -46,8 +49,8 @@ export const getWipInventory = async (req, res) => {
             id: key,
             sentItemName: matName,
             receivedItemName: matName,
-            itemType: isIssueInhouse ? "fg" : "bo",
-            categoryType: isIssueInhouse ? "FG / In-House WIP" : "RM/BO WIP",
+            itemType: isConsumable ? "consumable" : isIssueInhouse ? "fg" : "bo",
+            categoryType: isConsumable ? "Consumable WIP" : isIssueInhouse ? "FG / In-House WIP" : "RM/BO WIP",
             vendorName: `Department: ${issueDept}`,
             processType: "Shop Floor Issue",
             unit: unit,
@@ -97,11 +100,14 @@ export const getWipInventory = async (req, res) => {
 
       (challan.items || []).forEach((sentItem) => {
         const itemType = (sentItem.itemType || "bo").toLowerCase();
+        const isConsumable = itemType === "consumable";
         const isItemInhouse = itemType === "fg" || itemType === "inhouse" || itemType === "component";
+        const isRmBo = !isConsumable && !isItemInhouse;
 
         // Filter by requested WIP inventory category
+        if (requestedType === "consumable" && !isConsumable) return;
         if (requestedType === "fg" && !isItemInhouse) return;
-        if (requestedType === "rm-bo" && isItemInhouse) return;
+        if (requestedType === "rm-bo" && !isRmBo) return;
 
         const sentName = sentItem.itemName || "Sent Material";
         const sentQty = Number(sentItem.quantitySent) || 0;
@@ -114,7 +120,7 @@ export const getWipInventory = async (req, res) => {
           ? sentItem.returningItems
           : [{
               receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
-              receivedItemType: sentItem.receivedItemType || (isItemInhouse ? "fg" : "bo"),
+              receivedItemType: sentItem.receivedItemType || (isConsumable ? "consumable" : isItemInhouse ? "fg" : "bo"),
               quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
               quantityReceived: Number(sentItem.quantityReceived) || 0,
               receivingUnit: sentItem.receivingUnit || unit,
@@ -133,8 +139,8 @@ export const getWipInventory = async (req, res) => {
               id: key,
               sentItemName: sentName,
               receivedItemName: retName,
-              itemType: isItemInhouse ? "fg" : "bo",
-              categoryType: isItemInhouse ? "FG / In-House WIP" : "RM/BO WIP",
+              itemType: isConsumable ? "consumable" : isItemInhouse ? "fg" : "bo",
+              categoryType: isConsumable ? "Consumable WIP" : isItemInhouse ? "FG / In-House WIP" : "RM/BO WIP",
               vendor: vendorObj,
               vendorName,
               processType,

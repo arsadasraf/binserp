@@ -401,8 +401,8 @@ export default function DCModal({
     });
 
     return (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[105] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-7xl w-full max-h-[95vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[200] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-7xl w-full max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto">
                 
                 {/* Modal Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-20">

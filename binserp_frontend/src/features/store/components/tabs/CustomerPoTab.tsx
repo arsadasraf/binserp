@@ -534,26 +534,26 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className="relative w-full sm:w-80">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input
-                        type="text"
-                        placeholder="Search PO #, Customer or Item..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                    />
-                </div>
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-[200px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            placeholder="Search PO #, Customer or Item..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                    </div>
 
-                <div className="flex flex-wrap items-center gap-3">
                     {/* Customer Filter Dropdown */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                         <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Customer:</label>
                         <select
                             value={filterCustomer}
                             onChange={(e) => setFilterCustomer(e.target.value)}
-                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-[200px] truncate"
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-[220px] truncate"
                         >
                             <option value="All">All Customers</option>
                             {(Array.isArray(customers) ? customers : []).map((c: any) => (
@@ -563,19 +563,19 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             ))}
                         </select>
                     </div>
+                </div>
 
-                    {/* Status Filter Tabs */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
-                        {['All', 'Received', 'Accepted', 'Processing', 'Sales Order Generated', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-3 py-1.5 rounded-lg transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm' : 'text-slate-500'}`}
-                            >
-                                {status}
-                            </button>
-                        ))}
-                    </div>
+                {/* Status Filter Tabs - Scrollable on mobile */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                    {['All', 'Received', 'Accepted', 'Processing', 'Sales Order Generated', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
+                        <button
+                            key={status}
+                            onClick={() => setFilterStatus(status)}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold' : 'text-slate-500'}`}
+                        >
+                            {status}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -590,9 +590,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     <p className="text-xs text-slate-500 mt-1">Log incoming customer POs to initiate fulfillment, DCs, and invoicing.</p>
                 </div>
             ) : (
-                /* Table View */
+                /* Table & Cards View */
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto">
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                 <tr>
@@ -757,12 +758,139 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             </tbody>
                         </table>
                     </div>
+
+                    {/* Mobile Card View */}
+                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
+                        {filteredPoList.map((po) => {
+                            const total = Number(po.totalAmount || po.subtotal || 0);
+                            const createdDate = po.createdAt ? new Date(po.createdAt) : (po.date ? new Date(po.date) : null);
+                            const hoursDiff = createdDate ? (Date.now() - createdDate.getTime()) / (1000 * 60 * 60) : 0;
+                            const isWithin24h = hoursDiff <= 24;
+                            const isSoGenerated = po.status === 'Sales Order Generated' || po.status === 'Partially Dispatched' || po.status === 'Completed';
+
+                            return (
+                                <div
+                                    key={po._id || po.poNumber}
+                                    className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3"
+                                >
+                                    <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2.5">
+                                        <div>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{po.poNumber}</span>
+                                                {(po.pdf || (Array.isArray(po.photos) && po.photos.length > 0)) && (
+                                                    <a
+                                                        href={po.pdf || po.photos[0]}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                            po.pdf 
+                                                                ? "bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-400 border border-red-200" 
+                                                                : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 border border-indigo-200"
+                                                        }`}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {po.pdf ? <FileText size={10} /> : <Paperclip size={10} />}
+                                                        {po.pdf ? "PDF" : "Photo"}
+                                                    </a>
+                                                )}
+                                            </div>
+                                            {po.quotationReference?.quotationNumber && (
+                                                <span className="text-[10px] text-slate-400 font-mono block">
+                                                    Ref Quote: {po.quotationReference.quotationNumber}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <select
+                                            value={po.status || 'Received'}
+                                            onChange={(e) => handleStatusChange(po._id, e.target.value)}
+                                            className={`px-2.5 py-1 rounded-full text-xs font-bold border-none outline-none cursor-pointer ${
+                                                po.status === 'Completed' || po.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800' :
+                                                po.status === 'Sales Order Generated' ? 'bg-blue-100 text-blue-800' :
+                                                po.status === 'Partially Dispatched' || po.status === 'Processing' ? 'bg-indigo-100 text-indigo-800' :
+                                                po.status === 'Cancelled' ? 'bg-rose-100 text-rose-800' :
+                                                'bg-amber-100 text-amber-800'
+                                            }`}
+                                        >
+                                            <option value="Received">Received</option>
+                                            <option value="Accepted">Accepted</option>
+                                            <option value="Processing">Processing</option>
+                                            <option value="Sales Order Generated">Sales Order Generated</option>
+                                            <option value="Partially Dispatched">Partially Dispatched</option>
+                                            <option value="Completed">Completed</option>
+                                            <option value="Cancelled">Cancelled</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Customer</span>
+                                            <p className="font-semibold text-slate-800 dark:text-slate-200 truncate">{po.customerName || po.customer?.name || 'Customer'}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">PO Date</span>
+                                            <p className="font-medium text-slate-700 dark:text-slate-300">{po.date ? new Date(po.date).toLocaleDateString('en-GB') : 'N/A'}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Created By</span>
+                                            <p className="text-slate-600 dark:text-slate-400">{getUserName(po.createdBy || po.receivedBy)}</p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Total Amount</span>
+                                            <p className="font-extrabold text-sm text-blue-600 dark:text-blue-400">
+                                                ₹{total.toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-700">
+                                        <button
+                                            onClick={() => setSelectedPo(po)}
+                                            className="flex-1 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-700 rounded-lg flex items-center justify-center gap-1"
+                                        >
+                                            <Eye size={13} /> View
+                                        </button>
+                                        <button
+                                            onClick={() => setAcknowledgingPo(po)}
+                                            className="flex-1 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center gap-1 border border-indigo-200 dark:border-indigo-800"
+                                        >
+                                            <FileText size={13} /> OA / Accept
+                                        </button>
+                                        {!isSoGenerated && (
+                                            <button
+                                                onClick={() => handleGenerateSalesOrder(po._id)}
+                                                disabled={generatingOrder}
+                                                className="py-1.5 px-2.5 text-xs font-bold text-white bg-emerald-600 rounded-lg flex items-center justify-center gap-1 shadow-sm disabled:opacity-50"
+                                            >
+                                                <ShoppingCart size={13} /> Gen Order
+                                            </button>
+                                        )}
+                                        {isWithin24h && (
+                                            <>
+                                                <button
+                                                    onClick={() => handleOpenEditModal(po)}
+                                                    className="py-1.5 px-2 text-xs font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800"
+                                                >
+                                                    <Edit2 size={13} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeletePo(po)}
+                                                    className="py-1.5 px-2 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
             {/* Create / Edit Customer PO Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
@@ -1213,7 +1341,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
             {/* View Details & Document Fulfillment Timeline Modal */}
             {selectedPo && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
                         <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">

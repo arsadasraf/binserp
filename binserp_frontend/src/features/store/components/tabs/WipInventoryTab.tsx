@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Layers, Search, Factory, ArrowUpRight, ArrowDownLeft, CheckCircle2, Clock, Eye, RefreshCw, Filter, Boxes, Package, ShieldCheck } from 'lucide-react';
+import { Layers, Search, Factory, ArrowUpRight, ArrowDownLeft, CheckCircle2, Clock, Eye, RefreshCw, Filter, Boxes, Package, ShieldCheck, Sparkles } from 'lucide-react';
 import { apiGet } from '@/src/lib/api';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 
@@ -11,7 +11,7 @@ interface WipInventoryTabProps {
 }
 
 export default function WipInventoryTab({ token, companyInfo, onError, onSuccess }: WipInventoryTabProps) {
-    const [wipType, setWipType] = useState<'rm-bo' | 'fg'>('rm-bo');
+    const [wipType, setWipType] = useState<'consumable' | 'rm-bo' | 'fg'>('consumable');
     const [loading, setLoading] = useState(true);
     const [wipItems, setWipItems] = useState<any[]>([]);
     const [summary, setSummary] = useState({
@@ -85,34 +85,44 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
     return (
         <div className="space-y-6 animate-in fade-in duration-300">
             
-            {/* Top Sub-Tab Switcher: RM/BO WIP vs FG WIP */}
+            {/* Top Sub-Tab Switcher: Consumables vs RM/BO vs FG WIP */}
             <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2">
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl gap-1 flex-1 sm:flex-none">
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl gap-1 overflow-x-auto no-scrollbar flex-1 sm:flex-none">
+                    <button
+                        onClick={() => { setWipType('consumable'); setSearchTerm(''); setFilterVendor(''); }}
+                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                            wipType === 'consumable'
+                                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md shadow-amber-200 dark:shadow-none'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                    >
+                        <Sparkles size={16} /> Consumables WIP
+                    </button>
                     <button
                         onClick={() => { setWipType('rm-bo'); setSearchTerm(''); setFilterVendor(''); }}
-                        className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex-1 sm:flex-none ${
+                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                             wipType === 'rm-bo'
                                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-200 dark:shadow-none'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                         }`}
                     >
-                        <Package size={16} /> RM / BO WIP Inventory
+                        <Package size={16} /> RM / BO WIP
                     </button>
                     <button
                         onClick={() => { setWipType('fg'); setSearchTerm(''); setFilterVendor(''); }}
-                        className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex-1 sm:flex-none ${
+                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                             wipType === 'fg'
                                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-200 dark:shadow-none'
                                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                         }`}
                     >
-                        <Boxes size={16} /> FG / In-House WIP Inventory
+                        <Boxes size={16} /> FG / In-House WIP
                     </button>
                 </div>
 
-                <div className="text-xs text-slate-500 font-medium px-4 py-1 flex items-center gap-2">
+                <div className="text-xs text-slate-500 font-medium px-4 py-1 flex items-center gap-2 shrink-0">
                     <ShieldCheck size={16} className="text-emerald-500" />
-                    <span>Auto-records all main store stock deductions</span>
+                    <span>Auto-records all store stock deductions</span>
                 </div>
             </div>
 
@@ -173,11 +183,11 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
             </div>
 
             {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
                 
-                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
                     {/* Search */}
-                    <div className="relative flex-1 md:w-64">
+                    <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
                             type="text"
@@ -192,7 +202,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                     <select
                         value={filterVendor}
                         onChange={(e) => setFilterVendor(e.target.value)}
-                        className="px-3.5 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                        className="w-full sm:w-auto px-3.5 py-2 text-xs font-bold border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 max-w-[220px] truncate"
                     >
                         <option value="">All Destinations</option>
                         {vendorsList.map(v => (
@@ -200,23 +210,23 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                         ))}
                     </select>
 
-                    {/* Status Filter Tabs */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
+                    {/* Status Filter Tabs - Scrollable on mobile */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
                         <button
                             onClick={() => setFilterStatus('In-Process')}
-                            className={`px-3 py-1.5 rounded-lg transition-all ${filterStatus === 'In-Process' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm' : 'text-slate-500'}`}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === 'In-Process' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' : 'text-slate-500'}`}
                         >
                             In-Process
                         </button>
                         <button
                             onClick={() => setFilterStatus('Completed')}
-                            className={`px-3 py-1.5 rounded-lg transition-all ${filterStatus === 'Completed' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm' : 'text-slate-500'}`}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === 'Completed' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm font-bold' : 'text-slate-500'}`}
                         >
                             Completed
                         </button>
                         <button
                             onClick={() => setFilterStatus('All')}
-                            className={`px-3 py-1.5 rounded-lg transition-all ${filterStatus === 'All' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500'}`}
+                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === 'All' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm font-bold' : 'text-slate-500'}`}
                         >
                             All Status
                         </button>
@@ -233,7 +243,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                 </button>
             </div>
 
-            {/* Main WIP Inventory Table */}
+            {/* Main WIP Inventory Content */}
             {loading ? (
                 <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
@@ -241,12 +251,15 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
             ) : filteredItems.length === 0 ? (
                 <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                     <Layers className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No {wipType === 'rm-bo' ? 'RM/BO' : 'FG'} WIP Inventory Items</h3>
+                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                        No {wipType === 'consumable' ? 'Consumable' : wipType === 'rm-bo' ? 'RM/BO' : 'FG'} WIP Inventory Items
+                    </h3>
                     <p className="text-xs text-slate-500 mt-1">Material Issues & Job-Work Dispatches will automatically record here when stock is reduced from main store.</p>
                 </div>
             ) : (
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto">
+                    {/* Desktop Table View */}
+                    <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                 <tr>
@@ -324,6 +337,78 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                                 })}
                             </tbody>
                         </table>
+                    </div>
+
+                    {/* Mobile Card View */}
+                    <div className="md:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800 pb-28 sm:pb-20">
+                        {filteredItems.map((item) => {
+                            const totalOutward = (item.totalIssuedQty || 0) + (item.totalJobWorkSentQty || 0) || item.totalSentQty || 0;
+                            const totalReturned = item.totalReturnedQty || item.totalReceivedQty || 0;
+
+                            return (
+                                <div
+                                    key={item.id}
+                                    className="p-4 flex flex-col gap-3 bg-white dark:bg-slate-900 active:bg-slate-50 dark:active:bg-slate-800/60 transition-colors"
+                                >
+                                    {/* Card Top: Item & Status */}
+                                    <div className="flex justify-between items-start gap-2">
+                                        <div className="min-w-0">
+                                            <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
+                                                {item.sentItemName}
+                                            </h4>
+                                            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                                <Factory size={13} className="text-slate-400 shrink-0" />
+                                                <span className="truncate">{item.vendorName || 'Department'}</span>
+                                                {item.processType && (
+                                                    <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0">
+                                                        {item.processType}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
+                                            item.status === 'In-Process' 
+                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' 
+                                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                        }`}>
+                                            {item.status}
+                                        </span>
+                                    </div>
+
+                                    {/* Metrics Grid */}
+                                    <div className="grid grid-cols-3 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center">
+                                        <div>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Outward</span>
+                                            <span className="text-xs font-black text-amber-600 dark:text-amber-400">
+                                                {totalOutward} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Returned</span>
+                                            <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                                                {totalReturned} <span className="text-[10px] font-normal text-slate-400">{item.receivingUnit || item.unit}</span>
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Pending WIP</span>
+                                            <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {item.pendingWipQty} <span className="text-[10px] font-normal text-slate-400">{item.receivingUnit || item.unit}</span>
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Card Footer Actions */}
+                                    <div className="flex justify-end pt-1">
+                                        <button
+                                            onClick={() => openLedger(item)}
+                                            className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-xs"
+                                        >
+                                            <Eye size={14} /> View WIP Ledger & Transactions
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}

@@ -35,6 +35,18 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
             { label: 'Description', key: 'description', sample: 'High tensile steel rod grade EN8' }
         ]
     },
+    'consumable-item': {
+        title: 'Consumable Items Master Template',
+        filename: 'Template_Consumable_Items.xlsx',
+        columns: [
+            { label: 'Consumable Name*', key: 'name', required: true, sample: 'Hydraulic Oil ISO 68' },
+            { label: 'Category Name*', key: 'category', required: true, sample: 'Lubricants & Oils' },
+            { label: 'Unit*', key: 'unit', required: true, sample: 'Ltr' },
+            { label: 'Minimum Stock', key: 'minStock', sample: 50 },
+            { label: 'Storage Location', key: 'storageLocation', sample: 'Oil Store / Drum 2' },
+            { label: 'Description', key: 'description', sample: 'High performance anti-wear hydraulic oil' }
+        ]
+    },
     'fg-items': {
         title: 'Finished Goods Items Master Template',
         filename: 'Template_Finished_Goods_Master.xlsx',
@@ -209,6 +221,9 @@ export const resolveMasterTabKey = (tabKey: string): string => {
         'materials': 'rm-bo-item',
         'rm-bo': 'rm-bo-item',
         'rm-bo-item': 'rm-bo-item',
+        'consumables': 'consumable-item',
+        'consumable': 'consumable-item',
+        'consumable-item': 'consumable-item',
         'finished-goods': 'fg-items',
         'fg-item': 'fg-items',
         'fg-items': 'fg-items',
@@ -270,6 +285,60 @@ export const downloadMasterExcelTemplate = (masterTab: string) => {
     XLSX.writeFile(wb, config.filename);
 };
 
+export const STORE_COLUMN_ALIASES: Record<string, string[]> = {
+    // Finished Goods
+    'name': ['fg name', 'finished good name', 'finished goods name', 'item name', 'product name', 'name', 'component name', 'material name', 'supplier name', 'customer name', 'location name', 'category name'],
+    'code': ['fg code', 'item code', 'part code', 'part no', 'part number', 'code', 'component code', 'supplier code', 'vendor code', 'customer code', 'location code', 'category code', 'material code'],
+    'type': ['item type', 'type', 'fg item type', 'item type (assembly/sub assembly/component)', 'storage type', 'customer type', 'component type'],
+    'unit': ['unit', 'uom', 'unit of measure', 'default unit', 'unit*'],
+    'location': ['storage location', 'location', 'store location', 'location name'],
+    'revisionNumber': ['revision number', 'revision', 'rev no', 'rev', 'rev.', 'revision no'],
+    'reorderLevel': ['reorder level', 'reorder qty', 'reorder point', 'min stock', 'minimum stock', 'reorder'],
+    'description': ['description', 'desc', 'specification', 'specifications', 'specs', 'remarks', 'note', 'notes', 'descriptions'],
+    'bomItemName': ['bom item name', 'bom item', 'bom component', 'bom material', 'raw material', 'bom part name', 'component'],
+    'bomItemType': ['bom item type', 'bom type', 'bom item type (material/fgitem)', 'bom type (material/fgitem)'],
+    'bomQuantity': ['bom quantity', 'bom qty', 'quantity', 'qty', 'bom count'],
+    'bomUnit': ['bom unit', 'bom uom', 'unit'],
+
+    // Raw Material & Bought Out
+    'category': ['category', 'category name', 'material category', 'item category'],
+    'minStock': ['min stock', 'minimum stock', 'min qty', 'minimum quantity', 'reorder level'],
+    'storageLocation': ['storage location', 'location', 'store location', 'location name'],
+
+    // Inhouse Components
+    'openingStock': ['opening stock', 'stock', 'current stock', 'qty', 'quantity', 'initial stock'],
+    'rate': ['standard rate', 'standard rate (inr)', 'rate', 'unit rate', 'price', 'unit price', 'cost'],
+
+    // Vendors, Customers & Suppliers
+    'contactPerson': ['contact person', 'contact name', 'person name', 'contact'],
+    'phone': ['phone number', 'phone', 'mobile', 'mobile number', 'contact number', 'telephone'],
+    'email': ['email', 'email address', 'mail', 'email id'],
+    'gst': ['gstin', 'gst', 'gst number', 'gst no'],
+    'pan': ['pan number', 'pan', 'pan no'],
+    'address': ['address', 'billing address', 'street', 'location address'],
+    'city': ['city', 'town'],
+    'state': ['state', 'province'],
+    'pincode': ['pincode', 'pin code', 'postal code', 'zip', 'zip code'],
+    'customerType': ['customer type', 'type of customer', 'client type'],
+
+    // Category & Location
+    'hsnCode': ['hsn code', 'hsn', 'hsn / sac', 'sac code'],
+
+    // PO, RFQ & Quotation
+    'vendorName': ['vendor name', 'supplier name', 'vendor'],
+    'poNumber': ['po number', 'purchase order number', 'po no'],
+    'rfqNumber': ['rfq number', 'rfq no', 'request for quotation number'],
+    'quotationNumber': ['quotation number', 'quote number', 'quotation no', 'quote no'],
+    'materialName': ['material name', 'item name', 'part name'],
+    'quantity': ['quantity', 'qty', 'order qty', 'order quantity'],
+    'unitPrice': ['unit price', 'unit price (inr)', 'price', 'rate', 'unit rate'],
+    'gstRate': ['gst rate', 'gst rate (%)', 'gst %', 'tax rate'],
+    'transportType': ['transport type', 'transportation', 'dispatch mode', 'transport'],
+    'packingType': ['packing type', 'packaging', 'package type'],
+    'targetDate': ['target delivery date', 'delivery date', 'target date', 'expected date'],
+    'specifications': ['specifications', 'specification', 'specs', 'description']
+};
+
 export interface ParsedMasterExcelResult {
     validRows: any[];
     invalidRows: { rowNumber: number; data: any; errors: string[] }[];
@@ -277,68 +346,174 @@ export interface ParsedMasterExcelResult {
 }
 
 /**
+ * Normalizes a string for header/alias comparison by stripping punctuation, asterisks, spaces, etc.
+ */
+const cleanHeaderStr = (s: any): string => {
+    return String(s || '').toLowerCase().replace(/[\*\(\)\s_:\-\/\.]/g, '');
+};
+
+/**
  * Parses and validates an uploaded Excel file for the specified Master Tab
  */
 export const parseMasterExcelFile = async (file: File, masterTab: string): Promise<ParsedMasterExcelResult> => {
     const key = resolveMasterTabKey(masterTab);
     const config = MASTER_EXCEL_CONFIGS[key] || MASTER_EXCEL_CONFIGS['rm-bo-item'];
-    
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
 
         reader.onload = (e) => {
             try {
                 const buffer = e.target?.result;
-                const workbook = XLSX.read(buffer, { type: 'array' });
-                
+                if (!buffer) {
+                    return reject(new Error("File buffer is empty or could not be read"));
+                }
+
+                const data = new Uint8Array(buffer as ArrayBuffer);
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                    return reject(new Error("Uploaded Excel file has no sheets"));
+                }
+
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
+                if (!worksheet) {
+                    return reject(new Error("First sheet in workbook is empty or invalid"));
+                }
 
-                // Convert sheet to array of objects
-                const rawJsonData: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+                // Read 2D array to identify headers accurately
+                const rawSheetData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
-                if (!Array.isArray(rawJsonData) || rawJsonData.length === 0) {
+                if (!Array.isArray(rawSheetData) || rawSheetData.length === 0) {
                     return resolve({ validRows: [], invalidRows: [], totalCount: 0 });
                 }
 
-                // Map header labels to schema keys
-                const labelToKeyMap: Record<string, MasterColumnConfig> = {};
+                // Find the header row (the first row containing non-empty text)
+                let headerRowIndex = 0;
+                while (
+                    headerRowIndex < rawSheetData.length &&
+                    (!Array.isArray(rawSheetData[headerRowIndex]) ||
+                        rawSheetData[headerRowIndex].every((c: any) => String(c ?? '').trim() === ''))
+                ) {
+                    headerRowIndex++;
+                }
+
+                if (headerRowIndex >= rawSheetData.length) {
+                    return resolve({ validRows: [], invalidRows: [], totalCount: 0 });
+                }
+
+                const uploadedHeaders: string[] = rawSheetData[headerRowIndex].map((h: any) => String(h ?? '').trim());
+                const dataRows = rawSheetData.slice(headerRowIndex + 1);
+
+                // Map configured column keys to uploaded column indices
+                const colKeyToHeaderIndex: Record<string, number> = {};
+                const usedHeaderIndices = new Set<number>();
+
+                // Pass 1: Direct match against column label or key
                 config.columns.forEach(col => {
-                    const cleanLabel = col.label.replace(/\*/g, '').trim().toLowerCase();
-                    labelToKeyMap[cleanLabel] = col;
+                    const cleanColLabel = cleanHeaderStr(col.label);
+                    const cleanColKey = cleanHeaderStr(col.key);
+
+                    uploadedHeaders.forEach((uploadedHeader, index) => {
+                        if (usedHeaderIndices.has(index)) return;
+                        const cleanUploaded = cleanHeaderStr(uploadedHeader);
+                        if (cleanUploaded && (cleanUploaded === cleanColLabel || cleanUploaded === cleanColKey)) {
+                            colKeyToHeaderIndex[col.key] = index;
+                            usedHeaderIndices.add(index);
+                        }
+                    });
                 });
+
+                // Pass 2: Match against aliases
+                config.columns.forEach(col => {
+                    if (colKeyToHeaderIndex[col.key] !== undefined) return;
+                    const aliases = STORE_COLUMN_ALIASES[col.key] || [];
+
+                    uploadedHeaders.forEach((uploadedHeader, index) => {
+                        if (usedHeaderIndices.has(index)) return;
+                        const cleanUploaded = cleanHeaderStr(uploadedHeader);
+                        if (!cleanUploaded) return;
+
+                        if (aliases.some(alias => cleanHeaderStr(alias) === cleanUploaded)) {
+                            colKeyToHeaderIndex[col.key] = index;
+                            usedHeaderIndices.add(index);
+                        }
+                    });
+                });
+
+                // Pass 3: Fuzzy / Substring match for missing required columns
+                config.columns.forEach(col => {
+                    if (colKeyToHeaderIndex[col.key] !== undefined) return;
+                    const cleanColLabel = cleanHeaderStr(col.label);
+
+                    uploadedHeaders.forEach((uploadedHeader, index) => {
+                        if (usedHeaderIndices.has(index)) return;
+                        const cleanUploaded = cleanHeaderStr(uploadedHeader);
+                        if (!cleanUploaded) return;
+
+                        if (cleanUploaded.includes(cleanColLabel) || cleanColLabel.includes(cleanUploaded)) {
+                            colKeyToHeaderIndex[col.key] = index;
+                            usedHeaderIndices.add(index);
+                        }
+                    });
+                });
+
+                // Pass 4: Positional fallback if primary 'name' column is not mapped and index 0 is free
+                if (colKeyToHeaderIndex['name'] === undefined && uploadedHeaders.length > 0 && !usedHeaderIndices.has(0)) {
+                    colKeyToHeaderIndex['name'] = 0;
+                    usedHeaderIndices.add(0);
+                }
 
                 const validRows: any[] = [];
                 const invalidRows: { rowNumber: number; data: any; errors: string[] }[] = [];
+                let totalNonEmptyRows = 0;
 
-                rawJsonData.forEach((row, index) => {
-                    const rowNumber = index + 2; // Accounting for 1-based header row
+                dataRows.forEach((row, rowIdx) => {
+                    if (!Array.isArray(row)) return;
+
+                    // Skip completely empty rows
+                    const isAllEmpty = row.every((cell: any) => cell === '' || cell === null || cell === undefined || String(cell).trim() === '');
+                    if (isAllEmpty) return;
+
+                    totalNonEmptyRows++;
+                    const rowNumber = headerRowIndex + rowIdx + 2; // 1-based index
                     const mappedItem: Record<string, any> = {};
+                    const rawRowData: Record<string, any> = {};
                     const errors: string[] = [];
 
-                    // Standardize keys
-                    Object.keys(row).forEach(rawHeader => {
-                        const cleanHeader = rawHeader.replace(/\*/g, '').trim().toLowerCase();
-                        const colConfig = labelToKeyMap[cleanHeader];
-
-                        if (colConfig) {
-                            let val = row[rawHeader];
-                            if (typeof val === 'string') val = val.trim();
-                            mappedItem[colConfig.key] = val;
+                    // Populate mappedItem based on discovered column mappings
+                    config.columns.forEach(col => {
+                        const colIdx = colKeyToHeaderIndex[col.key];
+                        if (colIdx !== undefined && colIdx < row.length) {
+                            let cellVal = row[colIdx];
+                            if (cellVal !== undefined && cellVal !== null) {
+                                if (typeof cellVal === 'string') {
+                                    cellVal = cellVal.trim();
+                                }
+                                mappedItem[col.key] = cellVal;
+                            }
                         }
                     });
 
-                    // Check required fields
+                    // Build rawRowData for debug preview
+                    uploadedHeaders.forEach((h, idx) => {
+                        if (h && idx < row.length) {
+                            rawRowData[h] = row[idx];
+                        }
+                    });
+
+                    // Validate required fields
                     config.columns.filter(c => c.required).forEach(reqCol => {
                         const val = mappedItem[reqCol.key];
                         if (val === undefined || val === null || String(val).trim() === '') {
-                            errors.push(`${reqCol.label.replace(/\*/g, '')} is required`);
+                            errors.push(`${reqCol.label.replace(/\*/g, '').trim()} is required`);
                         }
                     });
 
-                    // Validate numeric types
-                    ['openingStock', 'minStock', 'maxStock', 'rate', 'gstRate', 'reorderLevel', 'bomQuantity'].forEach(numKey => {
-                        if (mappedItem[numKey] !== undefined && mappedItem[numKey] !== '') {
+                    // Validate and convert numeric types safely
+                    ['openingStock', 'minStock', 'maxStock', 'rate', 'gstRate', 'reorderLevel', 'bomQuantity', 'quantity', 'unitPrice'].forEach(numKey => {
+                        if (mappedItem[numKey] !== undefined && mappedItem[numKey] !== null && String(mappedItem[numKey]).trim() !== '') {
                             const parsedNum = Number(mappedItem[numKey]);
                             if (isNaN(parsedNum)) {
                                 errors.push(`${numKey} must be a valid number`);
@@ -351,43 +526,65 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                     if (errors.length === 0) {
                         validRows.push(mappedItem);
                     } else {
-                        invalidRows.push({ rowNumber, data: row, errors });
+                        invalidRows.push({ rowNumber, data: rawRowData, errors });
                     }
                 });
 
+                // Finished Goods: Multi-row BOM aggregation
                 if (key === 'fg-items') {
-                    // Group rows by FG Name to assemble multi-row BOM components
                     const groupedMap = new Map<string, any>();
+                    let lastFgKey = '';
+
                     validRows.forEach(item => {
-                        const fgKey = (item.name || '').toLowerCase().trim();
-                        if (!groupedMap.has(fgKey)) {
-                            groupedMap.set(fgKey, {
+                        const rawName = String(item.name || '').trim();
+                        const fgKey = rawName.toLowerCase();
+
+                        // If row has no name but has BOM components, attach to previous FG if available
+                        const targetKey = fgKey || lastFgKey;
+                        if (!targetKey) return;
+
+                        if (!groupedMap.has(targetKey)) {
+                            groupedMap.set(targetKey, {
                                 ...item,
+                                name: rawName || targetKey,
+                                type: String(item.type || 'Assembly').trim(),
+                                unit: String(item.unit || 'Nos').trim(),
+                                code: String(item.code || '').trim(),
+                                location: String(item.location || '').trim(),
+                                revisionNumber: String(item.revisionNumber || '').trim(),
+                                reorderLevel: Number(item.reorderLevel || 0) || 0,
+                                description: String(item.description || '').trim(),
                                 bom: []
                             });
                         }
-                        const existing = groupedMap.get(fgKey);
+
+                        const existing = groupedMap.get(targetKey);
                         if (item.bomItemName && String(item.bomItemName).trim() !== '') {
                             existing.bom.push({
                                 itemName: String(item.bomItemName).trim(),
-                                itemType: (item.bomItemType || 'Material').trim(),
+                                itemType: String(item.bomItemType || 'Material').trim(),
                                 quantity: Number(item.bomQuantity || 1) || 1,
-                                unit: (item.bomUnit || 'Nos').trim()
+                                unit: String(item.bomUnit || 'Nos').trim()
                             });
                         }
+
+                        if (fgKey) {
+                            lastFgKey = fgKey;
+                        }
                     });
+
                     const aggregatedValidRows = Array.from(groupedMap.values());
                     return resolve({
                         validRows: aggregatedValidRows,
                         invalidRows,
-                        totalCount: rawJsonData.length
+                        totalCount: totalNonEmptyRows
                     });
                 }
 
                 resolve({
                     validRows,
                     invalidRows,
-                    totalCount: rawJsonData.length
+                    totalCount: totalNonEmptyRows
                 });
             } catch (err) {
                 console.error("Excel parse error:", err);
@@ -399,3 +596,4 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
         reader.readAsArrayBuffer(file);
     });
 };
+

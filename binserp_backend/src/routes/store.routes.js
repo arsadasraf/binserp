@@ -38,6 +38,10 @@ import {
   getAllRmBoItems,
   updateRmBoItem,
   deleteRmBoItem,
+  createConsumableItem,
+  getAllConsumableItems,
+  updateConsumableItem,
+  deleteConsumableItem,
   getCompanyInfo,
   updateCompanyInfo,
   createJobWorkChallan,
@@ -78,7 +82,7 @@ const router = express.Router();
 router.use(verifyJWT);
 
 // Restrict Master routes for Executives
-router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/company-info", "/fg-item", "/masters/bulk-import"], restrictExecutive);
+router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/consumable-item", "/company-info", "/fg-item", "/masters/bulk-import"], restrictExecutive);
 
 router.post("/masters/bulk-import", bulkImportMasters);
 
@@ -144,6 +148,12 @@ router.post("/rm-bo-item", upload.array('photos', 2), createRmBoItem);
 router.get("/rm-bo-item", getAllRmBoItems);
 router.put("/rm-bo-item/:id", upload.array('photos', 2), updateRmBoItem);
 router.delete("/rm-bo-item/:id", deleteRmBoItem);
+
+// Consumable Item routes
+router.post("/consumable-item", upload.array('photos', 2), createConsumableItem);
+router.get("/consumable-item", getAllConsumableItems);
+router.put("/consumable-item/:id", upload.array('photos', 2), updateConsumableItem);
+router.delete("/consumable-item/:id", deleteConsumableItem);
 
 // Company Info routes
 router.get("/company-info", getCompanyInfo);

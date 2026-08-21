@@ -249,126 +249,206 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
             <p className="text-xs text-gray-400 max-w-sm">No inventory inward or outward movements match the selected search or filter criteria.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50/80 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  <th className="py-3 px-4">Date & Time</th>
-                  <th className="py-3 px-4">Item Details</th>
-                  <th className="py-3 px-4">Movement</th>
-                  <th className="py-3 px-4">Transaction Type</th>
-                  <th className="py-3 px-4 text-right">Quantity</th>
-                  <th className="py-3 px-4 text-right">Stock Ledger Balance</th>
-                  <th className="py-3 px-4">Ref Document</th>
-                  <th className="py-3 px-4">Party / Department</th>
-                  <th className="py-3 px-4">Performed By</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-xs">
-                {transactions.map((tx) => {
-                  const isInward = tx.movementType === "INWARD";
-                  const catMeta = CATEGORY_LABELS[tx.transactionCategory] || {
-                    label: tx.transactionCategory,
-                    color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
-                  };
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50/80 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <th className="py-3 px-4">Date & Time</th>
+                    <th className="py-3 px-4">Item Details</th>
+                    <th className="py-3 px-4">Movement</th>
+                    <th className="py-3 px-4">Transaction Type</th>
+                    <th className="py-3 px-4 text-right">Quantity</th>
+                    <th className="py-3 px-4 text-right">Stock Ledger Balance</th>
+                    <th className="py-3 px-4">Ref Document</th>
+                    <th className="py-3 px-4">Party / Department</th>
+                    <th className="py-3 px-4">Performed By</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-xs">
+                  {transactions.map((tx) => {
+                    const isInward = tx.movementType === "INWARD";
+                    const catMeta = CATEGORY_LABELS[tx.transactionCategory] || {
+                      label: tx.transactionCategory,
+                      color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+                    };
 
-                  const formattedDate = new Date(tx.timestamp || (tx as any).createdAt).toLocaleString("en-IN", {
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  });
+                    const formattedDate = new Date(tx.timestamp || (tx as any).createdAt).toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    });
 
-                  return (
-                    <tr
-                      key={tx._id}
-                      className="hover:bg-gray-50/70 dark:hover:bg-gray-800/40 transition-colors"
-                    >
-                      {/* Date */}
-                      <td className="py-3 px-4 text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap">
-                        {formattedDate}
-                      </td>
+                    return (
+                      <tr
+                        key={tx._id}
+                        className="hover:bg-gray-50/70 dark:hover:bg-gray-800/40 transition-colors"
+                      >
+                        {/* Date */}
+                        <td className="py-3 px-4 text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap">
+                          {formattedDate}
+                        </td>
 
-                      {/* Item Details */}
-                      <td className="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-gray-900 dark:text-gray-100">{tx.itemName}</span>
-                          <span className="text-[10px] text-gray-400 font-mono">
-                            {tx.itemCode ? `Code: ${tx.itemCode}` : `Type: ${tx.itemType}`}
+                        {/* Item Details */}
+                        <td className="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">{tx.itemName}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              {tx.itemCode ? `Code: ${tx.itemCode}` : `Type: ${tx.itemType}`}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Movement */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                              isInward
+                                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50"
+                                : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50"
+                            }`}
+                          >
+                            {isInward ? <ArrowDownLeft size={13} /> : <ArrowUpRight size={13} />}
+                            {tx.movementType}
                           </span>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Movement */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                            isInward
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50"
-                              : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50"
-                          }`}
-                        >
-                          {isInward ? <ArrowDownLeft size={13} /> : <ArrowUpRight size={13} />}
-                          {tx.movementType}
-                        </span>
-                      </td>
-
-                      {/* Transaction Type Category */}
-                      <td className="py-3 px-4">
-                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold whitespace-nowrap ${catMeta.color}`}>
-                          {catMeta.label}
-                        </span>
-                      </td>
-
-                      {/* Quantity */}
-                      <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
-                        <span className={isInward ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
-                          {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
-                        </span>
-                      </td>
-
-                      {/* Prev -> New Stock Balance */}
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <div className="flex flex-col items-end">
-                          <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{tx.newStock} {tx.unit}</span>
-                          <span className="text-[10px] text-gray-400 font-mono">Prev: {tx.previousStock}</span>
-                        </div>
-                      </td>
-
-                      {/* Ref Document */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="flex flex-col">
-                          <span className="font-semibold text-blue-600 dark:text-blue-400 font-mono">
-                            {tx.referenceDocNumber || "N/A"}
+                        {/* Transaction Type Category */}
+                        <td className="py-3 px-4">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold whitespace-nowrap ${catMeta.color}`}>
+                            {catMeta.label}
                           </span>
-                          <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">
-                            {tx.referenceDocType}
+                        </td>
+
+                        {/* Quantity */}
+                        <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
+                          <span className={isInward ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                            {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
                           </span>
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Recipient / Source */}
-                      <td className="py-3 px-4 text-gray-700 dark:text-gray-300">
-                        <div className="flex flex-col">
-                          <span className="font-medium">{tx.recipientOrSource || "-"}</span>
-                          {tx.purpose && <span className="text-[10px] text-gray-400 truncate max-w-[150px]">{tx.purpose}</span>}
-                        </div>
-                      </td>
+                        {/* Prev -> New Stock Balance */}
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="flex flex-col items-end">
+                            <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{tx.newStock} {tx.unit}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">Prev: {tx.previousStock}</span>
+                          </div>
+                        </td>
 
-                      {/* Performed By */}
-                      <td className="py-3 px-4 text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <User size={13} className="text-gray-400" />
-                          <span className="font-medium text-gray-800 dark:text-gray-200">{tx.performedByName || "System"}</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        {/* Ref Document */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-blue-600 dark:text-blue-400 font-mono">
+                              {tx.referenceDocNumber || "N/A"}
+                            </span>
+                            <span className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">
+                              {tx.referenceDocType}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Recipient / Source */}
+                        <td className="py-3 px-4 text-gray-700 dark:text-gray-300">
+                          <div className="flex flex-col">
+                            <span className="font-medium">{tx.recipientOrSource || "-"}</span>
+                            {tx.purpose && <span className="text-[10px] text-gray-400 truncate max-w-[150px]">{tx.purpose}</span>}
+                          </div>
+                        </td>
+
+                        {/* Performed By */}
+                        <td className="py-3 px-4 text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <User size={13} className="text-gray-400" />
+                            <span className="font-medium text-gray-800 dark:text-gray-200">{tx.performedByName || "System"}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="block md:hidden p-3 space-y-3 bg-gray-50/50 dark:bg-gray-900/40 pb-28 sm:pb-20">
+              {transactions.map((tx) => {
+                const isInward = tx.movementType === "INWARD";
+                const catMeta = CATEGORY_LABELS[tx.transactionCategory] || {
+                  label: tx.transactionCategory,
+                  color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
+                };
+                const formattedDate = new Date(tx.timestamp || (tx as any).createdAt).toLocaleString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                });
+
+                return (
+                  <div
+                    key={tx._id}
+                    className="bg-white dark:bg-gray-800 p-3.5 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm flex flex-col gap-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm">{tx.itemName}</h4>
+                        <span className="text-[10px] text-gray-400 font-mono">
+                          {tx.itemCode ? `Code: ${tx.itemCode}` : `Type: ${tx.itemType}`}
+                        </span>
+                      </div>
+                      <span
+                        className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                          isInward
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60"
+                            : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200/60"
+                        }`}
+                      >
+                        {isInward ? <ArrowDownLeft size={13} /> : <ArrowUpRight size={13} />}
+                        {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold ${catMeta.color}`}>
+                        {catMeta.label}
+                      </span>
+                      {tx.referenceDocNumber && (
+                        <span className="bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold border border-blue-100 dark:border-blue-900">
+                          {tx.referenceDocType}: {tx.referenceDocNumber}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 dark:border-gray-700/60 text-xs">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] uppercase font-bold text-gray-400">Stock Balance</span>
+                        <span className="font-mono font-bold text-gray-800 dark:text-gray-200">
+                          {tx.newStock} {tx.unit} <span className="text-[10px] font-normal text-gray-400">(Prev: {tx.previousStock})</span>
+                        </span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] uppercase font-bold text-gray-400">Party / Source</span>
+                        <span className="text-gray-700 dark:text-gray-300 font-medium truncate" title={tx.recipientOrSource}>
+                          {tx.recipientOrSource || "-"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-gray-400 pt-1 border-t border-gray-50 dark:border-gray-700/30">
+                      <span>{formattedDate}</span>
+                      <span className="flex items-center gap-1">
+                        <User size={11} /> {tx.performedByName || "System"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
 
         {/* Footer Pagination */}

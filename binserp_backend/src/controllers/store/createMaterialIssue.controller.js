@@ -2,7 +2,7 @@ import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import mongoose from "mongoose";
 
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema, consumableItemSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -41,16 +41,12 @@ const updateFGItemStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
-// ========== GRN (Goods Receipt Note) ==========
-
-
 export const createMaterialIssue = async (req, res) => {
   try {
     const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
-      const Material = req.getModel('RmBoItem', rmBoItemSchema);
-      const FGItem = req.getModel('FGItem', fgItemSchema);
+    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
 
     const companyId = getCompanyId(req);
     const { issueNumber, date, department, issuedTo, items, status, type } = req.body;
@@ -62,16 +58,53 @@ export const createMaterialIssue = async (req, res) => {
     }
 
     const processedItems = [];
-    const isInhouse = type === 'inhouse';
+    const isInhouse = type === 'inhouse' || type === 'fg';
+    const isConsumable = type === 'consumable';
 
     for (const item of items) {
-      if (isInhouse) {
+      if (isConsumable) {
+        // Consumable Logic
+        let consumableId = item.consumable || item.material?._id || item.material || item._id;
+        let consumableDoc;
+
+        if (consumableId) {
+          consumableDoc = await ConsumableItem.findById(consumableId);
+        }
+        if (!consumableDoc && item.materialName) {
+          consumableDoc = await ConsumableItem.findOne({ company: companyId, name: item.materialName });
+        }
+
+        if (consumableDoc) {
+          processedItems.push({
+            ...item,
+            consumable: consumableDoc._id,
+            material: consumableDoc._id,
+            materialCode: consumableDoc.code || item.materialCode || '',
+            materialName: consumableDoc.name,
+            quantity: Number(item.quantity),
+            unit: item.unit || consumableDoc.unit || "PCS"
+          });
+        } else {
+          processedItems.push({
+            ...item,
+            material: consumableId,
+            materialName: item.materialName,
+            materialCode: item.materialCode || '',
+            quantity: Number(item.quantity),
+            unit: item.unit || "PCS"
+          });
+        }
+      } else if (isInhouse) {
         // Inhouse Logic
         const compId = item.component || item.material || item._id; // Frontend flexibility
         if (!compId) return res.status(400).json({ message: "Component ID is required" });
 
-        const compDoc = await FGItem.findById(compId);
-        if (!compDoc) return res.status(400).json({ message: `FG Item not found: ${compId}` });
+        let compDoc = await FGItem.findById(compId);
+        if (!compDoc) {
+          const Component = req.getModel('Component', componentSchema);
+          compDoc = await Component.findById(compId);
+        }
+        if (!compDoc) return res.status(400).json({ message: `FG Item/Component not found: ${compId}` });
 
         processedItems.push({
           ...item,

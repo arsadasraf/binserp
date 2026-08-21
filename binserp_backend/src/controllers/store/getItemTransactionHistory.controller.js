@@ -1,4 +1,5 @@
 import { stockTransactionSchema } from "../../models/store/index.js";
+import { userSchema } from "../../models/user/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -7,6 +8,7 @@ const getCompanyId = (req) => {
 export const getItemTransactionHistory = async (req, res) => {
   try {
     const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
+    req.getModel("User", userSchema);
     const companyId = getCompanyId(req);
     const { id } = req.params;
 

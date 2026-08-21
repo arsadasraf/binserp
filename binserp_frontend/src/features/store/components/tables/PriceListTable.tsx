@@ -48,7 +48,8 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* Desktop Table View */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
@@ -173,6 +174,98 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Card View */}
+      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40">
+        {filteredItems.length === 0 ? (
+          <div className="text-center py-10 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+            <Tag className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+            <p className="font-semibold text-xs text-gray-500">No Finished Goods found.</p>
+          </div>
+        ) : (
+          filteredItems.map((item) => {
+            const priceConfig = priceListMap[item._id?.toString()];
+            const isAssigned = !!priceConfig;
+            const hsnDisplay = priceConfig?.hsnCode || item.hsnCode || "-";
+
+            return (
+              <div
+                key={item._id}
+                className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col gap-3"
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-gray-100 dark:border-gray-700 pb-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {item.photos && item.photos.length > 0 ? (
+                      <img src={item.photos[0]} alt={item.name} className="w-11 h-11 rounded-lg object-cover border border-gray-200 dark:border-gray-700 shrink-0" />
+                    ) : (
+                      <div className="w-11 h-11 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center text-gray-400 shrink-0">
+                        <ImageIcon size={18} />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-gray-900 dark:text-white text-sm truncate">{item.name || "N/A"}</h4>
+                      <p className="text-[10px] text-gray-400 truncate">{item.code ? `Code: ${item.code}` : item.description || "FG Item"}</p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 text-[10px] font-bold rounded shrink-0 border ${
+                    isAssigned
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800"
+                      : "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800"
+                  }`}>
+                    {isAssigned ? "Assigned" : "Unassigned"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">HSN Code</span>
+                    <p className="font-mono text-gray-700 dark:text-gray-300 font-semibold">{hsnDisplay}</p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Tax Rate</span>
+                    <p className="font-semibold text-gray-700 dark:text-gray-300">
+                      {isAssigned ? `${priceConfig.taxRate}%` : "—"}
+                    </p>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Price (₹)</span>
+                    <p className="font-extrabold text-sm text-emerald-600 dark:text-emerald-400">
+                      {isAssigned ? `₹${priceConfig.price?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : "Price Not Configured"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                  {isAssigned ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => onEdit({ ...priceConfig, fgItem: item })}
+                        className="flex-1 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <Edit2 size={13} /> Edit Price Config
+                      </button>
+                      <button
+                        onClick={() => onDelete(priceConfig._id)}
+                        className="py-1.5 px-3 text-xs font-bold text-red-600 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 rounded-lg border border-red-200 dark:border-red-800 transition-colors"
+                        title="Delete Configuration"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => onEdit({ fgItem: item, isNewAssignment: true })}
+                      className="w-full py-2 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-100 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <Tag size={13} /> Assign Price & Tax Rate
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

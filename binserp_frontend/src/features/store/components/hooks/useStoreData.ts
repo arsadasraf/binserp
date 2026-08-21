@@ -29,7 +29,7 @@ import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Categor
 
 export function useStoreData(activeTab: TabType, masterTab: MasterType, token: string | null, queryParams?: string) {
     // --- Queries ---
-    const { data: storeData = [], isLoading: mainLoading } = useGetStoreDataQuery(
+    const { data: storeData = [], isLoading: mainLoading, refetch: refetchMain } = useGetStoreDataQuery(
         activeTab === "masters" ? (masterTab === "fg-grn-history" ? "fg-grn" : masterTab) : (activeTab === "home" ? (masterTab === "grn-history" ? "grn" : masterTab === "fg-grn-history" ? "fg-grn" : "inventory") : activeTab), 
         { skip: !token }
     );
@@ -39,7 +39,8 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: customersData = [] } = useGetStoreDataQuery("customer", { skip: !token });
     const { data: locationsData = [] } = useGetStoreDataQuery("location", { skip: !token });
     const { data: categoriesData = [] } = useGetStoreDataQuery("category", { skip: !token });
-    const { data: materialsData = [] } = useGetStoreDataQuery("rm-bo-item", { skip: !token });
+    const { data: materialsData = [], refetch: refetchMaterials } = useGetStoreDataQuery("rm-bo-item", { skip: !token });
+    const { data: consumablesData = [], refetch: refetchConsumables } = useGetStoreDataQuery("consumable-item", { skip: !token });
     const { data: jobWorkSuppliersData = [] } = useGetStoreDataQuery("job-work-supplier", { skip: !token });
     const { data: processesData = [] } = useGetStoreDataQuery("process", { skip: !token });
     const { data: companyInfoData } = useGetStoreDataQuery("company-info", { skip: !token });
@@ -109,7 +110,11 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
 
     const { refetch } = useGetStoreDataQuery(getQueryTab(), { skip: !token });
 
-    const fetchData = () => refetch();
+    const fetchData = () => {
+        refetch();
+        refetchMaterials?.();
+        refetchConsumables?.();
+    };
     const fetchMasters = () => {};
     const fetchMaterialRequests = () => {};
 
@@ -234,13 +239,14 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                 } else {
                     await createRecord({ tab: "fg-item" as any, body: formDataPayload, isFormData: true }).unwrap();
                 }
-            } else if (masterTab === "rm-bo-item") {
+            } else if (masterTab === "rm-bo-item" || masterTab === "consumable-item") {
                 const formDataPayload = new FormData();
                 if (formData.name) formDataPayload.append('name', formData.name);
                 if (formData.descriptions) formDataPayload.append('descriptions', formData.descriptions);
                 if (formData.minimumStock !== undefined) formDataPayload.append('minimumStock', formData.minimumStock.toString());
                 if (formData.categoryId) formDataPayload.append('categoryId', formData.categoryId);
                 if (formData.locationId) formDataPayload.append('locationId', formData.locationId);
+                if (formData.unit) formDataPayload.append('unit', formData.unit);
                 
                 if (formData.photos && Array.isArray(formData.photos)) {
                     formData.photos.forEach((photo) => {
@@ -252,10 +258,11 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
                     });
                 }
                 
+                const targetTab = masterTab === "consumable-item" ? "consumable-item" : "rm-bo-item";
                 if (editingId) {
-                    await updateRecord({ tab: "rm-bo-item" as any, id: editingId, body: formDataPayload, isFormData: true }).unwrap();
+                    await updateRecord({ tab: targetTab as any, id: editingId, body: formDataPayload, isFormData: true }).unwrap();
                 } else {
-                    await createRecord({ tab: "rm-bo-item" as any, body: formDataPayload, isFormData: true }).unwrap();
+                    await createRecord({ tab: targetTab as any, body: formDataPayload, isFormData: true }).unwrap();
                 }
             } else {
                 if (editingId) {
@@ -662,6 +669,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         locations,
         categories,
         materials,
+        consumables: consumablesData,
         processes, // Added
 
 

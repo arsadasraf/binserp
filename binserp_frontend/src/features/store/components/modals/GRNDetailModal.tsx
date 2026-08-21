@@ -137,30 +137,38 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                     {/* Content */}
                     <div className="flex-1 overflow-y-auto p-6">
                         {/* Basic Info Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                            <div className="bg-gray-50 p-4 rounded-lg">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                                 <label className="text-xs font-semibold text-gray-500 uppercase">Date</label>
-                                <p className="text-lg font-medium text-gray-900">{new Date(grn.date).toLocaleDateString()}</p>
+                                <p className="text-base font-medium text-gray-900 dark:text-gray-100">{new Date(grn.date).toLocaleDateString()}</p>
                             </div>
-                            <div className="bg-gray-50 p-4 rounded-lg">
-                                <label className="text-xs font-semibold text-gray-500 uppercase">Supplier</label>
-                                <p className="text-lg font-medium text-gray-900">{grn.supplierName || 'N/A'}</p>
+                            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <label className="text-xs font-semibold text-gray-500 uppercase">Supplier / Source</label>
+                                <p className="text-base font-medium text-gray-900 dark:text-gray-100">{grn.supplierName || grn.supplier?.name || 'N/A'}</p>
+                            </div>
+                            <div className="bg-indigo-50/80 dark:bg-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/60">
+                                <label className="text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">GRN Done By (Received By)</label>
+                                <p className="text-base font-bold text-indigo-900 dark:text-indigo-200">
+                                    {grn.receivedBy?.name || grn.receivedBy?.username || grn.receivedBy || 'Store Admin'}
+                                </p>
                             </div>
                             {grn.poReference && (
-                                <div className="bg-gray-50 p-4 rounded-lg">
+                                <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                                     <label className="text-xs font-semibold text-gray-500 uppercase">PO Reference</label>
-                                    <p className="text-lg font-medium text-gray-900">{grn.poReference}</p>
+                                    <p className="text-base font-medium text-gray-900 dark:text-gray-100 font-mono">{grn.poReference}</p>
                                 </div>
                             )}
-                            <div className="bg-gray-50 p-4 rounded-lg">
+                            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                                 <label className="text-xs font-semibold text-gray-500 uppercase">QC Status</label>
-                                <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${grn.qcStatus === 'Completed' ? 'bg-green-100 text-green-800' :
-                                    grn.qcStatus === 'Pending' ? 'bg-orange-100 text-orange-800' :
-                                        grn.qcStatus === 'Partial' ? 'bg-blue-100 text-blue-800' :
-                                            'bg-gray-100 text-gray-800'
-                                    }`}>
-                                    {grn.qcStatus || 'N/A'}
-                                </span>
+                                <div>
+                                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${grn.qcStatus === 'Completed' ? 'bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300' :
+                                        grn.qcStatus === 'Pending' ? 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300' :
+                                            grn.qcStatus === 'Partial' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                                                'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                                        }`}>
+                                        {grn.qcStatus || 'N/A'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 

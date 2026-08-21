@@ -405,7 +405,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                         masterTab !== 'po-history' && (
                             <button
                                 onClick={exportToExcel}
-                                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-xl transition-colors border border-green-200"
+                                className="hidden md:flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-xl transition-colors border border-green-200"
                                 title="Export to Excel"
                             >
                                 <Download size={15} />
@@ -416,7 +416,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     {(masterTab !== 'grn-history' && masterTab !== 'fg-grn-history') && masterTab !== 'po-history' && (
                         <button
                             onClick={exportToPDF}
-                            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200"
+                            className="hidden md:flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200"
                             title="Export to PDF"
                         >
                             <FileText size={15} />

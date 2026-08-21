@@ -14,7 +14,7 @@ export const materialIssueSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['bo', 'inhouse'],
+      enum: ['bo', 'inhouse', 'consumable'],
       default: 'bo'
     },
     date: {
@@ -35,6 +35,10 @@ export const materialIssueSchema = new mongoose.Schema(
         material: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
+        },
+        consumable: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "ConsumableItem",
         },
         component: {
           type: mongoose.Schema.Types.ObjectId,

@@ -581,6 +581,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                         <th className="px-4 py-3 text-center">Received Qty</th>
                                                         <th className="px-4 py-3 text-center">Accepted Qty</th>
                                                         <th className="px-4 py-3">QC Status</th>
+                                                        <th className="px-4 py-3">GRN Done By</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 font-medium">
@@ -599,7 +600,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                     {grn.grnNumber}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
-                                                                    {type === 'bo' ? (grn.supplier?.name || 'N/A') : 'In-House Production'}
+                                                                    {type === 'bo' ? (grn.supplier?.name || grn.supplierName || 'N/A') : 'In-House Production'}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center font-bold text-emerald-600">
                                                                     +{grnItem ? (grnItem.quantity || grnItem.receivedQuantity) : '-'} {item.unit}
@@ -615,6 +616,9 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                     }`}>
                                                                         {grn.qcStatus || 'N/A'}
                                                                     </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 font-bold text-indigo-600 dark:text-indigo-300">
+                                                                    {grn.receivedBy?.name || grn.receivedBy?.username || grn.receivedBy || 'Store Admin'}
                                                                 </td>
                                                             </tr>
                                                         );
@@ -653,6 +657,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                         <th className="px-4 py-3">Destination / Recipient</th>
                                                         <th className="px-4 py-3 text-right">Quantity Issued</th>
                                                         <th className="px-4 py-3">Purpose / Category</th>
+                                                        <th className="px-4 py-3">Issued By</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 font-medium">
@@ -674,6 +679,9 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                 <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200/50">
                                                                     {tx.purpose || tx.transactionCategory || 'Outward Issue'}
                                                                 </span>
+                                                            </td>
+                                                            <td className="px-4 py-3 font-bold text-rose-600 dark:text-rose-300">
+                                                                {tx.performedByName || tx.performedBy?.name || tx.performedBy?.username || 'Store Admin'}
                                                             </td>
                                                         </tr>
                                                     ))}

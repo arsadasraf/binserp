@@ -12,7 +12,7 @@ interface InventoryTabProps {
     token: string | null;
     masterTab?: string;
     setMasterTab?: (tab: any) => void;
-    activeSubTab: 'bo' | 'inhouse' | 'history' | 'fg-history' | 'ledger';
+    activeSubTab: 'bo' | 'consumable' | 'inhouse' | 'history' | 'fg-history' | 'ledger';
 }
 
 
@@ -41,6 +41,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         locations,
         categories,
         materials,
+        consumables,
         customers,
         refetch,
     } = storeData;
@@ -63,20 +64,17 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
     // Map RM/BO master data to inventory format so it always shows the master list
     const mappedBoInventory = useMemo(() => {
         if (!materials) return [];
-        console.log("Mapping BO Inventory. Materials:", materials.length, "Data:", data?.length);
         return materials.map((m: any) => {
             // Find inventory matching this material
             const invItem = data?.find((d: any) => {
-                const match = d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
-                if (match) console.log("Matched!", m.name, "with stock", d.currentStock);
-                return match;
+                return d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
             });
             return {
                 ...m,
                 _id: invItem?._id || m._id, // Prefer inventory ID for updates, fallback to material ID
                 materialId: m,
                 materialName: m.name,
-                materialCode: m.code || 'N/A', // RM/BO doesn't have code anymore, but we can put N/A
+                materialCode: m.code || 'N/A',
                 description: m.descriptions || m.description || invItem?.description || '-',
                 descriptions: m.descriptions || m.description || invItem?.description || '-',
                 currentStock: invItem ? invItem.currentStock : 0,
@@ -94,6 +92,37 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             };
         });
     }, [materials, data]);
+
+    // Map Consumable master data to inventory format
+    const mappedConsumableInventory = useMemo(() => {
+        if (!consumables) return [];
+        return consumables.map((c: any) => {
+            const invItem = data?.find((d: any) => {
+                return d.materialId === c._id || d.materialId?._id === c._id || d.materialCode === c.code || d.materialName === c.name;
+            });
+            return {
+                ...c,
+                _id: invItem?._id || c._id,
+                materialId: c,
+                materialName: c.name,
+                materialCode: c.code || 'N/A',
+                description: c.descriptions || c.description || invItem?.description || '-',
+                descriptions: c.descriptions || c.description || invItem?.description || '-',
+                currentStock: invItem ? invItem.currentStock : 0,
+                qcPendingStock: invItem ? invItem.qcPendingStock : 0,
+                reorderLevel: c.minimumStock || invItem?.reorderLevel || 0,
+                unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                category: c.categoryId,
+                location: c.locationId,
+                monthlyData: invItem?.monthlyData || {
+                    openingStock: 0,
+                    received: 0,
+                    issued: 0,
+                    closingStock: 0
+                }
+            };
+        });
+    }, [consumables, data]);
 
 
     // Helper to handle GRN Submit
@@ -161,11 +190,11 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     />
                 ) : (
                     <InventoryTable
-                        data={activeSubTab === 'bo' ? mappedBoInventory : []}
+                        data={activeSubTab === 'consumable' ? mappedConsumableInventory : activeSubTab === 'bo' ? mappedBoInventory : []}
                         inHouseData={activeSubTab === 'inhouse' ? inHouseComponents : []}
                         onEdit={handleMasterEdit}
                         onDelete={handleDelete}
-                        activeSubTab={activeSubTab === 'inhouse' ? 'inhouse' : 'bo'}
+                        activeSubTab={activeSubTab === 'inhouse' ? 'inhouse' : activeSubTab === 'consumable' ? 'consumable' : 'bo'}
                         onSubTabChange={() => {}}
                         hideTabs={true}
                         onItemClick={(item) => {
@@ -190,7 +219,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     setEditingGRN(undefined);
                 }}
                 onSubmit={onGRNSubmit}
-                materials={activeSubTab === 'inhouse' ? inHouseComponents : materials}
+                materials={activeSubTab === 'inhouse' ? inHouseComponents : (activeSubTab === 'consumable' ? consumables : materials)}
                 vendors={vendors}
                 locations={locations}
                 categories={categories}

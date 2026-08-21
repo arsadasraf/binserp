@@ -34,7 +34,7 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
     return (
         <>
             {/* Desktop View: Modern Floating Tabs */}
-            <div className="hidden md:flex mb-8 items-center bg-white dark:bg-slate-800 dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 dark:border-gray-800 w-fit">
+            <div className="hidden md:flex mb-8 items-center bg-white dark:bg-slate-800 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 w-fit">
                 {tabs.map((tab) => {
                     const isActive = pathname.startsWith(tab.href) || (pathname === "/dashboard/gate-entry" && tab.id === "overview") || activeTab === tab.id;
                     const Icon = tab.icon;
@@ -42,8 +42,11 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
                         <Link
                             key={tab.id}
                             href={tab.href}
-                            className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-300 ${isActive ? "text-white shadow-md" : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:text-white hover:bg-gray-50 dark:bg-slate-800 /50 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
-                                }`}
+                            className={`relative flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${
+                                isActive
+                                    ? "text-white shadow-md font-semibold"
+                                    : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100/70 dark:hover:bg-slate-700/60"
+                            }`}
                         >
                             {isActive && (
                                 <motion.div
@@ -63,7 +66,7 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
             </div>
 
             {/* Mobile View: Glassmorphic Bottom Bar */}
-            <div className={`md:hidden fixed bottom-4 left-4 right-4 bg-white dark:bg-slate-800 /90 dark:bg-gray-900/90 backdrop-blur-xl border border-white/20 dark:border-gray-700/30 shadow-2xl rounded-2xl z-[100] flex justify-around py-3 px-2 safe-area-pb transition-all duration-300 ${showBottomNav ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'}`}>
+            <div className={`md:hidden fixed bottom-4 left-4 right-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-gray-200/60 dark:border-slate-700/60 shadow-2xl rounded-2xl z-[100] flex justify-around py-3 px-2 safe-area-pb transition-all duration-300 ${showBottomNav ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'}`}>
                 {tabs.map((tab) => {
                     const isActive = activeTab === tab.id;
                     const Icon = tab.icon;
@@ -71,12 +74,12 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
                         <Link
                             key={tab.id}
                             href={tab.href}
-                            className={`flex flex-col items-center justify-center gap-1 transition-all duration-300 w-full ${isActive
+                            className={`flex flex-col items-center justify-center gap-1 transition-all duration-200 w-full ${isActive
                                 ? "text-indigo-600 dark:text-indigo-400 scale-105"
-                                : "text-gray-400 dark:text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:text-gray-400 dark:hover:text-gray-300"
+                                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                                 }`}
                         >
-                            <div className={`p-2 rounded-2xl transition-all duration-300 ${isActive ? "bg-indigo-50 dark:bg-indigo-900/30 shadow-inner" : "bg-transparent"}`}>
+                            <div className={`p-2 rounded-2xl transition-all duration-200 ${isActive ? "bg-indigo-50 dark:bg-indigo-950/60 shadow-inner" : "bg-transparent"}`}>
                                 <Icon size={20} className={isActive ? "stroke-indigo-600 dark:stroke-indigo-400 stroke-[2.5px]" : "stroke-current"} />
                             </div>
                             {isActive && (
@@ -91,6 +94,7 @@ export default function GateEntryTabs({ activeTab }: GateEntryTabsProps) {
                     );
                 })}
             </div>
+
         </>
     );
 }

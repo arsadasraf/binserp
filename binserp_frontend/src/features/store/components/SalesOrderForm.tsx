@@ -269,8 +269,8 @@ export const SalesOrderForm: React.FC<SalesOrderFormProps> = ({
   }, [fgItems]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-md overflow-y-auto">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] lg:max-w-7xl overflow-hidden flex flex-col my-auto max-h-[96vh] border border-slate-200/80 dark:border-slate-800">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-slate-900/70 backdrop-blur-md overflow-y-auto">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] lg:max-w-7xl overflow-hidden flex flex-col my-auto max-h-[92vh] border border-slate-200/80 dark:border-slate-800">
         
         {/* Compact Modal Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-50 via-blue-50/40 to-slate-50 dark:from-slate-900 dark:via-slate-800/60 dark:to-slate-900 sticky top-0 z-20">

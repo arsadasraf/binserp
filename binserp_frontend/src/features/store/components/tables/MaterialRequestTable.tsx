@@ -65,11 +65,14 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     )}
                                 </td>
                                 <td className="p-4">
-                                    <span className={`px-2 py-1 rounded text-xs font-medium border ${request.type === 'inhouse'
-                                        ? 'bg-purple-50 text-purple-700 border-purple-100'
-                                        : 'bg-blue-50 text-blue-700 border-blue-100'
-                                        }`}>
-                                        {request.type === 'inhouse' ? 'Inhouse Item' : 'BO Item'}
+                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                                        request.type === 'consumable'
+                                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                            : request.type === 'inhouse' || request.type === 'fg'
+                                                ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                    }`}>
+                                        {request.type === 'consumable' ? 'Consumable' : request.type === 'inhouse' || request.type === 'fg' ? 'FG / Inhouse' : 'RM / BO'}
                                     </span>
                                 </td>
                                 <td className="p-4 text-sm text-gray-600">
@@ -127,7 +130,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
             </div>
 
             {/* Mobile Card View */}
-            <div className="md:hidden flex flex-col divide-y divide-gray-100">
+            <div className="md:hidden flex flex-col divide-y divide-gray-100 pb-28 sm:pb-20">
                 {requests.map((request) => (
                     <div
                         key={request._id}
@@ -143,11 +146,14 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                 <div>
                                     <div className="font-semibold text-gray-900">{request.requestNumber}</div>
                                     <div className="flex items-center gap-2 mt-1">
-                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${request.type === 'inhouse'
-                                            ? 'bg-purple-50 text-purple-700 border-purple-100'
-                                            : 'bg-blue-50 text-blue-700 border-blue-100'
-                                            }`}>
-                                            {request.type === 'inhouse' ? 'Inhouse' : 'BO'}
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${
+                                            request.type === 'consumable'
+                                                ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                : request.type === 'inhouse' || request.type === 'fg'
+                                                    ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                    : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                        }`}>
+                                            {request.type === 'consumable' ? 'Consumable' : request.type === 'inhouse' || request.type === 'fg' ? 'Inhouse' : 'BO'}
                                         </span>
                                         <div className="text-xs text-gray-500 flex items-center gap-1">
                                             <Calendar size={12} /> {new Date(request.createdAt).toLocaleDateString()}

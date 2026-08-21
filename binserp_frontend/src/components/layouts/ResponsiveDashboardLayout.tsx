@@ -499,50 +499,58 @@ function LayoutContent({ children }: { children: ReactNode }) {
           )}
         </main>
 
-        {/* Mobile Bottom Navigation Bar */}
-        <nav
-          className={`lg:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 fixed bottom-0 left-0 right-0 z-30 pb-safe transition-transform duration-300 ease-in-out ${
-            showBottomNav ? "translate-y-0 shadow-lg" : "translate-y-full pointer-events-none"
-          }`}
-        >
-          <div className="flex items-center justify-around h-16 px-2">
-            {mobileBottomNavItems.map((item) => (
-              <div key={item.href} className="flex-1 h-full">
-                {renderNavLink(item, true)}
-              </div>
-            ))}
+        {/* Mobile Bottom Navigation Bar - Only shown for top-level / overview pages without dedicated sub-module tabs */}
+        {!pathname.startsWith("/dashboard/store") &&
+         !pathname.startsWith("/dashboard/ppc") &&
+         !pathname.startsWith("/dashboard/quality") &&
+         !pathname.startsWith("/dashboard/accounts") &&
+         !pathname.startsWith("/dashboard/hr") &&
+         !pathname.startsWith("/dashboard/gate-entry") &&
+         !pathname.startsWith("/dashboard/maintenance") && (
+          <nav
+            className={`lg:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 fixed bottom-0 left-0 right-0 z-30 pb-safe transition-transform duration-300 ease-in-out ${
+              showBottomNav ? "translate-y-0 shadow-lg" : "translate-y-full pointer-events-none"
+            }`}
+          >
+            <div className="flex items-center justify-around h-16 px-2">
+              {mobileBottomNavItems.map((item) => (
+                <div key={item.href} className="flex-1 h-full">
+                  {renderNavLink(item, true)}
+                </div>
+              ))}
 
-            {mobileOverflowItems.length > 0 && (
-              <div className="flex-1 h-full relative">
-                <button
-                  onClick={() => setMobileMoreOpen(!mobileMoreOpen)}
-                  className={`flex flex-col items-center justify-center w-full h-full transition-all ${
-                    mobileMoreOpen ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-gray-500 dark:text-gray-400"
-                  }`}
-                >
-                  <MoreVertical size={22} />
-                  <span className="text-[10px] mt-0.5">More</span>
-                </button>
+              {mobileOverflowItems.length > 0 && (
+                <div className="flex-1 h-full relative">
+                  <button
+                    onClick={() => setMobileMoreOpen(!mobileMoreOpen)}
+                    className={`flex flex-col items-center justify-center w-full h-full transition-all ${
+                      mobileMoreOpen ? "text-indigo-600 dark:text-indigo-400 font-bold" : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  >
+                    <MoreVertical size={22} />
+                    <span className="text-[10px] mt-0.5">More</span>
+                  </button>
 
-                {mobileMoreOpen && (
-                  <div className="absolute bottom-full right-0 mb-2 w-48 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in slide-in-from-bottom-2">
-                    {mobileOverflowItems.map((item) => (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setMobileMoreOpen(false)}
-                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-gray-800 last:border-0"
-                      >
-                        <item.icon size={16} className="text-gray-500 dark:text-gray-400" />
-                        {item.label}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </nav>
+                  {mobileMoreOpen && (
+                    <div className="absolute bottom-full right-0 mb-2 w-48 bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-in slide-in-from-bottom-2">
+                      {mobileOverflowItems.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setMobileMoreOpen(false)}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-50 dark:border-gray-800 last:border-0"
+                        >
+                          <item.icon size={16} className="text-gray-500 dark:text-gray-400" />
+                          {item.label}
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </nav>
+        )}
       </div>
 
       {/* Mobile Off-Canvas Navigation Drawer */}

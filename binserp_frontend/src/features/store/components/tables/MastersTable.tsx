@@ -405,7 +405,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                         masterTab !== 'po-history' && (
                             <button
                                 onClick={exportToExcel}
-                                className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-xl transition-colors border border-green-200"
+                                className="hidden md:flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 rounded-xl transition-colors border border-green-200"
                                 title="Export to Excel"
                             >
                                 <Download size={15} />
@@ -416,7 +416,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                     {(masterTab !== 'grn-history' && masterTab !== 'fg-grn-history') && masterTab !== 'po-history' && (
                         <button
                             onClick={exportToPDF}
-                            className="flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200"
+                            className="hidden md:flex items-center gap-2 px-3.5 py-2 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200"
                             title="Export to PDF"
                         >
                             <FileText size={15} />
@@ -463,6 +463,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                     </th>
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Quantity</th>
                                     <th className="px-6 py-3 text-right font-semibold text-gray-900">Total</th>
+                                    <th className="px-6 py-3 text-left font-semibold text-gray-900">Received By</th>
                                     <th className="px-6 py-3 text-left">
                                         <ColumnFilter
                                             column="qcStatus"
@@ -537,11 +538,11 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                                 <IndianRupee size={16} className="text-green-600" />
                                                 <span>₹{(() => {
                                                     const total = item.items?.reduce((sum: number, i: any) => sum + ((i.rate || 0) * (i.quantity || 0)), 0) || 0;
-                                                    console.log('GRN:', item.grnNumber, 'Total:', total, 'Items:', item.items);
                                                     return total.toFixed(2);
                                                 })()}</span>
                                             </div>
                                         </td>
+                                        <td className="px-6 py-4 text-gray-700 font-medium">{item.receivedBy?.name || item.receivedBy?.username || item.receivedBy || 'Store Admin'}</td>
                                         <td className="px-6 py-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${item.qcStatus === 'Completed' ? 'bg-green-100 text-green-800' : item.qcStatus === 'Pending' ? 'bg-orange-100 text-orange-800' : item.qcStatus === 'Partial' ? 'bg-blue-100 text-blue-800' : item.qcStatus === 'Skipped' ? 'bg-gray-100 text-gray-800' : 'bg-gray-100 text-gray-800'}`}>{item.qcStatus || 'N/A'}</span></td>
                                     </>
                                 )}
@@ -770,6 +771,7 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                             {(masterTab === "grn-history" || masterTab === "fg-grn-history") && (
                                 <>
                                     <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(item.date).toLocaleDateString()}</span></div>
+                                    <div className="flex justify-between"><span className="text-gray-500">Received By:</span> <span className="font-bold text-indigo-600 dark:text-indigo-400">{item.receivedBy?.name || item.receivedBy?.username || item.receivedBy || 'Store Admin'}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">Items:</span> <span>{item.items?.length || 0}</span></div>
                                     <div className="flex justify-between items-center pt-1 border-t border-gray-100">
                                         <span className="text-gray-500">Total Amount:</span>

@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, consumableItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -64,6 +64,7 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
   try {
     const companyId = getCompanyId(req);
     const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
     const Location = req.getModel('Location', locationSchema);
 
@@ -71,9 +72,12 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     req.getModel('Category', categorySchema);
 
     // Find material to get details
-    const material = await Material.findById(materialId).populate('categoryId');
+    let material = await Material.findById(materialId).populate('categoryId');
     if (!material) {
-      console.error(`Material not found: ${materialId}`);
+      material = await ConsumableItem.findById(materialId).populate('categoryId');
+    }
+    if (!material) {
+      console.error(`Material or Consumable not found: ${materialId}`);
       return null;
     }
 

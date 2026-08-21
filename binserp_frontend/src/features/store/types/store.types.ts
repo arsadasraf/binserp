@@ -6,7 +6,7 @@
 export type TabType = "home" | "material-issue" | "grn" | "dc" | "billing" | "po" | "masters" | "bills-dc" | "bills-billing" | "bills-po" | "job-work" | "order-entry" | "order" | "quotation" | "mrp" | "sales" | "purchase" | "wip" | "price-list" | "vendor-price-list" | "incoming-rfq" | "purchase-rfq" | "vendor-quotation" | "purchase-bill" | "incoming-po";
 
 // Master data type for master tab navigation
-export type MasterType = "vendor" | "customer" | "location" | "category" | "rm-bo-item" | "inhouse-items" | "fg-items" | "pending-products" | "ppc-products" | "grn-history" | "fg-grn-history" | "po-history" | "company-info" | "prefix-settings" | "job-work-supplier" | "print-settings";
+export type MasterType = "vendor" | "customer" | "location" | "category" | "rm-bo-item" | "consumable-item" | "inhouse-items" | "fg-items" | "pending-products" | "ppc-products" | "grn-history" | "fg-grn-history" | "po-history" | "company-info" | "prefix-settings" | "job-work-supplier" | "print-settings";
 
 // Bank Details interface for vendors and customers
 export interface BankDetails {

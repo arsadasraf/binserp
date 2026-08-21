@@ -88,6 +88,19 @@ export default function MasterDetailPreviewModal({
             accentColor: 'text-blue-400',
             btnBg: 'bg-blue-600 hover:bg-blue-700',
         };
+    } else if (tabKey === 'consumable-item' || tabKey === 'consumables' || tabKey === 'consumable') {
+        const cat = typeof item.categoryId === 'object' ? item.categoryId?.name : item.category;
+        theme = {
+            title: item.name || 'Consumable Item Details',
+            subtitle: `Consumable Code: ${item.code || 'N/A'} • Category: ${cat || 'Consumables'}`,
+            badge: cat || 'Consumable',
+            headerGradient: 'from-teal-950 via-emerald-900 to-teal-900',
+            borderColor: 'border-teal-700',
+            badgeBg: 'bg-teal-500/20 text-teal-300 border-teal-400/30',
+            icon: Box,
+            accentColor: 'text-teal-400',
+            btnBg: 'bg-teal-600 hover:bg-teal-700',
+        };
     } else if (tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods') {
         theme = {
             title: item.name || item.productName || 'Finished Goods Details',
@@ -114,9 +127,9 @@ export default function MasterDetailPreviewModal({
         };
     } else if (tabKey === 'category' || tabKey === 'categories') {
         theme = {
-            title: item.name || 'Material Category',
-            subtitle: `Category Code: ${item.code || 'N/A'} • Unit: ${item.unit || 'PCS'}`,
-            badge: item.type || 'Category',
+            title: item.name || 'Category Specification',
+            subtitle: `Category Code: ${item.code || 'N/A'} • Default Unit: ${item.unit || 'PCS'}`,
+            badge: item.unit || 'Category',
             headerGradient: 'from-amber-950 via-orange-900 to-amber-900',
             borderColor: 'border-amber-700',
             badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-400/30',
@@ -133,7 +146,7 @@ export default function MasterDetailPreviewModal({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-4xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                 
                 {/* Modal Header */}
@@ -328,8 +341,8 @@ export default function MasterDetailPreviewModal({
                         </div>
                     )}
 
-                    {/* RM/BO ITEM VIEW */}
-                    {(tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material') && (
+                    {/* RM/BO & CONSUMABLE ITEM VIEW */}
+                    {(tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material' || tabKey === 'consumable-item' || tabKey === 'consumables' || tabKey === 'consumable') && (
                         <div className="space-y-6">
                             {/* Grid 1: Core Specifications */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

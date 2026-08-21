@@ -36,6 +36,7 @@ export { createRmBoItem } from './rmBoItem.controller.js';
 export { getAllRmBoItems } from './getAllRmBoItems.controller.js';
 export { updateRmBoItem } from './updateRmBoItem.controller.js';
 export { deleteRmBoItem } from './deleteRmBoItem.controller.js';
+export { createConsumableItem, getAllConsumableItems, updateConsumableItem, deleteConsumableItem } from './consumableItem.controller.js';
 export { getCompanyInfo } from './getCompanyInfo.controller.js';
 export { updateCompanyInfo } from './updateCompanyInfo.controller.js';
 
