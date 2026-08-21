@@ -46,7 +46,7 @@ export const createMaterialRequest = async (req, res) => {
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
 
     const companyId = getCompanyId(req);
-    let { requestNumber, department, items, priority, type, salesOrder, soNumber } = req.body;
+    let { requestNumber, department, items, priority, type, salesOrder, soNumber, mrpPlan, mrpNumber } = req.body;
 
     if (!requestNumber) {
       requestNumber = `PR-${Date.now()}`;
@@ -159,6 +159,8 @@ export const createMaterialRequest = async (req, res) => {
       type: type || 'bo',
       salesOrder: salesOrder || undefined,
       soNumber: soNumber || undefined,
+      mrpPlan: mrpPlan || undefined,
+      mrpNumber: mrpNumber || undefined,
       items: processedItems,
       priority: priority || "Medium",
       status: "Pending",

@@ -25,6 +25,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
     // Filter States
     const [searchTerm, setSearchTerm] = useState('');
     const [filterVendor, setFilterVendor] = useState('');
+    const [filterMrp, setFilterMrp] = useState('');
     const [filterStatus, setFilterStatus] = useState<'All' | 'In-Process' | 'Completed'>('In-Process');
 
     // Ledger Drawer State
@@ -59,6 +60,15 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
         return Array.from(set.values());
     }, [wipItems]);
 
+    // Unique MRP Numbers list for filter dropdown
+    const mrpList = useMemo(() => {
+        const set = new Map();
+        wipItems.forEach(item => {
+            if (item.mrpNumber) set.set(item.mrpNumber, item.mrpNumber);
+        });
+        return Array.from(set.values());
+    }, [wipItems]);
+
     // Filtered Items
     const filteredItems = useMemo(() => {
         return wipItems.filter(item => {
@@ -66,21 +76,21 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                 (item.sentItemName && item.sentItemName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (item.receivedItemName && item.receivedItemName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (item.vendorName && item.vendorName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (item.mrpNumber && item.mrpNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (item.processType && item.processType.toLowerCase().includes(searchTerm.toLowerCase()));
 
             const matchVendor = !filterVendor || item.vendorName === filterVendor;
+            const matchMrp = !filterMrp || (filterMrp === 'none' ? !item.mrpNumber : item.mrpNumber === filterMrp);
             const matchStatus = filterStatus === 'All' || item.status === filterStatus;
 
-            return matchSearch && matchVendor && matchStatus;
+            return matchSearch && matchVendor && matchMrp && matchStatus;
         });
-    }, [wipItems, searchTerm, filterVendor, filterStatus]);
+    }, [wipItems, searchTerm, filterVendor, filterMrp, filterStatus]);
 
     const openLedger = (item: any) => {
         setSelectedWipItem(item);
         setIsLedgerOpen(true);
     };
-
-    const totalOutwardQty = (summary.totalIssuedQty || 0) + (summary.totalJobWorkSentQty || 0);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-300">
@@ -89,7 +99,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
             <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2">
                 <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl gap-1 overflow-x-auto no-scrollbar flex-1 sm:flex-none">
                     <button
-                        onClick={() => { setWipType('consumable'); setSearchTerm(''); setFilterVendor(''); }}
+                        onClick={() => { setWipType('consumable'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
                         className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                             wipType === 'consumable'
                                 ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md shadow-amber-200 dark:shadow-none'
@@ -99,7 +109,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                         <Sparkles size={16} /> Consumables WIP
                     </button>
                     <button
-                        onClick={() => { setWipType('rm-bo'); setSearchTerm(''); setFilterVendor(''); }}
+                        onClick={() => { setWipType('rm-bo'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
                         className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                             wipType === 'rm-bo'
                                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-200 dark:shadow-none'
@@ -109,7 +119,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                         <Package size={16} /> RM / BO WIP
                     </button>
                     <button
-                        onClick={() => { setWipType('fg'); setSearchTerm(''); setFilterVendor(''); }}
+                        onClick={() => { setWipType('fg'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
                         className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                             wipType === 'fg'
                                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-200 dark:shadow-none'
@@ -126,62 +136,6 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                 </div>
             </div>
 
-            {/* KPI Metrics Dashboard Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                
-                {/* Card 1: Total Active WIP Items */}
-                <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">Active WIP Items</span>
-                        <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-                            {summary.totalItems}
-                        </h3>
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800">
-                        <Boxes size={22} />
-                    </div>
-                </div>
-
-                {/* Card 2: Total Store Deductions (Issued + Dispatched) */}
-                <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-xs font-bold text-amber-500 uppercase tracking-wider block">Total Outward Store Deductions</span>
-                        <h3 className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-                            {totalOutwardQty.toLocaleString()}
-                        </h3>
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/60 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-800">
-                        <ArrowUpRight size={22} />
-                    </div>
-                </div>
-
-                {/* Card 3: Total Returned Qty */}
-                <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider block">Returned / Completed</span>
-                        <h3 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-                            {summary.totalReturnedQty.toLocaleString()}
-                        </h3>
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800">
-                        <ArrowDownLeft size={22} />
-                    </div>
-                </div>
-
-                {/* Card 4: Net Pending In-Process Stock */}
-                <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-md flex items-center justify-between">
-                    <div>
-                        <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider block">Net Pending WIP Stock</span>
-                        <h3 className="text-2xl font-black text-indigo-100 mt-1">
-                            {summary.netPendingWipQty.toLocaleString()}
-                        </h3>
-                    </div>
-                    <div className="w-12 h-12 rounded-2xl bg-indigo-900/90 flex items-center justify-center text-indigo-300 border border-indigo-700">
-                        <Layers size={22} />
-                    </div>
-                </div>
-            </div>
-
             {/* Filter Bar */}
             <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
                 
@@ -191,18 +145,31 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
                             type="text"
-                            placeholder="Search item, department or subcontractor..."
+                            placeholder="Search item, MRP #, department or subcontractor..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
                     </div>
 
+                    {/* MRP Plan # Filter */}
+                    <select
+                        value={filterMrp}
+                        onChange={(e) => setFilterMrp(e.target.value)}
+                        className="w-full sm:w-auto px-3.5 py-2 text-xs font-bold border border-indigo-200 dark:border-indigo-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 max-w-[220px] truncate"
+                    >
+                        <option value="">All MRP Plans</option>
+                        <option value="none">Direct Store Issues (No MRP)</option>
+                        {mrpList.map(mrp => (
+                            <option key={mrp} value={mrp}>MRP: {mrp}</option>
+                        ))}
+                    </select>
+
                     {/* Destination Filter */}
                     <select
                         value={filterVendor}
                         onChange={(e) => setFilterVendor(e.target.value)}
-                        className="w-full sm:w-auto px-3.5 py-2 text-xs font-bold border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 max-w-[220px] truncate"
+                        className="w-full sm:w-auto px-3.5 py-2 text-xs font-bold border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 max-w-[200px] truncate"
                     >
                         <option value="">All Destinations</option>
                         {vendorsList.map(v => (
@@ -264,6 +231,7 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                             <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                 <tr>
                                     <th className="px-5 py-3.5">Sent / Issued Material</th>
+                                    <th className="px-5 py-3.5">MRP Plan #</th>
                                     <th className="px-5 py-3.5">Destination / Department</th>
                                     <th className="px-5 py-3.5">Process / Purpose</th>
                                     <th className="px-5 py-3.5 text-center">Store Deductions</th>
@@ -282,7 +250,17 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                                         <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
                                             <td className="px-5 py-4 font-bold text-slate-900 dark:text-white">
                                                 {item.sentItemName}
-                                                <span className="block text-[10px] text-slate-400 font-normal uppercase">Category: {item.categoryType || item.itemType}</span>
+                                                <span className="block text-[10px] text-slate-400 font-normal uppercase mt-0.5">Category: {item.categoryType || item.itemType}</span>
+                                            </td>
+
+                                            <td className="px-5 py-4">
+                                                {item.mrpNumber ? (
+                                                    <span className="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 inline-block shadow-2xs">
+                                                        {item.mrpNumber}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs text-slate-400 italic">Direct / No MRP</span>
+                                                )}
                                             </td>
 
                                             <td className="px-5 py-4 text-slate-700 dark:text-slate-300 font-medium">
@@ -356,9 +334,16 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                                             <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
                                                 {item.sentItemName}
                                             </h4>
-                                            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                                                <Factory size={13} className="text-slate-400 shrink-0" />
-                                                <span className="truncate">{item.vendorName || 'Department'}</span>
+                                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                                {item.mrpNumber && (
+                                                    <span className="font-mono text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                        MRP: {item.mrpNumber}
+                                                    </span>
+                                                )}
+                                                <div className="flex items-center gap-1">
+                                                    <Factory size={13} className="text-slate-400 shrink-0" />
+                                                    <span className="truncate">{item.vendorName || 'Department'}</span>
+                                                </div>
                                                 {item.processType && (
                                                     <span className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded text-[10px] font-semibold shrink-0">
                                                         {item.processType}

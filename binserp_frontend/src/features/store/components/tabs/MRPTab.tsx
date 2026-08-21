@@ -1,498 +1,535 @@
-/**
- * MRPTab Component
- * 
- * Manages Material Requirements Planning (MRP) for:
- * 1. Finished Goods (FG) Shortfalls moved from Sales Orders
- * 2. Raw Materials / Bought-Out (RM / BO) Items exploded from FG BOMs
- */
-
-import React, { useState, useEffect } from 'react';
-import { getApiBaseUrl } from '@/src/utils/config';
-import LoadingSpinner from '@/src/components/LoadingSpinner';
-
-import { Search, Save, AlertCircle, CheckCircle2, ClipboardList, Layers, Send, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Layers, Plus, Search, Calendar, User, Eye, Trash2, Package, 
+  CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, 
+  LayoutGrid, List, Edit2, ShieldCheck, Download, ShoppingCart, 
+  Sparkles, RefreshCw, FileText, AlertCircle 
+} from 'lucide-react';
+import Link from 'next/link';
+import { apiGet, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
+import MRPModal from '../modals/MRPModal';
+import MRPDetailsModal from '../modals/MRPDetailsModal';
 
-export default function MRPTab() {
+interface MRPTabProps {
+  token?: string | null;
+  onError?: (msg: string) => void;
+  onSuccess?: (msg: string) => void;
+}
+
+export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabProps) {
   const [loading, setLoading] = useState(true);
-  const [fgMrps, setFgMrps] = useState<any[]>([]);
-  const [rmPlans, setRmPlans] = useState<any[]>([]);
+  const [mrpPlans, setMrpPlans] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentSubTab, setCurrentSubTab] = useState<'fg' | 'bo'>('fg');
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
-  const apiUrl = getApiBaseUrl();
+  const [filterStatus, setFilterStatus] = useState<string>('All');
+  const [activeSubTab, setActiveSubTab] = useState<'plans' | 'rm-bo'>('plans');
 
+  // Modal States
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<any | null>(null);
+  const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
+  const token = propToken || (typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '');
 
-  useEffect(() => {
-    fetchMRPData();
-  }, []);
-
-  const fetchMRPData = async () => {
+  const fetchData = async () => {
+    if (!token) return;
     setLoading(true);
     try {
-      // Fetch FG MRPs (moved from Sales Orders)
-      const resFg = await fetch(`${apiUrl}/api/store/mrp`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const dataFg = await resFg.json();
-      if (resFg.ok) {
-        setFgMrps(dataFg.data || dataFg.mrps || []);
-      }
-
-      // Fetch RM/BO Plans (exploded from FG BOMs)
-      const resRm = await fetch(`${apiUrl}/api/store/rm-plan`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const dataRm = await resRm.json();
-      if (resRm.ok) {
-        setRmPlans(dataRm.data || []);
-      }
-    } catch (err) {
-      console.error("Failed to fetch MRP data:", err);
+      const res = await apiGet('/api/purchase/mrp/plans', token);
+      setMrpPlans(res.mrpPlans || []);
+    } catch (err: any) {
+      console.error('Failed to fetch MRP plans:', err);
+      if (onError) onError(err.message || 'Failed to fetch MRP plans');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleExplodeBOM = async (mrpId: string) => {
-    try {
-      const res = await fetch(`${apiUrl}/api/store/mrp/${mrpId}/plan-rm`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to explode BOM');
+  useEffect(() => {
+    fetchData();
+  }, [token]);
 
+  const handleDeletePlan = async (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const confirm = await Swal.fire({
+      title: 'Delete MRP Plan?',
+      text: 'Are you sure you want to remove this MRP demand plan and all its exploded requirements?',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, Delete'
+    });
+
+    if (!confirm.isConfirmed) return;
+
+    try {
+      await apiDelete(`/api/purchase/mrp/plan/${id}`, token);
       Swal.fire({
         icon: 'success',
-        title: 'BOM Exploded',
-        text: data.message || 'BOM exploded into RM/BO material requirements',
+        title: 'Deleted',
+        text: 'MRP Plan removed successfully',
         timer: 2000
       });
-      fetchMRPData();
-      setCurrentSubTab('bo');
+      if (onSuccess) onSuccess('MRP Plan deleted successfully');
+      fetchData();
     } catch (err: any) {
       Swal.fire({
         icon: 'error',
         title: 'Error',
-        text: err.message || 'Failed to explode BOM'
+        text: err.message || 'Failed to delete MRP plan'
       });
+      if (onError) onError(err.message || 'Failed to delete MRP plan');
     }
   };
 
-  const handleSendToPPC = async (mrpId: string) => {
-    try {
-      const res = await fetch(`${apiUrl}/api/store/mrp/${mrpId}/send-to-ppc`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Failed to send to PPC');
-
-      Swal.fire({
-        icon: 'success',
-        title: 'Sent to PPC Intake',
-        text: data.message || 'FG Requirement sent to PPC Order Intake Bucket',
-        timer: 2000
-      });
-      fetchMRPData();
-    } catch (err: any) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: err.message || 'Failed to send to PPC'
-      });
-    }
+  const handleOpenDetails = (plan: any) => {
+    setSelectedPlan(plan);
+    setIsDetailsModalOpen(true);
   };
 
-  const filteredFgItems = fgMrps.filter((item: any) => {
-    const fgName = item.fgItem?.name || item.materialName || '';
-    const orderNum = item.salesOrder?.orderNumber || item.orderNumber || '';
-    const term = searchTerm.toLowerCase();
-    return fgName.toLowerCase().includes(term) || orderNum.toLowerCase().includes(term);
-  });
+  // Filtered MRP Plans
+  const filteredPlans = useMemo(() => {
+    return (Array.isArray(mrpPlans) ? mrpPlans : []).filter((plan: any) => {
+      const s = searchTerm.toLowerCase();
+      const matchSearch =
+        (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
+        (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
+        (plan.remarks && plan.remarks.toLowerCase().includes(s)) ||
+        (plan.fgItems && plan.fgItems.some((f: any) => 
+          (f.fgItemName && f.fgItemName.toLowerCase().includes(s)) ||
+          (f.description && f.description.toLowerCase().includes(s))
+        ));
 
-  const filteredRmItems = rmPlans.filter((item: any) => {
-    const rmName = item.rmBoItem?.name || item.materialName || '';
-    const orderNum = item.sourceMRP?.salesOrder?.orderNumber || item.orderNumber || '';
-    const term = searchTerm.toLowerCase();
-    return rmName.toLowerCase().includes(term) || orderNum.toLowerCase().includes(term);
-  });
+      const matchStatus = filterStatus === 'All' || plan.status === filterStatus;
+      return matchSearch && matchStatus;
+    });
+  }, [mrpPlans, searchTerm, filterStatus]);
 
-  if (loading) {
-    return <div className="flex justify-center items-center h-64"><LoadingSpinner /></div>;
-  }
+  // Aggregated unified RM/BO list across all active plans
+  const aggregatedRMBOList = useMemo(() => {
+    const list: any[] = [];
+    filteredPlans.forEach(plan => {
+      const allMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
+      allMats.forEach((mat: any) => {
+        list.push({
+          ...mat,
+          planId: plan._id,
+          mrpNumber: plan.mrpNumber,
+          customerName: plan.customerName,
+          targetDate: plan.targetDate
+        });
+      });
+    });
+    return list;
+  }, [filteredPlans]);
+
+  // Metrics
+  const totalPlansCount = mrpPlans.length;
+  const totalMaterialCount = mrpPlans.reduce((sum, p) => 
+    sum + (p.rmRequirements?.length || 0) + (p.boRequirements?.length || 0), 0);
+  const totalShortagesCount = mrpPlans.reduce((sum, p) => {
+    const allMats = [...(p.rmRequirements || []), ...(p.boRequirements || [])];
+    const shorts = allMats.filter((m: any) => m.shortage > 0).length;
+    return sum + shorts;
+  }, 0);
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 animate-in fade-in duration-300">
       
-      {/* Sub-Tabs */}
-      <div className="flex gap-2 p-1 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 w-fit shadow-sm">
-        <button
-          onClick={() => setCurrentSubTab("fg")}
-          className={`px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 ${currentSubTab === "fg"
-            ? "bg-indigo-600 text-white shadow-md"
-            : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-slate-800"
-            }`}
-        >
-          Finished Goods Shortfalls ({fgMrps.length})
-        </button>
-        <button
-          onClick={() => setCurrentSubTab("bo")}
-          className={`px-5 py-2 rounded-lg font-bold text-sm transition-all duration-200 ${currentSubTab === "bo"
-            ? "bg-indigo-600 text-white shadow-md"
-            : "text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-slate-800"
-            }`}
-        >
-          RM / BO Material Requirements ({rmPlans.length})
-        </button>
-      </div>
-
-      {/* Toolbar Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-            <ClipboardList size={20} />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Purchase MRP & Material Planning</h2>
-            <p className="text-xs text-gray-500">Manage order shortfalls, explode BOMs, and route requirements to PPC / Purchasing</p>
-          </div>
+      {/* Header & KPI Action Bar */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+            <Layers size={22} className="text-indigo-600" /> MRP & Material Planning
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Enter Finished Goods requirements with target dates, link optional customer, and calculate unified RM / BO material plans.
+          </p>
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            className="block w-full pl-9 pr-3 py-2 border border-gray-200 dark:border-slate-800 rounded-xl text-xs bg-white dark:bg-slate-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"
-            placeholder="Search item or order number..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchData}
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold shrink-0 bg-white dark:bg-slate-900"
+            title="Refresh MRP Plans"
+          >
+            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          </button>
+
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/20 hover:shadow-lg transition-all flex items-center gap-2"
+          >
+            <Plus size={16} /> Create MRP Plan
+          </button>
         </div>
       </div>
 
-      {/* Table Content */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden">
-        {currentSubTab === "fg" ? (
-          <>
-            {/* Finished Goods (FG) Desktop Table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-indigo-50/80 dark:bg-slate-800 text-indigo-900 dark:text-indigo-300 font-bold uppercase">
-                  <tr>
-                    <th className="px-6 py-4">Finished Goods Item</th>
-                    <th className="px-6 py-4">Source Sales Order</th>
-                    <th className="px-6 py-4 text-center">Shortfall Qty</th>
-                    <th className="px-6 py-4">Target Due Date</th>
-                    <th className="px-6 py-4 text-center">MRP Status</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                  {filteredFgItems.length > 0 ? (
-                    filteredFgItems.map((item) => {
-                      const fgName = item.fgItem?.name || item.materialName || 'FG Product';
-                      const fgCode = item.fgItem?.code || '';
-                      const orderNum = item.salesOrder?.orderNumber || item.storeOrder?.orderNumber || item.orderNumber || 'SO-Direct';
-                      const custName = item.salesOrder?.customerName || item.storeOrder?.customerName || item.customerName || '';
+      {/* Filter & Subtab Bar */}
+      <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+        
+        {/* Left Side: Sub-tab switcher and search box */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+          
+          {/* Sub-tab Switcher: Plans Orders vs RM / BO Materials */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+            <button
+              onClick={() => setActiveSubTab('plans')}
+              className={`px-4 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                activeSubTab === 'plans' 
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' 
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <FileText size={14} /> MRP Plans ({mrpPlans.length})
+            </button>
+            <button
+              onClick={() => setActiveSubTab('rm-bo')}
+              className={`px-4 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                activeSubTab === 'rm-bo' 
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' 
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <Package size={14} /> RM / BO Materials ({aggregatedRMBOList.length})
+            </button>
+          </div>
 
-                      return (
-                        <tr key={item._id} className="hover:bg-indigo-50/40 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
-                            {fgName} {fgCode && <span className="text-[10px] text-gray-400 block font-mono">{fgCode}</span>}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-xs">
-                              {orderNum}
-                            </span>
-                            {custName && <span className="text-[10px] text-gray-500 block mt-0.5">{custName}</span>}
-                          </td>
-                          <td className="px-6 py-4 text-center font-extrabold text-amber-600 dark:text-amber-400 text-sm font-mono">
-                            {item.requiredQuantity} Units
-                          </td>
-                          <td className="px-6 py-4 text-gray-600 dark:text-gray-300 font-medium">
-                            {item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-GB') : '-'}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                              item.status === 'Sent to PPC' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40' :
-                              item.status === 'RM Planned' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/40' :
-                              'bg-amber-100 text-amber-800 dark:bg-amber-950/40'
-                            }`}>
-                              {item.status || 'Pending'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleExplodeBOM(item._id)}
-                                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex items-center gap-1"
-                                title="Explode BOM to calculate RM/BO requirements"
-                              >
-                                <Layers size={14} />
-                                <span>Explode BOM</span>
-                              </button>
+          {/* Search Box */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <input
+              type="text"
+              placeholder="Search MRP #, Customer, or Item..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+            />
+          </div>
+        </div>
 
-                              <button
-                                onClick={() => handleSendToPPC(item._id)}
-                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs shadow-sm transition-all flex items-center gap-1"
-                                title="Send demand to PPC Order Intake Bucket"
-                              >
-                                <Send size={14} />
-                                <span>Send to PPC</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
-                        No FG shortfalls found in Purchase MRP. Use "Move to MRP" on Sales Orders to add items here.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+        {/* Right Side: Status Filter Pills */}
+        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+          {['All', 'Planned', 'In Production', 'Partially Completed', 'In Procurement', 'Completed'].map(status => (
+            <button
+              key={status}
+              onClick={() => setFilterStatus(status)}
+              className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
+                filterStatus === status 
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' 
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+      </div>
 
-            {/* Finished Goods (FG) Mobile Cards */}
-            <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
-              {filteredFgItems.length === 0 ? (
-                <div className="p-8 text-center text-gray-400 text-xs">
-                  No FG shortfalls found.
+      {/* Main Content Area */}
+      {loading ? (
+        <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+        </div>
+      ) : (
+        <>
+          {/* TAB 1: ALL MRP DEMAND PLANS */}
+          {activeSubTab === 'plans' && (
+            <>
+              {filteredPlans.length === 0 ? (
+                <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <Layers className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
+                  <p className="text-xs text-slate-500 mt-1 mb-4">Create an MRP Plan to calculate material requirements for your Finished Goods.</p>
+                  <button
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                  >
+                    + Create First MRP Plan
+                  </button>
                 </div>
               ) : (
-                filteredFgItems.map((item) => {
-                  const fgName = item.fgItem?.name || item.materialName || 'FG Product';
-                  const fgCode = item.fgItem?.code || '';
-                  const orderNum = item.salesOrder?.orderNumber || item.storeOrder?.orderNumber || item.orderNumber || 'SO-Direct';
-                  const custName = item.salesOrder?.customerName || item.storeOrder?.customerName || item.customerName || '';
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                  
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="px-4 py-3.5">MRP Number</th>
+                          <th className="px-4 py-3.5">Customer</th>
+                          <th className="px-4 py-3.5">FG Items</th>
+                          <th className="px-4 py-3.5 text-center">Due Date</th>
+                          <th className="px-4 py-3.5 text-center">RM / BO Materials</th>
+                          <th className="px-4 py-3.5 text-center">Status</th>
+                          <th className="px-4 py-3.5 text-center">Created By</th>
+                          <th className="px-4 py-3.5 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {filteredPlans.map((plan) => {
+                          const fgSummary = plan.fgItems?.map((f: any) => `${f.fgItemName} (${f.receivedQuantity || 0}/${f.quantity})`).join(', ') || '-';
+                          const allMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
+                          const totalMats = allMats.length;
+                          const shortages = allMats.filter((m: any) => m.shortage > 0).length;
 
-                  return (
-                    <div key={item._id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-gray-200 dark:border-slate-800 shadow-sm space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-gray-900 dark:text-white text-sm">{fgName}</h4>
-                          {fgCode && <p className="text-[11px] text-gray-400 font-mono">{fgCode}</p>}
-                        </div>
-                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                          item.status === 'Sent to PPC' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
-                          item.status === 'RM Planned' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' :
-                          'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                        }`}>
-                          {item.status || 'Pending'}
-                        </span>
-                      </div>
+                          return (
+                            <tr
+                              key={plan._id || plan.mrpNumber}
+                              onClick={() => handleOpenDetails(plan)}
+                              className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                            >
+                              <td className="px-4 py-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                {plan.mrpNumber}
+                                <span className="block text-[10px] text-slate-400 font-sans font-normal">
+                                  {new Date(plan.createdAt || Date.now()).toLocaleDateString('en-GB')}
+                                </span>
+                              </td>
 
-                      <div className="bg-indigo-50/50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-indigo-100/50 dark:border-slate-800">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Source Order:</span>
-                          <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{orderNum} {custName && `(${custName})`}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Shortfall:</span>
-                          <span className="font-extrabold text-amber-600 dark:text-amber-400 font-mono text-sm">{item.requiredQuantity} Units</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Due Date:</span>
-                          <span className="font-semibold text-gray-700 dark:text-gray-300">{item.dueDate ? new Date(item.dueDate).toLocaleDateString('en-GB') : '-'}</span>
-                        </div>
-                      </div>
+                              <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-slate-200">
+                                {plan.customerName || <span className="text-slate-400 font-normal italic">Internal Plan</span>}
+                              </td>
 
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          onClick={() => handleExplodeBOM(item._id)}
-                          className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
-                        >
-                          <Layers size={13} /> Explode BOM
-                        </button>
-                        <button
-                          onClick={() => handleSendToPPC(item._id)}
-                          className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-sm"
-                        >
-                          <Send size={13} /> Send to PPC
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            {/* RM / BO Desktop Table */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-gray-50/80 dark:bg-slate-800 text-gray-600 dark:text-gray-300 font-bold uppercase">
-                  <tr>
-                    <th className="px-6 py-4">Material / Component</th>
-                    <th className="px-6 py-4">Source Order / FG Ref</th>
-                    <th className="px-6 py-4 text-center">Required Qty</th>
-                    <th className="px-6 py-4 text-center">In-House Stock</th>
-                    <th className="px-6 py-4 text-center">Net Shortage</th>
-                    <th className="px-6 py-4 text-center">Status</th>
-                    <th className="px-6 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                  {filteredRmItems.length > 0 ? (
-                    filteredRmItems.map((item) => {
-                      const matName = item.rmBoItem?.name || item.materialName || 'RM / BO Item';
-                      const orderNum = item.sourceMRP?.salesOrder?.orderNumber || item.orderNumber || 'MRP';
-                      const fgName = item.sourceMRP?.fgItem?.name || '';
-                      const reqQty = Number(item.requiredQuantity || 0);
-                      const stock = Number(item.currentStock || 0);
-                      const shortage = Number(item.shortage !== undefined ? item.shortage : Math.max(0, reqQty - stock));
+                              <td className="px-4 py-3.5 max-w-[200px] truncate text-slate-700 dark:text-slate-300 font-medium" title={fgSummary}>
+                                {Array.isArray(plan.fgItems) && plan.fgItems.length > 0 ? (
+                                  <div>
+                                    {plan.fgItems[0]?.fgItemName} ({plan.fgItems[0]?.receivedQuantity || 0}/{plan.fgItems[0]?.quantity} {plan.fgItems[0]?.unit || 'PCS'})
+                                    {plan.fgItems.length > 1 && (
+                                      <span className="text-xs text-slate-400 font-normal ml-1">+{plan.fgItems.length - 1} more</span>
+                                    )}
+                                  </div>
+                                ) : '-'}
+                              </td>
+
+                              <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                {plan.targetDate ? new Date(plan.targetDate).toLocaleDateString('en-GB') : 'N/A'}
+                              </td>
+
+                              <td className="px-4 py-3.5 text-center font-bold">
+                                <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1 rounded-lg text-xs font-mono">
+                                  {totalMats} Items {shortages > 0 && <span className="text-rose-600 font-extrabold ml-1">({shortages} Short)</span>}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3.5 text-center">
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                                  plan.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                                  plan.status === 'In Production' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' :
+                                  plan.status === 'Partially Completed' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300' :
+                                  plan.status === 'In Procurement' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' :
+                                  'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                }`}>
+                                  {plan.status || 'Planned'}
+                                </span>
+                              </td>
+
+                              <td className="px-4 py-3.5 text-center text-xs text-slate-500 font-medium">
+                                {plan.createdByName || plan.createdBy?.name || 'User'}
+                              </td>
+
+                              <td className="px-4 py-3.5 text-right">
+                                <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => handleOpenDetails(plan)}
+                                    className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 rounded-lg transition-colors"
+                                    title="View MRP Details"
+                                  >
+                                    <Eye size={16} />
+                                  </button>
+                                  <button
+                                    onClick={(e) => handleDeletePlan(plan._id, e)}
+                                    className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950 rounded-lg transition-colors"
+                                    title="Delete MRP Plan"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Card View */}
+                  <div className="block md:hidden p-3 space-y-3 pb-28 bg-slate-50/50 dark:bg-slate-900/40">
+                    {filteredPlans.map((plan) => {
+                      const allMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
+                      const totalMats = allMats.length;
+                      const shortages = allMats.filter((m: any) => m.shortage > 0).length;
 
                       return (
-                        <tr key={item._id} className="hover:bg-gray-50/50 dark:hover:bg-slate-800/40">
-                          <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
-                            {matName}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-mono text-[11px]">
-                              {orderNum}
+                        <div
+                          key={plan._id || plan.mrpNumber}
+                          className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">{plan.mrpNumber}</span>
+                              <h4 className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">
+                                {plan.customerName || 'Internal MRP Plan'}
+                              </h4>
+                            </div>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              plan.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' :
+                              plan.status === 'In Procurement' ? 'bg-purple-100 text-purple-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {plan.status || 'Planned'}
                             </span>
-                            {fgName && <span className="text-[10px] text-gray-400 block mt-0.5">{fgName}</span>}
+                          </div>
+
+                          <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1 border border-slate-100 dark:border-slate-800">
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">FG Products:</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{plan.fgItems?.length || 0} Items</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Materials Needed:</span>
+                              <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                {totalMats} Items {shortages > 0 && `(${shortages} Short)`}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-500">Target Date:</span>
+                              <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                {plan.targetDate ? new Date(plan.targetDate).toLocaleDateString('en-GB') : 'N/A'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              onClick={() => handleOpenDetails(plan)}
+                              className="flex-1 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center gap-1 border border-indigo-200 dark:border-indigo-800"
+                            >
+                              <Eye size={13} /> View Plan
+                            </button>
+                            <button
+                              onClick={(e) => handleDeletePlan(plan._id, e)}
+                              className="py-1.5 px-2.5 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                </div>
+              )}
+            </>
+          )}
+
+          {/* TAB 2: UNIFIED RM / BO MATERIAL REQUIREMENTS */}
+          {activeSubTab === 'rm-bo' && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+              {aggregatedRMBOList.length === 0 ? (
+                <div className="p-16 text-center text-slate-400 text-xs">
+                  No RM / BO material requirements found across active MRP plans.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                      <tr>
+                        <th className="px-4 py-3.5">Material Name</th>
+                        <th className="px-4 py-3.5">Category</th>
+                        <th className="px-4 py-3.5">Source MRP</th>
+                        <th className="px-4 py-3.5 text-center">Gross Required</th>
+                        <th className="px-4 py-3.5 text-center">In-Stock</th>
+                        <th className="px-4 py-3.5 text-center">Net Shortage</th>
+                        <th className="px-4 py-3.5 text-right">Procure Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {aggregatedRMBOList.map((mat: any, idx: number) => (
+                        <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-slate-200">
+                            {mat.materialName}
+                            {mat.materialCode && <span className="block text-[10px] text-slate-400 font-mono font-normal">{mat.materialCode}</span>}
                           </td>
-                          <td className="px-6 py-4 text-center font-bold text-gray-700 dark:text-slate-300">
-                            {reqQty}
+
+                          <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400 font-medium">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold">
+                              {mat.category || 'RM / BO'}
+                            </span>
                           </td>
-                          <td className="px-6 py-4 text-center font-semibold text-gray-600 dark:text-slate-400">
-                            {stock}
+
+                          <td className="px-4 py-3.5">
+                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block text-xs">{mat.mrpNumber}</span>
+                            {mat.customerName && <span className="text-[10px] text-slate-500">{mat.customerName}</span>}
                           </td>
-                          <td className="px-6 py-4 text-center font-extrabold">
-                            {shortage > 0 ? (
-                              <span className="text-red-600 bg-red-50 dark:bg-red-950/40 px-2 py-1 rounded-md border border-red-200 font-mono">
-                                {shortage} Short
+
+                          <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200 text-xs">
+                            {mat.requiredQuantity} {mat.unit || 'PCS'}
+                          </td>
+
+                          <td className="px-4 py-3.5 text-center font-semibold text-slate-600 dark:text-slate-400 text-xs">
+                            {mat.currentStock} {mat.unit || 'PCS'}
+                          </td>
+
+                          <td className="px-4 py-3.5 text-center font-extrabold font-mono text-xs">
+                            {mat.shortage > 0 ? (
+                              <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                -{mat.shortage} {mat.unit || 'PCS'} Short
                               </span>
                             ) : (
-                              <span className="text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-1 rounded-md border border-emerald-200">
+                              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                 In Stock
                               </span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-center font-bold">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] ${item.status === 'PO Created' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                              {item.status || 'Pending'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
+
+                          <td className="px-4 py-3.5 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              <a
-                                href={`/dashboard/store/purchase/rfq?materialId=${item.rmBoItem?._id || item._id}&qty=${shortage || reqQty}`}
-                                className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold rounded-lg transition-colors"
-                                title="Create Outward RFQ"
+                              <Link
+                                href={`/dashboard/store/purchase/rfq?materialId=${mat.material || ''}&qty=${mat.shortage || mat.requiredQuantity}&name=${encodeURIComponent(mat.materialName)}`}
+                                className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs"
                               >
                                 Outward RFQ
-                              </a>
-
-                              <a
-                                href={`/dashboard/store/purchase/po?materialId=${item.rmBoItem?._id || item._id}&qty=${shortage || reqQty}`}
-                                className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg transition-colors"
-                                title="Create Outward PO"
+                              </Link>
+                              <Link
+                                href={`/dashboard/store/purchase/po?materialId=${mat.material || ''}&qty=${mat.shortage || mat.requiredQuantity}&name=${encodeURIComponent(mat.materialName)}`}
+                                className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs"
                               >
                                 Outward PO
-                              </a>
+                              </Link>
                             </div>
                           </td>
                         </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-gray-400">
-                        No RM/BO material requirements found. Explode a BOM from the "Finished Goods Shortfalls" sub-tab above to generate material plans.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* RM / BO Mobile Cards */}
-            <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
-              {filteredRmItems.length === 0 ? (
-                <div className="p-8 text-center text-gray-400 text-xs">
-                  No RM/BO material requirements found.
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              ) : (
-                filteredRmItems.map((item) => {
-                  const matName = item.rmBoItem?.name || item.materialName || 'RM / BO Item';
-                  const orderNum = item.sourceMRP?.salesOrder?.orderNumber || item.orderNumber || 'MRP';
-                  const fgName = item.sourceMRP?.fgItem?.name || '';
-                  const reqQty = Number(item.requiredQuantity || 0);
-                  const stock = Number(item.currentStock || 0);
-                  const shortage = Number(item.shortage !== undefined ? item.shortage : Math.max(0, reqQty - stock));
-
-                  return (
-                    <div key={item._id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-gray-200 dark:border-slate-800 shadow-sm space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-gray-900 dark:text-white text-sm">{matName}</h4>
-                          <p className="text-[11px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">{orderNum} {fgName && `(${fgName})`}</p>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${item.status === 'PO Created' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {item.status || 'Pending'}
-                        </span>
-                      </div>
-
-                      <div className="bg-gray-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1.5 border border-gray-100 dark:border-slate-800">
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">Required:</span>
-                          <span className="font-bold text-gray-800 dark:text-gray-200">{reqQty} Units</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-500">In-House Stock:</span>
-                          <span className="font-semibold text-gray-700 dark:text-gray-300">{stock} Units</span>
-                        </div>
-                        <div className="flex justify-between items-center pt-1 border-t border-gray-200 dark:border-slate-700">
-                          <span className="font-bold text-gray-700 dark:text-gray-300">Net Status:</span>
-                          {shortage > 0 ? (
-                            <span className="text-red-600 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded font-mono font-bold text-xs">
-                              {shortage} Short
-                            </span>
-                          ) : (
-                            <span className="text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded font-bold text-xs">
-                              In Stock
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-1">
-                        <a
-                          href={`/dashboard/store/purchase/rfq?materialId=${item.rmBoItem?._id || item._id}&qty=${shortage || reqQty}`}
-                          className="flex-1 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold rounded-xl transition-colors text-center shadow-sm"
-                        >
-                          Outward RFQ
-                        </a>
-                        <a
-                          href={`/dashboard/store/purchase/po?materialId=${item.rmBoItem?._id || item._id}&qty=${shortage || reqQty}`}
-                          className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition-colors text-center shadow-sm"
-                        >
-                          Outward PO
-                        </a>
-                      </div>
-                    </div>
-                  );
-                })
               )}
             </div>
-          </>
-        )}
-      </div>
+          )}
+        </>
+      )}
+
+      {/* MRP Create Modal */}
+      {isCreateModalOpen && (
+        <MRPModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onSuccess={fetchData}
+          token={token}
+        />
+      )}
+
+      {/* MRP Details Modal */}
+      {isDetailsModalOpen && selectedPlan && (
+        <MRPDetailsModal
+          isOpen={isDetailsModalOpen}
+          onClose={() => setIsDetailsModalOpen(false)}
+          mrpPlan={selectedPlan}
+        />
+      )}
+
     </div>
   );
 }

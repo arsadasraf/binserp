@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { jobWorkSchema, jobWorkSupplierSchema, vendorSchema, rmBoItemSchema, categorySchema, materialIssueSchema } from "../../models/store/index.js";
+import { jobWorkSchema, jobWorkSupplierSchema, vendorSchema, rmBoItemSchema, categorySchema, materialIssueSchema, fgGRNSchema, bomSchema } from "../../models/store/index.js";
 import { fgItemSchema } from "../../models/store/index.js";
 
 const getCompanyId = (req) => {
@@ -10,6 +10,8 @@ export const getWipInventory = async (req, res) => {
   try {
     const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
     const MaterialIssue = req.getModel("MaterialIssue", materialIssueSchema);
+    const FGGRN = req.getModel("FGGRN", fgGRNSchema);
+    const BOM = req.getModel("BOM", bomSchema);
 
     // Register referenced models
     req.getModel("Vendor", vendorSchema);
@@ -25,6 +27,10 @@ export const getWipInventory = async (req, res) => {
       .populate("issuedTo", "name userId department")
       .sort({ date: -1 });
 
+    // Load FG GRNs and BOMs for WIP consumption
+    const allFGGRNs = await FGGRN.find({ company: companyId, status: { $in: ["Received", "Accepted"] } });
+    const allBOMs = await BOM.find({ company: companyId });
+
     materialIssues.forEach((issue) => {
       const isConsumable = issue.type === "consumable";
       const isIssueInhouse = issue.type === "inhouse" || issue.type === "fg";
@@ -36,13 +42,17 @@ export const getWipInventory = async (req, res) => {
       if (requestedType === "rm-bo" && !isRmBo) return;
 
       const issueDept = issue.department || issue.issuedTo?.department || "Shop Floor Assembly";
+      const mrpNumber = issue.mrpNumber || "";
 
       (issue.items || []).forEach((item) => {
         const matName = item.materialName || "Issued Material";
+        const matCode = item.materialCode || "";
         const qty = Number(item.quantity) || 0;
         const unit = item.unit || "PCS";
         const issueDate = issue.date || issue.createdAt;
-        const key = `issue_${matName.trim().toLowerCase()}_${issueDept.trim().toLowerCase()}`;
+        const key = mrpNumber 
+          ? `issue_${matName.trim().toLowerCase()}_mrp_${mrpNumber.toLowerCase()}`
+          : `issue_${matName.trim().toLowerCase()}_${issueDept.trim().toLowerCase()}`;
 
         if (!wipMap.has(key)) {
           wipMap.set(key, {
@@ -51,8 +61,9 @@ export const getWipInventory = async (req, res) => {
             receivedItemName: matName,
             itemType: isConsumable ? "consumable" : isIssueInhouse ? "fg" : "bo",
             categoryType: isConsumable ? "Consumable WIP" : isIssueInhouse ? "FG / In-House WIP" : "RM/BO WIP",
-            vendorName: `Department: ${issueDept}`,
+            vendorName: mrpNumber ? `MRP: ${mrpNumber} (${issueDept})` : `Department: ${issueDept}`,
             processType: "Shop Floor Issue",
+            mrpNumber: mrpNumber,
             unit: unit,
             receivingUnit: unit,
             totalIssuedQty: 0,
@@ -78,6 +89,7 @@ export const getWipInventory = async (req, res) => {
           date: issueDate,
           type: "Shop Floor Material Issue",
           docNumber: issue.issueNumber || `ISS-${issue._id.toString().slice(-6)}`,
+          mrpNumber: mrpNumber,
           sentQty: qty,
           receivedQty: 0,
           unit: unit,
@@ -85,6 +97,49 @@ export const getWipInventory = async (req, res) => {
           vendorName: issueDept,
           status: "Issued"
         });
+
+        // 1b. Check matching FG GRNs linked to this MRP Number to reduce WIP!
+        if (mrpNumber) {
+          const matchingGrns = allFGGRNs.filter(g => g.mrpNumber && g.mrpNumber.toLowerCase() === mrpNumber.toLowerCase());
+          matchingGrns.forEach(grn => {
+            (grn.items || []).forEach(gItem => {
+              const fgQty = Number(gItem.receivedQuantity || gItem.quantity) || 0;
+              const fgName = gItem.itemName || "";
+
+              // Find BOM to know consumption ratio
+              const bom = allBOMs.find(b => b.productName && b.productName.toLowerCase() === fgName.toLowerCase());
+              let consumedRatio = 1;
+              if (bom && Array.isArray(bom.items)) {
+                const bomMat = bom.items.find(bi => 
+                  (bi.materialName && bi.materialName.toLowerCase() === matName.toLowerCase()) ||
+                  (matCode && bi.materialCode && bi.materialCode.toLowerCase() === matCode.toLowerCase())
+                );
+                if (bomMat) {
+                  consumedRatio = Number(bomMat.quantity) || 1;
+                }
+              }
+
+              const consumedQty = Math.min(entry.pendingWipQty, fgQty * consumedRatio);
+              if (consumedQty > 0) {
+                entry.totalReturnedQty += consumedQty;
+                entry.pendingWipQty = Math.max(0, entry.pendingWipQty - consumedQty);
+
+                entry.transactions.push({
+                  date: grn.date || grn.createdAt,
+                  type: "FG GRN Receipt (WIP Consumed)",
+                  docNumber: grn.grnNumber,
+                  mrpNumber: mrpNumber,
+                  sentQty: 0,
+                  receivedQty: consumedQty,
+                  unit: unit,
+                  processType: `Finished: ${fgName}`,
+                  vendorName: "In-House Assembly",
+                  status: "Completed"
+                });
+              }
+            });
+          });
+        }
       });
     });
 

@@ -4,3 +4,5 @@ export { purchaseBillSchema } from './purchaseBill.model.js';
 export { vendorPriceListSchema } from './vendorPriceList.model.js';
 export { purchaseOrderSchema } from './purchaseOrder.model.js';
 export { salesOrderMRPSchema } from './salesOrderMRP.model.js';
+export { mrpPlanSchema } from './mrpPlan.model.js';
+

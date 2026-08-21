@@ -4,3 +4,5 @@ export * from './purchaseBill.controller.js';
 export * from './purchaseOrder.controller.js';
 export * from './vendorPriceList.controller.js';
 export * from './salesOrderMRP.controller.js';
+export * from './mrpPlan.controller.js';
+

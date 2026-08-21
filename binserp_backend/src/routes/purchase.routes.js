@@ -24,7 +24,12 @@ import {
   getVendorPriceLists,
   updateVendorPriceList,
   deleteVendorPriceList,
-  getAllSalesOrderMRPs
+  getAllSalesOrderMRPs,
+  createMRPPlan,
+  getAllMRPPlans,
+  getMRPPlanById,
+  deleteMRPPlan,
+  updateMRPPlanStatus
 } from "../controllers/purchase/index.js";
 
 const router = Router();
@@ -39,7 +44,21 @@ router.route("/vendor-bucket")
 router.route("/po/active-by-vendor/:vendorId")
   .get(getVendorActivePOs);
 
-// MRP Routes
+// MRP Plan Routes (New MRP Engine)
+router.route("/mrp/plan")
+  .post(createMRPPlan);
+
+router.route("/mrp/plans")
+  .get(getAllMRPPlans);
+
+router.route("/mrp/plan/:id")
+  .get(getMRPPlanById)
+  .delete(deleteMRPPlan);
+
+router.route("/mrp/plan/:id/status")
+  .put(updateMRPPlanStatus);
+
+// Legacy MRP Routes
 router.route("/mrp")
   .get(getAllSalesOrderMRPs);
 

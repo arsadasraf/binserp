@@ -53,6 +53,9 @@ export default function GRNModal({
     const [poReference, setPoReference] = useState('');
     const [selectedPO, setSelectedPO] = useState('');
     const [vendorActivePOs, setVendorActivePOs] = useState<any[]>([]);
+    const [mrpPlan, setMrpPlan] = useState('');
+    const [mrpNumber, setMrpNumber] = useState('');
+    const [mrpPlansList, setMrpPlansList] = useState<any[]>([]);
     const [qcRequired, setQcRequired] = useState(false); // New state for QC Check
     const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
@@ -90,6 +93,49 @@ export default function GRNModal({
             setSelectedPO('');
         }
     }, [supplier, type]);
+
+    // Fetch active MRP plans when modal opens for InHouse / FG GRN
+    useEffect(() => {
+        if (isOpen && type === 'inhouse') {
+            const token = localStorage.getItem('token');
+            if (token) {
+                apiGet('/api/purchase/mrp/plans', token)
+                    .then(res => setMrpPlansList(res.mrpPlans || []))
+                    .catch(err => console.error("Failed to load MRP plans for FG GRN:", err));
+            }
+        }
+    }, [isOpen, type]);
+
+    const handleSelectMRPPlan = (planId: string) => {
+        setMrpPlan(planId);
+        if (!planId) {
+            setMrpNumber('');
+            return;
+        }
+
+        const plan = mrpPlansList.find(p => p._id === planId);
+        if (plan) {
+            setMrpNumber(plan.mrpNumber || '');
+            if (Array.isArray(plan.fgItems) && plan.fgItems.length > 0) {
+                const entries = plan.fgItems.map((f: any) => {
+                    const pendQty = Math.max(0, (Number(f.quantity) || 0) - (Number(f.receivedQuantity) || 0));
+                    const calculatedQty = pendQty > 0 ? pendQty : (Number(f.quantity) || 1);
+                    const matObj = safeMaterials.find(m => m._id === f.fgItem || m.name === f.fgItemName);
+
+                    return {
+                        material: matObj?._id || f.fgItem || '',
+                        materialName: f.fgItemName || matObj?.name || '',
+                        quantity: calculatedQty,
+                        unit: f.unit || (matObj as any)?.unit || (typeof matObj?.categoryId === 'object' ? (matObj.categoryId as any)?.unit : '') || 'Nos',
+                        category: 'InHouse',
+                        locationId: (typeof (matObj as any)?.locationId === 'object' ? (matObj as any).locationId?._id : (matObj as any)?.locationId) || '',
+                        rate: 0,
+                    };
+                });
+                setMaterialEntries(entries);
+            }
+        }
+    };
 
     const handleSelectPO = (poId: string) => {
         setSelectedPO(poId);
@@ -362,7 +408,9 @@ export default function GRNModal({
                 formData.append('existingPhotos', JSON.stringify(existingPhotos));
             }
         } else {
-            // InHouse explicitly does NOT send customer, poReference, pdf, photos
+            // InHouse / FG GRN
+            if (mrpPlan) formData.append('mrpPlan', mrpPlan);
+            if (mrpNumber) formData.append('mrpNumber', mrpNumber);
         }
 
 
@@ -526,6 +574,28 @@ export default function GRNModal({
                                                  className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs"
                                                  placeholder="Enter PO No."
                                              />
+                                         </div>
+                                     )}
+
+                                     {/* Link MRP Plan - InHouse / FG GRN Only */}
+                                     {type === 'inhouse' && mrpPlansList.length > 0 && (
+                                         <div className="col-span-2">
+                                             <label className="block text-xs font-bold text-purple-700 mb-1 flex items-center justify-between">
+                                                 <span>Link MRP Demand Plan (Auto-fills FG items & required qty)</span>
+                                                 <span className="text-[10px] text-purple-500 font-normal">Select MRP Plan to auto-populate finished goods</span>
+                                             </label>
+                                             <select
+                                                 value={mrpPlan}
+                                                 onChange={(e) => handleSelectMRPPlan(e.target.value)}
+                                                 className="w-full px-3 py-2 border border-purple-300 bg-purple-50/60 rounded-xl focus:ring-1 focus:ring-purple-500 text-xs font-bold text-purple-900 shadow-xs cursor-pointer"
+                                             >
+                                                 <option value="">-- Select MRP Demand Plan (Optional) --</option>
+                                                 {mrpPlansList.map(p => (
+                                                     <option key={p._id} value={p._id}>
+                                                         [MRP] {p.mrpNumber} {p.customerName ? `(${p.customerName})` : ''} - Status: {p.status || 'Planned'}
+                                                     </option>
+                                                 ))}
+                                             </select>
                                          </div>
                                      )}
                                 </div>

@@ -56,7 +56,11 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     </div>
                                 </td>
                                 <td className="p-4">
-                                    {request.soNumber || request.salesOrder?.orderNumber ? (
+                                    {request.mrpNumber ? (
+                                        <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
+                                            MRP: {request.mrpNumber}
+                                        </span>
+                                    ) : request.soNumber || request.salesOrder?.orderNumber ? (
                                         <span className="bg-indigo-50 text-indigo-700 border border-indigo-100 font-mono text-xs px-2.5 py-1 rounded-lg font-bold">
                                             {request.soNumber || request.salesOrder?.orderNumber}
                                         </span>

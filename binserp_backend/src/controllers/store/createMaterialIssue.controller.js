@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema, consumableItemSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -23,15 +24,19 @@ const updateFGItemStock = async (req, componentId, quantity) => {
   try {
     const companyId = getCompanyId(req); // Derive companyId from req
     const FGItem = req.getModel("FGItem", fgItemSchema);
-    const component = await FGItem.findById(componentId);
-    if (!component) {
-      console.error(`FG Item not found: ${componentId}`);
-      return null;
+    const compDoc = await FGItem.findById(componentId);
+    if (!compDoc) {
+      console.warn(`[updateFGItemStock] Component not found with ID: ${componentId}`);
+      return false;
     }
 
-    // Update quantity
+    const previousStock = compDoc.quantity || 0;
+    const newStock = Math.max(0, previousStock - quantity);
+
+    console.log(`[updateFGItemStock] Component: ${compDoc.name}, Previous Stock: ${previousStock}, New Stock: ${newStock}`);
+
     await FGItem.findByIdAndUpdate(componentId, {
-      $inc: { quantity: quantity }
+      $set: { quantity: newStock },
     });
 
     return true;
@@ -47,9 +52,10 @@ export const createMaterialIssue = async (req, res) => {
     const Material = req.getModel('RmBoItem', rmBoItemSchema);
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
 
     const companyId = getCompanyId(req);
-    const { issueNumber, date, department, issuedTo, items, status, type } = req.body;
+    const { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber } = req.body;
 
     console.log(`>>> [createMaterialIssue] Start. Status: ${status}, Type: ${type}, Items: ${items?.length}`);
 
@@ -153,16 +159,33 @@ export const createMaterialIssue = async (req, res) => {
     const materialIssue = await MaterialIssue.create({
       company: companyId,
       issueNumber,
-      type: type || 'bo', // Save type
+      type: type || 'bo',
       date: date || new Date(),
       department,
       issuedTo,
+      mrpPlan: mrpPlan || undefined,
+      mrpNumber: mrpNumber || undefined,
       items: processedItems,
       issuedBy: req.user.id,
       status: status || "Draft",
     });
 
-    // Auto-update inventory when material is issued
+    // Auto-update MRP Plan status to In Production if issued against an MRP plan
+    if (status === "Issued" && (mrpPlan || mrpNumber)) {
+      try {
+        const query = { company: companyId };
+        if (mrpPlan) query._id = mrpPlan;
+        else if (mrpNumber) query.mrpNumber = mrpNumber;
+
+        const plan = await MRPPlan.findOne(query);
+        if (plan && (plan.status === 'Planned' || plan.status === 'Draft')) {
+          plan.status = 'In Production';
+          await plan.save();
+        }
+      } catch (err) {
+        console.error("Error updating MRP plan status on issue:", err);
+      }
+    }
 
     if (status === "Issued") {
       console.log(`>>> [createMaterialIssue] Status is Issued. Updating Stock...`);

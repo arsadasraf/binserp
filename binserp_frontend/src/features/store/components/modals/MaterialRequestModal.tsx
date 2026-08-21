@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { RmBoItem } from "@/src/features/store/types/store.types";
-import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers } from "lucide-react";
+import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
+import { apiGet } from "@/src/lib/api";
 
 interface MaterialRequestModalProps {
     isOpen: boolean;
@@ -12,7 +13,9 @@ interface MaterialRequestModalProps {
     inventoryList?: any[];
     inHouseComponents?: any[];
     salesOrders?: any[];
+    customerPos?: any[];
     loading?: boolean;
+    defaultType?: "consumable" | "bo" | "inhouse";
 }
 
 export default function MaterialRequestModal({
@@ -24,20 +27,20 @@ export default function MaterialRequestModal({
     inventoryList = [],
     inHouseComponents = [],
     salesOrders = [],
-    loading
+    customerPos = [],
+    loading,
+    defaultType = "bo"
 }: MaterialRequestModalProps) {
+    const [mrpPlans, setMrpPlans] = useState<any[]>([]);
     const [formData, setFormData] = useState({
         requestNumber: "",
-        type: "bo" as "consumable" | "bo" | "inhouse",
+        type: defaultType as "consumable" | "bo" | "inhouse",
         salesOrder: "",
         soNumber: "",
+        mrpPlan: "",
+        mrpNumber: "",
         items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined as string | undefined, consumable: undefined as string | undefined }]
     });
-
-    // Filter open sales orders (status !== 'Completed' && status !== 'Cancelled')
-    const openSalesOrders = useMemo(() => {
-        return (salesOrders || []).filter((so: any) => so.status !== 'Completed' && so.status !== 'Cancelled');
-    }, [salesOrders]);
 
     const generateRequestNumber = () => {
         const now = new Date();
@@ -49,13 +52,70 @@ export default function MaterialRequestModal({
         if (isOpen) {
             setFormData({
                 requestNumber: generateRequestNumber(),
-                type: "bo",
+                type: defaultType,
                 salesOrder: "",
                 soNumber: "",
+                mrpPlan: "",
+                mrpNumber: "",
                 items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined, consumable: undefined }]
             });
+
+            // Fetch active MRP plans
+            const token = typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '';
+            if (token) {
+                apiGet('/api/purchase/mrp/plans', token)
+                    .then(res => setMrpPlans(res.mrpPlans || []))
+                    .catch(err => console.error('Failed to load MRP plans in request modal:', err));
+            }
         }
     }, [isOpen]);
+
+    const handleSelectMRPPlan = (planId: string) => {
+        const selectedPlan = mrpPlans.find(p => p._id === planId);
+        if (!selectedPlan) {
+            setFormData(prev => ({ ...prev, mrpPlan: '', mrpNumber: '' }));
+            return;
+        }
+
+        // Auto-fill required items from this MRP plan if available
+        let populatedItems: any[] = [];
+        if (formData.type === 'inhouse' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
+            populatedItems = selectedPlan.fgItems.map((f: any) => {
+                const comp = (inHouseComponents || []).find((c: any) => (c._id === f.fgItem || c.name === f.fgItemName));
+                return {
+                    material: comp?._id || f.fgItem || '',
+                    materialName: f.fgItemName,
+                    materialCode: f.fgItemCode || '',
+                    quantity: f.quantity || 1,
+                    unit: f.unit || 'Nos',
+                    purpose: `Production for MRP: ${selectedPlan.mrpNumber}`,
+                    component: comp?._id || f.fgItem
+                };
+            });
+        } else if (Array.isArray(selectedPlan.rmRequirements) && selectedPlan.rmRequirements.length > 0) {
+            populatedItems = selectedPlan.rmRequirements.map((r: any) => {
+                const mat = (materials || []).find((m: any) => (m._id === r.material || m.name === r.materialName));
+                return {
+                    material: mat?._id || r.material || '',
+                    materialName: r.materialName,
+                    materialCode: r.materialCode || '',
+                    quantity: r.shortage > 0 ? r.shortage : (r.requiredQuantity || 1),
+                    unit: r.unit || 'PCS',
+                    purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
+                    consumable: undefined,
+                    component: undefined
+                };
+            });
+        }
+
+        setFormData(prev => ({
+            ...prev,
+            mrpPlan: selectedPlan._id,
+            mrpNumber: selectedPlan.mrpNumber,
+            soNumber: prev.soNumber || selectedPlan.customerName || selectedPlan.remarks || '',
+            items: populatedItems.length > 0 ? populatedItems : prev.items
+        }));
+    };
 
     const getStock = (materialId: string, materialCode?: string, materialName?: string) => {
         if (!materialId) return 0;
@@ -230,40 +290,48 @@ export default function MaterialRequestModal({
 
                 <div className="p-5 sm:p-6 space-y-6 pb-32">
                     
-                    {/* Target Sales Order Selector (Shown for RM/BO & Inhouse, Not Required for Consumable) */}
-                    {formData.type !== 'consumable' ? (
-                        <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm space-y-2">
+                    {/* Linked MRP Plan & Customer PO / Demand Reference */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/70 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm">
+                        {/* MRP Plan # Dropdown */}
+                        <div className="space-y-1.5">
                             <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-                                <ShoppingCart size={15} className="text-indigo-600 dark:text-indigo-400" /> Target Sales Order (Which Sales Order are you requesting material for?)
+                                <Layers size={14} className="text-indigo-600 dark:text-indigo-400" /> Link MRP Plan # <span className="text-[10px] text-slate-400 font-normal">(Auto-fills Materials)</span>
                             </label>
-                            <SearchableSelect
-                                options={openSalesOrders.map((so: any) => ({
-                                    value: so._id,
-                                    label: `${so.orderNumber || 'SO'} - ${so.customer?.name || 'Customer'} (Status: ${so.status || 'Open'})`
-                                }))}
-                                value={formData.salesOrder || ''}
-                                onChange={(val: any) => {
-                                    const selectedSO = openSalesOrders.find((so: any) => so._id === val);
+                            <select
+                                value={formData.mrpPlan || ''}
+                                onChange={(e) => handleSelectMRPPlan(e.target.value)}
+                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                                <option value="">-- Direct Store Request (No MRP) --</option>
+                                {mrpPlans.map((plan) => (
+                                    <option key={plan._id} value={plan._id}>
+                                        {plan.mrpNumber} {plan.customerName ? `(${plan.customerName})` : ''} - {plan.status || 'Planned'}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Customer PO / Order Ref */}
+                        <div className="space-y-1.5">
+                            <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <ShoppingCart size={14} className="text-indigo-600 dark:text-indigo-400" /> Customer PO / Order Ref <span className="text-[10px] text-slate-400 font-normal">(Optional)</span>
+                            </label>
+                            <input
+                                type="text"
+                                placeholder="e.g. PO-8921 / Shopfloor Assembly"
+                                value={formData.soNumber || ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
                                     setFormData(prev => ({
                                         ...prev,
                                         salesOrder: val,
-                                        soNumber: selectedSO?.orderNumber || ''
+                                        soNumber: val
                                     }));
                                 }}
-                                placeholder="Select Open Sales Order (e.g. SO-0001)..."
+                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                             />
-                            {formData.soNumber && (
-                                <div className="text-xs text-indigo-700 dark:text-indigo-300 font-medium">
-                                    Bound to Sales Order: <strong className="font-mono bg-indigo-100 dark:bg-indigo-900 px-2 py-0.5 rounded">{formData.soNumber}</strong>
-                                </div>
-                            )}
                         </div>
-                    ) : (
-                        <div className="bg-amber-50/70 dark:bg-amber-950/30 p-3.5 rounded-2xl border border-amber-200/70 dark:border-amber-900/40 text-xs text-amber-800 dark:text-amber-300 font-medium flex items-center gap-2">
-                            <Package size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
-                            <span>Consumable item requests are direct store issuances — <strong>Sales Order linkage is not required</strong>.</span>
-                        </div>
-                    )}
+                    </div>
 
                     {/* Items Section */}
                     <div>

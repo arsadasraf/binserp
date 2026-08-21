@@ -1,4 +1,5 @@
 import { fgGRNSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { uploadOnS3, signPhotos } from "../../utils/s3.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 
@@ -14,9 +15,10 @@ export const createFGGRN = async (req, res) => {
   try {
     const FGGRN = req.getModel('FGGRN', fgGRNSchema);
     const FGItem = req.getModel('FGItem', fgItemSchema);
+    const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
     const companyId = getCompanyId(req);
     
-    let { grnNumber, date, items, qcRequired, status, remarks } = req.body;
+    let { grnNumber, date, items, qcRequired, status, remarks, mrpPlan, mrpNumber } = req.body;
     
     if (qcRequired === 'true') qcRequired = true;
     else if (qcRequired === 'false') qcRequired = false;
@@ -69,6 +71,8 @@ export const createFGGRN = async (req, res) => {
       company: companyId,
       grnNumber,
       date: date || new Date(),
+      mrpPlan: mrpPlan || undefined,
+      mrpNumber: mrpNumber || undefined,
       items: itemsArray,
       pdf: pdfUrl,
       photos: photoUrls,
@@ -120,8 +124,45 @@ export const createFGGRN = async (req, res) => {
           performedBy: req.user?.id || req.user?._id,
         });
       }
-    }
 
+      // If linked to an MRP Plan, update MRP FG receipts and recalculate plan status
+      if (mrpPlan || mrpNumber) {
+        try {
+          const query = { company: companyId };
+          if (mrpPlan) query._id = mrpPlan;
+          else if (mrpNumber) query.mrpNumber = mrpNumber;
+
+          const plan = await MRPPlan.findOne(query);
+          if (plan && Array.isArray(plan.fgItems)) {
+            for (const grnItem of itemsArray) {
+              const matchedFg = plan.fgItems.find(
+                (f) =>
+                  (f.fgItem && f.fgItem.toString() === grnItem.fgItem.toString()) ||
+                  (f.fgItemName && f.fgItemName.toLowerCase() === grnItem.itemName.toLowerCase())
+              );
+              if (matchedFg) {
+                matchedFg.receivedQuantity = (matchedFg.receivedQuantity || 0) + grnItem.quantity;
+              }
+            }
+
+            const allFulfilled = plan.fgItems.every(f => (f.receivedQuantity || 0) >= f.quantity);
+            const anyReceived = plan.fgItems.some(f => (f.receivedQuantity || 0) > 0);
+
+            if (allFulfilled) {
+              plan.status = 'Completed';
+            } else if (anyReceived) {
+              plan.status = 'Partially Completed';
+            } else {
+              plan.status = 'In Production';
+            }
+
+            await plan.save();
+          }
+        } catch (mrpErr) {
+          console.error("Error updating MRP Plan from FG GRN:", mrpErr);
+        }
+      }
+    }
 
     res.status(201).json({ message: "FG GRN created successfully", grn: newGRN });
   } catch (error) {

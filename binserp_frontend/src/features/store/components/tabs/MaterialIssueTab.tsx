@@ -10,9 +10,12 @@ interface MaterialIssueTabProps {
     storeData: any; // Return value of useStoreData
     token: string | null;
     activeSubTab: 'requests' | 'history';
+    requestTypeFilter?: 'all' | 'consumable' | 'bo' | 'inhouse';
+    title?: string;
+    description?: string;
 }
 
-export default function MaterialIssueTab({ storeData, token, activeSubTab }: MaterialIssueTabProps) {
+export default function MaterialIssueTab({ storeData, token, activeSubTab, requestTypeFilter = 'all', title, description }: MaterialIssueTabProps) {
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [viewRequest, setViewRequest] = useState<any>(null); // State for request details view
     const [viewIssue, setViewIssue] = useState<any>(null); // State for issue details view
@@ -36,8 +39,16 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
         loading
     } = storeData;
 
-    // Filter pending requests
-    const pendingRequests = materialRequests.filter((r: any) => r.status === 'Pending' || r.status === 'Approved');
+    // Filter pending requests by status and specific request type
+    const pendingRequests = materialRequests.filter((r: any) => {
+        const isPending = r.status === 'Pending' || r.status === 'Approved';
+        if (!isPending) return false;
+        if (!requestTypeFilter || requestTypeFilter === 'all') return true;
+        if (requestTypeFilter === 'consumable') return r.type === 'consumable';
+        if (requestTypeFilter === 'inhouse') return r.type === 'inhouse' || r.type === 'fg';
+        if (requestTypeFilter === 'bo') return r.type === 'bo' || r.type === 'rm-bo' || (!r.type && r.type !== 'consumable' && r.type !== 'inhouse');
+        return true;
+    });
 
     // Filter History
     const filteredHistory = issueHistory?.filter((issue: any) => {
@@ -192,22 +203,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
     };
 
     return (
-        <div className="space-y-6">
-            {/* Header / Sub-tabs */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div className="hidden">
-                </div>
-
-                {activeSubTab === 'requests' && (
-                    <button
-                        onClick={() => setIsRequestModalOpen(true)}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:shadow-lg hover:shadow-blue-200 transition-all font-medium text-sm active:scale-95"
-                    >
-                        <Plus size={18} />
-                        New Request
-                    </button>
-                )}
-            </div>
+        <div className="space-y-4">
 
             {/* Content Container */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -290,6 +286,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab }: Mat
                 loading={loading}
                 inHouseComponents={inHouseComponents}
                 salesOrders={salesOrders}
+                defaultType={requestTypeFilter === 'all' ? 'bo' : requestTypeFilter}
             />
 
             <MaterialRequestDetailsModal

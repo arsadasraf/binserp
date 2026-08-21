@@ -63,7 +63,6 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [selectedPo, setSelectedPo] = useState<any | null>(null);
     const [timelineData, setTimelineData] = useState<{ deliveryChallans: any[]; invoices: any[] }>({ deliveryChallans: [], invoices: [] });
     const [timelineLoading, setTimelineLoading] = useState(false);
-    const [generatingOrder, setGeneratingOrder] = useState(false);
     const [activeViewTab, setActiveViewTab] = useState<'overview' | 'dispatch'>('overview');
 
 
@@ -391,18 +390,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         }
     };
 
-    const handleGenerateSalesOrder = async (poId: string) => {
-        setGeneratingOrder(true);
-        try {
-            await apiPost(`/api/sales/incoming-po/${poId}/generate-order`, {}, token);
-            onSuccess("Sales Order generated successfully from Customer PO");
-            fetchData();
-        } catch (err: any) {
-            onError(err.message || "Failed to generate Sales Order");
-        } finally {
-            setGeneratingOrder(false);
-        }
-    };
+
 
     const handleDeletePo = async (po: any) => {
         if (!po || !po._id) return;
@@ -724,20 +712,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                                 </span>
                                                             )}
 
-                                                            {!isSoGenerated ? (
-                                                                <button
-                                                                    onClick={() => handleGenerateSalesOrder(po._id)}
-                                                                    disabled={generatingOrder}
-                                                                    title="Generate Sales Order from PO"
-                                                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 shadow-sm disabled:opacity-50"
-                                                                >
-                                                                    <ShoppingCart size={13} /> Gen Order
-                                                                </button>
-                                                            ) : (
-                                                                <span title="Sales Order already generated for this PO" className="px-2.5 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[11px] font-bold rounded-xl border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
-                                                                    <CheckCircle2 size={12} /> SO Generated
-                                                                </span>
-                                                            )}
+
 
                                                             {isWithin24h && (
                                                                 <button
@@ -855,15 +830,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         >
                                             <FileText size={13} /> OA / Accept
                                         </button>
-                                        {!isSoGenerated && (
-                                            <button
-                                                onClick={() => handleGenerateSalesOrder(po._id)}
-                                                disabled={generatingOrder}
-                                                className="py-1.5 px-2.5 text-xs font-bold text-white bg-emerald-600 rounded-lg flex items-center justify-center gap-1 shadow-sm disabled:opacity-50"
-                                            >
-                                                <ShoppingCart size={13} /> Gen Order
-                                            </button>
-                                        )}
+
                                         {isWithin24h && (
                                             <>
                                                 <button
@@ -1782,13 +1749,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     <Printer size={14} /> Print OA
                                 </button>
 
-                                <button
-                                    onClick={() => handleGenerateSalesOrder(selectedPo._id)}
-                                    disabled={generatingOrder || selectedPo.status === 'Sales Order Generated'}
-                                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1 shadow-sm disabled:opacity-50"
-                                >
-                                    <ShoppingCart size={14} /> Generate Sales Order
-                                </button>
+
                                 <button
                                     onClick={() => {
                                         const poToEdit = selectedPo;

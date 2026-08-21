@@ -26,10 +26,14 @@ export const materialRequestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "SalesOrder",
     },
-    soNumber: {
+    department: {
       type: String,
     },
-    department: {
+    mrpPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MRPPlan",
+    },
+    mrpNumber: {
       type: String,
     },
     items: [

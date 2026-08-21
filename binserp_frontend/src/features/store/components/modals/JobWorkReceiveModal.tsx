@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, ArrowRight, Truck, FileText, ShieldCheck, ShieldAlert, Upload, Paperclip, AlertCircle, Calendar } from 'lucide-react';
+import { X, Check, ArrowRight, Truck, FileText, ShieldCheck, ShieldAlert, Upload, Paperclip, AlertCircle, Calendar, Factory, Package } from 'lucide-react';
 import { JobWorkChallan } from "@/src/features/store/types/store.types";
 import { apiPut } from '@/src/lib/api';
 
@@ -228,6 +228,37 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                 {/* Content Body */}
                 <div className="p-6 overflow-y-auto flex-1 space-y-6">
                     
+                    {/* Workflow Mode & Stock Rule Banner */}
+                    {challan.jobWorkType === 'route-card' ? (
+                        <div className="bg-purple-50 dark:bg-purple-950/40 p-3.5 rounded-2xl border border-purple-200 dark:border-purple-800/60 flex items-start gap-3">
+                            <div className="p-2 rounded-xl bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300 shrink-0">
+                                <Factory size={18} />
+                            </div>
+                            <div>
+                                <h4 className="text-xs font-bold text-purple-900 dark:text-purple-200">
+                                    PPC Shopfloor WIP Subcontracting
+                                </h4>
+                                <p className="text-xs text-purple-700 dark:text-purple-300/80 mt-0.5">
+                                    This return moves goods back to the <strong>Shopfloor Production Line (Active WIP)</strong> and advances the PPC Route Card operation sequence to <em>Completed</em>. It <strong>does NOT increase store inventory stock</strong> (FG stock will be created when production is completed via FG GRN).
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-blue-50 dark:bg-blue-950/40 p-3.5 rounded-2xl border border-blue-200 dark:border-blue-800/60 flex items-start gap-3">
+                            <div className="p-2 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 shrink-0">
+                                <Package size={18} />
+                            </div>
+                            <div>
+                                <h4 className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                                    Store Inventory Conversion
+                                </h4>
+                                <p className="text-xs text-blue-700 dark:text-blue-300/80 mt-0.5">
+                                    This return will <strong>increase stock in Store Inventory</strong> for the specified converted RM / BO or Finished Goods.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Section 1: Logistics & Subcontractor Delivery Info */}
                     <div className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
                         <h3 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">

@@ -294,6 +294,13 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                                                 challan.status === 'Closed' ? 'bg-green-100 text-green-800' :
                                                     'bg-red-100 text-red-800'
                                             }`}>{challan.status}</span>
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                            challan.jobWorkType === 'route-card'
+                                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                : 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+                                        }`}>
+                                            {challan.jobWorkType === 'route-card' ? 'PPC Route-Card (WIP)' : 'Store Conversion'}
+                                        </span>
                                         {challan.ewayBillNo && (
                                             <span className="bg-indigo-50 text-indigo-700 font-mono text-[11px] px-2 py-0.5 rounded border border-indigo-100">
                                                 E-Way: {challan.ewayBillNo}

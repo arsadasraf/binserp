@@ -1,6 +1,7 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema, fgItemSchema } from "../../models/store/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -19,7 +20,7 @@ const getCompanyLoginId = (req) => {
 // Helper function to update COMPONENT stock (InHouse)
 const updateComponentStock = async (req, componentId, quantity) => {
   try {
-    const companyId = getCompanyId(req); // Derive companyId from req
+    const companyId = getCompanyId(req);
     const Component = req.getModel("Component", componentSchema);
     const component = await Component.findById(componentId);
     if (!component) {
@@ -27,7 +28,6 @@ const updateComponentStock = async (req, componentId, quantity) => {
       return null;
     }
 
-    // Update quantity
     await Component.findByIdAndUpdate(componentId, {
       $inc: { quantity: quantity }
     });
@@ -39,16 +39,12 @@ const updateComponentStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
-// ========== GRN (Goods Receipt Note) ==========
-
-
 export const updateMaterialIssue = async (req, res) => {
   try {
     const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
-      const Material = req.getModel('RmBoItem', rmBoItemSchema);
-      const Component = req.getModel('Component', componentSchema);
+    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const Component = req.getModel('Component', componentSchema);
+    const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
@@ -64,7 +60,7 @@ export const updateMaterialIssue = async (req, res) => {
 
     // Update inventory only if status changes to/from "Issued"
     if (oldStatus !== "Issued" && newStatus === "Issued") {
-      const itemsToProcess = items || materialIssue.items; // Use new items if available
+      const itemsToProcess = items || materialIssue.items;
       const currentDate = new Date();
       const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
       
@@ -73,7 +69,7 @@ export const updateMaterialIssue = async (req, res) => {
       
       for (const item of itemsToProcess) {
         if (materialIssue.type === 'inhouse') {
-          const compId = item.component?._id || item.component || item.material; // Handle object/ID
+          const compId = item.component?._id || item.component || item.material;
           await updateComponentStock(req, compId, -Number(item.quantity));
           
           try {
@@ -86,7 +82,7 @@ export const updateMaterialIssue = async (req, res) => {
             console.error("Error updating FG monthly outward quantity:", monthlyErr);
           }
         } else {
-          const materialId = item.material?._id || item.material; // Handle object/ID
+          const materialId = item.material?._id || item.material;
           await updateInventoryStock(
             req,
             materialId,
@@ -105,9 +101,26 @@ export const updateMaterialIssue = async (req, res) => {
           }
         }
       }
+
+      // Update MRP Plan status if linked
+      const mrpPlanId = materialIssue.mrpPlan || req.body.mrpPlan;
+      const mrpNum = materialIssue.mrpNumber || req.body.mrpNumber;
+      if (mrpPlanId || mrpNum) {
+        try {
+          const query = { company: companyId };
+          if (mrpPlanId) query._id = mrpPlanId;
+          else if (mrpNum) query.mrpNumber = mrpNum;
+
+          const plan = await MRPPlan.findOne(query);
+          if (plan && (plan.status === 'Planned' || plan.status === 'Draft')) {
+            plan.status = 'In Production';
+            await plan.save();
+          }
+        } catch (planErr) {
+          console.error("Error updating MRP status in updateMaterialIssue:", planErr);
+        }
+      }
     } else if (oldStatus === "Issued" && newStatus !== "Issued") {
-      // Reverse the inventory if status changed from Issued
-      // Use OLD items to reverse what was done
       const currentDate = new Date();
       const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
       
@@ -117,7 +130,7 @@ export const updateMaterialIssue = async (req, res) => {
       for (const item of materialIssue.items) {
         if (materialIssue.type === 'inhouse') {
           const compId = item.component?._id || item.component || item.material;
-          await updateComponentStock(req, compId, Number(item.quantity)); // Add back
+          await updateComponentStock(req, compId, Number(item.quantity));
           
           try {
             await FGInventoryMonthly.findOneAndUpdate(
@@ -133,7 +146,7 @@ export const updateMaterialIssue = async (req, res) => {
           await updateInventoryStock(
             req,
             materialId,
-            Number(item.quantity), // Positive to increment back
+            Number(item.quantity),
             item.unit || "PCS"
           );
           

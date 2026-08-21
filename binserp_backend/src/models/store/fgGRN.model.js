@@ -26,6 +26,13 @@ export const fgGRNSchema = new mongoose.Schema(
       enum: ["Pending", "Partial", "Completed", "Skipped"],
       default: "Skipped"
     },
+    mrpPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MRPPlan",
+    },
+    mrpNumber: {
+      type: String,
+    },
     items: [
       {
         fgItem: {

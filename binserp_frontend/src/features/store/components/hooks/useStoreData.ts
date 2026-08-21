@@ -30,7 +30,7 @@ import { TabType, MasterType, StoreFormData, Vendor, Customer, Location, Categor
 export function useStoreData(activeTab: TabType, masterTab: MasterType, token: string | null, queryParams?: string) {
     // --- Queries ---
     const { data: storeData = [], isLoading: mainLoading, refetch: refetchMain } = useGetStoreDataQuery(
-        activeTab === "masters" ? (masterTab === "fg-grn-history" ? "fg-grn" : masterTab) : (activeTab === "home" ? (masterTab === "grn-history" ? "grn" : masterTab === "fg-grn-history" ? "fg-grn" : "inventory") : activeTab), 
+        activeTab === "wip" ? "material-issue" : (activeTab === "masters" ? (masterTab === "fg-grn-history" ? "fg-grn" : masterTab) : (activeTab === "home" ? (masterTab === "grn-history" ? "grn" : masterTab === "fg-grn-history" ? "fg-grn" : "inventory") : activeTab)), 
         { skip: !token }
     );
 

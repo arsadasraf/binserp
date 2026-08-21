@@ -105,7 +105,7 @@ export default function WipLedgerDrawer({ isOpen, onClose, wipItem }: WipLedgerD
                                                         {tx.type}
                                                     </span>
                                                     <div className="text-xs text-slate-500 font-mono">
-                                                        Doc #: <strong>{tx.docNumber || 'N/A'}</strong> {tx.ewayBillNo ? `| E-Way: ${tx.ewayBillNo}` : ''}
+                                                        Doc #: <strong>{tx.docNumber || 'N/A'}</strong> {tx.mrpNumber ? `| MRP: ${tx.mrpNumber}` : ''} {tx.ewayBillNo ? `| E-Way: ${tx.ewayBillNo}` : ''}
                                                     </div>
                                                 </div>
                                             </div>
