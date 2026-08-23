@@ -3,6 +3,8 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 import {
     createEmployeeOut,
     updateEmployeeIn,
+    updateEmployeeMovement,
+    deleteEmployeeMovement,
     getActiveEmployeeMovements,
     getAllEmployeeMovements
 } from "../controllers/gateentry/index.js";
@@ -15,7 +17,10 @@ router.use(verifyJWT);
 // Routes
 router.post("/out", createEmployeeOut);
 router.put("/in/:id", updateEmployeeIn);
+router.put("/:id", updateEmployeeMovement);
+router.delete("/:id", deleteEmployeeMovement);
 router.get("/active", getActiveEmployeeMovements);
 router.get("/", getAllEmployeeMovements);
 
 export default router;
+

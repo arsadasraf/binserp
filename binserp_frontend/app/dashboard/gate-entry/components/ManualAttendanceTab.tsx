@@ -33,10 +33,10 @@ export default function ManualAttendanceTab() {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
-            // Fetch attendance spanning from yesterday to today (supports active night/cross-midnight shifts)
+            // Fetch attendance spanning from last 36 hours to today (supports active night/cross-midnight/extended shifts)
             const now = new Date();
-            const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-            const startDate = `${yesterdayDate.getFullYear()}-${String(yesterdayDate.getMonth() + 1).padStart(2, '0')}-${String(yesterdayDate.getDate()).padStart(2, '0')}`;
+            const pastDate = new Date(now.getTime() - 36 * 60 * 60 * 1000);
+            const startDate = `${pastDate.getFullYear()}-${String(pastDate.getMonth() + 1).padStart(2, '0')}-${String(pastDate.getDate()).padStart(2, '0')}`;
             const endDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
             const attRes = axios.get(`${API_BASE_URL}/api/hr/attendance?startDate=${startDate}&endDate=${endDate}`, {
                 headers: { Authorization: `Bearer ${token}` }

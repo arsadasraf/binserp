@@ -2,12 +2,11 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Activity, History, Search, User, CheckCircle2, LogOut, Clock } from 'lucide-react';
+import { Activity, History, Search, User, CheckCircle2, LogOut, Clock, X, Save, Edit2, Trash2 } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { useHeader } from '@/src/context/HeaderContext';
-import { X, Save } from 'lucide-react';
 
 import { useRouter } from "next/navigation";
 
@@ -114,14 +113,111 @@ export default function GateEmployeeMovementTab({ initialViewMode = 'active' }: 
         loadMovements();
     }, [loadMovements]);
 
+    // 5-minute live timer state
+    const [nowTime, setNowTime] = useState(Date.now());
+
     useEffect(() => {
-        if (isEntryModalOpen) {
+        const timer = setInterval(() => {
+            setNowTime(Date.now());
+        }, 5000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const getRemainingEditSeconds = (dateStr: string) => {
+        if (!dateStr) return 0;
+        const elapsed = (nowTime - new Date(dateStr).getTime()) / 1000;
+        return Math.max(0, Math.floor(300 - elapsed));
+    };
+
+    const formatRemainingTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}m ${String(secs).padStart(2, '0')}s`;
+    };
+
+    // Edit Movement State
+    const [isEditMovementModalOpen, setIsEditMovementModalOpen] = useState(false);
+    const [editingMovementId, setEditingMovementId] = useState<string | null>(null);
+    const [editSelectedEmployee, setEditSelectedEmployee] = useState('');
+    const [editReason, setEditReason] = useState('Official Work');
+    const [editNotes, setEditNotes] = useState('');
+    const [editApprovedBy, setEditApprovedBy] = useState('');
+    const [editLoading, setEditLoading] = useState(false);
+
+    const handleOpenEditMovement = (movement: any, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        const remaining = getRemainingEditSeconds(movement.createdAt || movement.outTime);
+        if (remaining <= 0) {
+            alert("Edit window (5 minutes) has expired for this employee movement log.");
+            return;
+        }
+        setEditingMovementId(movement._id);
+        setEditSelectedEmployee(movement.employee?._id || movement.employee || '');
+        setEditReason(movement.reason || 'Official Work');
+        setEditNotes(movement.notes || '');
+        setEditApprovedBy(movement.approvedBy || '');
+        setIsEditMovementModalOpen(true);
+    };
+
+    const handleUpdateMovementSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingMovementId) return;
+
+        if (!editSelectedEmployee || !editReason) {
+            alert("Please select employee and reason.");
+            return;
+        }
+
+        try {
+            setEditLoading(true);
+            const token = localStorage.getItem('token');
+            await axios.put(`${API_BASE_URL}/api/employee-movement/${editingMovementId}`, {
+                employee: editSelectedEmployee,
+                reason: editReason,
+                notes: editNotes,
+                approvedBy: editApprovedBy
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            alert("Employee movement updated successfully!");
+            setIsEditMovementModalOpen(false);
+            setEditingMovementId(null);
+            loadMovements();
+        } catch (err: any) {
+            console.error("Update failed", err);
+            alert(err.response?.data?.message || "Failed to update movement log.");
+        } finally {
+            setEditLoading(false);
+        }
+    };
+
+    const handleDeleteMovement = async (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!confirm("Are you sure you want to DELETE this employee movement log? This action cannot be undone.")) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            await axios.delete(`${API_BASE_URL}/api/employee-movement/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            alert("Employee movement deleted successfully.");
+            loadMovements();
+        } catch (err: any) {
+            console.error("Delete failed", err);
+            alert(err.response?.data?.message || "Failed to delete movement log.");
+        }
+    };
+
+    useEffect(() => {
+        if (isEntryModalOpen || isEditMovementModalOpen) {
             setShowBottomNav(false);
         } else {
             setShowBottomNav(true);
         }
         return () => setShowBottomNav(true);
-    }, [isEntryModalOpen, setShowBottomNav]);
+    }, [isEntryModalOpen, isEditMovementModalOpen, setShowBottomNav]);
 
     // Check In
     const handleCheckIn = async (id: string) => {
@@ -306,57 +402,91 @@ export default function GateEmployeeMovementTab({ initialViewMode = 'active' }: 
                         {searchTerm ? 'No records found matching search.' : (viewMode === 'active' ? 'No employees currently outside.' : 'No movement history for this date.')}
                     </div>
                 ) : (
-                    filteredMovements.map((v) => (
-                        <div
-                            key={v._id}
-                            className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border p-4 transition-all group ${v.status === 'Inside' ? 'border-gray-100 dark:border-slate-700 opacity-80' : 'border-blue-100 ring-1 ring-blue-50'}`}
-                        >
-                            <div className="flex justify-between items-start mb-3">
-                                <div>
-                                    <h3 className="font-bold text-gray-900 dark:text-white line-clamp-1">{getEmployeeName(v)}</h3>
-                                    <div className="text-xs font-semibold text-blue-600 mt-0.5">{v.employee?.designation || 'Employee'}</div>
-                                </div>
-                                <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Outside' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
-                                    {v.status}
-                                </div>
-                            </div>
+                    filteredMovements.map((v) => {
+                        const remainingSecs = getRemainingEditSeconds(v.createdAt || v.outTime);
+                        const canEdit = remainingSecs > 0;
 
-                            <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
-                                <div className="flex items-center gap-2 text-xs"><Activity size={12} className="text-gray-400" /> Reason: <span className="font-medium text-gray-900 dark:text-white">{v.reason}</span></div>
-                                {v.approvedBy && <div className="flex items-center gap-2 text-xs"><CheckCircle2 size={12} className="text-gray-400" /> Approved By: <span className="font-medium text-gray-900 dark:text-white">{v.approvedBy}</span></div>}
-                                
-                                <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50 dark:border-slate-700">
-                                    <div className="flex flex-col gap-0.5 text-orange-500">
-                                        <div className="flex items-center gap-1.5">
-                                            <LogOut size={12} /> OUT: {new Date(v.outTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        return (
+                            <div
+                                key={v._id}
+                                className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border p-4 transition-all group ${v.status === 'Inside' ? 'border-gray-100 dark:border-slate-700 opacity-80' : 'border-blue-100 ring-1 ring-blue-50'}`}
+                            >
+                                <div className="flex justify-between items-start mb-3">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="font-bold text-gray-900 dark:text-white line-clamp-1">{getEmployeeName(v)}</h3>
+                                            {canEdit && (
+                                                <span className="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 rounded text-[9px] font-mono font-bold border border-amber-200 dark:border-amber-800">
+                                                    {formatRemainingTime(remainingSecs)}
+                                                </span>
+                                            )}
                                         </div>
-                                        {v.createdBy && <div className="text-[10px] text-gray-400 ml-4">by {v.createdBy.name}</div>}
+                                        <div className="text-xs font-semibold text-blue-600 mt-0.5">{v.employee?.designation || 'Employee'}</div>
                                     </div>
-                                    {v.inTime ? (
-                                        <div className="flex flex-col gap-0.5 text-green-600 items-end">
-                                            <div className="flex items-center gap-1.5">
-                                                IN: {new Date(v.inTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </div>
-                                            {v.checkedInBy && <div className="text-[10px] text-gray-400">by {v.checkedInBy.name}</div>}
+                                    <div className="flex items-center gap-1.5">
+                                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Outside' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
+                                            {v.status}
                                         </div>
-                                    ) : (
-                                        <button 
-                                            onClick={() => handleCheckIn(v._id)} 
-                                            disabled={checkoutLoading === v._id}
-                                            className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded font-bold text-xs transition-colors"
-                                        >
-                                            {checkoutLoading === v._id ? 'Processing...' : 'Mark Returned'}
-                                        </button>
+                                        {canEdit && (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOpenEditMovement(v)}
+                                                    className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded"
+                                                    title="Edit"
+                                                >
+                                                    <Edit2 size={12} />
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteMovement(v._id)}
+                                                    className="p-1 bg-red-50 hover:bg-red-100 text-red-600 rounded"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+                                    <div className="flex items-center gap-2 text-xs"><Activity size={12} className="text-gray-400" /> Reason: <span className="font-medium text-gray-900 dark:text-white">{v.reason}</span></div>
+                                    {v.approvedBy && <div className="flex items-center gap-2 text-xs"><CheckCircle2 size={12} className="text-gray-400" /> Approved By: <span className="font-medium text-gray-900 dark:text-white">{v.approvedBy}</span></div>}
+                                    
+                                    <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-50 dark:border-slate-700">
+                                        <div className="flex flex-col gap-0.5 text-orange-500">
+                                            <div className="flex items-center gap-1.5">
+                                                <LogOut size={12} /> OUT: {new Date(v.outTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            {v.createdBy && <div className="text-[10px] text-gray-400 ml-4">by {v.createdBy.name}</div>}
+                                        </div>
+                                        {v.inTime ? (
+                                            <div className="flex flex-col gap-0.5 text-green-600 items-end">
+                                                <div className="flex items-center gap-1.5">
+                                                    IN: {new Date(v.inTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </div>
+                                                {v.checkedInBy && <div className="text-[10px] text-gray-400">by {v.checkedInBy.name}</div>}
+                                            </div>
+                                        ) : (
+                                            <button 
+                                                onClick={() => handleCheckIn(v._id)} 
+                                                disabled={checkoutLoading === v._id}
+                                                className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded font-bold text-xs transition-colors"
+                                            >
+                                                {checkoutLoading === v._id ? 'Processing...' : 'Mark Returned'}
+                                            </button>
+                                        )}
+                                    </div>
+                                    {v.duration && (
+                                        <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-1">
+                                            <Clock size={12} /> Duration: <span className="font-bold">{v.duration} min</span>
+                                        </div>
                                     )}
                                 </div>
-                                {v.duration && (
-                                    <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-1">
-                                        <Clock size={12} /> Duration: <span className="font-bold">{v.duration} min</span>
-                                    </div>
-                                )}
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
@@ -412,7 +542,9 @@ export default function GateEmployeeMovementTab({ initialViewMode = 'active' }: 
                                         onFilterChange={(vals) => handleFilterChange('status', vals)}
                                     />
                                 </th>
-                                {viewMode === 'active' && <th className="px-4 py-3 align-top text-right"><div className="font-bold mb-2">Action</div></th>}
+                                <th className="px-4 py-3 align-top text-right">
+                                    <div className="font-bold mb-2">Actions</div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
@@ -427,45 +559,81 @@ export default function GateEmployeeMovementTab({ initialViewMode = 'active' }: 
                                     </td>
                                 </tr>
                             ) : (
-                                filteredMovements.map((v) => (
-                                    <tr 
-                                        key={v._id} 
-                                        className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${v.status === 'Inside' ? 'opacity-80' : ''}`}
-                                    >
-                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{getEmployeeName(v)}</td>
-                                        <td className="px-4 py-3">{v.reason}</td>
-                                        <td className="px-4 py-3">{v.approvedBy || '-'}</td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                            <div className="text-orange-500 font-medium">{new Date(v.outTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
-                                            {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                            {v.inTime ? (
-                                                <>
-                                                    <div className="text-green-600">{new Date(v.inTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
-                                                    {v.checkedInBy && <div className="text-xs text-gray-500">by {v.checkedInBy.name}</div>}
-                                                </>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="px-4 py-3 font-bold">{v.duration ? `${v.duration} min` : '-'}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Outside' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
-                                                {v.status}
-                                            </span>
-                                        </td>
-                                        {viewMode === 'active' && (
-                                            <td className="px-4 py-3 text-right">
-                                                <button 
-                                                    onClick={() => handleCheckIn(v._id)}
-                                                    disabled={checkoutLoading === v._id}
-                                                    className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded font-bold text-xs transition-colors whitespace-nowrap"
-                                                >
-                                                    {checkoutLoading === v._id ? 'Processing...' : 'Mark Returned'}
-                                                </button>
+                                filteredMovements.map((v) => {
+                                    const remainingSecs = getRemainingEditSeconds(v.createdAt || v.outTime);
+                                    const canEdit = remainingSecs > 0;
+
+                                    return (
+                                        <tr 
+                                            key={v._id} 
+                                            className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${v.status === 'Inside' ? 'opacity-80' : ''}`}
+                                        >
+                                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{getEmployeeName(v)}</span>
+                                                    {canEdit && (
+                                                        <span className="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 rounded text-[9px] font-mono font-bold border border-amber-200 dark:border-amber-800">
+                                                            {formatRemainingTime(remainingSecs)}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
-                                        )}
-                                    </tr>
-                                ))
+                                            <td className="px-4 py-3">{v.reason}</td>
+                                            <td className="px-4 py-3">{v.approvedBy || '-'}</td>
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                <div className="text-orange-500 font-medium">{new Date(v.outTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
+                                            </td>
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                {v.inTime ? (
+                                                    <>
+                                                        <div className="text-green-600">{new Date(v.inTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                        {v.checkedInBy && <div className="text-xs text-gray-500">by {v.checkedInBy.name}</div>}
+                                                    </>
+                                                ) : '-'}
+                                            </td>
+                                            <td className="px-4 py-3 font-bold">{v.duration ? `${v.duration} min` : '-'}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Outside' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
+                                                    {v.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    {v.status === 'Outside' && (
+                                                        <button 
+                                                            onClick={() => handleCheckIn(v._id)}
+                                                            disabled={checkoutLoading === v._id}
+                                                            className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded font-bold text-xs transition-colors whitespace-nowrap"
+                                                        >
+                                                            {checkoutLoading === v._id ? 'Processing...' : 'Mark Returned'}
+                                                        </button>
+                                                    )}
+                                                    {canEdit && (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleOpenEditMovement(v)}
+                                                                title={`Edit Log (${formatRemainingTime(remainingSecs)} left)`}
+                                                                className="p-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 rounded-lg transition-colors border border-blue-200 dark:border-blue-800"
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteMovement(v._id)}
+                                                                title={`Delete Log (${formatRemainingTime(remainingSecs)} left)`}
+                                                                className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/50 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 rounded-lg transition-colors border border-red-200 dark:border-red-800"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
@@ -576,6 +744,97 @@ export default function GateEmployeeMovementTab({ initialViewMode = 'active' }: 
                                         className="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-blue-500/30 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                                     >
                                         {entryLoading ? <LoadingSpinner /> : <Save size={18} />} Record Exit
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Movement Modal */}
+            {isEditMovementModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white dark:bg-slate-800 z-10">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                    <Edit2 size={20} className="text-blue-600" /> Edit Employee Movement
+                                </h3>
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                                    Within 5-minute correction window
+                                </p>
+                            </div>
+                            <button onClick={() => setIsEditMovementModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:text-gray-400 transition-colors bg-gray-50 dark:bg-slate-800/50 p-2 rounded-full hover:bg-gray-100 dark:bg-slate-700">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-8">
+                            <form onSubmit={handleUpdateMovementSubmit} className="space-y-6">
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Employee <span className="text-red-500">*</span></label>
+                                        <select
+                                            value={editSelectedEmployee}
+                                            onChange={e => setEditSelectedEmployee(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800"
+                                        >
+                                            <option value="">Select Employee</option>
+                                            {employees.map(emp => (
+                                                <option key={emp._id} value={emp._id}>{emp.name} {emp.employeeId ? `(${emp.employeeId})` : ''}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Reason for Exit <span className="text-red-500">*</span></label>
+                                        <select 
+                                            required 
+                                            value={editReason} 
+                                            onChange={e => setEditReason(e.target.value)} 
+                                            className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all bg-white dark:bg-slate-800"
+                                        >
+                                            <option value="Official Work">Official Work</option>
+                                            <option value="Lunch Break">Lunch Break</option>
+                                            <option value="Snacks Break">Snacks Break</option>
+                                            <option value="Personal">Personal</option>
+                                            <option value="Other">Other</option>
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Approved By</label>
+                                        <input 
+                                            type="text" 
+                                            value={editApprovedBy} 
+                                            onChange={e => setEditApprovedBy(e.target.value)} 
+                                            className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 bg-white dark:bg-slate-800" 
+                                            placeholder="e.g. HR Manager / Name" 
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">Additional Notes</label>
+                                        <textarea 
+                                            value={editNotes} 
+                                            onChange={e => setEditNotes(e.target.value)} 
+                                            className="w-full px-4 py-2.5 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all placeholder:text-gray-400 resize-none h-24 bg-white dark:bg-slate-800" 
+                                            placeholder="Enter any additional details..." 
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="pt-6 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3">
+                                    <button type="button" onClick={() => setIsEditMovementModalOpen(false)} className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-100 dark:bg-slate-700 rounded-xl transition-colors">
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={editLoading}
+                                        className="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 hover:shadow-blue-500/30 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                                    >
+                                        {editLoading ? <LoadingSpinner /> : <Save size={18} />} Update Movement
                                     </button>
                                 </div>
                             </form>

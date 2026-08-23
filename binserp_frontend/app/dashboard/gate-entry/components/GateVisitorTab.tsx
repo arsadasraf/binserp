@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import Webcam from 'react-webcam';
-import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText, Upload, RotateCcw } from 'lucide-react';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, User, Plus, Save, Camera, X, Building, MapPin, Users, History, Activity, FileText, Upload, RotateCcw, Edit2, Trash2 } from 'lucide-react';
 import { API_BASE_URL } from '@/src/utils/config';
+import { compressImage } from '@/src/utils/imageCompressor';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import { useHeader } from '@/src/context/HeaderContext';
@@ -122,14 +123,123 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
         loadVisitors();
     }, [loadVisitors]);
 
+    // 5-minute live timer state
+    const [nowTime, setNowTime] = useState(Date.now());
+
     useEffect(() => {
-        if (isEntryModalOpen || captureMode !== null || selectedVisitor !== null) {
-            setShowBottomNav(false);
-        } else {
-            setShowBottomNav(true);
+        const timer = setInterval(() => {
+            setNowTime(Date.now());
+        }, 5000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const getRemainingEditSeconds = (dateStr: string) => {
+        if (!dateStr) return 0;
+        const elapsed = (nowTime - new Date(dateStr).getTime()) / 1000;
+        return Math.max(0, Math.floor(300 - elapsed));
+    };
+
+    const formatRemainingTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}m ${String(secs).padStart(2, '0')}s`;
+    };
+
+    // Edit Visitor State
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingVisitorId, setEditingVisitorId] = useState<string | null>(null);
+    const [editVisitorName, setEditVisitorName] = useState('');
+    const [editCompanyName, setEditCompanyName] = useState('');
+    const [editWhomToMeet, setEditWhomToMeet] = useState('');
+    const [editPurpose, setEditPurpose] = useState('');
+    const [editAddress, setEditAddress] = useState('');
+    const [editPhone, setEditPhone] = useState('');
+    const [editVisitorPhoto, setEditVisitorPhoto] = useState<string | null>(null);
+    const [editLoading, setEditLoading] = useState(false);
+
+    const handleOpenEditVisitor = (v: any, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        const remaining = getRemainingEditSeconds(v.createdAt || v.checkInTime);
+        if (remaining <= 0) {
+            alert("Edit window (5 minutes) has expired for this visitor log.");
+            return;
         }
-        return () => setShowBottomNav(true);
-    }, [isEntryModalOpen, captureMode, selectedVisitor, setShowBottomNav]);
+        setEditingVisitorId(v._id);
+        setEditVisitorName(v.name || '');
+        setEditCompanyName(v.companyName || '');
+        setEditWhomToMeet(v.whomToMeet || '');
+        setEditPurpose(v.purpose || '');
+        setEditAddress(v.address || '');
+        setEditPhone(v.phone || '');
+        setEditVisitorPhoto(v.visitorPhoto || null);
+        setIsEditModalOpen(true);
+    };
+
+    const handleUpdateVisitorSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editingVisitorId) return;
+
+        const validationErrors: string[] = [];
+        if (!editVisitorName.trim()) validationErrors.push("• Visitor Name: Please enter visitor name.");
+        if (!editPhone.trim()) validationErrors.push("• Phone Number: Please enter phone number.");
+        if (!editWhomToMeet.trim()) validationErrors.push("• Whom to Meet: Please specify person to meet.");
+        if (!editPurpose) validationErrors.push("• Purpose: Please specify purpose.");
+
+        if (validationErrors.length > 0) {
+            alert(`Please resolve the following issues:\n\n${validationErrors.join('\n')}`);
+            return;
+        }
+
+        try {
+            setEditLoading(true);
+            const token = localStorage.getItem('token');
+            await axios.put(`${API_BASE_URL}/api/visitor/${editingVisitorId}`, {
+                name: editVisitorName,
+                companyName: editCompanyName,
+                phone: editPhone,
+                whomToMeet: editWhomToMeet,
+                purpose: editPurpose,
+                address: editAddress,
+                visitorPhoto: editVisitorPhoto
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            alert("Visitor log updated successfully!");
+            setIsEditModalOpen(false);
+            setEditingVisitorId(null);
+            if (selectedVisitor && selectedVisitor._id === editingVisitorId) {
+                setSelectedVisitor(null);
+            }
+            loadVisitors();
+        } catch (err: any) {
+            console.error("Update failed", err);
+            alert(err.response?.data?.message || "Failed to update visitor log.");
+        } finally {
+            setEditLoading(false);
+        }
+    };
+
+    const handleDeleteVisitor = async (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!confirm("Are you sure you want to DELETE this visitor log? This action cannot be undone.")) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            await axios.delete(`${API_BASE_URL}/api/visitor/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            alert("Visitor log deleted successfully.");
+            if (selectedVisitor && selectedVisitor._id === id) {
+                setSelectedVisitor(null);
+            }
+            loadVisitors();
+        } catch (err: any) {
+            console.error("Delete failed", err);
+            alert(err.response?.data?.message || "Failed to delete visitor log.");
+        }
+    };
 
     // Checkout
     const handleCheckOut = async (id: string) => {
@@ -141,13 +251,13 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                 headers: { Authorization: `Bearer ${token}` }
             });
 
+            alert("Visitor Checked Out Successfully!");
             // If in active view, remove from list. If history, reload to update status.
             if (viewMode === 'active') {
                 setVisitors(prev => prev.filter(v => v._id !== id));
             } else {
                 loadVisitors();
             }
-
         } catch (error) {
             console.error("Checkout failed", error);
             alert("Failed to check out.");
@@ -156,22 +266,76 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
         }
     };
 
-    // Capture Photo
-    const capture = useCallback(() => {
+    useEffect(() => {
+        if (isEntryModalOpen || isEditModalOpen || captureMode !== null || selectedVisitor !== null) {
+            setShowBottomNav(false);
+        } else {
+            setShowBottomNav(true);
+        }
+        return () => setShowBottomNav(true);
+    }, [isEntryModalOpen, isEditModalOpen, captureMode, selectedVisitor, setShowBottomNav]);
+
+    const [compressingPhoto, setCompressingPhoto] = useState(false);
+
+    // Capture Photo with client-side compression
+    const capture = useCallback(async () => {
         const imageSrc = webcamRef.current?.getScreenshot();
         if (imageSrc) {
-            if (captureMode === 'visitor') setVisitorPhoto(imageSrc);
-            setCaptureMode(null); // Close camera modal
+            try {
+                setCompressingPhoto(true);
+                const compressed = await compressImage(imageSrc, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 });
+                if (captureMode === 'visitor') setVisitorPhoto(compressed);
+            } catch (err) {
+                console.error("Compression failed, using raw capture:", err);
+                if (captureMode === 'visitor') setVisitorPhoto(imageSrc);
+            } finally {
+                setCompressingPhoto(false);
+                setCaptureMode(null); // Close camera modal
+            }
         }
     }, [webcamRef, captureMode]);
 
-    // Submit Entry
+    // Handle Visitor Photo file upload with compression
+    const handleVisitorPhotoFile = async (file: File | undefined) => {
+        if (!file) return;
+        try {
+            setCompressingPhoto(true);
+            const compressed = await compressImage(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 });
+            setVisitorPhoto(compressed);
+        } catch (err) {
+            console.error("Failed to compress visitor photo:", err);
+            alert("Failed to compress or load photo. Please try a valid image file.");
+        } finally {
+            setCompressingPhoto(false);
+        }
+    };
+
+    // Submit Entry with clear, field-specific validation messages
     const handleCheckIn = async (e: React.FormEvent) => {
         e.preventDefault();
         const finalPurpose = purpose === 'Other' ? customPurpose.trim() : purpose;
+        const validationErrors: string[] = [];
 
-        if (!visitorName || !phone || !whomToMeet || !finalPurpose || !visitorPhoto) {
-            alert("Please fill all required fields:\n- Name\n- Phone\n- Whom to Meet\n- Purpose\n- Visitor Photo");
+        if (!visitorName.trim()) {
+            validationErrors.push("• Visitor Name: Please enter the visitor's full name.");
+        }
+        if (!phone.trim()) {
+            validationErrors.push("• Phone Number: Please enter the visitor's mobile number.");
+        } else if (phone.trim().replace(/\D/g, '').length < 10) {
+            validationErrors.push("• Phone Number: Please enter a valid 10-digit mobile number.");
+        }
+        if (!whomToMeet.trim()) {
+            validationErrors.push("• Whom to Meet: Please specify the employee, officer, or department to meet.");
+        }
+        if (!finalPurpose) {
+            validationErrors.push("• Purpose: Please select or enter the visit purpose.");
+        }
+        if (!visitorPhoto) {
+            validationErrors.push("• Visitor Photo: Please capture or upload the visitor's photo (mandatory for security badge).");
+        }
+
+        if (validationErrors.length > 0) {
+            alert(`Please resolve the following issues in the Visitor Entry Form:\n\n${validationErrors.join('\n')}`);
             return;
         }
 
@@ -539,59 +703,108 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                                         onFilterChange={(vals) => handleFilterChange('status', vals)}
                                     />
                                 </th>
+                                <th className="px-4 py-3 align-top text-right">
+                                    <div className="font-bold mb-2">Actions</div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-12"><LoadingSpinner /></td>
+                                    <td colSpan={9} className="text-center py-12"><LoadingSpinner /></td>
                                 </tr>
                             ) : filteredVisitors.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 border-dashed">
+                                    <td colSpan={9} className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 border-dashed">
                                         {searchTerm ? 'No visitors found matching search.' : (viewMode === 'active' ? 'No active visitors currently inside.' : 'No visitor history for this date.')}
                                     </td>
                                 </tr>
                             ) : (
-                                filteredVisitors.map((v) => (
-                                    <tr 
-                                        key={v._id} 
-                                        onClick={() => setSelectedVisitor(v)}
-                                        className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${v.status === 'Left' ? 'opacity-80' : ''}`}
-                                    >
-                                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{v.name}</td>
-                                        <td className="px-4 py-3">{v.companyName || '-'}</td>
-                                        <td className="px-4 py-3">{v.phone}</td>
-                                        <td className="px-4 py-3">{v.whomToMeet}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold inline-block ${
-                                                v.purpose === 'Interview' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800' :
-                                                v.purpose === 'Meeting' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800' :
-                                                v.purpose === 'Delivery' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800' :
-                                                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                                            }`}>
-                                                {v.purpose}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                            <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
-                                            {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">
-                                            {v.checkOutTime ? (
-                                                <>
-                                                    <div className="font-medium">{new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
-                                                    {v.checkedOutBy && <div className="text-xs text-gray-500">by {v.checkedOutBy.name}</div>}
-                                                </>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
-                                                {v.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))
+                                filteredVisitors.map((v) => {
+                                    const remainingSecs = getRemainingEditSeconds(v.createdAt || v.checkInTime);
+                                    const canEdit = remainingSecs > 0;
+
+                                    return (
+                                        <tr 
+                                            key={v._id} 
+                                            onClick={() => setSelectedVisitor(v)}
+                                            className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${v.status === 'Left' ? 'opacity-80' : ''}`}
+                                        >
+                                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{v.name}</span>
+                                                    {canEdit && (
+                                                        <span className="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 rounded text-[9px] font-mono font-bold border border-amber-200 dark:border-amber-800">
+                                                            {formatRemainingTime(remainingSecs)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">{v.companyName || '-'}</td>
+                                            <td className="px-4 py-3">{v.phone}</td>
+                                            <td className="px-4 py-3">{v.whomToMeet}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold inline-block ${
+                                                    v.purpose === 'Interview' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800' :
+                                                    v.purpose === 'Meeting' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800' :
+                                                    v.purpose === 'Delivery' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800' :
+                                                    'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                                }`}>
+                                                    {v.purpose}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
+                                            </td>
+                                            <td className="px-4 py-3 whitespace-nowrap text-orange-500">
+                                                {v.checkOutTime ? (
+                                                    <>
+                                                        <div className="font-medium">{new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                        {v.checkedOutBy && <div className="text-xs text-gray-500">by {v.checkedOutBy.name}</div>}
+                                                    </>
+                                                ) : '-'}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
+                                                    {v.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    {canEdit ? (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => handleOpenEditVisitor(v, e)}
+                                                                title={`Edit Log (${formatRemainingTime(remainingSecs)} left)`}
+                                                                className="p-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 rounded-lg transition-colors border border-blue-200 dark:border-blue-800"
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => handleDeleteVisitor(v._id, e)}
+                                                                title={`Delete Log (${formatRemainingTime(remainingSecs)} left)`}
+                                                                className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/50 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 rounded-lg transition-colors border border-red-200 dark:border-red-800"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedVisitor(v)}
+                                                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 font-medium"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
@@ -701,7 +914,7 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                                                 </div>
                                             ) : (
                                                 <div className="flex gap-4 w-full">
-                                                    <button type="button" onClick={() => setCaptureMode('visitor')} className="flex-1 h-48 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group">
+                                                    <button type="button" disabled={compressingPhoto} onClick={() => setCaptureMode('visitor')} className="flex-1 h-48 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-xl flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all group disabled:opacity-50">
                                                         <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-full group-hover:bg-white dark:bg-slate-800 mb-2 transition-colors">
                                                             <Camera size={24} />
                                                         </div>
@@ -711,16 +924,11 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                                                         <div className="p-3 bg-gray-100 dark:bg-slate-700 rounded-full group-hover:bg-white dark:bg-slate-800 mb-2 transition-colors">
                                                             <Upload size={24} />
                                                         </div>
-                                                        <span className="text-sm font-medium text-center">Upload Photo<br/><span className="text-xs opacity-70">(Gallery)</span></span>
-                                                        <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                                        <span className="text-sm font-medium text-center">{compressingPhoto ? 'Compressing...' : 'Upload Photo'}<br/><span className="text-xs opacity-70">(Gallery)</span></span>
+                                                        <input type="file" accept="image/*" disabled={compressingPhoto} className="hidden" onChange={(e) => {
                                                             const file = e.target.files?.[0];
-                                                            if (file) {
-                                                                const reader = new FileReader();
-                                                                reader.onloadend = () => {
-                                                                    setVisitorPhoto(reader.result as string);
-                                                                };
-                                                                reader.readAsDataURL(file);
-                                                            }
+                                                            handleVisitorPhotoFile(file);
+                                                            e.target.value = '';
                                                         }} />
                                                     </label>
                                                 </div>
@@ -888,32 +1096,195 @@ export default function GateVisitorTab({ initialViewMode = 'active' }: { initial
                             </div>
 
                             {/* Actions */}
-                            <div className="flex gap-3 mt-2">
-                                <button
-                                    onClick={() => downloadIDCard(selectedVisitor)}
-                                    className="flex-1 py-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-all flex items-center justify-center gap-2"
-                                >
-                                    <FileText size={18} /> Print ID Card
-                                </button>
-                                {selectedVisitor.status === 'Inside' ? (
+                            <div className="space-y-3 mt-2">
+                                <div className="flex gap-3">
                                     <button
-                                        onClick={() => {
-                                            handleCheckOut(selectedVisitor._id);
-                                            setSelectedVisitor(null);
-                                        }}
-                                        disabled={!!checkoutLoading}
-                                        className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                        onClick={() => downloadIDCard(selectedVisitor)}
+                                        className="flex-1 py-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-all flex items-center justify-center gap-2"
                                     >
-                                        {checkoutLoading === selectedVisitor._id ? <LoadingSpinner /> : <LogOut size={18} />} Check Out
+                                        <FileText size={18} /> Print ID Card
                                     </button>
-                                ) : (
-                                    selectedVisitor.checkOutTime && (
-                                        <div className="flex-1 text-center py-3 bg-gray-100 dark:bg-slate-700 rounded-xl text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 flex items-center justify-center">
-                                            Checked Out: {new Date(selectedVisitor.checkOutTime).toLocaleString()}
+                                    {selectedVisitor.status === 'Inside' ? (
+                                        <button
+                                            onClick={() => {
+                                                handleCheckOut(selectedVisitor._id);
+                                                setSelectedVisitor(null);
+                                            }}
+                                            disabled={!!checkoutLoading}
+                                            className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                        >
+                                            {checkoutLoading === selectedVisitor._id ? <LoadingSpinner /> : <LogOut size={18} />} Check Out
+                                        </button>
+                                    ) : (
+                                        selectedVisitor.checkOutTime && (
+                                            <div className="flex-1 text-center py-3 bg-gray-100 dark:bg-slate-700 rounded-xl text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 flex items-center justify-center">
+                                                Checked Out: {new Date(selectedVisitor.checkOutTime).toLocaleString()}
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+
+                                {/* 5-Minute Edit / Delete Grace Controls */}
+                                {getRemainingEditSeconds(selectedVisitor.createdAt || selectedVisitor.checkInTime) > 0 && (
+                                    <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Clock size={16} className="text-amber-600 dark:text-amber-400" />
+                                            <div className="text-xs">
+                                                <span className="font-bold text-amber-800 dark:text-amber-200">5-Min Grace Window: </span>
+                                                <span className="font-mono font-bold text-amber-700 dark:text-amber-300">{formatRemainingTime(getRemainingEditSeconds(selectedVisitor.createdAt || selectedVisitor.checkInTime))} remaining</span>
+                                            </div>
                                         </div>
-                                    )
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const visitorToEdit = selectedVisitor;
+                                                    setSelectedVisitor(null);
+                                                    handleOpenEditVisitor(visitorToEdit);
+                                                }}
+                                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition-all"
+                                            >
+                                                <Edit2 size={13} /> Edit
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteVisitor(selectedVisitor._id)}
+                                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition-all"
+                                            >
+                                                <Trash2 size={13} /> Delete
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Edit Visitor Modal */}
+            {isEditModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+                    <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between items-center p-6 border-b sticky top-0 bg-white dark:bg-slate-800 z-10">
+                            <div>
+                                <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                    <Edit2 size={20} className="text-blue-600" /> Edit Visitor Log
+                                </h3>
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                                    Within 5-minute correction window
+                                </p>
+                            </div>
+                            <button onClick={() => setIsEditModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:text-gray-300 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6">
+                            <form onSubmit={handleUpdateVisitorSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1.5">
+                                        Visitor Name <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editVisitorName}
+                                        onChange={e => setEditVisitorName(e.target.value)}
+                                        required
+                                        className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                        placeholder="Full Name"
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1.5">
+                                            Phone Number <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="tel"
+                                            value={editPhone}
+                                            onChange={e => setEditPhone(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            placeholder="Mobile Number"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1.5">
+                                            Company / Organization
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={editCompanyName}
+                                            onChange={e => setEditCompanyName(e.target.value)}
+                                            className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            placeholder="Company Name"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1.5">
+                                            Whom to Meet <span className="text-red-500">*</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={editWhomToMeet}
+                                            onChange={e => setEditWhomToMeet(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            placeholder="Staff/Officer Name"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1.5">
+                                            Purpose <span className="text-red-500">*</span>
+                                        </label>
+                                        <select
+                                            value={editPurpose}
+                                            onChange={e => setEditPurpose(e.target.value)}
+                                            required
+                                            className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                        >
+                                            <option value="">Select Purpose</option>
+                                            {PURPOSE_OPTIONS.map((opt) => (
+                                                <option key={opt} value={opt}>{opt}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-1.5">
+                                        Address / Location
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={editAddress}
+                                        onChange={e => setEditAddress(e.target.value)}
+                                        className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-900 dark:text-white border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                        placeholder="Visitor Address"
+                                    />
+                                </div>
+
+                                <div className="pt-4 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsEditModalOpen(false)}
+                                        className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={editLoading}
+                                        className="px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 transition-all flex items-center gap-2 disabled:opacity-70"
+                                    >
+                                        {editLoading ? <LoadingSpinner /> : <Save size={18} />} Update Visitor
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>

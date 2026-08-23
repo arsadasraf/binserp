@@ -79,12 +79,12 @@ export const markAttendance = async (req, res) => {
             });
         }
 
-        // Logic Implementation with 24-hour Lookback Window (Supports overnight/cross-midnight shifts)
+        // Logic Implementation with 36-hour Lookback Window (Supports overnight/cross-midnight/extended shifts)
         const now = new Date();
         const currentTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-        const lookbackWindow = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const lookbackWindow = new Date(now.getTime() - 36 * 60 * 60 * 1000);
 
-        // 1. Check if there is an open check-in session in the last 20 hours
+        // 1. Check if there is an open check-in session in the last 36 hours
         let openAttendance = await Attendance.findOne({
             employee: employeeId,
             company: companyId,

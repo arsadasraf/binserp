@@ -65,16 +65,16 @@ export const recordAttendance = async (req, res) => {
     const currentTime = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const lookback24h = new Date(currentTime.getTime() - 24 * 60 * 60 * 1000);
+    const lookback36h = new Date(currentTime.getTime() - 36 * 60 * 60 * 1000);
 
     let attendance;
 
     if (type === "checkIn") {
-      // Check if employee is already checked in (active session in last 20 hours)
+      // Check if employee is already checked in (active session in last 36 hours)
       const openAttendance = await Attendance.findOne({
         company: companyId,
         employee: employee._id,
-        "checkIn.time": { $gte: new Date(currentTime.getTime() - 20 * 60 * 60 * 1000) },
+        "checkIn.time": { $gte: lookback36h },
         $or: [
           { "checkOut.time": { $exists: false } },
           { "checkOut.time": null }
@@ -104,11 +104,11 @@ export const recordAttendance = async (req, res) => {
       await attendance.save();
 
     } else if (type === "checkOut") {
-      // Look for open check-in in the last 24 hours (cross-midnight shift support)
+      // Look for open check-in in the last 36 hours (cross-midnight / extended shift support)
       attendance = await Attendance.findOne({
         company: companyId,
         employee: employee._id,
-        "checkIn.time": { $gte: lookback24h },
+        "checkIn.time": { $gte: lookback36h },
         $or: [
           { "checkOut.time": { $exists: false } },
           { "checkOut.time": null }
@@ -157,7 +157,7 @@ export const recordAttendance = async (req, res) => {
       attendance = await Attendance.findOne({
         company: companyId,
         employee: employee._id,
-        "checkIn.time": { $gte: lookback24h },
+        "checkIn.time": { $gte: lookback36h },
         $or: [
           { "checkOut.time": { $exists: false } },
           { "checkOut.time": null }
@@ -179,7 +179,7 @@ export const recordAttendance = async (req, res) => {
       attendance = await Attendance.findOne({
         company: companyId,
         employee: employee._id,
-        "checkOut.time": { $gte: lookback24h }
+        "checkOut.time": { $gte: lookback36h }
       }).sort({ "checkOut.time": -1 });
 
       if (!attendance || !attendance.checkOut?.time) {

@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, ChevronLeft, ChevronRight, X, Truck, User, Car, Activity, Save, Building, MapPin, ArrowDown, ArrowUp, FileText, History, Download, Camera, Upload, Phone, Sparkles, RotateCcw } from 'lucide-react';
+import { Eye, Clock, Search, ExternalLink, Calendar, LogIn, LogOut, CheckCircle2, ChevronLeft, ChevronRight, X, Truck, User, Car, Activity, Save, Building, MapPin, ArrowDown, ArrowUp, FileText, History, Download, Camera, Upload, Phone, Sparkles, RotateCcw, Edit2, Trash2 } from 'lucide-react';
 import Webcam from 'react-webcam';
 import { API_BASE_URL } from '@/src/utils/config';
+import { compressImage } from '@/src/utils/imageCompressor';
 import ColumnFilter from '../../store/components/tables/ColumnFilter';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import AutocompleteInput, { SuggestionItem } from '@/src/components/ui/AutocompleteInput';
@@ -170,47 +171,148 @@ export default function GateVehicleTab({
         raw: d
     }));
 
+    // Photo Limits (5 for Vehicle, 20 for Documents)
+    const MAX_VEHICLE_PHOTOS = 5;
+    const MAX_DOCUMENT_PHOTOS = 20;
+
     // Webcam
     const webcamRef = React.useRef<any>(null); // Type 'any' used to bypass strict ref typing issues with react-webcam
     const [captureMode, setCaptureMode] = useState<'document' | 'vehicle' | null>(null);
     const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+    const [compressingPhotos, setCompressingPhotos] = useState(false);
 
-    // Capture Photo
-    const capture = useCallback(() => {
+    // Capture Photo with client-side compression & limit guard
+    const capture = useCallback(async () => {
         const imageSrc = webcamRef.current?.getScreenshot();
         if (imageSrc) {
-            if (captureMode === 'document') setDocumentPhotos(prev => [...prev, imageSrc]);
-            if (captureMode === 'vehicle') setVehiclePhotos(prev => [...prev, imageSrc]);
-            setCaptureMode(null);
+            try {
+                setCompressingPhotos(true);
+                const compressed = await compressImage(imageSrc, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 });
+                if (captureMode === 'document') {
+                    if (documentPhotos.length >= MAX_DOCUMENT_PHOTOS) {
+                        alert(`Document Photo Limit Reached:\nYou can upload a maximum of ${MAX_DOCUMENT_PHOTOS} document photos.`);
+                        setCaptureMode(null);
+                        return;
+                    }
+                    setDocumentPhotos(prev => [...prev, compressed]);
+                }
+                if (captureMode === 'vehicle') {
+                    if (vehiclePhotos.length >= MAX_VEHICLE_PHOTOS) {
+                        alert(`Vehicle Photo Limit Reached:\nYou can upload a maximum of ${MAX_VEHICLE_PHOTOS} vehicle photos.`);
+                        setCaptureMode(null);
+                        return;
+                    }
+                    setVehiclePhotos(prev => [...prev, compressed]);
+                }
+            } catch (err) {
+                console.error("Compression failed, fallback to raw capture:", err);
+                if (captureMode === 'document') setDocumentPhotos(prev => [...prev, imageSrc]);
+                if (captureMode === 'vehicle') setVehiclePhotos(prev => [...prev, imageSrc]);
+            } finally {
+                setCompressingPhotos(false);
+                setCaptureMode(null);
+            }
         }
-    }, [webcamRef, captureMode]);
+    }, [webcamRef, captureMode, documentPhotos.length, vehiclePhotos.length]);
 
+    // Handle Vehicle Photo Files with compression
+    const handleVehiclePhotoFiles = async (files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const remainingSlots = MAX_VEHICLE_PHOTOS - vehiclePhotos.length;
+        if (remainingSlots <= 0) {
+            alert(`Vehicle Photo Limit:\nMaximum of ${MAX_VEHICLE_PHOTOS} vehicle photos allowed. You already have ${vehiclePhotos.length} photos.`);
+            return;
+        }
+        const filesToProcess = Array.from(files).slice(0, remainingSlots);
+        if (files.length > remainingSlots) {
+            alert(`Vehicle Photo Notice:\nOnly ${remainingSlots} more photo(s) can be added (Maximum is ${MAX_VEHICLE_PHOTOS}). Uploading the first ${remainingSlots}.`);
+        }
 
-    // Submit Entry
+        try {
+            setCompressingPhotos(true);
+            const compressedList = await Promise.all(
+                filesToProcess.map(file => compressImage(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 }))
+            );
+            setVehiclePhotos(prev => [...prev, ...compressedList]);
+        } catch (err) {
+            console.error("Error processing vehicle photos:", err);
+            alert("Failed to compress or upload vehicle photo. Please ensure it is a valid image file.");
+        } finally {
+            setCompressingPhotos(false);
+        }
+    };
+
+    // Handle Document Photo Files with compression
+    const handleDocumentPhotoFiles = async (files: FileList | null) => {
+        if (!files || files.length === 0) return;
+        const remainingSlots = MAX_DOCUMENT_PHOTOS - documentPhotos.length;
+        if (remainingSlots <= 0) {
+            alert(`Document Photo Limit:\nMaximum of ${MAX_DOCUMENT_PHOTOS} document photos allowed. You already have ${documentPhotos.length} photos.`);
+            return;
+        }
+        const filesToProcess = Array.from(files).slice(0, remainingSlots);
+        if (files.length > remainingSlots) {
+            alert(`Document Photo Notice:\nOnly ${remainingSlots} more photo(s) can be added (Maximum is ${MAX_DOCUMENT_PHOTOS}). Uploading the first ${remainingSlots}.`);
+        }
+
+        try {
+            setCompressingPhotos(true);
+            const compressedList = await Promise.all(
+                filesToProcess.map(file => compressImage(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 }))
+            );
+            setDocumentPhotos(prev => [...prev, ...compressedList]);
+        } catch (err) {
+            console.error("Error processing document photos:", err);
+            alert("Failed to compress or upload document photo. Please ensure it is a valid image file.");
+        } finally {
+            setCompressingPhotos(false);
+        }
+    };
+
+    // Submit Entry with clear, field-specific validation messages (handles both Create and Edit)
     const handleCheckIn = async (e: React.FormEvent) => {
         e.preventDefault();
-        const missingFields = [];
-        if (!vehicleNumber) missingFields.push("Vehicle Number");
-        if (!driverName) missingFields.push("Driver Name");
-        if (!phone) missingFields.push("Phone Number");
-        if (vehiclePhotos.length === 0) missingFields.push("Vehicle Photo");
+        const validationErrors: string[] = [];
 
-        if (direction === 'Inward') {
-            if (!companyName) missingFields.push("Origin Company");
-            if (!goodsType) missingFields.push("Goods Type");
-            // if (!documentType) missingFields.push("Document Type");
-            // if (!documentNumber) missingFields.push("Document Number");
+        if (!vehicleNumber.trim()) {
+            validationErrors.push("• Vehicle Number: Please enter the vehicle registration number (e.g. MH12AB1234).");
+        }
+        if (!driverName.trim()) {
+            validationErrors.push("• Driver Name: Please enter the driver's full name.");
+        }
+        if (!phone.trim()) {
+            validationErrors.push("• Phone Number: Please enter the driver's contact mobile number.");
+        } else if (phone.trim().replace(/\D/g, '').length < 10) {
+            validationErrors.push("• Phone Number: Please enter a valid 10-digit mobile number.");
+        }
+        if (vehiclePhotos.length === 0) {
+            validationErrors.push("• Vehicle Photo: Please capture or upload at least 1 vehicle photo (mandatory for security entry).");
+        }
+        if (vehiclePhotos.length > MAX_VEHICLE_PHOTOS) {
+            validationErrors.push(`• Vehicle Photos: Maximum ${MAX_VEHICLE_PHOTOS} photos allowed (currently ${vehiclePhotos.length}).`);
+        }
+        if (documentPhotos.length > MAX_DOCUMENT_PHOTOS) {
+            validationErrors.push(`• Document Photos: Maximum ${MAX_DOCUMENT_PHOTOS} photos allowed (currently ${documentPhotos.length}).`);
         }
 
-        if (missingFields.length > 0) {
-            alert(`Please fill the following required fields:\n- ${missingFields.join('\n- ')}`);
+        if (direction === 'Inward') {
+            if (!companyName.trim()) {
+                validationErrors.push("• Origin Company: Please provide the vendor / supplier company name.");
+            }
+            if (!goodsType.trim()) {
+                validationErrors.push("• Goods Type: Please select or enter the incoming material type (e.g. Raw Material, Bought Out).");
+            }
+        }
+
+        if (validationErrors.length > 0) {
+            alert(`Please resolve the following issues in the Vehicle Entry Form:\n\n${validationErrors.join('\n')}`);
             return;
         }
 
         try {
             setEntryLoading(true);
             const token = localStorage.getItem('token');
-            await axios.post(`${API_BASE_URL}/api/vehicle`, {
+            const payload = {
                 driverName,
                 phone,
                 companyName,
@@ -223,12 +325,22 @@ export default function GateVehicleTab({
                 purpose: remarks || 'Logistics', // Default purpose if empty
                 documentPhotos, 
                 vehiclePhotos
-            }, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            };
 
-            alert("Vehicle Checked In Successfully!");
+            if (editingVehicleId) {
+                await axios.put(`${API_BASE_URL}/api/vehicle/${editingVehicleId}`, payload, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                alert("Vehicle Entry Updated Successfully!");
+            } else {
+                await axios.post(`${API_BASE_URL}/api/vehicle`, payload, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                alert("Vehicle Checked In Successfully!");
+            }
+
             // Reset form
+            setEditingVehicleId(null);
             setDirection('Inward');
             setDriverName('');
             setCompanyName('');
@@ -245,9 +357,9 @@ export default function GateVehicleTab({
 
             // Refresh list
             loadVehicles();
-        } catch (error) {
-            console.error("Check-in failed", error);
-            alert("Failed to check in vehicle.");
+        } catch (error: any) {
+            console.error("Save vehicle failed", error);
+            alert(error.response?.data?.message || (editingVehicleId ? "Failed to update vehicle entry." : "Failed to check in vehicle."));
         } finally {
             setEntryLoading(false);
         }
@@ -296,6 +408,75 @@ export default function GateVehicleTab({
     useEffect(() => {
         loadVehicles();
     }, [loadVehicles]);
+
+    // 5-minute live timer state
+    const [nowTime, setNowTime] = useState(Date.now());
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setNowTime(Date.now());
+        }, 5000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const getRemainingEditSeconds = (dateStr: string) => {
+        if (!dateStr) return 0;
+        const elapsed = (nowTime - new Date(dateStr).getTime()) / 1000;
+        return Math.max(0, Math.floor(300 - elapsed));
+    };
+
+    const formatRemainingTime = (seconds: number) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}m ${String(secs).padStart(2, '0')}s`;
+    };
+
+    // Edit Vehicle State (ID tracks if we are in edit mode or new entry mode)
+    const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
+
+    const handleOpenEditVehicle = (vehicle: any, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        const remaining = getRemainingEditSeconds(vehicle.createdAt || vehicle.checkInTime);
+        if (remaining <= 0) {
+            alert("Edit window (5 minutes) has expired for this vehicle log.");
+            return;
+        }
+        setEditingVehicleId(vehicle._id);
+        setDirection(vehicle.direction || 'Inward');
+        setDriverName(vehicle.name || '');
+        setPhone(vehicle.phone || '');
+        setVehicleNumber(vehicle.vehicleNumber || '');
+        setCompanyName(vehicle.companyName || '');
+        setGoodsType(vehicle.goodsType || '');
+        setAddress(vehicle.address || '');
+        setDocumentType(vehicle.documentType || '');
+        setDocumentNumber(vehicle.documentNumber || '');
+        setRemarks(vehicle.purpose || '');
+        setVehiclePhotos(vehicle.vehiclePhotos || []);
+        setDocumentPhotos(vehicle.documentPhotos || []);
+        setIsEntryModalOpen(true);
+    };
+
+    const handleDeleteVehicle = async (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        if (!confirm("Are you sure you want to DELETE this vehicle log? This action cannot be undone.")) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            await axios.delete(`${API_BASE_URL}/api/vehicle/${id}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            alert("Vehicle log deleted successfully.");
+            if (selectedVehicle && selectedVehicle._id === id) {
+                setSelectedVehicle(null);
+            }
+            loadVehicles();
+        } catch (err: any) {
+            console.error("Delete failed", err);
+            alert(err.response?.data?.message || "Failed to delete vehicle log.");
+        }
+    };
 
     useEffect(() => {
         if (isEntryModalOpen || isCheckoutModalOpen || captureMode !== null || selectedVehicle !== null) {
@@ -351,15 +532,23 @@ export default function GateVehicleTab({
 
     const handleOutwardCheckoutSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        const missingFields = [];
-        if (!companyName) missingFields.push("Destination Company");
-        if (!goodsType) missingFields.push("Goods Type");
-        // if (!documentType) missingFields.push("Document Type");
-        // if (!documentNumber) missingFields.push("Document Number");
-        if (documentPhotos.length === 0) missingFields.push("Document Photo");
+        const validationErrors: string[] = [];
 
-        if (missingFields.length > 0) {
-            alert(`Please fill the following required fields:\n- ${missingFields.join('\n- ')}`);
+        if (!companyName.trim()) {
+            validationErrors.push("• Destination Company: Please provide the client / customer company name.");
+        }
+        if (!goodsType.trim()) {
+            validationErrors.push("• Goods Type: Please select or enter the dispatched goods type (e.g. Finished Goods, Job Work Material).");
+        }
+        if (documentPhotos.length === 0) {
+            validationErrors.push("• Departure Document Photo: Please upload or capture at least 1 document photo (e.g. Delivery Challan, Tax Invoice, or E-Way Bill).");
+        }
+        if (documentPhotos.length > MAX_DOCUMENT_PHOTOS) {
+            validationErrors.push(`• Document Photos: Maximum ${MAX_DOCUMENT_PHOTOS} document photos allowed (currently ${documentPhotos.length}).`);
+        }
+
+        if (validationErrors.length > 0) {
+            alert(`Please resolve the following issues in the Outward Check-Out Form:\n\n${validationErrors.join('\n')}`);
             return;
         }
 
@@ -735,80 +924,140 @@ export default function GateVehicleTab({
                                         onFilterChange={(vals) => handleFilterChange('status', vals)}
                                     />
                                 </th>
+                                <th className="px-4 py-3 align-top text-right">
+                                    <div className="font-bold mb-2">Actions</div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                             {loading ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-12"><LoadingSpinner /></td>
+                                    <td colSpan={10} className="text-center py-12"><LoadingSpinner /></td>
                                 </tr>
                             ) : filteredVehicles.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 border-dashed">
+                                    <td colSpan={10} className="text-center py-12 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-slate-800/50 border-dashed">
                                         {searchTerm ? 'No vehicles found matching search.' : (viewMode === 'active' ? 'No active vehicles found inside.' : 'No vehicle history for this date.')}
                                     </td>
                                 </tr>
                             ) : (
-                                filteredVehicles.map((v) => (
-                                    <tr 
-                                        key={v._id} 
-                                        onClick={() => { setSelectedVehicle(v); setCurrentPhotoIndex(0); }}
-                                        className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${v.status === 'Left' ? 'opacity-80' : ''}`}
-                                    >
-                                        <td className="px-4 py-3 font-bold font-mono text-gray-900 dark:text-white whitespace-nowrap">{v.vehicleNumber}</td>
-                                        <td className="px-4 py-3">{v.name}</td>
-                                        <td className="px-4 py-3">{v.companyName || '-'}</td>
-                                        <td className="px-4 py-3">{v.goodsType || '-'}</td>
-                                        <td className="px-4 py-3">
-                                            {v.documentType ? (
-                                                <span className="uppercase text-xs font-semibold">{v.documentType}</span>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            {v.documentNumber ? (
-                                                <span className="uppercase text-xs font-semibold">{v.documentNumber}</span>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap">
-                                            <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
-                                            {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-orange-500">
-                                            {v.checkOutTime ? (
-                                                <>
-                                                    <div className="font-medium">{new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
-                                                    {v.checkedOutBy && <div className="text-xs text-gray-500">by {v.checkedOutBy.name}</div>}
-                                                </>
-                                            ) : '-'}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
-                                                {v.status}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                ))
+                                filteredVehicles.map((v) => {
+                                    const remainingSecs = getRemainingEditSeconds(v.createdAt || v.checkInTime);
+                                    const canEdit = remainingSecs > 0;
+
+                                    return (
+                                        <tr 
+                                            key={v._id} 
+                                            onClick={() => { setSelectedVehicle(v); setCurrentPhotoIndex(0); }}
+                                            className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${v.status === 'Left' ? 'opacity-80' : ''}`}
+                                        >
+                                            <td className="px-4 py-3 font-bold font-mono text-gray-900 dark:text-white whitespace-nowrap">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{v.vehicleNumber}</span>
+                                                    {canEdit && (
+                                                        <span className="px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 rounded text-[9px] font-mono font-bold border border-amber-200 dark:border-amber-800">
+                                                            {formatRemainingTime(remainingSecs)}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3">{v.name}</td>
+                                            <td className="px-4 py-3">{v.companyName || '-'}</td>
+                                            <td className="px-4 py-3">{v.goodsType || '-'}</td>
+                                            <td className="px-4 py-3">
+                                                {v.documentType ? (
+                                                    <span className="uppercase text-xs font-semibold">{v.documentType}</span>
+                                                ) : '-'}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                {v.documentNumber ? (
+                                                    <span className="uppercase text-xs font-semibold">{v.documentNumber}</span>
+                                                ) : '-'}
+                                            </td>
+                                            <td className="px-4 py-3 whitespace-nowrap">
+                                                <div className="font-medium">{new Date(v.checkInTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                {v.createdBy && <div className="text-xs text-gray-500">by {v.createdBy.name}</div>}
+                                            </td>
+                                            <td className="px-4 py-3 whitespace-nowrap text-orange-500">
+                                                {v.checkOutTime ? (
+                                                    <>
+                                                        <div className="font-medium">{new Date(v.checkOutTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                                                        {v.checkedOutBy && <div className="text-xs text-gray-500">by {v.checkedOutBy.name}</div>}
+                                                    </>
+                                                ) : '-'}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${v.status === 'Inside' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400'}`}>
+                                                    {v.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                                                <div className="flex items-center justify-end gap-1.5">
+                                                    {canEdit ? (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => handleOpenEditVehicle(v, e)}
+                                                                title={`Edit Log (${formatRemainingTime(remainingSecs)} left)`}
+                                                                className="p-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 rounded-lg transition-colors border border-blue-200 dark:border-blue-800"
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(e) => handleDeleteVehicle(v._id, e)}
+                                                                title={`Delete Log (${formatRemainingTime(remainingSecs)} left)`}
+                                                                className="p-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/50 dark:hover:bg-red-900/60 text-red-600 dark:text-red-400 rounded-lg transition-colors border border-red-200 dark:border-red-800"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setSelectedVehicle(v); setCurrentPhotoIndex(0); }}
+                                                            className="px-2 py-1 text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 font-medium"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {/* New Vehicle Entry Modal */}
+            {/* New / Edit Vehicle Entry Modal */}
             {isEntryModalOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
                     <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto border border-gray-100 dark:border-slate-700">
                         <div className="flex justify-between items-center p-6 border-b border-gray-100 dark:border-slate-700 sticky top-0 bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm z-10">
                             <div>
                                 <div className="flex items-center gap-2.5">
-                                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">New Vehicle Entry</h3>
+                                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                                        {editingVehicleId ? 'Edit Vehicle Entry' : 'New Vehicle Entry'}
+                                    </h3>
                                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider ${direction === 'Inward' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300'}`}>
                                         {direction === 'Inward' ? 'For Unloading' : 'For Loading'}
                                     </span>
+                                    {editingVehicleId && (
+                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                            5-Min Correction Window
+                                        </span>
+                                    )}
                                 </div>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Enter consignment origin, vehicle, and driver details for gate check-in.</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {editingVehicleId 
+                                        ? 'Update vehicle, consignment, and driver details within the 5-minute correction window.' 
+                                        : 'Enter consignment origin, vehicle, and driver details for gate check-in.'}
+                                </p>
                             </div>
-                            <button onClick={() => setIsEntryModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors bg-gray-50 dark:bg-slate-700/60 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700">
+                            <button onClick={() => { setIsEntryModalOpen(false); setEditingVehicleId(null); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors bg-gray-50 dark:bg-slate-700/60 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700">
                                 <X size={20} />
                             </button>
                         </div>
@@ -1036,10 +1285,10 @@ export default function GateVehicleTab({
                                         <div className="p-4 bg-gray-50 dark:bg-slate-700/30 rounded-xl border border-gray-200 dark:border-slate-700">
                                             <div className="flex items-center justify-between mb-3">
                                                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                                                    Vehicle Photo <span className="text-red-500">*</span>
+                                                    Vehicle Photo <span className="text-red-500">*</span> <span className="text-[10px] text-gray-400 font-normal lowercase">(max {MAX_VEHICLE_PHOTOS})</span>
                                                 </label>
-                                                <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                    {vehiclePhotos.length} photo(s) added
+                                                <span className={`text-[11px] font-semibold ${vehiclePhotos.length >= MAX_VEHICLE_PHOTOS ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                                                    {vehiclePhotos.length}/{MAX_VEHICLE_PHOTOS} added
                                                 </span>
                                             </div>
                                             <div className="flex flex-wrap gap-2.5">
@@ -1053,35 +1302,34 @@ export default function GateVehicleTab({
                                                         </div>
                                                     </div>
                                                 ))}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setCaptureMode('vehicle')}
-                                                    className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all shrink-0"
-                                                >
-                                                    <Camera size={18} className="mb-1" />
-                                                    <span className="text-[10px] font-semibold">Camera</span>
-                                                </button>
-                                                <label className="w-20 h-20 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all shrink-0">
-                                                    <Upload size={18} className="mb-1" />
-                                                    <span className="text-[10px] font-semibold">Upload</span>
-                                                    <input
-                                                        type="file"
-                                                        accept="image/*"
-                                                        multiple
-                                                        className="hidden"
-                                                        onChange={(e) => {
-                                                            if (e.target.files) {
-                                                                Array.from(e.target.files).forEach(file => {
-                                                                    const reader = new FileReader();
-                                                                    reader.onloadend = () => {
-                                                                        setVehiclePhotos(prev => [...prev, reader.result as string]);
-                                                                    };
-                                                                    reader.readAsDataURL(file);
-                                                                });
-                                                            }
-                                                        }}
-                                                    />
-                                                </label>
+                                                {vehiclePhotos.length < MAX_VEHICLE_PHOTOS && (
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            disabled={compressingPhotos}
+                                                            onClick={() => setCaptureMode('vehicle')}
+                                                            className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all shrink-0 disabled:opacity-50"
+                                                        >
+                                                            <Camera size={18} className="mb-1" />
+                                                            <span className="text-[10px] font-semibold">Camera</span>
+                                                        </button>
+                                                        <label className="w-20 h-20 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all shrink-0">
+                                                            <Upload size={18} className="mb-1" />
+                                                            <span className="text-[10px] font-semibold">{compressingPhotos ? 'Compressing...' : 'Upload'}</span>
+                                                            <input
+                                                                type="file"
+                                                                accept="image/*"
+                                                                multiple
+                                                                disabled={compressingPhotos}
+                                                                className="hidden"
+                                                                onChange={(e) => {
+                                                                    handleVehiclePhotoFiles(e.target.files);
+                                                                    e.target.value = '';
+                                                                }}
+                                                            />
+                                                        </label>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
 
@@ -1090,10 +1338,10 @@ export default function GateVehicleTab({
                                             <div className="p-4 bg-gray-50 dark:bg-slate-700/30 rounded-xl border border-gray-200 dark:border-slate-700">
                                                 <div className="flex items-center justify-between mb-3">
                                                     <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                                                        Document Photo (Optional)
+                                                        Document Photo (Optional) <span className="text-[10px] text-gray-400 font-normal lowercase">(max {MAX_DOCUMENT_PHOTOS})</span>
                                                     </label>
-                                                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                        {documentPhotos.length} photo(s) added
+                                                    <span className={`text-[11px] font-semibold ${documentPhotos.length >= MAX_DOCUMENT_PHOTOS ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                                                        {documentPhotos.length}/{MAX_DOCUMENT_PHOTOS} added
                                                     </span>
                                                 </div>
                                                 <div className="flex flex-wrap gap-2.5">
@@ -1107,35 +1355,34 @@ export default function GateVehicleTab({
                                                             </div>
                                                         </div>
                                                     ))}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setCaptureMode('document')}
-                                                        className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all shrink-0"
-                                                    >
-                                                        <Camera size={18} className="mb-1" />
-                                                        <span className="text-[10px] font-semibold">Camera</span>
-                                                    </button>
-                                                    <label className="w-20 h-20 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all shrink-0">
-                                                        <Upload size={18} className="mb-1" />
-                                                        <span className="text-[10px] font-semibold">Upload</span>
-                                                        <input
-                                                            type="file"
-                                                            accept="image/*"
-                                                            multiple
-                                                            className="hidden"
-                                                            onChange={(e) => {
-                                                                if (e.target.files) {
-                                                                    Array.from(e.target.files).forEach(file => {
-                                                                        const reader = new FileReader();
-                                                                        reader.onloadend = () => {
-                                                                            setDocumentPhotos(prev => [...prev, reader.result as string]);
-                                                                        };
-                                                                        reader.readAsDataURL(file);
-                                                                    });
-                                                                }
-                                                            }}
-                                                        />
-                                                    </label>
+                                                    {documentPhotos.length < MAX_DOCUMENT_PHOTOS && (
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                disabled={compressingPhotos}
+                                                                onClick={() => setCaptureMode('document')}
+                                                                className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all shrink-0 disabled:opacity-50"
+                                                            >
+                                                                <Camera size={18} className="mb-1" />
+                                                                <span className="text-[10px] font-semibold">Camera</span>
+                                                            </button>
+                                                            <label className="w-20 h-20 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all shrink-0">
+                                                                <Upload size={18} className="mb-1" />
+                                                                <span className="text-[10px] font-semibold">{compressingPhotos ? 'Compressing...' : 'Upload'}</span>
+                                                                <input
+                                                                    type="file"
+                                                                    accept="image/*"
+                                                                    multiple
+                                                                    disabled={compressingPhotos}
+                                                                    className="hidden"
+                                                                    onChange={(e) => {
+                                                                        handleDocumentPhotoFiles(e.target.files);
+                                                                        e.target.value = '';
+                                                                    }}
+                                                                />
+                                                            </label>
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -1144,15 +1391,16 @@ export default function GateVehicleTab({
 
                                 {/* Action Buttons */}
                                 <div className="pt-5 border-t border-gray-100 dark:border-slate-700 flex justify-end gap-3 sticky bottom-0 bg-white dark:bg-slate-800 p-4 -mx-6 -mb-6 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] rounded-b-2xl">
-                                    <button type="button" onClick={() => setIsEntryModalOpen(false)} className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors">
+                                    <button type="button" onClick={() => { setIsEntryModalOpen(false); setEditingVehicleId(null); }} className="px-6 py-2.5 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors">
                                         Cancel
                                     </button>
                                     <button
                                         type="submit"
-                                        disabled={entryLoading}
+                                        disabled={entryLoading || compressingPhotos}
                                         className="px-8 py-2.5 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 hover:shadow-indigo-500/30 transition-all flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                                     >
-                                        {entryLoading ? <LoadingSpinner /> : <Truck size={18} />} Check-In Vehicle
+                                        {entryLoading ? <LoadingSpinner /> : (editingVehicleId ? <Save size={18} /> : <Truck size={18} />)} 
+                                        {editingVehicleId ? 'Update Vehicle Entry' : 'Check-In Vehicle'}
                                     </button>
                                 </div>
                             </form>
@@ -1311,10 +1559,10 @@ export default function GateVehicleTab({
                                     <div className="p-4 bg-gray-50 dark:bg-slate-700/30 rounded-xl border border-gray-200 dark:border-slate-700">
                                         <div className="flex items-center justify-between mb-3">
                                             <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                                                Document Photo <span className="text-red-500">*</span>
+                                                Document Photo <span className="text-red-500">*</span> <span className="text-[10px] text-gray-400 font-normal lowercase">(max {MAX_DOCUMENT_PHOTOS})</span>
                                             </label>
-                                            <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                                                {documentPhotos.length} photo(s) added
+                                            <span className={`text-[11px] font-semibold ${documentPhotos.length >= MAX_DOCUMENT_PHOTOS ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}`}>
+                                                {documentPhotos.length}/{MAX_DOCUMENT_PHOTOS} added
                                             </span>
                                         </div>
                                         <div className="flex flex-wrap gap-2.5">
@@ -1328,35 +1576,34 @@ export default function GateVehicleTab({
                                                     </div>
                                                 </div>
                                             ))}
-                                            <button
-                                                type="button"
-                                                onClick={() => setCaptureMode('document')}
-                                                className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all shrink-0"
-                                            >
-                                                <Camera size={18} className="mb-1" />
-                                                <span className="text-[10px] font-semibold">Camera</span>
-                                            </button>
-                                            <label className="w-20 h-20 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all shrink-0">
-                                                <Upload size={18} className="mb-1" />
-                                                <span className="text-[10px] font-semibold">Upload</span>
-                                                <input
-                                                    type="file"
-                                                    accept="image/*"
-                                                    multiple
-                                                    className="hidden"
-                                                    onChange={(e) => {
-                                                        if (e.target.files) {
-                                                            Array.from(e.target.files).forEach(file => {
-                                                                const reader = new FileReader();
-                                                                reader.onloadend = () => {
-                                                                    setDocumentPhotos(prev => [...prev, reader.result as string]);
-                                                                };
-                                                                reader.readAsDataURL(file);
-                                                            });
-                                                        }
-                                                    }}
-                                                />
-                                            </label>
+                                            {documentPhotos.length < MAX_DOCUMENT_PHOTOS && (
+                                                <>
+                                                    <button
+                                                        type="button"
+                                                        disabled={compressingPhotos}
+                                                        onClick={() => setCaptureMode('document')}
+                                                        className="w-20 h-20 border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 transition-all shrink-0 disabled:opacity-50"
+                                                    >
+                                                        <Camera size={18} className="mb-1" />
+                                                        <span className="text-[10px] font-semibold">Camera</span>
+                                                    </button>
+                                                    <label className="w-20 h-20 cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:border-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-slate-700 transition-all shrink-0">
+                                                        <Upload size={18} className="mb-1" />
+                                                        <span className="text-[10px] font-semibold">{compressingPhotos ? 'Compressing...' : 'Upload'}</span>
+                                                        <input
+                                                            type="file"
+                                                            accept="image/*"
+                                                            multiple
+                                                            disabled={compressingPhotos}
+                                                            className="hidden"
+                                                            onChange={(e) => {
+                                                                handleDocumentPhotoFiles(e.target.files);
+                                                                e.target.value = '';
+                                                            }}
+                                                        />
+                                                    </label>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -1566,37 +1813,71 @@ export default function GateVehicleTab({
                             {/* Removed static Additional Photos Gallery in favor of the new Photo Carousel Slider */}
 
                             {/* Actions */}
-                            <div className="flex gap-3 mt-2">
-                                <button
-                                    onClick={() => downloadPDF(selectedVehicle)}
-                                    className="flex-1 py-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-all flex items-center justify-center gap-2"
-                                >
-                                    <FileText size={18} /> Download PDF
-                                </button>
-                                {selectedVehicle.status === 'Inside' ? (
+                            <div className="space-y-3 mt-2">
+                                <div className="flex gap-3">
                                     <button
-                                        onClick={() => {
-                                            handleCheckOut(selectedVehicle);
-                                            setSelectedVehicle(null);
-                                        }}
-                                        disabled={!!checkoutLoading}
-                                        className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                        onClick={() => downloadPDF(selectedVehicle)}
+                                        className="flex-1 py-3 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-xl hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-all flex items-center justify-center gap-2"
                                     >
-                                        {checkoutLoading === selectedVehicle._id ? <LoadingSpinner /> : <LogOut size={18} />} Check Out
+                                        <FileText size={18} /> Download PDF
                                     </button>
-                                ) : (
-                                    selectedVehicle.checkOutTime && (
-                                        <div className="flex-1 text-center py-3 bg-gray-100 dark:bg-slate-700 rounded-xl text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 flex items-center justify-center">
-                                            Checked Out: {new Date(selectedVehicle.checkOutTime).toLocaleString()}
+                                    {selectedVehicle.status === 'Inside' ? (
+                                        <button
+                                            onClick={() => {
+                                                handleCheckOut(selectedVehicle);
+                                                setSelectedVehicle(null);
+                                            }}
+                                            disabled={!!checkoutLoading}
+                                            className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                        >
+                                            {checkoutLoading === selectedVehicle._id ? <LoadingSpinner /> : <LogOut size={18} />} Check Out
+                                        </button>
+                                    ) : (
+                                        selectedVehicle.checkOutTime && (
+                                            <div className="flex-1 text-center py-3 bg-gray-100 dark:bg-slate-700 rounded-xl text-gray-500 dark:text-gray-400 font-medium text-sm border border-gray-200 dark:border-slate-700 flex items-center justify-center">
+                                                Checked Out: {new Date(selectedVehicle.checkOutTime).toLocaleString()}
+                                            </div>
+                                        )
+                                    )}
+                                </div>
+
+                                {/* 5-Minute Edit / Delete Grace Controls */}
+                                {getRemainingEditSeconds(selectedVehicle.createdAt || selectedVehicle.checkInTime) > 0 && (
+                                    <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2">
+                                            <Clock size={16} className="text-amber-600 dark:text-amber-400" />
+                                            <div className="text-xs">
+                                                <span className="font-bold text-amber-800 dark:text-amber-200">5-Min Grace Window: </span>
+                                                <span className="font-mono font-bold text-amber-700 dark:text-amber-300">{formatRemainingTime(getRemainingEditSeconds(selectedVehicle.createdAt || selectedVehicle.checkInTime))} remaining</span>
+                                            </div>
                                         </div>
-                                    )
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const vehicleToEdit = selectedVehicle;
+                                                    setSelectedVehicle(null);
+                                                    handleOpenEditVehicle(vehicleToEdit);
+                                                }}
+                                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition-all"
+                                            >
+                                                <Edit2 size={13} /> Edit
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteVehicle(selectedVehicle._id)}
+                                                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm transition-all"
+                                            >
+                                                <Trash2 size={13} /> Delete
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
                         </div>
                     </div>
                 </div>
             )}
-
-        </div >
+        </div>
     );
 }
