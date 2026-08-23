@@ -7,7 +7,7 @@ export default function WipRequestsIndexPage() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace('/dashboard/store/wip/requests/rm-bo');
+    router.replace('/dashboard/store/wip/requests/rm');
   }, [router]);
 
   return null;

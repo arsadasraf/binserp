@@ -27,13 +27,13 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     placeholder = "Select an option...", 
     className = "w-full", 
     innerClassName = "", 
-    dropdownPosition = "top", 
+    dropdownPosition = "bottom", 
     allowCustom = false,
     disabled = false
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
-    const [actualPosition, setActualPosition] = useState<'top' | 'bottom'>('top');
+    const [actualPosition, setActualPosition] = useState<'top' | 'bottom'>('bottom');
     const wrapperRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -50,14 +50,14 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     const rect = wrapperRef.current.getBoundingClientRect();
                     const spaceBelow = window.innerHeight - rect.bottom;
                     const spaceAbove = rect.top;
-                    // If space below is less than 240px and space above is greater, open upward
-                    if (spaceBelow < 240 && spaceAbove > 200) {
+                    // Only open upward if space below is severely cramped (< 180px) and space above has room
+                    if (spaceBelow < 180 && spaceAbove > 220) {
                         setActualPosition('top');
-                    } else if (spaceBelow >= 240) {
-                        setActualPosition('bottom');
                     } else {
-                        setActualPosition('top');
+                        setActualPosition('bottom');
                     }
+                } else {
+                    setActualPosition('bottom');
                 }
             }
         }

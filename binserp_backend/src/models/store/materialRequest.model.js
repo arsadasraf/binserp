@@ -14,8 +14,8 @@ export const materialRequestSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['bo', 'inhouse', 'consumable'],
-      default: 'bo'
+      enum: ['rm', 'bo', 'consumable', 'fg', 'inhouse', 'raw-material', 'bought-out'],
+      default: 'rm'
     },
     requestedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -25,6 +25,9 @@ export const materialRequestSchema = new mongoose.Schema(
     salesOrder: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SalesOrder",
+    },
+    soNumber: {
+      type: String,
     },
     department: {
       type: String,
@@ -46,14 +49,24 @@ export const materialRequestSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "ConsumableItem",
         },
-        materialCode: { type: String },
-        materialName: { type: String, required: true },
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
+        },
         component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component"
         },
+        itemType: {
+          type: String,
+          enum: ['Raw Material', 'Bought Out', 'Consumable', 'FG Item', 'Inhouse Component'],
+          default: 'Raw Material'
+        },
+        materialCode: { type: String },
+        materialName: { type: String, required: true },
         quantity: { type: Number, required: true },
         unit: { type: String, default: "PCS" },
+        currentStock: { type: Number, default: 0 },
         purpose: String,
       },
     ],
@@ -72,6 +85,22 @@ export const materialRequestSchema = new mongoose.Schema(
       ref: "User",
     },
     remarks: String,
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
+    }
   },
   { timestamps: true }
 );

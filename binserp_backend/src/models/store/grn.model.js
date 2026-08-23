@@ -9,8 +9,8 @@ export const grnSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['bo', 'inhouse'],
-      default: 'bo'
+      enum: ['rm', 'bo', 'consumable', 'fg', 'inhouse', 'raw-material', 'bought-out'],
+      default: 'rm'
     },
     grnNumber: {
       type: String,
@@ -33,14 +33,13 @@ export const grnSchema = new mongoose.Schema(
     },
     supplierName: {
       type: String,
-      // required: true, // Made optional for InHouse
     },
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Vendor",
     },
     supplierAddress: String,
-    customer: { // For InHouse GRN
+    customer: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer"
     },
@@ -48,25 +47,37 @@ export const grnSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "PurchaseOrder",
     },
-    poNumber: String, // Linked Purchase Order Number (System)
-    poReference: String, // Manual PO Reference Number
+    poNumber: String,
+    poReference: String,
     items: [
       {
         material: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
         },
-        component: { // For InHouse GRN
+        consumable: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "ConsumableItem",
+        },
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
+        },
+        component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component"
         },
-        materialName: { type: String, required: true }, // Used for both Material and Component Name
+        materialName: { type: String, required: true },
         quantity: { type: Number, required: true },
         unit: { type: String, default: "PCS" },
-        rate: { type: Number },
-        receivedQuantity: { type: Number }, // Optional - defaults to quantity
+        rate: { type: Number, default: 0 },
+        receivedQuantity: { type: Number },
         acceptedQuantity: { type: Number },
         rejectedQuantity: { type: Number, default: 0 },
+        locationId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Location",
+        },
         description: String,
       },
     ],
@@ -74,18 +85,34 @@ export const grnSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
-    pdf: String, // URL to uploaded PDF
+    pdf: String,
     photos: {
-      type: [String], // URLs for camera/photo-based GRN
+      type: [String],
       default: []
     },
     status: {
       type: String,
       enum: ["Draft", "Received", "Accepted", "Rejected"],
-      default: "Draft",
+      default: "Received",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
+    }
   },
   { timestamps: true }
 );
 
-// Material Issue Schema
+grnSchema.index({ company: 1, grnNumber: 1 });

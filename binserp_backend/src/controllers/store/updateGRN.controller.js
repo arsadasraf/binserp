@@ -8,6 +8,8 @@ import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';
 
+import { getUserAudit } from "../../utils/userAudit.helper.js";
+
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
@@ -47,10 +49,11 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const updateGRN = async (req, res) => {
   try {
     const GRN = req.getModel('GRN', grnSchema);
-      const Component = req.getModel('Component', componentSchema);
-      const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const Component = req.getModel('Component', componentSchema);
+    const Material = req.getModel('RmBoItem', rmBoItemSchema);
 
     const companyId = getCompanyId(req);
+    const { userId, userName } = getUserAudit(req);
     const { id } = req.params;
     const { status, items } = req.body;
 
@@ -58,6 +61,9 @@ export const updateGRN = async (req, res) => {
     if (!grn) {
       return res.status(404).json({ message: "GRN not found" });
     }
+
+    req.body.updatedBy = userId;
+    req.body.updatedByName = userName;
 
     const oldStatus = grn.status;
     const newStatus = status || grn.status;

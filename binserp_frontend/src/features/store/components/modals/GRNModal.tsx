@@ -592,6 +592,7 @@ export default function GRNModal({
                                             setPoLinkedNotice(null);
                                         }}
                                         placeholder="Select Vendor..."
+                                        dropdownPosition="bottom"
                                     />
                                 </div>
                             )}
@@ -610,6 +611,7 @@ export default function GRNModal({
                                         value={typeof customer === 'object' ? (customer as any)._id : customer || ''}
                                         onChange={(val: any) => setCustomer(val)}
                                         placeholder="Select Customer..."
+                                        dropdownPosition="bottom"
                                     />
                                 </div>
                             )}

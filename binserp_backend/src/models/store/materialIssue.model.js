@@ -14,8 +14,8 @@ export const materialIssueSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['bo', 'inhouse', 'consumable'],
-      default: 'bo'
+      enum: ['rm', 'bo', 'consumable', 'fg', 'inhouse', 'raw-material', 'bought-out'],
+      default: 'rm'
     },
     date: {
       type: Date,
@@ -47,9 +47,18 @@ export const materialIssueSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "ConsumableItem",
         },
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
+        },
         component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component",
+        },
+        itemType: {
+          type: String,
+          enum: ['Raw Material', 'Bought Out', 'Consumable', 'FG Item', 'Inhouse Component'],
+          default: 'Raw Material'
         },
         materialCode: String,
         materialName: { type: String, required: true },
@@ -68,8 +77,24 @@ export const materialIssueSchema = new mongoose.Schema(
       enum: ["Draft", "Issued", "Returned"],
       default: "Draft",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
+    }
   },
   { timestamps: true }
 );
 
-// Bill of Material (BOM) Schema
+materialIssueSchema.index({ company: 1, issueNumber: 1 });

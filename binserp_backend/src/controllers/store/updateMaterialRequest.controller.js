@@ -5,6 +5,7 @@ import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../mod
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -105,8 +106,11 @@ export const updateMaterialRequest = async (req, res) => {
       }
     }
 
+    const { userId, userName } = getUserAudit(req);
     materialRequest.status = status;
     if (remarks) materialRequest.remarks = remarks;
+    materialRequest.updatedBy = userId;
+    materialRequest.updatedByName = userName;
 
     await materialRequest.save();
 

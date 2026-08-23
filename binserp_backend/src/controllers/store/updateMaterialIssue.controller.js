@@ -9,6 +9,8 @@ import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';
 
+import { getUserAudit } from "../../utils/userAudit.helper.js";
+
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
@@ -163,9 +165,10 @@ export const updateMaterialIssue = async (req, res) => {
       }
     }
 
+    const { userId, userName } = getUserAudit(req);
     const updatedIssue = await MaterialIssue.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      { ...req.body, updatedBy: userId, updatedByName: userName },
       { new: true }
     );
 

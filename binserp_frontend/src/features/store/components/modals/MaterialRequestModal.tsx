@@ -4,42 +4,66 @@ import { X, Plus, Trash2, Package, ShoppingCart, Boxes, Layers, Sparkles } from 
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
 
+export type RequestInventoryType = "rm" | "bo" | "consumable" | "fg";
+
 interface MaterialRequestModalProps {
     isOpen: boolean;
     onClose: () => void;
     onSubmit: (data: any) => void;
+    rawMaterials?: any[];
+    boughtOuts?: any[];
     materials?: RmBoItem[];
     consumables?: any[];
     inventoryList?: any[];
     inHouseComponents?: any[];
+    fgItems?: any[];
     salesOrders?: any[];
     customerPos?: any[];
     loading?: boolean;
-    defaultType?: "consumable" | "bo" | "inhouse";
+    defaultType?: RequestInventoryType | "inhouse";
 }
 
 export default function MaterialRequestModal({
     isOpen,
     onClose,
     onSubmit,
+    rawMaterials = [],
+    boughtOuts = [],
     materials = [],
     consumables = [],
     inventoryList = [],
     inHouseComponents = [],
+    fgItems = [],
     salesOrders = [],
     customerPos = [],
     loading,
-    defaultType = "bo"
+    defaultType = "rm"
 }: MaterialRequestModalProps) {
     const [mrpPlans, setMrpPlans] = useState<any[]>([]);
+
+    const initialType: RequestInventoryType = (
+        defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'rm'
+    );
+
     const [formData, setFormData] = useState({
         requestNumber: "",
-        type: defaultType as "consumable" | "bo" | "inhouse",
+        type: initialType,
         salesOrder: "",
         soNumber: "",
         mrpPlan: "",
         mrpNumber: "",
-        items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined as string | undefined, consumable: undefined as string | undefined }]
+        items: [{
+            material: "",
+            materialName: "",
+            materialCode: "",
+            quantity: 1,
+            unit: initialType === 'fg' ? "Nos" : "PCS",
+            purpose: "",
+            component: undefined as string | undefined,
+            consumable: undefined as string | undefined,
+            fgItem: undefined as string | undefined,
+            currentStock: 0
+        }]
     });
 
     const generateRequestNumber = () => {
@@ -50,14 +74,29 @@ export default function MaterialRequestModal({
 
     useEffect(() => {
         if (isOpen) {
+            const currentInitial: RequestInventoryType = (
+                defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'rm'
+            );
+
             setFormData({
                 requestNumber: generateRequestNumber(),
-                type: defaultType,
+                type: currentInitial,
                 salesOrder: "",
                 soNumber: "",
                 mrpPlan: "",
                 mrpNumber: "",
-                items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined, consumable: undefined }]
+                items: [{
+                    material: "",
+                    materialName: "",
+                    materialCode: "",
+                    quantity: 1,
+                    unit: currentInitial === 'fg' ? "Nos" : "PCS",
+                    purpose: "",
+                    component: undefined,
+                    consumable: undefined,
+                    fgItem: undefined,
+                    currentStock: 0
+                }]
             });
 
             // Fetch active MRP plans
@@ -68,7 +107,31 @@ export default function MaterialRequestModal({
                     .catch(err => console.error('Failed to load MRP plans in request modal:', err));
             }
         }
-    }, [isOpen]);
+    }, [isOpen, defaultType]);
+
+    // Effective item lists strictly separated for each category
+    const effectiveRMList = useMemo(() => {
+        if (rawMaterials && rawMaterials.length > 0) return rawMaterials;
+        return (materials || []).filter((m: any) => {
+            const t = (m.itemType || '').toString().trim().toLowerCase();
+            const c = (m.code || '').toUpperCase();
+            return t !== 'bought out' && t !== 'bo' && !c.startsWith('BO-');
+        });
+    }, [rawMaterials, materials]);
+
+    const effectiveBOList = useMemo(() => {
+        if (boughtOuts && boughtOuts.length > 0) return boughtOuts;
+        return (materials || []).filter((m: any) => {
+            const t = (m.itemType || '').toString().trim().toLowerCase();
+            const c = (m.code || '').toUpperCase();
+            return t === 'bought out' || t === 'bo' || c.startsWith('BO-');
+        });
+    }, [boughtOuts, materials]);
+
+    const effectiveFGList = useMemo(() => {
+        if (fgItems && fgItems.length > 0) return fgItems;
+        return inHouseComponents || [];
+    }, [fgItems, inHouseComponents]);
 
     const handleSelectMRPPlan = (planId: string) => {
         const selectedPlan = mrpPlans.find(p => p._id === planId);
@@ -79,9 +142,9 @@ export default function MaterialRequestModal({
 
         // Auto-fill required items from this MRP plan if available
         let populatedItems: any[] = [];
-        if (formData.type === 'inhouse' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
+        if (formData.type === 'fg' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
             populatedItems = selectedPlan.fgItems.map((f: any) => {
-                const comp = (inHouseComponents || []).find((c: any) => (c._id === f.fgItem || c.name === f.fgItemName));
+                const comp = effectiveFGList.find((c: any) => (c._id === f.fgItem || c.name === f.fgItemName));
                 return {
                     material: comp?._id || f.fgItem || '',
                     materialName: f.fgItemName,
@@ -89,12 +152,16 @@ export default function MaterialRequestModal({
                     quantity: f.quantity || 1,
                     unit: f.unit || 'Nos',
                     purpose: `Production for MRP: ${selectedPlan.mrpNumber}`,
-                    component: comp?._id || f.fgItem
+                    component: comp?._id || f.fgItem,
+                    fgItem: comp?._id || f.fgItem,
+                    consumable: undefined,
+                    currentStock: comp?.quantity || 0
                 };
             });
         } else if (Array.isArray(selectedPlan.rmRequirements) && selectedPlan.rmRequirements.length > 0) {
             populatedItems = selectedPlan.rmRequirements.map((r: any) => {
-                const mat = (materials || []).find((m: any) => (m._id === r.material || m.name === r.materialName));
+                const searchList = formData.type === 'bo' ? effectiveBOList : effectiveRMList;
+                const mat = searchList.find((m: any) => (m._id === r.material || m.name === r.materialName));
                 return {
                     material: mat?._id || r.material || '',
                     materialName: r.materialName,
@@ -103,7 +170,9 @@ export default function MaterialRequestModal({
                     unit: r.unit || 'PCS',
                     purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
                     consumable: undefined,
-                    component: undefined
+                    component: undefined,
+                    fgItem: undefined,
+                    currentStock: mat?.quantity || 0
                 };
             });
         }
@@ -127,33 +196,43 @@ export default function MaterialRequestModal({
             }
         }
 
-        if (formData.type === 'inhouse') {
-            if (!inHouseComponents) return 0;
-            const comp = inHouseComponents.find((c: any) => c._id === materialId || c.code === materialCode || c.name === materialName);
-            return comp ? (Number(comp.quantity) || 0) : 0;
+        if (formData.type === 'fg') {
+            if (effectiveFGList && effectiveFGList.length > 0) {
+                const comp = effectiveFGList.find((c: any) => c._id === materialId || c.code === materialCode || c.name === materialName);
+                return comp ? (Number(comp.quantity) || 0) : 0;
+            }
         }
 
-        if (!inventoryList) return 0;
+        if (formData.type === 'rm') {
+            const rm = effectiveRMList.find((m: any) => m._id === materialId || m.code === materialCode || m.name === materialName);
+            if (rm && rm.quantity !== undefined) return Number(rm.quantity) || 0;
+        }
 
-        const stockItem = inventoryList.find((inv: any) => {
-            if (!inv) return false;
+        if (formData.type === 'bo') {
+            const bo = effectiveBOList.find((m: any) => m._id === materialId || m.code === materialCode || m.name === materialName);
+            if (bo && bo.quantity !== undefined) return Number(bo.quantity) || 0;
+        }
 
-            const invMatId = (typeof inv.materialId === 'object' && inv.materialId !== null)
-                ? inv.materialId._id
-                : inv.materialId;
+        if (inventoryList && inventoryList.length > 0) {
+            const stockItem = inventoryList.find((inv: any) => {
+                if (!inv) return false;
+                const invMatId = (typeof inv.materialId === 'object' && inv.materialId !== null)
+                    ? inv.materialId._id
+                    : inv.materialId;
 
-            if (invMatId && invMatId.toString() === materialId.toString()) return true;
+                if (invMatId && invMatId.toString() === materialId.toString()) return true;
 
-            if (materialCode && inv.materialCode &&
-                inv.materialCode.toString().trim().toLowerCase() === materialCode.toString().trim().toLowerCase()) return true;
+                if (materialCode && inv.materialCode &&
+                    inv.materialCode.toString().trim().toLowerCase() === materialCode.toString().trim().toLowerCase()) return true;
 
-            if (materialName && inv.materialName &&
-                inv.materialName.toString().trim().toLowerCase() === materialName.toString().trim().toLowerCase()) return true;
+                if (materialName && inv.materialName &&
+                    inv.materialName.toString().trim().toLowerCase() === materialName.toString().trim().toLowerCase()) return true;
 
-            return false;
-        });
+                return false;
+            });
 
-        if (stockItem && stockItem.currentStock !== undefined) return Number(stockItem.currentStock) || 0;
+            if (stockItem && stockItem.currentStock !== undefined) return Number(stockItem.currentStock) || 0;
+        }
 
         const mat = (materials || []).find((m: any) => m._id === materialId) as any;
         if (mat && mat.quantity !== undefined) return Number(mat.quantity) || 0;
@@ -162,31 +241,37 @@ export default function MaterialRequestModal({
     };
 
     const handleMaterialChange = (index: number, materialId: string) => {
-        let selectedItem;
+        let selectedItem: any = null;
         if (formData.type === 'consumable') {
             selectedItem = (consumables || []).find((c: any) => c._id === materialId);
-        } else if (formData.type === 'inhouse') {
-            selectedItem = (inHouseComponents || []).find((c: any) => c._id === materialId);
+        } else if (formData.type === 'fg') {
+            selectedItem = effectiveFGList.find((c: any) => c._id === materialId);
+        } else if (formData.type === 'rm') {
+            selectedItem = effectiveRMList.find((m: any) => m._id === materialId);
         } else {
-            selectedItem = (materials || []).find((m: any) => m._id === materialId);
+            selectedItem = effectiveBOList.find((m: any) => m._id === materialId);
         }
 
-        const newItems = [...formData.items];
         const unitVal = (formData.type === 'consumable'
             ? (selectedItem?.unit || "PCS")
-            : formData.type === 'inhouse'
+            : formData.type === 'fg'
                 ? (selectedItem?.unit || "Nos")
                 : (typeof selectedItem?.categoryId === 'object' ? (selectedItem.categoryId as any)?.unit : selectedItem?.unit || "PCS")
         ) || "PCS";
 
+        const currentStock = getStock(materialId, selectedItem?.code || selectedItem?.componentCode, selectedItem?.name || selectedItem?.componentName);
+
+        const newItems = [...formData.items];
         newItems[index] = {
             ...newItems[index],
             material: materialId,
             materialName: selectedItem?.name || selectedItem?.componentName || "",
             materialCode: selectedItem?.code || selectedItem?.componentCode || "",
             unit: unitVal,
+            currentStock,
             consumable: formData.type === 'consumable' ? materialId : undefined,
-            component: formData.type === 'inhouse' ? materialId : undefined
+            component: formData.type === 'fg' ? materialId : undefined,
+            fgItem: formData.type === 'fg' ? materialId : undefined
         };
         setFormData({ ...formData, items: newItems });
     };
@@ -200,7 +285,18 @@ export default function MaterialRequestModal({
     const addItem = () => {
         setFormData({
             ...formData,
-            items: [...formData.items, { material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined, consumable: undefined }]
+            items: [...formData.items, {
+                material: "",
+                materialName: "",
+                materialCode: "",
+                quantity: 1,
+                unit: formData.type === 'fg' ? "Nos" : "PCS",
+                purpose: "",
+                component: undefined,
+                consumable: undefined,
+                fgItem: undefined,
+                currentStock: 0
+            }]
         });
     };
 
@@ -209,89 +305,107 @@ export default function MaterialRequestModal({
         setFormData({ ...formData, items: newItems });
     };
 
+    const switchType = (newType: RequestInventoryType) => {
+        setFormData(prev => ({
+            ...prev,
+            type: newType,
+            items: [{
+                material: "",
+                materialName: "",
+                materialCode: "",
+                quantity: 1,
+                unit: newType === 'fg' ? "Nos" : "PCS",
+                purpose: "",
+                component: undefined,
+                consumable: undefined,
+                fgItem: undefined,
+                currentStock: 0
+            }]
+        }));
+    };
+
     if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-5xl max-h-[92vh] overflow-y-auto shadow-2xl border border-gray-200 dark:border-gray-800">
+            <div className="bg-white dark:bg-gray-900 rounded-3xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden">
                 
                 {/* Modal Header */}
-                <div className="p-5 sm:p-6 border-b border-gray-100 dark:border-gray-800 flex justify-between items-start sm:items-center bg-gray-50/80 dark:bg-gray-800/80 sticky top-0 z-10 backdrop-blur-md">
+                <div className="p-4 sm:p-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-start sm:items-center bg-gray-50/80 dark:bg-gray-800/80 shrink-0 backdrop-blur-md">
                     <div className="space-y-2">
                         <div className="flex items-center gap-3">
-                            <h2 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white">New Material Request</h2>
+                            <h2 className="text-base sm:text-lg font-black text-gray-900 dark:text-white">New Material Request</h2>
                             <span className="text-xs font-mono font-bold bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded-md">
                                 {formData.requestNumber}
                             </span>
                         </div>
                         
-                        {/* 3 Request Types Switcher */}
-                        <div className="flex bg-gray-200/80 dark:bg-gray-750 p-1 rounded-xl gap-1 w-fit">
+                        {/* 4 Inventory Types Switcher (RM, BO, Consumables, FG) */}
+                        <div className="flex flex-wrap bg-gray-200/80 dark:bg-gray-750 p-1 rounded-xl gap-1 w-fit shadow-inner">
+                            {/* RM Button */}
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        type: 'consumable',
-                                        salesOrder: '',
-                                        soNumber: '',
-                                        items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined, consumable: undefined }]
-                                    }));
-                                }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                onClick={() => switchType('rm')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                    formData.type === 'rm' 
+                                        ? 'bg-blue-600 text-white shadow-sm' 
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                }`}
+                            >
+                                <Layers size={13} /> Raw Material (RM)
+                            </button>
+
+                            {/* BO Button */}
+                            <button
+                                type="button"
+                                onClick={() => switchType('bo')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                    formData.type === 'bo' 
+                                        ? 'bg-emerald-600 text-white shadow-sm' 
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                }`}
+                            >
+                                <ShoppingCart size={13} /> Bought Out (BO)
+                            </button>
+
+                            {/* Consumable Button */}
+                            <button
+                                type="button"
+                                onClick={() => switchType('consumable')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                                     formData.type === 'consumable' 
                                         ? 'bg-amber-500 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                                 }`}
                             >
                                 <Package size={13} /> Consumables
                             </button>
+
+                            {/* FG Button */}
                             <button
                                 type="button"
-                                onClick={() => {
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        type: 'bo',
-                                        items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined, consumable: undefined }]
-                                    }));
-                                }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                    formData.type === 'bo' 
-                                        ? 'bg-blue-600 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
-                                }`}
-                            >
-                                <Layers size={13} /> RM / BO Items
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        type: 'inhouse',
-                                        items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined, consumable: undefined }]
-                                    }));
-                                }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                                    formData.type === 'inhouse' 
+                                onClick={() => switchType('fg')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                    formData.type === 'fg' 
                                         ? 'bg-purple-600 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                                 }`}
                             >
-                                <Boxes size={13} /> FG / In-House Items
+                                <Boxes size={13} /> Finished Goods (FG)
                             </button>
                         </div>
                     </div>
 
-                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500">
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500 cursor-pointer">
                         <X size={20} />
                     </button>
                 </div>
 
-                <div className="p-5 sm:p-6 space-y-6 pb-32">
+                {/* Modal Body with proper scrolling and padding */}
+                <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-36">
                     
                     {/* Linked MRP Plan & Customer PO / Demand Reference */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/70 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm">
                         {/* MRP Plan # Dropdown */}
                         <div className="space-y-1.5">
                             <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
@@ -335,14 +449,18 @@ export default function MaterialRequestModal({
 
                     {/* Items Section */}
                     <div>
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xs font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider">
-                                Requested {formData.type === 'consumable' ? 'Consumable Items' : formData.type === 'inhouse' ? 'Inhouse Components' : 'RM / BO Items'}
+                        <div className="flex justify-between items-center mb-3">
+                            <h3 className="text-xs font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider flex items-center gap-1.5">
+                                {formData.type === 'rm' && <Layers size={14} className="text-blue-600" />}
+                                {formData.type === 'bo' && <ShoppingCart size={14} className="text-emerald-600" />}
+                                {formData.type === 'consumable' && <Package size={14} className="text-amber-500" />}
+                                {formData.type === 'fg' && <Boxes size={14} className="text-purple-600" />}
+                                Requested {formData.type === 'consumable' ? 'Consumable Items' : formData.type === 'fg' ? 'Finished Goods (FG)' : formData.type === 'bo' ? 'Bought Out Items' : 'Raw Materials'}
                             </h3>
                             <button
                                 type="button"
                                 onClick={addItem}
-                                className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 rounded-xl transition-colors"
+                                className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 rounded-xl transition-colors cursor-pointer"
                             >
                                 <Plus size={14} /> Add Item
                             </button>
@@ -353,34 +471,45 @@ export default function MaterialRequestModal({
                                 const currentStock = getStock(item.material, item.materialCode, item.materialName);
                                 const isExceedingStock = item.material && item.quantity > currentStock;
 
+                                // Options generation strictly filtered per category
+                                const currentOptions = (
+                                    formData.type === 'consumable'
+                                        ? (consumables || []).map((c: any) => ({
+                                            value: c._id,
+                                            label: `${c.name || ''} ${c.code ? `(${c.code})` : ''} ${c.unit ? `[${c.unit}]` : ''}`
+                                        }))
+                                        : formData.type === 'fg'
+                                            ? effectiveFGList.map((c: any) => ({
+                                                value: c._id,
+                                                label: `${c.name || c.componentName || ''} ${c.code ? `(${c.code})` : ''} ${c.unit ? `[${c.unit}]` : ''}`
+                                            }))
+                                            : formData.type === 'bo'
+                                                ? effectiveBOList.map((b: any) => ({
+                                                    value: b._id,
+                                                    label: `${b.name || ''} ${b.code ? `(${b.code})` : ''} ${b.unit ? `[${b.unit}]` : ''}`
+                                                }))
+                                                : effectiveRMList.map((r: any) => ({
+                                                    value: r._id,
+                                                    label: `${r.name || ''} ${r.code ? `(${r.code})` : ''} ${r.unit ? `[${r.unit}]` : ''}`
+                                                }))
+                                );
+
                                 return (
-                                    <div key={index} className="flex flex-col xl:flex-row gap-3 p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl border border-gray-100 dark:border-gray-800 group hover:border-blue-200 transition-colors">
-                                        <div className="flex-[2] min-w-[200px]">
+                                    <div 
+                                        key={index} 
+                                        className="relative flex flex-col xl:flex-row gap-3 p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl border border-gray-100 dark:border-gray-800 group hover:border-blue-200 transition-colors"
+                                        style={{ zIndex: 50 - index }}
+                                    >
+                                        <div className="flex-[2] min-w-[220px]">
                                             <label className="block text-xs font-semibold text-gray-500 mb-1">
-                                                {formData.type === 'consumable' ? 'Consumable Item' : formData.type === 'inhouse' ? 'FG / Inhouse Item' : 'RM / BO Material'}
+                                                {formData.type === 'consumable' ? 'Consumable Item' : formData.type === 'fg' ? 'Finished Good / FG Item' : formData.type === 'bo' ? 'Bought Out Item' : 'Raw Material Item'}
                                             </label>
                                             <SearchableSelect
-                                                options={
-                                                    formData.type === 'consumable' ? (
-                                                        (consumables || []).map((c: any) => ({
-                                                            value: c._id,
-                                                            label: `${c.name || ''} ${c.code ? `(${c.code})` : ''} ${c.unit ? `[${c.unit}]` : ''}`
-                                                        }))
-                                                    ) : formData.type === 'inhouse' ? (
-                                                        (inHouseComponents || []).map((c: any) => ({
-                                                            value: c._id,
-                                                            label: `${c.name || c.componentName || ''} ${c.code ? `(${c.code})` : ''} ${c.description ? `- ${c.description}` : ''}`
-                                                        }))
-                                                    ) : (
-                                                        (materials || []).map((m: any) => ({
-                                                            value: m._id,
-                                                            label: `${m.name || ''} ${m.code ? `(${m.code})` : ''}`
-                                                        }))
-                                                    )
-                                                }
+                                                options={currentOptions}
                                                 value={typeof item.material === 'object' ? (item.material as any)._id : item.material || ''}
                                                 onChange={(val: any) => handleMaterialChange(index, val)}
-                                                placeholder={`Select ${formData.type === 'consumable' ? 'Consumable Item' : formData.type === 'inhouse' ? 'FG / Component' : 'Material'}`}
+                                                placeholder={`Select ${formData.type === 'consumable' ? 'Consumable' : formData.type === 'fg' ? 'FG Item' : formData.type === 'bo' ? 'Bought Out Item' : 'Raw Material'}...`}
+                                                dropdownPosition="bottom"
                                             />
                                         </div>
 
@@ -438,7 +567,7 @@ export default function MaterialRequestModal({
                                                 <button
                                                     type="button"
                                                     onClick={() => removeItem(index)}
-                                                    className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 rounded-xl transition-colors"
+                                                    className="p-2 text-red-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 rounded-xl transition-colors cursor-pointer"
                                                 >
                                                     <Trash2 size={16} />
                                                 </button>
@@ -451,10 +580,10 @@ export default function MaterialRequestModal({
                     </div>
                 </div>
 
-                <div className="p-5 sm:p-6 border-t border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/80 sticky bottom-0 backdrop-blur-md rounded-b-3xl flex justify-end gap-3">
+                <div className="p-4 sm:p-5 border-t border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/80 shrink-0 backdrop-blur-md flex justify-end gap-3">
                     <button
                         onClick={onClose}
-                        className="px-5 py-2.5 text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors"
+                        className="px-5 py-2.5 text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl transition-colors cursor-pointer"
                         disabled={loading}
                     >
                         Cancel
@@ -465,7 +594,7 @@ export default function MaterialRequestModal({
                             const currentStock = getStock(item.material, item.materialCode, item.materialName);
                             return (item.material && item.quantity > currentStock) || !item.quantity || item.quantity <= 0;
                         })}
-                        className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-xl hover:shadow-lg hover:shadow-blue-200 dark:hover:shadow-none transition-all transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:shadow-none"
+                        className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-xl hover:shadow-lg hover:shadow-blue-200 dark:hover:shadow-none transition-all transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:shadow-none cursor-pointer"
                     >
                         {loading ? (
                             <div className="flex items-center gap-2">

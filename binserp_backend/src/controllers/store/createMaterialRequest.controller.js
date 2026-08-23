@@ -1,162 +1,181 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, consumableItemSchema } from "../../models/store/index.js";
-import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
-import { storePrefixSchema } from "../../models/store/index.js";
-import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
-import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
-import fs from 'fs';
-import path from 'path';
+import {
+  materialRequestSchema,
+  rawMaterialSchema,
+  boughtOutSchema,
+  rmBoItemSchema,
+  fgItemSchema,
+  consumableItemSchema
+} from "../../models/store/index.js";
+import { componentSchema } from "../../models/ppc/index.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
 
-const getCompanyLoginId = (req) => {
-  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
-};
-
-// Helper function to update COMPONENT stock (InHouse)
-const updateComponentStock = async (req, componentId, quantity) => {
-  try {
-    const companyId = getCompanyId(req); // Derive companyId from req
-    const Component = req.getModel("Component", componentSchema);
-    const component = await Component.findById(componentId);
-    if (!component) {
-      console.error(`Component not found: ${componentId}`);
-      return null;
-    }
-
-    // Update quantity
-    await Component.findByIdAndUpdate(componentId, {
-      $inc: { quantity: quantity }
-    });
-
-    return true;
-  } catch (error) {
-    console.error("Error updating component stock:", error);
-    throw error;
-  }
-};
+const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
 export const createMaterialRequest = async (req, res) => {
   try {
     const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
-    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const Component = req.getModel('Component', componentSchema);
 
     const companyId = getCompanyId(req);
+    const { userId, userName } = getUserAudit(req);
     let { requestNumber, department, items, priority, type, salesOrder, soNumber, mrpPlan, mrpNumber } = req.body;
 
     if (!requestNumber) {
       requestNumber = `PR-${Date.now()}`;
     }
 
-    if (!items || items.length === 0) {
-      return res.status(400).json({
-        message: "Items are required",
-      });
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Items are required" });
     }
 
+    const normalizedType = (type || 'rm').toLowerCase();
+    const isRM = normalizedType === 'rm' || normalizedType === 'raw-material';
+    const isBO = normalizedType === 'bo' || normalizedType === 'bought-out';
+    const isConsumable = normalizedType === 'consumable';
+    const isFG = normalizedType === 'fg' || normalizedType === 'inhouse';
+
     const processedItems = [];
-    const isInhouse = type === 'inhouse' || type === 'fg';
-    const isConsumable = type === 'consumable';
 
     for (const item of items) {
+      const cleanName = (item.materialName || item.name || '').toString().trim();
+      const rawId = item.material || item.consumable || item.fgItem || item.component || item._id;
+      const validId = rawId && isValidObjectId(rawId.toString()) ? rawId.toString() : null;
+
       if (isConsumable) {
-        // Consumable Logic
-        let consumableId = item.consumable || item.material || item._id;
-        let consumableDoc;
-
-        if (consumableId) {
-          consumableDoc = await ConsumableItem.findById(consumableId);
-        }
-        if (!consumableDoc && item.materialName) {
-          consumableDoc = await ConsumableItem.findOne({ company: companyId, name: item.materialName });
-        }
-
-        if (consumableDoc) {
-          processedItems.push({
-            ...item,
-            consumable: consumableDoc._id,
-            material: consumableDoc._id,
-            materialCode: consumableDoc.code || item.materialCode || '',
-            materialName: consumableDoc.name,
-            quantity: Number(item.quantity),
-            unit: item.unit || consumableDoc.unit || "PCS"
+        // 1. Consumables
+        let doc = null;
+        if (validId) doc = await ConsumableItem.findOne({ _id: validId, company: companyId });
+        if (!doc && cleanName) {
+          doc = await ConsumableItem.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
           });
-        } else {
-          processedItems.push({
-            ...item,
-            materialName: item.materialName,
-            materialCode: item.materialCode || '',
-            quantity: Number(item.quantity),
-            unit: item.unit || "PCS"
-          });
-        }
-      } else if (isInhouse) {
-        // Inhouse Logic: Validate against Component or FGItem
-        const componentId = item.component || item._id || item.material; // Allow various keys from frontend
-        if (!componentId) {
-          return res.status(400).json({ message: "Component ID is required for Inhouse request" });
-        }
-
-        const Component = req.getModel('Component', componentSchema);
-        let componentDoc = await Component.findById(componentId);
-        if (!componentDoc) {
-          componentDoc = await FGItem.findById(componentId);
-        }
-
-        if (!componentDoc) {
-          return res.status(400).json({ message: `Component not found: ${componentId}` });
         }
 
         processedItems.push({
-          ...item,
-          component: componentDoc._id,
-          materialName: componentDoc.name,
-          materialCode: componentDoc.code,
-          quantity: Number(item.quantity),
-          unit: item.unit || componentDoc.unit || "Nos"
+          consumable: doc?._id || validId || undefined,
+          material: doc?._id || validId || undefined,
+          itemType: 'Consumable',
+          materialName: doc?.name || cleanName || 'Consumable Item',
+          materialCode: doc?.code || item.materialCode || '',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || doc?.unit || 'PCS',
+          currentStock: Number(item.currentStock ?? doc?.quantity ?? 0),
+          purpose: item.purpose || ''
+        });
+      } else if (isFG) {
+        // 2. Finished Goods / In-House Products
+        let doc = null;
+        if (validId) {
+          doc = await FGItem.findOne({ _id: validId, company: companyId });
+          if (!doc) doc = await Component.findOne({ _id: validId, company: companyId });
+        }
+        if (!doc && cleanName) {
+          doc = await FGItem.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!doc) {
+            doc = await Component.findOne({
+              company: companyId,
+              name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+        }
+
+        processedItems.push({
+          fgItem: doc?._id || validId || undefined,
+          component: doc?._id || validId || undefined,
+          material: doc?._id || validId || undefined,
+          itemType: 'FG Item',
+          materialName: doc?.name || cleanName || 'FG Item',
+          materialCode: doc?.code || item.materialCode || '',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || doc?.unit || 'Nos',
+          currentStock: Number(item.currentStock ?? doc?.quantity ?? 0),
+          purpose: item.purpose || ''
+        });
+      } else if (isBO) {
+        // 3. Bought Out (BO) Items
+        let doc = null;
+        if (validId) {
+          doc = await BoughtOut.findOne({ _id: validId, company: companyId });
+          if (!doc) doc = await RmBoItem.findOne({ _id: validId, company: companyId });
+        }
+        if (!doc && cleanName) {
+          doc = await BoughtOut.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!doc) {
+            doc = await RmBoItem.findOne({
+              company: companyId,
+              itemType: 'Bought Out',
+              name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+        }
+
+        processedItems.push({
+          material: doc?._id || validId || undefined,
+          itemType: 'Bought Out',
+          materialName: doc?.name || cleanName || 'Bought Out Item',
+          materialCode: doc?.code || item.materialCode || '',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || doc?.unit || 'PCS',
+          currentStock: Number(item.currentStock ?? doc?.minimumStock ?? 0),
+          purpose: item.purpose || ''
         });
       } else {
-        // BO Logic (Existing Material Logic)
-        // If code is missing, try to find it
-        if (!item.materialCode) {
-          let materialDoc;
-
-          // Try by ID first if available
-          if (item.material || item.materialId) {
-            materialDoc = await Material.findById(item.material || item.materialId);
-          }
-
-          // If not found by ID, try by name
-          if (!materialDoc && item.materialName) {
-            materialDoc = await Material.findOne({ company: companyId, name: item.materialName });
-          }
-
-          if (materialDoc) {
-            processedItems.push({
-              ...item,
-              materialCode: materialDoc.code,
-              materialName: materialDoc.name, // Ensure accurate name
-              material: materialDoc._id // Save reference if schema supports it
-            });
-          } else {
-            return res.status(400).json({ message: `Material not found in master: ${item.materialName}` });
-          }
-        } else {
-          processedItems.push(item);
+        // 4. Raw Material (RM) Items
+        let doc = null;
+        if (validId) {
+          doc = await RawMaterial.findOne({ _id: validId, company: companyId });
+          if (!doc) doc = await RmBoItem.findOne({ _id: validId, company: companyId });
         }
+        if (!doc && cleanName) {
+          doc = await RawMaterial.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!doc) {
+            doc = await RmBoItem.findOne({
+              company: companyId,
+              itemType: 'Raw Material',
+              name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+        }
+
+        processedItems.push({
+          material: doc?._id || validId || undefined,
+          itemType: 'Raw Material',
+          materialName: doc?.name || cleanName || 'Raw Material',
+          materialCode: doc?.code || item.materialCode || '',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || doc?.unit || 'PCS',
+          currentStock: Number(item.currentStock ?? doc?.minimumStock ?? 0),
+          purpose: item.purpose || ''
+        });
       }
     }
 
     const materialRequest = await MaterialRequest.create({
       company: companyId,
       requestNumber,
-      requestedBy: req.user.id,
-      department,
-      type: type || 'bo',
+      requestedBy: userId,
+      department: department || 'Store',
+      type: normalizedType,
       salesOrder: salesOrder || undefined,
       soNumber: soNumber || undefined,
       mrpPlan: mrpPlan || undefined,
@@ -164,6 +183,10 @@ export const createMaterialRequest = async (req, res) => {
       items: processedItems,
       priority: priority || "Medium",
       status: "Pending",
+      createdBy: userId,
+      createdByName: userName,
+      updatedBy: userId,
+      updatedByName: userName
     });
 
     res.status(201).json({
@@ -171,8 +194,7 @@ export const createMaterialRequest = async (req, res) => {
       materialRequest,
     });
   } catch (error) {
+    console.error("Create Material Request Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
-
-// Get All Material Requests

@@ -11,6 +11,8 @@ import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';
 
+import { getUserAudit } from "../../utils/userAudit.helper.js";
+
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
@@ -55,6 +57,7 @@ export const createMaterialIssue = async (req, res) => {
     const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
 
     const companyId = getCompanyId(req);
+    const { userId, userName } = getUserAudit(req);
     const { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber } = req.body;
 
     console.log(`>>> [createMaterialIssue] Start. Status: ${status}, Type: ${type}, Items: ${items?.length}`);
@@ -119,7 +122,7 @@ export const createMaterialIssue = async (req, res) => {
           quantity: Number(item.quantity)
         });
       } else {
-        // BO Logic
+        // BO / RM Logic
         let materialId = item.material?._id || item.material; // Handle object or ID
 
         // If no ID provided, try to find by name (fallback)
@@ -159,7 +162,7 @@ export const createMaterialIssue = async (req, res) => {
     const materialIssue = await MaterialIssue.create({
       company: companyId,
       issueNumber,
-      type: type || 'bo',
+      type: type || 'rm',
       date: date || new Date(),
       department,
       issuedTo,
@@ -168,6 +171,10 @@ export const createMaterialIssue = async (req, res) => {
       items: processedItems,
       issuedBy: req.user.id,
       status: status || "Draft",
+      createdBy: userId,
+      createdByName: userName,
+      updatedBy: userId,
+      updatedByName: userName
     });
 
     // Auto-update MRP Plan status to In Production if issued against an MRP plan
