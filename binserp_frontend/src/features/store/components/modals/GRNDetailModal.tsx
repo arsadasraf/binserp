@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
 
 interface GRNDetailModalProps {
     grn: any;
@@ -26,94 +27,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
     };
 
     const handleDownloadGRN = () => {
-        // Create a printable version
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) return;
-
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>GRN Details - ${grn.grnNumber}</title>
-                <style>
-                    body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
-                    h1 { color: #4F46E5; border-bottom: 3px solid #4F46E5; padding-bottom: 10px; }
-                    .header { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
-                    .field { margin: 10px 0; }
-                    .label { font-weight: bold; color: #666; }
-                    .value { color: #000; margin-left: 10px; }
-                    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-                    th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-                    th { background-color: #4F46E5; color: white; }
-                    tr:nth-child(even) { background-color: #f9fafb; }
-                    .total { text-align: right; font-size: 18px; font-weight: bold; color: #059669; margin-top: 20px; }
-                    .footer { margin-top: 40px; text-align: center; color: #666; font-size: 12px; }
-                    @media print { body { padding: 20px; } }
-                </style>
-            </head>
-            <body>
-                <h1>Goods Receipt Note</h1>
-                
-                <div class="header">
-                    <div>
-                        <div class="field"><span class="label">GRN Number:</span><span class="value">${grn.grnNumber}</span></div>
-                        <div class="field"><span class="label">Date:</span><span class="value">${new Date(grn.date).toLocaleDateString()}</span></div>
-                        <div class="field"><span class="label">Supplier:</span><span class="value">${grn.supplierName || 'N/A'}</span></div>
-                    </div>
-                    <div>
-                        <div class="field"><span class="label">QC Status:</span><span class="value">${grn.qcStatus || 'N/A'}</span></div>
-                        ${grn.poReference ? `<div class="field"><span class="label">PO Reference:</span><span class="value">${grn.poReference}</span></div>` : ''}
-                        <div class="field"><span class="label">Created:</span><span class="value">${new Date(grn.createdAt || grn.date).toLocaleString()}</span></div>
-                    </div>
-                </div>
-
-                <h2>Materials</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>Material Name</th>
-                            <th>Rcv</th>
-                            <th>Acc</th>
-                            <th>Rej</th>
-                            <th>Unit</th>
-                            <th>Rate (₹)</th>
-                            <th>Amount (₹)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${grn.items?.map((item: any, index: number) => `
-                            <tr>
-                                <td>${index + 1}</td>
-                                <td>${item.materialName || 'N/A'}</td>
-                                <td>${item.quantity || item.receivedQuantity || 0}</td>
-                                <td>${item.acceptedQuantity || 0}</td>
-                                <td>${item.rejectedQuantity || 0}</td>
-                                <td>${item.unit || 'PCS'}</td>
-                                <td>₹${(item.rate || 0).toFixed(2)}</td>
-                                <td>₹${((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-
-                <div class="total">
-                    Total Amount: ₹${totalAmount.toFixed(2)}
-                </div>
-
-                <div class="footer">
-                    Generated on ${new Date().toLocaleString()} | GRN Details
-                </div>
-
-                <script>
-                    window.onload = function() {
-                        window.print();
-                    }
-                </script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
+        generateFrontendGrnPDF({ grn });
     };
 
     return (
@@ -221,18 +135,28 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
-                                        {grn.items?.map((item: any, index: number) => (
-                                            <tr key={index} className="hover:bg-gray-50">
-                                                <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
-                                                <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.materialName || 'N/A'}</td>
-                                                <td className="px-4 py-3 text-sm text-gray-900 text-center">{item.quantity || item.receivedQuantity || 0}</td>
-                                                <td className="px-4 py-3 text-sm text-green-600 font-medium text-center">{item.acceptedQuantity || 0}</td>
-                                                <td className="px-4 py-3 text-sm text-red-600 font-bold text-center">{item.rejectedQuantity > 0 ? item.rejectedQuantity : '-'}</td>
-                                                <td className="px-4 py-3 text-sm text-gray-600">{item.unit || 'PCS'}</td>
-                                                <td className="px-4 py-3 text-sm text-gray-900 text-right">₹{(item.rate || 0).toFixed(2)}</td>
-                                                <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">₹{((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</td>
-                                            </tr>
-                                        ))}
+                                        {grn.items?.map((item: any, index: number) => {
+                                            const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
+                                            return (
+                                                <tr key={index} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
+                                                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                                        <div>{item.materialName || 'N/A'}</div>
+                                                        {desc && (
+                                                            <div className="text-xs text-gray-500 font-normal mt-0.5">
+                                                                📝 {desc}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-gray-900 text-center">{item.quantity || item.receivedQuantity || 0}</td>
+                                                    <td className="px-4 py-3 text-sm text-green-600 font-medium text-center">{item.acceptedQuantity || 0}</td>
+                                                    <td className="px-4 py-3 text-sm text-red-600 font-bold text-center">{item.rejectedQuantity > 0 ? item.rejectedQuantity : '-'}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-600">{item.unit || 'PCS'}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-900 text-right">₹{(item.rate || 0).toFixed(2)}</td>
+                                                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">₹{((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                     <tfoot className="bg-green-50 border-t-2 border-green-200">
                                         <tr>
@@ -252,38 +176,42 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
 
                             {/* Mobile Card View */}
                             <div className="md:hidden space-y-4">
-                                {grn.items?.map((item: any, index: number) => (
-                                    <div key={index} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
-                                        <div className="flex justify-between items-start mb-3">
-                                            <div className="flex items-center gap-2">
-                                                <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-0.5 rounded-full">#{index + 1}</span>
-                                                <span className="font-bold text-gray-900">{item.materialName || 'N/A'}</span>
+                                {grn.items?.map((item: any, index: number) => {
+                                    const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
+                                    return (
+                                        <div key={index} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-0.5 rounded-full">#{index + 1}</span>
+                                                        <span className="font-bold text-gray-900">{item.materialName || 'N/A'}</span>
+                                                    </div>
+                                                    {desc && (
+                                                        <span className="text-xs text-gray-500 mt-1 pl-1">📝 {desc}</span>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="grid grid-cols-3 gap-y-2 text-sm">
-                                            <div className="text-gray-500 text-center">Rcv<br /><span className="text-gray-900 font-medium">{item.quantity || 0}</span></div>
-                                            <div className="text-gray-500 text-center">Acc<br /><span className="text-green-600 font-medium">{item.acceptedQuantity || 0}</span></div>
-                                            <div className="text-gray-500 text-center">Rej<br /><span className="text-red-600 font-bold">{item.rejectedQuantity || 0}</span></div>
+                                            <div className="grid grid-cols-3 gap-y-2 text-sm">
+                                                <div className="text-gray-500 text-center">Rcv<br /><span className="text-gray-900 font-medium">{item.quantity || 0}</span></div>
+                                                <div className="text-gray-500 text-center">Acc<br /><span className="text-green-600 font-medium">{item.acceptedQuantity || 0}</span></div>
+                                                <div className="text-gray-500 text-center">Rej<br /><span className="text-red-600 font-bold">{item.rejectedQuantity || 0}</span></div>
 
-                                            {/* Rate and Amount on new lines within the grid or separate? Need to check layout.
-                                                The original had Rate on the right.
-                                                Let's keep Rate and Amount below the quantities.
-                                             */}
-                                            <div className="col-span-3 flex justify-between pt-2 border-t border-gray-100 mt-1">
-                                                <span className="text-gray-500">Rate: <span className="text-gray-900 font-medium">₹{(item.rate || 0).toFixed(2)}</span></span>
-                                                <span className="text-gray-500">Unit: <span className="text-gray-900 font-medium">{item.unit || 'PCS'}</span></span>
-                                            </div>
+                                                <div className="col-span-3 flex justify-between pt-2 border-t border-gray-100 mt-1">
+                                                    <span className="text-gray-500">Rate: <span className="text-gray-900 font-medium">₹{(item.rate || 0).toFixed(2)}</span></span>
+                                                    <span className="text-gray-500">Unit: <span className="text-gray-900 font-medium">{item.unit || 'PCS'}</span></span>
+                                                </div>
 
-                                            <div className="col-span-2 border-t border-gray-200 pt-2 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
-                                                <span className="font-semibold text-gray-700">Amount</span>
-                                                <div className="flex items-center gap-1 font-bold text-green-700">
-                                                    <IndianRupee size={16} />
-                                                    <span>₹{((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</span>
+                                                <div className="col-span-3 border-t border-gray-200 pt-2 mt-2 flex justify-between items-center bg-white p-2 rounded-lg">
+                                                    <span className="font-semibold text-gray-700">Amount</span>
+                                                    <div className="flex items-center gap-1 font-bold text-green-700">
+                                                        <IndianRupee size={16} />
+                                                        <span>₹{((item.rate || 0) * (item.quantity || 0)).toFixed(2)}</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                                 <div className="bg-green-50 p-4 rounded-xl border border-green-200 flex justify-between items-center">
                                     <span className="font-bold text-gray-900">Total Amount</span>
                                     <div className="flex items-center gap-1 font-bold text-green-700 text-lg">

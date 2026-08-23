@@ -88,10 +88,24 @@ export const getInventory = async (req, res) => {
     }
 
     const inventoryWithMonthly = inventory.map(inv => {
-        const itemMonthly = monthlyMap.get(inv.materialId?.toString() || inv._id?.toString());
+        const matKey = inv.materialId?._id?.toString() || inv.materialId?.toString() || inv._id?.toString();
+        const itemMonthly = monthlyMap.get(matKey);
         return {
             ...inv,
-            monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }
+            monthlyData: itemMonthly ? {
+                ...itemMonthly,
+                received: itemMonthly.totalInwardQuantity || 0,
+                issued: itemMonthly.totalOutwardQuantity || 0,
+                totalInwardQuantity: itemMonthly.totalInwardQuantity || 0,
+                totalOutwardQuantity: itemMonthly.totalOutwardQuantity || 0,
+                openingStock: itemMonthly.openingStock || 0
+            } : {
+                openingStock: 0,
+                received: 0,
+                issued: 0,
+                totalInwardQuantity: 0,
+                totalOutwardQuantity: 0
+            }
         };
     });
 

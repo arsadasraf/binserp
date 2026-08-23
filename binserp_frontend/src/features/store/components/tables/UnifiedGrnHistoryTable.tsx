@@ -46,43 +46,11 @@ const isWithin12Hours = (createdAt: string | Date): boolean => {
   return hoursDiff <= 12;
 };
 
+import { generateFrontendGrnPDF } from "@/src/utils/frontendPdfHelper";
+
 const downloadGRNAsPDF = (grn: any) => {
   try {
-    const doc = new jsPDF();
-
-    doc.setFontSize(18);
-    doc.text("Goods Receipt Note", 105, 20, { align: "center" } as any);
-
-    doc.setFontSize(11);
-    doc.text(`GRN Number: ${grn.grnNumber}`, 20, 35);
-    doc.text(`Date: ${new Date(grn.date || grn.createdAt).toLocaleDateString()}`, 20, 42);
-    doc.text(`Source/Party: ${grn.supplierName || grn.customerName || (typeof grn.supplier === 'object' ? grn.supplier?.name : grn.supplier) || "In-House"}`, 20, 49);
-    doc.text(`Status: ${grn.status || "Received"}`, 20, 56);
-    doc.text(`Type: ${grn.grnTypeLabel || "GRN"}`, 20, 63);
-
-    const tableData = (grn.items || []).map((item: any) => [
-      item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || "N/A",
-      String(item.quantity || 0),
-      item.unit || "PCS",
-      String(item.acceptedQuantity || item.receivedQuantity || item.quantity || 0),
-      String(item.rejectedQuantity || 0),
-    ]);
-
-    autoTable(doc, {
-      startY: 72,
-      head: [["Item Name", "Quantity", "Unit", "Accepted", "Rejected"]],
-      body: tableData,
-      theme: "grid",
-      headStyles: { fillColor: [79, 70, 229] },
-      styles: { fontSize: 10 },
-    });
-
-    const finalY = (doc as any).lastAutoTable?.finalY || 100;
-    doc.setFontSize(9);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 105, finalY + 15, { align: "center" } as any);
-
-    const safeFilename = `GRN_${(grn.grnNumber || "doc").replace(/\//g, "_")}_${new Date().toISOString().split("T")[0]}.pdf`;
-    doc.save(safeFilename);
+    generateFrontendGrnPDF({ grn });
   } catch (error: any) {
     console.error("PDF Error:", error);
     alert(`PDF Generation Error: ${error.message}`);

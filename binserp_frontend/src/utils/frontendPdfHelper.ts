@@ -2184,3 +2184,215 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
     `);
     printWindow.document.close();
 };
+
+export interface PrintGrnData {
+    grn: any;
+    companyInfo?: any;
+    vendors?: any[];
+}
+
+export const generateFrontendGrnPDF = (data: PrintGrnData) => {
+    const { grn, companyInfo, vendors = [] } = data;
+    if (!grn) {
+        alert("No GRN data provided for PDF generation");
+        return;
+    }
+
+    let vendorObj: any = grn.supplier || grn.vendor;
+    if (typeof vendorObj === 'string') {
+        vendorObj = vendors.find((v: any) => v._id === vendorObj) || { name: vendorObj };
+    }
+    const partyName = grn.supplierName || grn.customerName || vendorObj?.name || (typeof grn.supplier === 'object' ? grn.supplier?.name : '') || "In-House / Direct";
+    const partyAddress = vendorObj?.address || vendorObj?.billingAddress || '';
+    const partyGst = vendorObj?.gst || vendorObj?.gstNumber || 'N/A';
+    const partyPhone = vendorObj?.phone || vendorObj?.contactNumber || '';
+
+    const compName = companyInfo?.companyName || 'COMPANY NAME';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const compPan = companyInfo?.panNumber || companyInfo?.pan || 'N/A';
+
+    const grnNo = grn.grnNumber || 'GRN-0001';
+    const grnDate = grn.date ? new Date(grn.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
+
+    const copyTypes = [
+        'ORIGINAL FOR STORE COPY',
+        'DUPLICATE FOR ACCOUNTS COPY'
+    ];
+
+    let totalRcvQty = 0;
+    let totalAccQty = 0;
+    let totalRejQty = 0;
+    let totalVal = 0;
+
+    let itemsTableRowsHtml = '';
+    const items = grn.items || [];
+
+    items.forEach((item: any, idx: number) => {
+        const qty = Number(item.quantity || item.receivedQuantity || 0);
+        const accQty = Number(item.acceptedQuantity !== undefined ? item.acceptedQuantity : qty);
+        const rejQty = Number(item.rejectedQuantity || 0);
+        const rate = Number(item.rate || item.unitPrice || 0);
+        const lineTotal = rate > 0 ? (qty * rate) : 0;
+
+        totalRcvQty += qty;
+        totalAccQty += accQty;
+        totalRejQty += rejQty;
+        totalVal += lineTotal;
+
+        const name = item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || 'Item';
+        const desc = item.description || item.descriptions || item.material?.description || item.material?.descriptions || '';
+
+        itemsTableRowsHtml += `
+            <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+                <td style="padding: 6px 8px; text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
+                <td style="padding: 6px 8px;">
+                    <div style="font-weight: bold; color: #0f172a;">${name}</div>
+                    ${desc ? `<div style="font-size: 10px; color: #64748b; margin-top: 2px;">📝 ${desc}</div>` : ''}
+                </td>
+                <td style="padding: 6px 8px; text-align: center; font-weight: bold;">${qty}</td>
+                <td style="padding: 6px 8px; text-align: center; color: #16a34a; font-weight: bold;">${accQty}</td>
+                <td style="padding: 6px 8px; text-align: center; color: ${rejQty > 0 ? '#dc2626' : '#94a3b8'}; font-weight: bold;">${rejQty}</td>
+                <td style="padding: 6px 8px; text-align: center; font-weight: 600;">${item.unit || 'PCS'}</td>
+                <td style="padding: 6px 8px; text-align: right;">₹${rate.toFixed(2)}</td>
+                <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">₹${lineTotal.toFixed(2)}</td>
+            </tr>
+        `;
+    });
+
+    const pagesHtml = copyTypes.map((copyTitle) => `
+        <div class="page" style="page-break-after: always; width: 100%; max-width: 800px; margin: 0 auto 30px auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
+            <!-- Top Copy Header -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 15px;">
+                <div>
+                    <h2 style="margin: 0; font-size: 20px; font-weight: 900; color: #1e1b4b; letter-spacing: -0.5px;">${compName}</h2>
+                    <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${compAddress}</div>
+                    <div style="font-size: 10px; color: #64748b;">GSTIN: <strong style="color: #0f172a;">${compGst}</strong> | PAN: <strong>${compPan}</strong> ${compPhone ? `| Ph: ${compPhone}` : ''}</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="display: inline-block; background: #4f46e5; color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase;">
+                        GOODS RECEIPT NOTE (GRN)
+                    </div>
+                    <div style="font-size: 10px; font-weight: bold; color: #6366f1; margin-top: 4px;">${copyTitle}</div>
+                </div>
+            </div>
+
+            <!-- Details Box -->
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 15px; font-size: 11px;">
+                <div>
+                    <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">Received From (Party / Supplier)</div>
+                    <div style="font-size: 13px; font-weight: bold; color: #0f172a; margin-top: 2px;">${partyName}</div>
+                    ${partyAddress ? `<div style="color: #475569; font-size: 10px; margin-top: 2px;">${partyAddress}</div>` : ''}
+                    ${partyGst !== 'N/A' ? `<div style="color: #475569; font-size: 10px;">GSTIN: <strong>${partyGst}</strong></div>` : ''}
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">GRN Number</div>
+                        <div style="font-size: 12px; font-weight: 900; color: #4f46e5;">${grnNo}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">Date</div>
+                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grnDate}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">PO Reference</div>
+                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grn.poReference || grn.purchaseOrder?.poNumber || 'Direct / Offline'}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">QC Status</div>
+                        <div style="font-size: 11px; font-weight: bold; color: ${grn.qcStatus === 'Passed' ? '#16a34a' : '#4f46e5'};">${grn.qcStatus || (grn.qcRequired ? 'Pending QC' : 'Direct Accepted')}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Items Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #cbd5e1;">
+                <thead>
+                    <tr style="background: #1e1b4b; color: #fff; font-size: 10px; text-transform: uppercase; font-weight: 800;">
+                        <th style="padding: 7px 8px; width: 30px; text-align: center;">#</th>
+                        <th style="padding: 7px 8px; text-align: left;">Item Description</th>
+                        <th style="padding: 7px 8px; width: 60px; text-align: center;">Rcv Qty</th>
+                        <th style="padding: 7px 8px; width: 60px; text-align: center;">Acc Qty</th>
+                        <th style="padding: 7px 8px; width: 60px; text-align: center;">Rej Qty</th>
+                        <th style="padding: 7px 8px; width: 50px; text-align: center;">Unit</th>
+                        <th style="padding: 7px 8px; width: 70px; text-align: right;">Rate (₹)</th>
+                        <th style="padding: 7px 8px; width: 85px; text-align: right;">Total (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot>
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px; border-top: 2px solid #cbd5e1;">
+                        <td colspan="2" style="padding: 8px; text-align: right; text-transform: uppercase;">Total:</td>
+                        <td style="padding: 8px; text-align: center;">${totalRcvQty}</td>
+                        <td style="padding: 8px; text-align: center; color: #16a34a;">${totalAccQty}</td>
+                        <td style="padding: 8px; text-align: center; color: ${totalRejQty > 0 ? '#dc2626' : '#64748b'};">${totalRejQty}</td>
+                        <td></td>
+                        <td></td>
+                        <td style="padding: 8px; text-align: right; font-size: 12px; color: #4f46e5; font-weight: 900;">₹${totalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Signatures Section -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 35px; padding-top: 20px; border-top: 1px dashed #cbd5e1; font-size: 11px; text-align: center;">
+                <div>
+                    <div style="height: 35px;"></div>
+                    <div style="border-top: 1px solid #64748b; padding-top: 4px; font-weight: bold; color: #334155;">Received By (Store)</div>
+                </div>
+                <div>
+                    <div style="height: 35px;"></div>
+                    <div style="border-top: 1px solid #64748b; padding-top: 4px; font-weight: bold; color: #334155;">QC Inspector</div>
+                </div>
+                <div>
+                    <div style="height: 35px;"></div>
+                    <div style="border-top: 1px solid #64748b; padding-top: 4px; font-weight: bold; color: #334155;">Authorized Signatory</div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert("Pop-up blocked! Please allow pop-ups to print/download the GRN PDF.");
+        return;
+    }
+
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>GRN_${grnNo}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                body { margin: 0; padding: 0; background: #f1f5f9; font-family: Arial, sans-serif; }
+                @media print {
+                    body { background: #fff; }
+                    .page { border: none !important; margin: 0 !important; box-shadow: none !important; margin-bottom: 0 !important; }
+                    .no-print { display: none !important; }
+                }
+                table { border-collapse: collapse; }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 9999; background: #0f172a; color: #fff; padding: 10px 18px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); font-size: 13px; font-weight: bold; display: flex; gap: 10px; align-items: center;">
+                <span>GRN: ${grnNo}</span>
+                <button onclick="window.print()" style="background: #4f46e5; color: #fff; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: bold;">Print / Save as PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 6px; cursor: pointer;">Close</button>
+            </div>
+            <div style="padding-top: 45px;">
+                ${pagesHtml}
+            </div>
+            <script>
+                setTimeout(function() {
+                    window.print();
+                }, 400);
+            </script>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+};
+

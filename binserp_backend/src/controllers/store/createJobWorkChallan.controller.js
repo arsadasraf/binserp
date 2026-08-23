@@ -49,6 +49,7 @@ export const createJobWorkChallan = async (req, res) => {
     const JobWorkChallan = req.getModel("JobWorkChallan", jobWorkSchema);
     const Material = req.getModel("RmBoItem", rmBoItemSchema);
     const FGItem = req.getModel("FGItem", fgItemSchema);
+    const Inventory = req.getModel("Inventory", inventorySchema);
 
     const companyId = getCompanyId(req);
     let {
@@ -62,6 +63,10 @@ export const createJobWorkChallan = async (req, res) => {
       ewayBillNo,
       estimatedWeight,
       estimatedPrice,
+      jobWorkType = "store-conversion",
+      mrpPlan,
+      mrpNumber,
+      routeCardRef,
       items
     } = req.body;
 
@@ -88,7 +93,7 @@ export const createJobWorkChallan = async (req, res) => {
     // Helper to check valid Mongoose ObjectId
     const isValidObjectId = (val) => val && mongoose.Types.ObjectId.isValid(val);
 
-    // Process Items and Update Source Stock
+    // Process Items, Check Stock & Validate Availability
     const processedItems = [];
     for (const item of items) {
       const {
@@ -110,7 +115,7 @@ export const createJobWorkChallan = async (req, res) => {
       let itemName = item.itemName || "";
       let validItemId = isValidObjectId(itemId) ? itemId : null;
       
-      if (itemType === "bo" && validItemId) {
+      if ((itemType === "bo" || itemType === "rm") && validItemId) {
         const materialDoc = await Material.findById(validItemId);
         if (materialDoc) itemName = materialDoc.name;
       } else if (itemType === "custom") {
@@ -123,6 +128,42 @@ export const createJobWorkChallan = async (req, res) => {
 
       if (!itemName) {
         itemName = item.itemName || "Sent Item";
+      }
+
+      // Stock Check for Store Conversion & Store-to-WIP
+      if (jobWorkType !== "wip-to-wip" && jobWorkType !== "route-card") {
+        if ((itemType === "rm" || itemType === "bo") && validItemId) {
+          const invDoc = await Inventory.findOne({
+            company: companyId,
+            $or: [
+              { materialId: validItemId },
+              { _id: validItemId }
+            ]
+          });
+
+          let availStock = 0;
+          if (invDoc) {
+            availStock = Number(invDoc.currentStock !== undefined ? invDoc.currentStock : invDoc.quantity) || 0;
+          } else {
+            const matDoc = await Material.findById(validItemId);
+            if (matDoc) {
+              availStock = Number(matDoc.quantity !== undefined ? matDoc.quantity : matDoc.currentStock) || 0;
+            }
+          }
+
+          const reqQty = Number(quantitySent) || 0;
+          if (availStock <= 0) {
+            return res.status(400).json({
+              message: `Cannot dispatch "${itemName}": Item is OUT OF STOCK (Available: 0 ${unit || 'PCS'}). Returnable DC cannot be created.`
+            });
+          }
+
+          if (reqQty > availStock) {
+            return res.status(400).json({
+              message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available stock (${availStock} ${unit || 'PCS'}). Returnable DC cannot be created.`
+            });
+          }
+        }
       }
 
       // 2. Fetch Returning Items (Multiple per Sent Item)
@@ -218,10 +259,6 @@ export const createJobWorkChallan = async (req, res) => {
     }
 
     const Job = req.getModel("Job", jobSchema);
-    const {
-      jobWorkType = "inventory-conversion",
-      routeCardRef
-    } = req.body;
 
     // Create Challan
     const jobWork = await JobWorkChallan.create({
@@ -237,6 +274,8 @@ export const createJobWorkChallan = async (req, res) => {
       estimatedWeight: Number(estimatedWeight) || 0,
       estimatedPrice: Number(estimatedPrice) || 0,
       jobWorkType,
+      mrpPlan: mrpPlan || undefined,
+      mrpNumber: mrpNumber || undefined,
       routeCardRef,
       status: "Open",
       items: processedItems,
@@ -270,7 +309,7 @@ export const createJobWorkChallan = async (req, res) => {
     }
 
     for (const item of processedItems) {
-      if (jobWorkType !== "route-card" && item.itemType === "bo" && item.item) {
+      if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && (item.itemType === "bo" || item.itemType === "rm") && item.item) {
         // Decrease current stock & log returnable DC transaction
         await updateInventoryStock(
           req,
@@ -284,7 +323,7 @@ export const createJobWorkChallan = async (req, res) => {
             referenceDocId: jobWork._id,
             referenceDocNumber: challanNumber,
             recipientOrSource: vendorName,
-            purpose: item.processType || "Subcontractor Job Work Conversion",
+            purpose: item.processType || `Subcontractor Outward Dispatch (${jobWorkType})`,
             performedBy: req.user?.id || req.user?._id,
           }
         );

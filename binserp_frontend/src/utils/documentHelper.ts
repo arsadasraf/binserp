@@ -1,10 +1,19 @@
 import { API_BASE_URL } from './config';
-import { generateFrontendReturnableDCPDF, generateFrontendPoPDF } from './frontendPdfHelper';
+import { generateFrontendReturnableDCPDF, generateFrontendPoPDF, generateFrontendGrnPDF } from './frontendPdfHelper';
 
-export const generateDocument = async (type: 'pdf' | 'excel', documentType: 'invoice' | 'po' | 'dc' | 'quotation' | 'Delivery Challans' | 'Invoices' | 'InHouse Inventory' | 'returnable_dc' | 'Returnable DC' | 'incoming_rfq', data: any) => {
+export const generateDocument = async (type: 'pdf' | 'excel', documentType: 'invoice' | 'po' | 'dc' | 'grn' | 'GRN' | 'quotation' | 'Delivery Challans' | 'Invoices' | 'InHouse Inventory' | 'returnable_dc' | 'Returnable DC' | 'incoming_rfq', data: any) => {
     try {
         if (type === 'pdf' && (documentType === 'returnable_dc' || documentType === 'Returnable DC')) {
             generateFrontendReturnableDCPDF(data);
+            return;
+        }
+
+        if (type === 'pdf' && (documentType === 'grn' || documentType === 'GRN')) {
+            generateFrontendGrnPDF({
+                grn: data.doc || data.grn || data,
+                companyInfo: data.companyInfo,
+                vendors: data.vendors
+            });
             return;
         }
 

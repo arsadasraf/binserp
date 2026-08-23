@@ -458,7 +458,7 @@ export interface JobWorkReturningItem {
     _id?: string;
     receivedItem?: string;
     receivedItemName: string;
-    receivedItemType: 'bo' | 'inhouse' | 'fg' | 'custom';
+    receivedItemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
     quantityToBeReceived: number;
     quantityReceived?: number;
     receivingUnit: string;
@@ -469,7 +469,7 @@ export interface JobWorkItem {
     _id?: string;
     item?: string; // ID of Material or Component
     itemName: string;
-    itemType: 'bo' | 'inhouse' | 'fg' | 'custom';
+    itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
     processType: string;
     quantitySent: number;
     quantityReceived: number;
@@ -482,7 +482,7 @@ export interface JobWorkItem {
     itemToBeReceived?: string;
     receivedItem?: string;
     receivedItemName?: string;
-    receivedItemType?: 'bo' | 'inhouse' | 'fg' | 'custom';
+    receivedItemType?: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
     quantityToBeReceived?: number;
     receivingUnit?: string;
 }
@@ -499,7 +499,9 @@ export interface JobWorkChallan {
     estimatedPrice?: number;
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
-    jobWorkType?: 'route-card' | 'inventory-conversion';
+    jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
+    mrpPlan?: string;
+    mrpNumber?: string;
     routeCardRef?: {
         job?: string;
         routeCard?: string;
@@ -522,7 +524,9 @@ export interface JobWorkFormData {
     estimatedPrice?: number;
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
-    jobWorkType?: 'route-card' | 'inventory-conversion';
+    jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
+    mrpPlan?: string;
+    mrpNumber?: string;
     routeCardRef?: {
         job?: string;
         routeCard?: string;
@@ -530,10 +534,9 @@ export interface JobWorkFormData {
         operationName?: string;
     };
     items: {
-
         item?: string;
         itemName?: string;
-        itemType: 'bo' | 'inhouse' | 'fg' | 'custom';
+        itemType: 'rm' | 'bo' | 'fg' | 'inhouse';
         processType: string;
         quantitySent: number;
         unit: string;
@@ -543,7 +546,7 @@ export interface JobWorkFormData {
         // Legacy fallbacks
         receivedItem?: string;
         receivedItemName?: string;
-        receivedItemType?: 'bo' | 'inhouse' | 'fg' | 'custom';
+        receivedItemType?: 'rm' | 'bo' | 'fg' | 'inhouse';
         quantityToBeReceived?: number;
         receivingUnit?: string;
         itemToBeReceived?: string;

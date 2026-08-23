@@ -107,3 +107,27 @@ export async function compressImage(
         }
     });
 }
+
+/**
+ * Compresses an image File and returns a lightweight compressed File object (ready for FormData upload).
+ * @param file - File object from input[type="file"] or drag-and-drop
+ * @param options - Compression options (defaults: maxWidth 1280, quality 0.8)
+ * @returns Promise<File> - Compressed JPEG File object
+ */
+export async function compressImageToFile(
+    file: File,
+    options: CompressOptions = {}
+): Promise<File> {
+    if (!file.type.startsWith('image/')) return file;
+    try {
+        const compressedBase64 = await compressImage(file, options);
+        const res = await fetch(compressedBase64);
+        const blob = await res.blob();
+        const cleanName = file.name.replace(/\.[^/.]+$/, "") + ".jpg";
+        return new File([blob], cleanName, { type: 'image/jpeg', lastModified: Date.now() });
+    } catch (err) {
+        console.error('Image compression to file failed, fallback to original:', err);
+        return file;
+    }
+}
+

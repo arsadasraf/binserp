@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
     X, 
     Upload, 
@@ -14,17 +14,26 @@ import {
     ShoppingCart,
     ShieldAlert,
     ShieldCheck,
-    Paperclip
+    Paperclip,
+    Download,
+    Eye,
+    ZoomIn,
+    FileSpreadsheet,
+    PackageCheck,
+    RotateCcw
 } from 'lucide-react';
 import { GRNModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
 import { apiGet } from '@/src/lib/api';
+import { compressImageToFile } from '@/src/utils/imageCompressor';
+import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 interface MaterialEntry {
     material: string;
     materialName?: string;
+    description?: string;
     quantity: number;
     unit?: string;
     category?: string;
@@ -67,13 +76,20 @@ export default function GRNModal({
     const [mrpPlansList, setMrpPlansList] = useState<any[]>([]);
 
     // QC & Media
-    const [qcRequired, setQcRequired] = useState(false);
+    const [qcRequired, setQcRequired] = useState(true);
     const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
     const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+    const [isCompressing, setIsCompressing] = useState(false);
+
+    // Post-submission success & preview states
+    const [createdGRNData, setCreatedGRNData] = useState<any>(null);
+    const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null);
+
     const [materialEntries, setMaterialEntries] = useState<MaterialEntry[]>([{
         material: '',
         materialName: '',
+        description: '',
         quantity: 0,
         unit: '',
         category: '',
@@ -155,6 +171,9 @@ export default function GRNModal({
                 activePrefix = (prefixSettings as any)?.consumablePrefix || 'GRN-CON';
             }
 
+            setCreatedGRNData(null);
+            setZoomPhotoUrl(null);
+
             if (isEditing && initialData) {
                 setGrnNumber(initialData.grnNumber || '');
                 setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : '');
@@ -166,15 +185,21 @@ export default function GRNModal({
                 setQcRequired((initialData as any).qcRequired || false);
 
                 if (Array.isArray(initialData.items) && initialData.items.length > 0) {
-                    const entries = initialData.items.map((item: any) => ({
-                        material: item.material?._id || item.material || item.component?._id || item.component || '',
-                        materialName: item.materialName || item.material?.name || item.component?.name || '',
-                        quantity: item.quantity || 0,
-                        unit: item.unit || '',
-                        category: item.category || '',
-                        locationId: item.locationId?._id || item.locationId || item.location?._id || item.location || '',
-                        rate: item.rate || 0,
-                    }));
+                    const entries = initialData.items.map((item: any) => {
+                        const mObj = item.material || item.component || item.fgItem;
+                        const matId = typeof mObj === 'object' && mObj !== null ? mObj._id : (mObj || '');
+                        const desc = item.description || item.descriptions || (typeof mObj === 'object' ? (mObj.descriptions || mObj.description) : '');
+                        return {
+                            material: matId,
+                            materialName: item.materialName || (typeof mObj === 'object' ? mObj.name : '') || '',
+                            description: desc || '',
+                            quantity: item.quantity || 0,
+                            unit: item.unit || '',
+                            category: item.category || '',
+                            locationId: item.locationId?._id || item.locationId || item.location?._id || item.location || '',
+                            rate: item.rate || 0,
+                        };
+                    });
                     setMaterialEntries(entries);
                 }
             } else {
@@ -192,6 +217,7 @@ export default function GRNModal({
                 setMaterialEntries([{
                     material: '',
                     materialName: '',
+                    description: '',
                     quantity: 0,
                     unit: '',
                     category: '',
@@ -246,6 +272,20 @@ export default function GRNModal({
         }
     }, [isOpen, type]);
 
+    // Format material options with descriptions for SearchableSelect
+    const materialOptions = useMemo(() => {
+        return safeMaterials.map((m: any) => {
+            const desc = m.descriptions || m.description || '';
+            const code = m.code ? `[${m.code}]` : '';
+            return {
+                value: m._id,
+                label: `${m.name || 'Unnamed'} ${code} ${desc ? `— ${desc}` : ''}`.trim(),
+                description: desc,
+                code: m.code
+            };
+        });
+    }, [safeMaterials]);
+
     // Handle PO Selection and Auto-Populate Items
     const handleSelectPO = (poId: string) => {
         setSelectedPO(poId);
@@ -271,6 +311,8 @@ export default function GRNModal({
                     ? materialObj.name 
                     : (poItem.itemName || poItem.name || '');
 
+                const desc = poItem.description || poItem.descriptions || (typeof materialObj === 'object' ? (materialObj.descriptions || materialObj.description) : '');
+
                 let unit = poItem.unit || '';
                 if (!unit && typeof materialObj === 'object' && materialObj !== null) {
                     unit = materialObj.unit || '';
@@ -295,6 +337,7 @@ export default function GRNModal({
                 return {
                     material: matId,
                     materialName: matName,
+                    description: desc || '',
                     quantity: qtyRemaining > 0 ? qtyRemaining : Number(poItem.quantity) || 0,
                     unit: unit || 'PCS',
                     category: category || '',
@@ -308,11 +351,17 @@ export default function GRNModal({
         }
     };
 
+    // Filter active/open MRP plans
+    const openMrpPlans = useMemo(() => {
+        return (mrpPlansList || []).filter((p: any) => p && p.status !== 'Completed');
+    }, [mrpPlansList]);
+
     // Handle MRP Plan Selection for InHouse / FG GRN
     const handleSelectMRPPlan = (planId: string) => {
         setMrpPlan(planId);
         if (!planId) {
             setMrpNumber('');
+            setPoLinkedNotice(null);
             return;
         }
 
@@ -320,30 +369,38 @@ export default function GRNModal({
         if (!foundPlan) return;
 
         setMrpNumber(foundPlan.mrpNumber || '');
-        if (foundPlan.customerId) {
-            const cId = typeof foundPlan.customerId === 'object' ? foundPlan.customerId._id : foundPlan.customerId;
+        if (foundPlan.customer || foundPlan.customerId) {
+            const cId = typeof foundPlan.customerId === 'object' ? foundPlan.customerId?._id : (foundPlan.customerId || foundPlan.customer);
             setCustomer(cId || '');
         }
 
-        if (Array.isArray(foundPlan.items) && foundPlan.items.length > 0) {
-            const newEntries: MaterialEntry[] = foundPlan.items.map((mrpItem: any) => {
+        const fgList = foundPlan.fgItems || foundPlan.items || [];
+        if (Array.isArray(fgList) && fgList.length > 0) {
+            const newEntries: MaterialEntry[] = fgList.map((mrpItem: any) => {
                 const fgObj = mrpItem.fgItem || mrpItem.product || mrpItem.finishedGood;
-                const fgId = typeof fgObj === 'object' && fgObj !== null ? fgObj._id : (fgObj || mrpItem.material || '');
-                const fgName = typeof fgObj === 'object' && fgObj !== null ? fgObj.name : (mrpItem.productName || mrpItem.name || '');
-                const unit = mrpItem.unit || (typeof fgObj === 'object' ? fgObj?.unit : 'PCS');
-                const qty = Number(mrpItem.quantity) || Number(mrpItem.plannedQuantity) || 0;
+                const fgId = typeof fgObj === 'object' && fgObj !== null ? fgObj._id : (fgObj || mrpItem.material || mrpItem._id || '');
+                const fgName = typeof fgObj === 'object' && fgObj !== null ? (fgObj.name || fgObj.fgItemName) : (mrpItem.fgItemName || mrpItem.productName || mrpItem.name || '');
+                const desc = mrpItem.description || (typeof fgObj === 'object' ? (fgObj.descriptions || fgObj.description) : '') || '';
+                const unit = mrpItem.unit || (typeof fgObj === 'object' ? fgObj?.unit : 'PCS') || 'PCS';
+                const plannedQty = Number(mrpItem.quantity) || Number(mrpItem.plannedQuantity) || 0;
+                const receivedQty = Number(mrpItem.receivedQuantity) || 0;
+                const qtyRemaining = mrpItem.pendingQuantity !== undefined 
+                    ? Number(mrpItem.pendingQuantity) 
+                    : Math.max(0, plannedQty - receivedQty);
 
                 return {
                     material: fgId,
                     materialName: fgName,
-                    quantity: qty,
-                    unit: unit || 'PCS',
+                    description: desc,
+                    quantity: qtyRemaining > 0 ? qtyRemaining : plannedQty,
+                    unit: unit,
                     category: 'Finished Goods',
                     locationId: '',
                     rate: Number(mrpItem.rate) || 0
                 };
             });
             setMaterialEntries(newEntries);
+            setPoLinkedNotice(`Auto-loaded ${newEntries.length} FG items from MRP Plan #${foundPlan.mrpNumber}`);
         }
     };
 
@@ -352,6 +409,7 @@ export default function GRNModal({
         setMaterialEntries(prev => [...prev, {
             material: '',
             materialName: '',
+            description: '',
             quantity: 0,
             unit: '',
             category: '',
@@ -375,6 +433,8 @@ export default function GRNModal({
                 const selectedMaterial = safeMaterials.find(m => m._id === value);
                 if (selectedMaterial) {
                     updated[index].materialName = selectedMaterial.name;
+                    updated[index].description = (selectedMaterial as any).descriptions || (selectedMaterial as any).description || '';
+
                     let unitVal = (selectedMaterial as any).unit || '';
                     if (!unitVal && selectedMaterial.category && typeof selectedMaterial.category === 'object') {
                         unitVal = (selectedMaterial.category as any).unit || '';
@@ -401,8 +461,44 @@ export default function GRNModal({
         });
     };
 
+    // Client-Side Photo & Document Compression Handlers
+    const handlePhotoSelection = async (files: FileList | File[] | null) => {
+        if (!files) return;
+        const fileArr = Array.from(files);
+        if (fileArr.length === 0) return;
+
+        setIsCompressing(true);
+        try {
+            const compressTasks = fileArr.map(f => compressImageToFile(f, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 }));
+            const compressedFiles = await Promise.all(compressTasks);
+            setPhotoFiles(prev => [...prev, ...compressedFiles]);
+        } catch (err) {
+            console.error("Photo compression error, keeping originals:", err);
+            setPhotoFiles(prev => [...prev, ...fileArr]);
+        } finally {
+            setIsCompressing(false);
+        }
+    };
+
+    const handleInvoiceDocSelection = async (file: File | null) => {
+        if (!file) return;
+        if (file.type.startsWith('image/')) {
+            setIsCompressing(true);
+            try {
+                const compressed = await compressImageToFile(file, { maxWidth: 1280, maxHeight: 1280, quality: 0.8 });
+                setPdfFile(compressed);
+            } catch (err) {
+                setPdfFile(file);
+            } finally {
+                setIsCompressing(false);
+            }
+        } else {
+            setPdfFile(file);
+        }
+    };
+
     // Form Submission
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         // Validate items
@@ -416,6 +512,8 @@ export default function GRNModal({
             material: entry.material,
             fgItem: entry.material,
             materialName: entry.materialName,
+            description: entry.description,
+            descriptions: entry.description,
             quantity: Number(entry.quantity),
             unit: entry.unit,
             locationId: entry.locationId,
@@ -429,8 +527,8 @@ export default function GRNModal({
         formData.append('qcRequired', String(qcRequired));
         formData.append('items', JSON.stringify(items));
 
+        const supplierId = typeof supplier === 'object' ? (supplier as any)._id : supplier;
         if (type !== 'inhouse' && type !== 'fg') {
-            const supplierId = typeof supplier === 'object' ? (supplier as any)._id : supplier;
             formData.append('supplier', supplierId);
             if (selectedPO) formData.append('purchaseOrder', selectedPO);
             if (poReference) formData.append('poReference', poReference);
@@ -443,7 +541,32 @@ export default function GRNModal({
             if (mrpNumber) formData.append('mrpNumber', mrpNumber);
         }
 
-        onSubmit(formData);
+        try {
+            const res = await onSubmit(formData);
+
+            // Prepare details for post-submission preview screen
+            const supplierObj = safeVendors.find(v => v._id === supplierId) || { name: supplierId };
+            const customerObj = safeCustomers.find(c => c._id === customer) || { name: customer };
+            const localPhotoUrls = photoFiles.map(f => URL.createObjectURL(f));
+
+            setCreatedGRNData({
+                grnNumber,
+                date,
+                type,
+                supplierName: supplierObj?.name,
+                customerName: customerObj?.name,
+                poReference: poReference || selectedPO,
+                items,
+                photos: [...existingPhotos, ...localPhotoUrls],
+                pdfName: pdfFile?.name,
+                qcRequired,
+                qcStatus: qcRequired ? 'Pending QC' : 'Passed',
+                totalQuantity: items.reduce((sum, it) => sum + it.quantity, 0),
+                totalAmount: items.reduce((sum, it) => sum + (it.quantity * (it.rate || 0)), 0)
+            });
+        } catch (err: any) {
+            console.error("GRN submission error:", err);
+        }
     };
 
     // Calculate totals
@@ -451,117 +574,244 @@ export default function GRNModal({
     const totalQuantity = materialEntries.reduce((sum, m) => sum + (Number(m.quantity) || 0), 0);
     const totalNetValue = materialEntries.reduce((sum, m) => sum + ((Number(m.quantity) || 0) * (Number(m.rate) || 0)), 0);
 
-    // Theming Helpers
     const theme = {
-        rm: {
-            title: "Raw Material (RM) GRN",
-            badge: "RM",
-            gradient: "from-blue-600 to-indigo-700",
-            buttonBg: "bg-blue-600 hover:bg-blue-700",
-            itemLabel: "Raw Material",
-        },
-        bo: {
-            title: "Bought Out (BO) GRN",
-            badge: "BO",
-            gradient: "from-indigo-600 to-purple-700",
-            buttonBg: "bg-indigo-600 hover:bg-indigo-700",
-            itemLabel: "Bought Out Item",
-        },
-        consumable: {
-            title: "Consumable Goods GRN",
-            badge: "Consumable",
-            gradient: "from-emerald-600 to-teal-700",
-            buttonBg: "bg-emerald-600 hover:bg-emerald-700",
-            itemLabel: "Consumable Item",
-        },
-        inhouse: {
-            title: "In-House (FG) GRN",
-            badge: "FG",
-            gradient: "from-purple-600 to-pink-700",
-            buttonBg: "bg-purple-600 hover:bg-purple-700",
-            itemLabel: "Finished Good",
-        },
-        fg: {
-            title: "Finished Goods (FG) GRN",
-            badge: "FG",
-            gradient: "from-purple-600 to-pink-700",
-            buttonBg: "bg-purple-600 hover:bg-purple-700",
-            itemLabel: "Finished Good",
-        }
-    }[type] || {
-        title: "Goods Receipt Note (GRN)",
-        badge: "GRN",
-        gradient: "from-blue-600 to-indigo-700",
-        buttonBg: "bg-blue-600 hover:bg-blue-700",
-        itemLabel: "Material",
+        title: type === 'inhouse' || type === 'fg' 
+            ? 'Finished Goods / In-House GRN' 
+            : (type === 'consumable' ? 'Consumable Items GRN' : (type === 'bo' ? 'Bought Out (BO) GRN' : 'Raw Material (RM) GRN')),
+        badgeBg: type === 'inhouse' || type === 'fg' 
+            ? 'bg-purple-100 text-purple-800' 
+            : (type === 'consumable' ? 'bg-amber-100 text-amber-800' : (type === 'bo' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800')),
+        itemLabel: type === 'inhouse' || type === 'fg' 
+            ? 'Finished Good' 
+            : (type === 'consumable' ? 'Consumable Material' : (type === 'bo' ? 'Bought Out Item' : 'Raw Material')),
+        buttonBg: type === 'inhouse' || type === 'fg' 
+            ? 'bg-purple-600 hover:bg-purple-700' 
+            : (type === 'consumable' ? 'bg-amber-600 hover:bg-amber-700' : (type === 'bo' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'))
     };
 
     if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[94vh] flex flex-col overflow-hidden border border-gray-100">
-                
-                {/* Modal Header */}
-                <div className={`px-4 sm:px-6 py-3 bg-gradient-to-r ${theme.gradient} text-white flex items-center justify-between shrink-0 shadow-md`}>
-                    <div className="flex items-center gap-2.5">
-                        <div className="p-1.5 bg-white/15 rounded-lg border border-white/20">
-                            <Layers className="w-4 h-4 text-white" />
+    // Post-Submission Success & Preview Screen
+    if (createdGRNData) {
+        return (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                    
+                    {/* Header */}
+                    <div className="px-5 py-4 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-500/30">
+                                <CheckCircle2 className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h2 className="text-sm sm:text-base font-black tracking-tight flex items-center gap-2">
+                                    <span>GRN Generated Successfully</span>
+                                    <span className="bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">
+                                        {createdGRNData.grnNumber}
+                                    </span>
+                                </h2>
+                                <p className="text-slate-400 text-xs mt-0.5">Goods receipt and inventory balances updated.</p>
+                            </div>
                         </div>
-                        <h2 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
-                            {isEditing ? `Edit ${theme.title}` : `Create ${theme.title}`}
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/20 text-white border border-white/30">
-                                {theme.badge}
-                            </span>
-                        </h2>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                        {/* Compact QC Inspection Toggle */}
-                        <label className="flex items-center gap-1.5 px-2.5 py-1 bg-white/15 hover:bg-white/25 border border-white/30 rounded-lg cursor-pointer transition-colors text-white text-xs font-bold">
-                            <input
-                                type="checkbox"
-                                checked={qcRequired}
-                                onChange={(e) => setQcRequired(e.target.checked)}
-                                className="w-3.5 h-3.5 rounded text-amber-500 border-white/50 focus:ring-0 cursor-pointer"
-                            />
-                            <span className="hidden sm:inline">QC Required</span>
-                            <span className="sm:hidden">QC</span>
-                        </label>
 
                         <button
                             onClick={onClose}
-                            className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-all cursor-pointer"
-                            title="Close"
+                            className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 transition-all flex items-center justify-center text-slate-300 hover:text-white cursor-pointer"
                         >
-                            <X className="w-5 h-5" />
+                            <X size={15} />
                         </button>
                     </div>
+
+                    {/* Content Body */}
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
+                        
+                        {/* Summary Metrics Bar */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Receipt Date</span>
+                                <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">{new Date(createdGRNData.date).toLocaleDateString('en-IN')}</p>
+                            </div>
+                            <div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Party / Supplier</span>
+                                <p className="font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">{createdGRNData.supplierName || createdGRNData.customerName || 'In-House'}</p>
+                            </div>
+                            <div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Total Items</span>
+                                <p className="font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">{createdGRNData.items?.length || 0} Items ({createdGRNData.totalQuantity} Qty)</p>
+                            </div>
+                            <div>
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">Total Value</span>
+                                <p className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{createdGRNData.totalAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                            </div>
+                        </div>
+
+                        {/* Items Table with Descriptions */}
+                        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                            <div className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                <Layers size={13} className="text-indigo-600" />
+                                <span>Materials Received & Inspected</span>
+                            </div>
+                            <div className="max-h-48 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                                {createdGRNData.items?.map((item: any, idx: number) => (
+                                    <div key={idx} className="p-3 flex items-start justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                                        <div className="flex-1">
+                                            <div className="font-bold text-slate-900 dark:text-slate-100">{item.materialName}</div>
+                                            {item.description && (
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                                                    📝 {item.description}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="text-right whitespace-nowrap">
+                                            <span className="font-bold text-slate-800 dark:text-slate-200">{item.quantity} {item.unit || 'PCS'}</span>
+                                            {item.rate > 0 && (
+                                                <div className="text-[10px] text-slate-400">@ ₹{item.rate} = ₹{(item.quantity * item.rate).toFixed(2)}</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Photos & Document Previews */}
+                        {(createdGRNData.photos?.length > 0 || createdGRNData.pdfName) && (
+                            <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
+                                <div className="font-bold text-slate-700 dark:text-slate-300 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                                    <Camera size={13} className="text-indigo-600" />
+                                    <span>Uploaded Invoice Photos & Documents</span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2.5">
+                                    {/* Photos Thumbnails */}
+                                    {createdGRNData.photos?.map((photoUrl: string, idx: number) => (
+                                        <div 
+                                            key={idx} 
+                                            onClick={() => setZoomPhotoUrl(photoUrl)}
+                                            className="relative group w-16 h-16 rounded-lg overflow-hidden border border-slate-300 dark:border-slate-700 bg-black cursor-pointer shadow-xs"
+                                        >
+                                            <img src={photoUrl} alt={`Invoice photo ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform" />
+                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity">
+                                                <ZoomIn size={14} />
+                                            </div>
+                                        </div>
+                                    ))}
+
+                                    {/* PDF Attachment Badge */}
+                                    {createdGRNData.pdfName && (
+                                        <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-lg font-bold">
+                                            <FileText size={16} className="text-indigo-600" />
+                                            <span className="truncate max-w-[200px]">{createdGRNData.pdfName}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Actions Footer */}
+                    <div className="p-3.5 bg-slate-50 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2.5 flex-shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => setCreatedGRNData(null)}
+                            className="px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <RotateCcw size={13} />
+                            <span>Create Another GRN</span>
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => generateFrontendGrnPDF({ grn: createdGRNData })}
+                                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <Download size={14} />
+                                <span>Download GRN PDF</span>
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Lightbox Photo Zoom Modal */}
+                    {zoomPhotoUrl && (
+                        <div 
+                            onClick={() => setZoomPhotoUrl(null)}
+                            className="fixed inset-0 z-[300] bg-black/90 flex items-center justify-center p-4 cursor-zoom-out animate-in fade-in duration-150"
+                        >
+                            <div className="relative max-w-4xl max-h-[90vh]">
+                                <img src={zoomPhotoUrl} alt="Enlarged invoice" className="max-w-full max-h-[85vh] rounded-lg shadow-2xl object-contain" />
+                                <button
+                                    onClick={() => setZoomPhotoUrl(null)}
+                                    className="absolute -top-3 -right-3 w-8 h-8 bg-white text-slate-900 rounded-full flex items-center justify-center shadow-lg font-bold cursor-pointer"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
+                
+                {/* Thin, Sleek Modal Header */}
+                <div className="px-4 sm:px-5 py-3 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                            <Upload className="w-4 h-4" />
+                        </div>
+                        <div>
+                            <h2 className="text-sm sm:text-base font-black tracking-tight flex items-center gap-2">
+                                <span>{isEditing ? `Edit ${theme.title}` : `New ${theme.title}`}</span>
+                                <span className="bg-indigo-900/80 text-indigo-200 border border-indigo-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">
+                                    {type.toUpperCase()}
+                                </span>
+                            </h2>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={onClose}
+                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 transition-all flex items-center justify-center text-slate-300 hover:text-white cursor-pointer"
+                    >
+                        <X size={15} />
+                    </button>
                 </div>
 
-                {/* Modal Body */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 bg-gray-50/60">
+                {/* Form Body */}
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3.5">
                     
-                    {/* Basic Info & Vendor Grid */}
-                    <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200/80 shadow-xs">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                    {/* Section 1: Receipt Header & PO Linkage */}
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700/60">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             
                             {/* GRN Number */}
                             <div>
-                                <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                                     GRN Number
                                 </label>
                                 <input
                                     type="text"
                                     value={grnNumber}
                                     readOnly
-                                    className="w-full px-2.5 py-1.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-900 font-mono text-xs font-semibold cursor-not-allowed select-all"
+                                    className="w-full h-9 px-2.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-mono text-xs font-semibold cursor-not-allowed select-all"
                                 />
                             </div>
 
                             {/* Receipt Date */}
                             <div>
-                                <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                                     Receipt Date <span className="text-red-500">*</span>
                                 </label>
                                 <input
@@ -569,14 +819,14 @@ export default function GRNModal({
                                     required
                                     value={date}
                                     onChange={(e) => setDate(e.target.value)}
-                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                    className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                                 />
                             </div>
 
                             {/* Supplier for RM, BO, Consumable */}
                             {type !== 'inhouse' && type !== 'fg' && (
                                 <div className="sm:col-span-2 lg:col-span-1">
-                                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                                         Supplier / Vendor <span className="text-red-500">*</span>
                                     </label>
                                     <SearchableSelect
@@ -592,41 +842,68 @@ export default function GRNModal({
                                             setPoLinkedNotice(null);
                                         }}
                                         placeholder="Select Vendor..."
-                                        dropdownPosition="bottom"
+                                        dropdownPosition="auto"
                                     />
                                 </div>
                             )}
 
-                            {/* Customer for FG / InHouse */}
+                            {/* Customer & MRP Plan for FG / InHouse */}
                             {(type === 'inhouse' || type === 'fg') && (
-                                <div className="sm:col-span-2 lg:col-span-1">
-                                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                                        Customer <span className="text-red-500">*</span>
-                                    </label>
-                                    <SearchableSelect
-                                        options={safeCustomers.map(cust => ({
-                                            value: cust._id,
-                                            label: `${cust.name || 'Unnamed'} ${cust.code ? `(${cust.code})` : ''}`
-                                        }))}
-                                        value={typeof customer === 'object' ? (customer as any)._id : customer || ''}
-                                        onChange={(val: any) => setCustomer(val)}
-                                        placeholder="Select Customer..."
-                                        dropdownPosition="bottom"
-                                    />
-                                </div>
+                                <>
+                                    {/* Open Purchase MRP Plan (Required) */}
+                                    <div className="sm:col-span-2 lg:col-span-2">
+                                        <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1 flex items-center justify-between">
+                                            <span>Open Purchase MRP Plan <span className="text-red-500">*</span></span>
+                                            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">({openMrpPlans.length} Open)</span>
+                                        </label>
+                                        <select
+                                            required
+                                            value={mrpPlan}
+                                            onChange={(e) => handleSelectMRPPlan(e.target.value)}
+                                            className="w-full h-9 px-2.5 bg-purple-50/70 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 rounded-xl text-xs font-bold text-purple-950 dark:text-purple-200 focus:ring-2 focus:ring-purple-500 cursor-pointer truncate"
+                                        >
+                                            <option value="">-- Select Open Purchase MRP Plan * --</option>
+                                            {openMrpPlans.map(plan => {
+                                                const itemCount = plan.fgItems?.length || plan.items?.length || 0;
+                                                return (
+                                                    <option key={plan._id} value={plan._id}>
+                                                        MRP #{plan.mrpNumber} {plan.customerName ? `— ${plan.customerName}` : ''} ({itemCount} FG items) [{plan.status || 'Planned'}]
+                                                    </option>
+                                                );
+                                            })}
+                                        </select>
+                                    </div>
+
+                                    {/* Customer (Optional / Auto-filled from MRP Plan) */}
+                                    <div className="sm:col-span-2 lg:col-span-1">
+                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                            Customer <span className="text-slate-400 font-normal text-[10px]">(Optional)</span>
+                                        </label>
+                                        <SearchableSelect
+                                            options={safeCustomers.map(cust => ({
+                                                value: cust._id,
+                                                label: `${cust.name || 'Unnamed'} ${cust.code ? `(${cust.code})` : ''}`
+                                            }))}
+                                            value={typeof customer === 'object' ? (customer as any)._id : customer || ''}
+                                            onChange={(val: any) => setCustomer(val)}
+                                            placeholder="Select Customer (Optional)..."
+                                            dropdownPosition="auto"
+                                        />
+                                    </div>
+                                </>
                             )}
 
                             {/* Outward PO Selector (if vendor selected) */}
                             {type !== 'inhouse' && type !== 'fg' && supplier && (
                                 <div className="sm:col-span-2 lg:col-span-1">
-                                    <label className="block text-[11px] font-bold text-indigo-900 mb-1 flex items-center justify-between">
+                                    <label className="block text-[11px] font-bold text-indigo-900 dark:text-indigo-300 mb-1 flex items-center justify-between">
                                         <span>Link Outward PO</span>
-                                        <span className="text-[10px] text-indigo-600 font-semibold">({vendorActivePOs.length} Open)</span>
+                                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">({vendorActivePOs.length} Open)</span>
                                     </label>
                                     <select
                                         value={selectedPO}
                                         onChange={(e) => handleSelectPO(e.target.value)}
-                                        className="w-full px-2.5 py-1.5 bg-indigo-50/50 border border-indigo-300 rounded-lg text-xs font-bold text-indigo-950 focus:ring-2 focus:ring-indigo-500 cursor-pointer truncate"
+                                        className="w-full h-9 px-2.5 bg-indigo-50/70 dark:bg-indigo-950/50 border border-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-950 dark:text-indigo-200 focus:ring-2 focus:ring-indigo-500 cursor-pointer truncate"
                                     >
                                         <option value="">-- Direct / No PO Link --</option>
                                         {vendorActivePOs.map(po => {
@@ -644,7 +921,7 @@ export default function GRNModal({
                             {/* Manual PO / Invoice Ref */}
                             {type !== 'inhouse' && type !== 'fg' && (
                                 <div>
-                                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                                         PO / Invoice Ref No.
                                     </label>
                                     <input
@@ -652,57 +929,67 @@ export default function GRNModal({
                                         value={poReference}
                                         onChange={(e) => setPoReference(e.target.value)}
                                         placeholder="Manual / Offline Ref"
-                                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500"
+                                        className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
                                     />
                                 </div>
                             )}
 
-                            {/* MRP Plan for FG */}
-                            {(type === 'inhouse' || type === 'fg') && mrpPlansList.length > 0 && (
-                                <div className="sm:col-span-2">
-                                    <label className="block text-[11px] font-bold text-purple-900 mb-1">
-                                        Link MRP Demand Plan
-                                    </label>
-                                    <select
-                                        value={mrpPlan}
-                                        onChange={(e) => handleSelectMRPPlan(e.target.value)}
-                                        className="w-full px-2.5 py-1.5 bg-purple-50/50 border border-purple-300 rounded-lg text-xs font-bold text-purple-950 focus:ring-2 focus:ring-purple-500 cursor-pointer"
-                                    >
-                                        <option value="">-- Select MRP Plan (Optional) --</option>
-                                        {mrpPlansList.map(plan => (
-                                            <option key={plan._id} value={plan._id}>
-                                                MRP #{plan.mrpNumber} {plan.customerName ? `(${plan.customerName})` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                            {/* Quality Check (QC Required) Toggle Bar */}
+                            <div className="col-span-1 sm:col-span-2 lg:col-span-4 flex items-center justify-between p-2.5 sm:p-3 bg-indigo-50/70 dark:bg-slate-800/80 rounded-xl border border-indigo-200 dark:border-slate-700 mt-1">
+                                <div className="flex items-center gap-2.5">
+                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${qcRequired ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                                        <ShieldCheck className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                            <span>Quality Check (QC) Required</span>
+                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${qcRequired ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
+                                                {qcRequired ? 'Send to Incoming QC' : 'Direct Inward'}
+                                            </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                            {qcRequired 
+                                                ? "Material will be held in Pending QC Stock and routed to Incoming Quality for inspection." 
+                                                : "Stock is immediately available in Current Inventory without QC inspection."}
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
+                                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={qcRequired} 
+                                        onChange={(e) => setQcRequired(e.target.checked)} 
+                                        className="sr-only peer" 
+                                    />
+                                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                                </label>
+                            </div>
                         </div>
 
                         {/* PO Auto-link Notice */}
                         {poLinkedNotice && (
-                            <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                            <div className="mt-2.5 flex items-center gap-1.5 text-xs text-emerald-800 dark:text-emerald-300 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
                                 <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                 <span>{poLinkedNotice}</span>
                             </div>
                         )}
                     </div>
 
-                    {/* Compact Single-Bar Attachment Toolbar */}
+                    {/* Compact Single-Bar Attachment Toolbar with Client-Side Compression */}
                     {type !== 'inhouse' && type !== 'fg' && (
-                        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div className="bg-white dark:bg-slate-900 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="font-bold text-gray-700 flex items-center gap-1 shrink-0">
+                                <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1 shrink-0">
                                     <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
-                                    Attach:
+                                    Attach (Auto-Compressed):
                                 </span>
 
                                 {/* Camera Button */}
                                 <button
                                     type="button"
                                     onClick={() => docCameraInputRef.current?.click()}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg font-bold text-indigo-700 transition-colors cursor-pointer"
-                                    title="Open rear camera to photograph document/invoice"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 rounded-lg font-bold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
+                                    title="Open camera to photograph invoice / material"
                                 >
                                     <Camera className="w-3.5 h-3.5 text-indigo-600" />
                                     Camera
@@ -712,9 +999,9 @@ export default function GRNModal({
                                 <button
                                     type="button"
                                     onClick={() => galleryInputRef.current?.click()}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-lg font-semibold text-gray-700 transition-colors cursor-pointer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 rounded-lg font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
                                 >
-                                    <Image className="w-3.5 h-3.5 text-gray-600" />
+                                    <Image className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
                                     Photos
                                 </button>
 
@@ -722,11 +1009,17 @@ export default function GRNModal({
                                 <button
                                     type="button"
                                     onClick={() => docFileInputRef.current?.click()}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-lg font-semibold text-gray-700 transition-colors cursor-pointer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 rounded-lg font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
                                 >
-                                    <FileText className="w-3.5 h-3.5 text-gray-600" />
-                                    Invoice PDF
+                                    <FileText className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400" />
+                                    Invoice File
                                 </button>
+
+                                {isCompressing && (
+                                    <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold animate-pulse">
+                                        ⚡ Compressing images...
+                                    </span>
+                                )}
 
                                 {/* Hidden file inputs */}
                                 <input
@@ -737,7 +1030,7 @@ export default function GRNModal({
                                     className="hidden"
                                     onChange={(e) => {
                                         if (e.target.files?.[0]) {
-                                            setPdfFile(e.target.files[0]);
+                                            handlePhotoSelection(e.target.files);
                                         }
                                     }}
                                 />
@@ -748,7 +1041,7 @@ export default function GRNModal({
                                     className="hidden"
                                     onChange={(e) => {
                                         if (e.target.files?.[0]) {
-                                            setPdfFile(e.target.files[0]);
+                                            handleInvoiceDocSelection(e.target.files[0]);
                                         }
                                     }}
                                 />
@@ -760,7 +1053,7 @@ export default function GRNModal({
                                     className="hidden"
                                     onChange={(e) => {
                                         if (e.target.files?.length) {
-                                            setPhotoFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                                            handlePhotoSelection(e.target.files);
                                         }
                                     }}
                                 />
@@ -770,7 +1063,7 @@ export default function GRNModal({
                             <div className="flex flex-wrap items-center gap-2">
                                 {/* Attached PDF/Invoice Pill */}
                                 {pdfFile && (
-                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg font-semibold text-[11px]">
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-lg font-semibold text-[11px]">
                                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                         <span className="truncate max-w-[140px] sm:max-w-[200px]">{pdfFile.name}</span>
                                         <button
@@ -792,17 +1085,17 @@ export default function GRNModal({
                                                     key={idx}
                                                     src={URL.createObjectURL(file)}
                                                     alt="thumb"
-                                                    className="w-6 h-6 rounded-md object-cover border border-white ring-1 ring-gray-200 shadow-2xs"
+                                                    className="w-6 h-6 rounded-md object-cover border border-white dark:border-slate-800 ring-1 ring-slate-200 shadow-2xs"
                                                 />
                                             ))}
                                         </div>
-                                        <span className="text-[11px] font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
-                                            {photoFiles.length} photo{photoFiles.length > 1 ? 's' : ''}
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
+                                            {photoFiles.length} compressed photo{photoFiles.length > 1 ? 's' : ''}
                                         </span>
                                         <button
                                             type="button"
                                             onClick={() => setPhotoFiles([])}
-                                            className="text-gray-400 hover:text-red-600 transition-colors p-0.5 cursor-pointer"
+                                            className="text-slate-400 hover:text-red-600 transition-colors p-0.5 cursor-pointer"
                                             title="Clear photos"
                                         >
                                             <X className="w-3 h-3" />
@@ -813,16 +1106,17 @@ export default function GRNModal({
                         </div>
                     )}
 
-                    {/* Items Section */}
-                    <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+                    {/* Items Section with Upward-Opening Dropdown & Descriptions */}
+                    <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+                        
                         {/* Section Header */}
-                        <div className="px-4 py-2.5 bg-gray-50/90 border-b border-gray-200 flex items-center justify-between">
+                        <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Layers className="w-4 h-4 text-indigo-600" />
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-800">
-                                    Item Details
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                    Item Details & Descriptions
                                 </h3>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-800">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                                     {materialEntries.length} Item(s)
                                 </span>
                             </div>
@@ -836,38 +1130,42 @@ export default function GRNModal({
                             </button>
                         </div>
 
-                        {/* Desktop View: Wide Responsive Table (hidden on mobile) */}
-                        <div className="hidden md:block overflow-x-auto min-h-[260px] pb-24">
+                        {/* Desktop View: Wide Responsive Table with Upward Dropdowns */}
+                        <div className="hidden md:block overflow-x-auto min-h-[220px]">
                             <table className="w-full text-left border-collapse">
                                 <thead>
-                                    <tr className="bg-gray-100/75 text-gray-600 text-[11px] font-bold uppercase tracking-wider border-b border-gray-200">
+                                    <tr className="bg-slate-100/75 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                         <th className="py-2.5 px-3 w-10 text-center">#</th>
-                                        <th className="py-2.5 px-3 min-w-[320px]">{theme.itemLabel} <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-3 min-w-[340px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
                                         <th className="py-2.5 px-3 w-32">Qty Received <span className="text-red-500">*</span></th>
-                                        <th className="py-2.5 px-3 w-24">Unit</th>
+                                        <th className="py-2.5 px-3 w-24 text-center">Unit</th>
                                         <th className="py-2.5 px-3 w-32">Rate (₹)</th>
                                         <th className="py-2.5 px-3 w-36 text-right">Total (₹)</th>
                                         <th className="py-2.5 px-3 w-12 text-center">Action</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-gray-100 text-xs">
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                     {materialEntries.map((entry, index) => {
                                         const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
                                         return (
-                                            <tr key={index} className="hover:bg-indigo-50/30 transition-colors">
-                                                <td className="py-2 px-3 text-center text-gray-400 font-bold">
+                                            <tr key={index} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors">
+                                                <td className="py-2 px-3 text-center text-slate-400 font-bold">
                                                     {index + 1}
                                                 </td>
                                                 <td className="py-2 px-3">
                                                     <SearchableSelect
-                                                        options={safeMaterials.map(m => ({
-                                                            value: m._id,
-                                                            label: `${m.name || 'Unnamed'} ${m.code ? `(${m.code})` : ''}`
-                                                        }))}
+                                                        options={materialOptions}
                                                         value={entry.material}
                                                         onChange={(val: any) => handleMaterialChange(index, 'material', val)}
-                                                        placeholder={`Search or select ${theme.itemLabel}...`}
+                                                        placeholder={`Search ${theme.itemLabel}...`}
+                                                        dropdownPosition="auto"
                                                     />
+                                                    {entry.description && (
+                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1 flex items-center gap-1" title={entry.description}>
+                                                            <span>📝</span>
+                                                            <span className="truncate">{entry.description}</span>
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-2 px-3">
                                                     <input
@@ -878,11 +1176,11 @@ export default function GRNModal({
                                                         value={entry.quantity || ''}
                                                         onChange={(e) => handleMaterialChange(index, 'quantity', parseFloat(e.target.value) || 0)}
                                                         placeholder="0"
-                                                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                                                        className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-center text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                     />
                                                 </td>
-                                                <td className="py-2 px-3">
-                                                    <span className="inline-block px-2.5 py-1 bg-gray-100 text-gray-700 rounded-md text-[11px] font-bold border border-gray-200">
+                                                <td className="py-2 px-3 text-center">
+                                                    <span className="inline-block px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700">
                                                         {entry.unit || 'PCS'}
                                                     </span>
                                                 </td>
@@ -894,10 +1192,10 @@ export default function GRNModal({
                                                         value={entry.rate || ''}
                                                         onChange={(e) => handleMaterialChange(index, 'rate', parseFloat(e.target.value) || 0)}
                                                         placeholder="0.00"
-                                                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-500"
+                                                        className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                     />
                                                 </td>
-                                                <td className="py-2 px-3 text-right font-mono font-bold text-gray-900">
+                                                <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
                                                     ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="py-2 px-3 text-center">
@@ -905,8 +1203,8 @@ export default function GRNModal({
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveMaterial(index)}
-                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                                                            title="Remove Item"
+                                                            className="text-slate-400 hover:text-red-600 transition-colors p-1 cursor-pointer"
+                                                            title="Delete row"
                                                         >
                                                             <Trash2 className="w-4 h-4" />
                                                         </button>
@@ -919,15 +1217,16 @@ export default function GRNModal({
                             </table>
                         </div>
 
-                        {/* Mobile View: Touch-Friendly Compact Cards (shown on mobile only) */}
-                        <div className="block md:hidden p-3 space-y-3 bg-gray-50/70">
+                        {/* Mobile View: Touch-Friendly Compact Cards with Upward Dropdowns */}
+                        <div className="block md:hidden p-3 space-y-3 bg-slate-50/70 dark:bg-slate-800/40">
                             {materialEntries.map((entry, index) => {
                                 const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
                                 return (
-                                    <div key={index} className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-2.5">
+                                    <div key={index} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs space-y-2.5">
+                                        
                                         {/* Card Header: Index & Trash */}
-                                        <div className="flex items-center justify-between pb-1 border-b border-gray-100">
-                                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                        <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+                                            <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
                                                 Item #{index + 1}
                                             </span>
                                             {materialEntries.length > 1 && (
@@ -941,26 +1240,29 @@ export default function GRNModal({
                                             )}
                                         </div>
 
-                                        {/* Material Selection */}
+                                        {/* Material Selection with Description */}
                                         <div>
-                                            <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">
+                                            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
                                                 {theme.itemLabel} <span className="text-red-500">*</span>
                                             </label>
                                             <SearchableSelect
-                                                options={safeMaterials.map(m => ({
-                                                    value: m._id,
-                                                    label: `${m.name || 'Unnamed'} ${m.code ? `(${m.code})` : ''}`
-                                                }))}
+                                                options={materialOptions}
                                                 value={entry.material}
                                                 onChange={(val: any) => handleMaterialChange(index, 'material', val)}
                                                 placeholder={`Select ${theme.itemLabel}...`}
+                                                dropdownPosition="auto"
                                             />
+                                            {entry.description && (
+                                                <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1">
+                                                    📝 {entry.description}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Qty, Unit & Rate Grid */}
                                         <div className="grid grid-cols-2 gap-2">
                                             <div>
-                                                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">
+                                                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
                                                     Qty ({entry.unit || 'PCS'}) <span className="text-red-500">*</span>
                                                 </label>
                                                 <input
@@ -971,11 +1273,11 @@ export default function GRNModal({
                                                     value={entry.quantity || ''}
                                                     onChange={(e) => handleMaterialChange(index, 'quantity', parseFloat(e.target.value) || 0)}
                                                     placeholder="Qty"
-                                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                                                    className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-center text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">
+                                                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
                                                     Rate (₹)
                                                 </label>
                                                 <input
@@ -985,15 +1287,15 @@ export default function GRNModal({
                                                     value={entry.rate || ''}
                                                     onChange={(e) => handleMaterialChange(index, 'rate', parseFloat(e.target.value) || 0)}
                                                     placeholder="Rate"
-                                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-500"
+                                                    className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                 />
                                             </div>
                                         </div>
 
                                         {/* Total Amount Bar */}
                                         <div className="flex items-center justify-between pt-1 text-xs">
-                                            <span className="text-gray-500 font-semibold">Row Total:</span>
-                                            <span className="font-mono font-bold text-gray-900">
+                                            <span className="text-slate-500 font-semibold">Row Total:</span>
+                                            <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
                                                 ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </span>
                                         </div>
@@ -1003,14 +1305,14 @@ export default function GRNModal({
                         </div>
 
                         {/* Summary Bar */}
-                        <div className="p-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-                            <div className="flex items-center gap-4 text-gray-600 font-medium">
-                                <div>Items: <span className="font-bold text-gray-900">{totalItemsCount}</span></div>
-                                <div>Total Qty: <span className="font-bold text-gray-900">{totalQuantity}</span></div>
+                        <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-4 text-slate-600 dark:text-slate-400 font-medium">
+                                <div>Items: <span className="font-bold text-slate-900 dark:text-slate-100">{totalItemsCount}</span></div>
+                                <div>Total Qty: <span className="font-bold text-slate-900 dark:text-slate-100">{totalQuantity}</span></div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-gray-500 font-semibold">Total Value:</span>
-                                <span className="text-sm font-extrabold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200">
+                                <span className="text-slate-500 font-semibold">Total Value:</span>
+                                <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
                                     ₹{totalNetValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </span>
                             </div>
@@ -1018,20 +1320,20 @@ export default function GRNModal({
                     </div>
 
                     {/* Modal Actions */}
-                    <div className="flex items-center justify-end gap-3 pt-2">
+                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-2 rounded-xl border border-gray-300 bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 transition-colors cursor-pointer"
+                            className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || isCompressing}
                             className={`px-6 py-2 rounded-xl text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-2 ${
                                 theme.buttonBg
-                            } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            } ${(loading || isCompressing) ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                             {loading ? (
                                 <>

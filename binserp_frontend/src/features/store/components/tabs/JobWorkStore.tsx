@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
 import { JobWorkChallan, Vendor, JobWorkSupplier } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
@@ -11,8 +11,12 @@ import { generateDocument } from '@/src/utils/documentHelper';
 interface JobWorkStoreProps {
     vendors: Vendor[];
     jobWorkSuppliers?: JobWorkSupplier[];
+    rawMaterials?: any[];
+    boughtOuts?: any[];
     materials?: any[];
+    inventoryList?: any[];
     inHouseItems?: any[];
+    mrpPlans?: any[];
     activeTab: string;
     token: string | null;
     companyInfo?: any;
@@ -20,7 +24,7 @@ interface JobWorkStoreProps {
     onSuccess: (msg: string) => void;
 }
 
-export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials = [], inHouseItems = [], activeTab, token, companyInfo, onError, onSuccess }: JobWorkStoreProps) {
+export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMaterials = [], boughtOuts = [], materials = [], inventoryList = [], inHouseItems = [], mrpPlans = [], activeTab, token, companyInfo, onError, onSuccess }: JobWorkStoreProps) {
     const [challans, setChallans] = useState<JobWorkChallan[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,9 +32,10 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
     const [subTab, setSubTab] = useState<'challan' | 'received' | 'overdue'>('challan');
 
     // Filter States
-    const [filterMonth, setFilterMonth] = useState('');
-    const [filterDay, setFilterDay] = useState('');
+    const [filterMode, setFilterMode] = useState<'daily' | 'monthly' | 'yearly'>('daily');
+    const [filterDate, setFilterDate] = useState('');
     const [filterSupplier, setFilterSupplier] = useState('');
+    const [workflowFilter, setWorkflowFilter] = useState<'all' | 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card'>('all');
 
     // New State for Pending Jobs
     const [prefillData, setPrefillData] = useState<any>(null);
@@ -48,7 +53,6 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
         setPreviewChallan(challan);
         setIsPreviewOpen(true);
     };
-
 
     const fetchChallans = async () => {
         if (!token) return;
@@ -118,36 +122,56 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
         }
     };
 
-    const [workflowFilter, setWorkflowFilter] = useState<'all' | 'inventory-conversion' | 'route-card'>('all');
-
+    // Available years from challan dates
+    const availableYears = useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const years = new Set<number>([currentYear]);
+        challans.forEach(c => {
+            if (c.date) {
+                const yr = new Date(c.date).getFullYear();
+                if (!isNaN(yr)) years.add(yr);
+            }
+        });
+        return Array.from(years).sort((a, b) => b - a);
+    }, [challans]);
 
     // Filter Logic
     const filteredChallans = challans.filter(c => {
         const matchesSearch =
             c.challanNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (c.vendor?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || false;
+            (c.vendor?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (c.mrpNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (c.items || []).some((it: any) => (it.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
         if (!matchesSearch) return false;
 
         if (workflowFilter !== 'all') {
-            const type = c.jobWorkType || 'inventory-conversion';
+            const type = c.jobWorkType || 'store-conversion';
             if (type !== workflowFilter) return false;
         }
 
         if (filterSupplier && c.vendor?._id !== filterSupplier) return false;
-        if (filterMonth) {
-            const challanMonth = new Date(c.date).toISOString().slice(0, 7); // YYYY-MM
-            if (challanMonth !== filterMonth) return false;
-        }
-        if (filterDay) {
-            const challanDay = new Date(c.date).toISOString().slice(0, 10); // YYYY-MM-DD
-            if (challanDay !== filterDay) return false;
+
+        // Date Filter Logic (Day / Month / Year)
+        if (filterDate) {
+            const challanDateObj = new Date(c.date);
+            if (!isNaN(challanDateObj.getTime())) {
+                if (filterMode === 'daily') {
+                    const challanDay = challanDateObj.toISOString().slice(0, 10);
+                    if (challanDay !== filterDate) return false;
+                } else if (filterMode === 'monthly') {
+                    const challanMonth = challanDateObj.toISOString().slice(0, 7);
+                    if (challanMonth !== filterDate) return false;
+                } else if (filterMode === 'yearly') {
+                    const challanYear = String(challanDateObj.getFullYear());
+                    if (challanYear !== filterDate) return false;
+                }
+            }
         }
 
-        // "Challan" tab shows Active (Sent) challans, similar to old "sent".
+        // SubTab status filtering
         if (subTab === 'challan') return c.status !== 'Closed';
-        
-        if (subTab === 'received') return c.status === 'Closed' || c.status === 'Partial'; // Show history
+        if (subTab === 'received') return c.status === 'Closed' || c.status === 'Partial';
         if (subTab === 'overdue') {
             if (c.status === 'Closed') return false;
             if (!c.expectedReturnDate) return false;
@@ -156,101 +180,192 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
         return true;
     });
 
+    // Render dynamic date input based on selected mode
+    const renderDateFilterInput = () => {
+        if (filterMode === 'daily') {
+            return (
+                <input
+                    type="date"
+                    value={filterDate}
+                    onChange={(e) => setFilterDate(e.target.value)}
+                    className="h-9 px-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                />
+            );
+        }
+        if (filterMode === 'monthly') {
+            return (
+                <input
+                    type="month"
+                    value={filterDate}
+                    onChange={(e) => setFilterDate(e.target.value)}
+                    className="h-9 px-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                />
+            );
+        }
+        return (
+            <select
+                value={filterDate}
+                onChange={(e) => setFilterDate(e.target.value)}
+                className="h-9 px-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+            >
+                <option value="">All Years</option>
+                {availableYears.map((year: number) => (
+                    <option key={year} value={String(year)}>
+                        {year}
+                    </option>
+                ))}
+            </select>
+        );
+    };
 
     return (
-        <div className="animate-in fade-in duration-300">
-            {/* Header: Tabs on Left, Action Button on Right */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
-                {/* Tabs */}
-                <div className="flex bg-gray-100/80 p-1.5 rounded-xl backdrop-blur-sm overflow-x-auto self-start md:self-auto no-scrollbar">
+        <div className="animate-in fade-in duration-300 space-y-4">
+            
+            {/* Top Row: Sub-Tabs & Action Button */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                {/* Sub-Tabs */}
+                <div className="flex bg-gray-100 dark:bg-gray-800/60 p-1 rounded-xl backdrop-blur-sm overflow-x-auto no-scrollbar">
                     <button
                         onClick={() => setSubTab('challan')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${subTab === 'challan'
-                            ? 'bg-white text-indigo-600 shadow-sm ring-1 ring-black/5'
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
-                            }`}
+                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            subTab === 'challan'
+                                ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
+                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                        }`}
                     >
-                        Challans
+                        Active Challans
                     </button>
 
                     <button
                         onClick={() => setSubTab('received')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${subTab === 'received'
-                            ? 'bg-white text-green-600 shadow-sm ring-1 ring-black/5'
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
-                            }`}
+                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            subTab === 'received'
+                                ? 'bg-white dark:bg-gray-700 text-emerald-600 dark:text-emerald-300 shadow-xs'
+                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                        }`}
                     >
                         History / Received
                     </button>
+
                     <button
                         onClick={() => setSubTab('overdue')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap ${subTab === 'overdue'
-                            ? 'bg-white text-red-600 shadow-sm ring-1 ring-black/5'
-                            : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
-                            }`}
+                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            subTab === 'overdue'
+                                ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-300 shadow-xs'
+                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                        }`}
                     >
-                        Overdue
+                        Overdue Return
                     </button>
                 </div>
 
-                {/* Search & Create Button - Responsive Toolbar */}
-                <div className="flex flex-col sm:flex-row flex-wrap gap-2.5 sm:gap-3 w-full md:w-auto items-stretch sm:items-center">
-                    {/* Workflow Selector */}
-                    <select
-                        value={workflowFilter}
-                        onChange={(e) => setWorkflowFilter(e.target.value as any)}
-                        className="px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium text-gray-700 bg-white max-w-full sm:max-w-[210px] truncate"
-                    >
-                        <option value="all">All Workflows</option>
-                        <option value="inventory-conversion">Store RM/BO Subcontracting Conversion</option>
-                        <option value="route-card">PPC Route-Card Operations</option>
-                    </select>
+                {/* Primary Action Button */}
+                <button
+                    onClick={() => handleCreateChallan()}
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer"
+                >
+                    <Plus size={15} />
+                    <span>Create Returnable DC</span>
+                </button>
+            </div>
 
-                    {/* Filters */}
-                    <select
-                        value={filterSupplier}
-                        onChange={(e) => setFilterSupplier(e.target.value)}
-                        className="px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white max-w-full sm:max-w-[180px] truncate font-medium"
-                    >
-                        <option value="">All Suppliers</option>
-                        {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
-                            const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
-                            if (!vendor) return null;
-                            return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
-                        })}
-                    </select>
-                    <div className="flex gap-2 w-full sm:w-auto">
-                        <input
-                            type="month"
-                            value={filterMonth}
-                            onChange={(e) => setFilterMonth(e.target.value)}
-                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
-                        />
-                        <input
-                            type="date"
-                            value={filterDay}
-                            onChange={(e) => setFilterDay(e.target.value)}
-                            className="flex-1 sm:flex-none px-3 py-2 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-white"
-                        />
+            {/* Single-Line Unified Toolbar: Search + Workflow + Supplier + Date Switcher & Picker + Count */}
+            <div className="bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    
+                    {/* Left: Search & Selectors */}
+                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                        {/* Search Input */}
+                        <div className="relative flex-1 min-w-[180px] max-w-xs">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                            <input
+                                type="text"
+                                placeholder="Search Challan #, Vendor, Item, MRP #..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
+                            {searchTerm && (
+                                <button
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer text-xs font-bold"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Workflow Type Selector */}
+                        <select
+                            value={workflowFilter}
+                            onChange={(e) => setWorkflowFilter(e.target.value as any)}
+                            className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[200px] truncate"
+                        >
+                            <option value="all">📦 All DC Types</option>
+                            <option value="store-conversion">🏭 Store Conversion</option>
+                            <option value="store-to-wip">🔄 Store to WIP</option>
+                            <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
+                            <option value="route-card">⚙️ Route-Card Op</option>
+                        </select>
+
+                        {/* Supplier Filter */}
+                        <select
+                            value={filterSupplier}
+                            onChange={(e) => setFilterSupplier(e.target.value)}
+                            className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[180px] truncate"
+                        >
+                            <option value="">🏢 All Vendors</option>
+                            {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
+                                const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
+                                if (!vendor) return null;
+                                return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
+                            })}
+                        </select>
                     </div>
 
-                    <div className="relative flex-1 sm:w-48">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Search Challan..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 text-xs sm:text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 bg-white"
-                        />
+                    {/* Right: Date Mode Switcher + Dynamic Date Picker + Live Count */}
+                    <div className="flex flex-wrap items-center gap-2">
+                        {/* Day / Month / Year Mode Switcher */}
+                        <div className="flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 p-0.5 rounded-xl border border-gray-200/60 dark:border-gray-700">
+                            {[
+                                { id: 'daily', label: 'Day' },
+                                { id: 'monthly', label: 'Month' },
+                                { id: 'yearly', label: 'Year' }
+                            ].map((type) => (
+                                <button
+                                    key={type.id}
+                                    onClick={() => { setFilterMode(type.id as any); setFilterDate(''); }}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                        filterMode === type.id
+                                            ? 'bg-white dark:bg-gray-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
+                                            : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    {type.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Date Picker Input */}
+                        <div className="flex items-center gap-1">
+                            {renderDateFilterInput()}
+                            {filterDate && (
+                                <button
+                                    onClick={() => setFilterDate('')}
+                                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer text-xs font-bold"
+                                    title="Clear date filter"
+                                >
+                                    ✕
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Total Count Badge */}
+                        <div className="h-9 px-3 flex items-center text-xs font-bold text-gray-600 dark:text-gray-300 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/60 whitespace-nowrap">
+                            Total: <span className="text-indigo-700 dark:text-indigo-300 font-black ml-1.5">{filteredChallans.length}</span>
+                        </div>
                     </div>
-                    <button
-                        onClick={() => handleCreateChallan()}
-                        className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white text-xs sm:text-sm font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-sm active:scale-95"
-                    >
-                        <Plus size={16} />
-                        <span>Create New Challan</span>
-                    </button>
+
                 </div>
             </div>
 
@@ -500,8 +615,12 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], materials
                 onError={onError}
                 vendors={vendors}
                 jobWorkSuppliers={jobWorkSuppliers}
+                rawMaterials={rawMaterials}
+                boughtOuts={boughtOuts}
                 materials={materials}
+                inventoryList={inventoryList}
                 inHouseItems={inHouseItems}
+                mrpPlans={mrpPlans}
                 initialData={prefillData}
                 token={token}
                 companyInfo={companyInfo}

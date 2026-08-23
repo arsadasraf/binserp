@@ -102,77 +102,101 @@ export const receiveJobWorkItems = async (req, res) => {
         }
       }
 
-      // Stock & Inventory Update Logic for Conversion Job Work vs Route Card Job Work
+      // Stock & Inventory Update Logic
+      const isStoreConversion = jobWork.jobWorkType === "store-conversion" || jobWork.jobWorkType === "inventory-conversion" || !jobWork.jobWorkType;
+      const isWipWorkflow = jobWork.jobWorkType === "store-to-wip" || jobWork.jobWorkType === "wip-to-wip";
+
       if (!isRouteCard && acceptedNum > 0) {
         const isPendingQC = Boolean(qcRequired) && (qcStatus === "Pending" || qcStatus === "Partial");
         const effectiveQty = isPendingQC ? acceptedNum : acceptedNum;
 
-        if (targetItemType === "bo" || targetItemType === "rm") {
-          // Update RM/BO Inventory Stock
-          if (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) {
-            await updateInventoryStock(
-              req,
-              targetItemDoc,
-              effectiveQty,
-              "PCS",
-              undefined,
-              {
-                isPending: isPendingQC,
-                transactionCategory: isPendingQC ? "GRN_QC_PENDING_INWARD" : "JOB_WORK_RETURN_INWARD",
-                referenceDocType: "GRN",
-                referenceDocId: jobWork._id,
-                referenceDocNumber: generatedGrnNumber,
-                recipientOrSource: vendorName,
-                purpose: `Job Work Return GRN Inward (Challan #${jobWork.challanNumber})`,
-                performedBy: req.user?.id || req.user?._id,
-              }
-            );
-          }
-        } else {
-          // Update FG Item Stock (FG/Component/InHouse)
-          if (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) {
-            const fgDoc = await FGItem.findById(targetItemDoc);
-            if (fgDoc) {
-              const previousStock = fgDoc.quantity || 0;
-              const newStock = previousStock + effectiveQty;
+        if (isStoreConversion) {
+          if (targetItemType === "bo" || targetItemType === "rm") {
+            // Update RM/BO Main Store Inventory
+            if (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) {
+              await updateInventoryStock(
+                req,
+                targetItemDoc,
+                effectiveQty,
+                "PCS",
+                undefined,
+                {
+                  isPending: isPendingQC,
+                  transactionCategory: isPendingQC ? "GRN_QC_PENDING_INWARD" : "JOB_WORK_RETURN_INWARD",
+                  referenceDocType: "GRN",
+                  referenceDocId: jobWork._id,
+                  referenceDocNumber: generatedGrnNumber,
+                  recipientOrSource: vendorName,
+                  purpose: `Job Work Store Return GRN Inward (Challan #${jobWork.challanNumber})`,
+                  performedBy: req.user?.id || req.user?._id,
+                }
+              );
+            }
+          } else {
+            // Update FG Main Store Inventory (+ FG Stock)
+            if (targetItemDoc && mongoose.Types.ObjectId.isValid(targetItemDoc)) {
+              const fgDoc = await FGItem.findById(targetItemDoc);
+              if (fgDoc) {
+                const previousStock = fgDoc.quantity || 0;
+                const newStock = previousStock + effectiveQty;
 
-              if (!isPendingQC) {
-                await FGItem.findByIdAndUpdate(targetItemDoc, { $set: { quantity: newStock } });
-              }
+                if (!isPendingQC) {
+                  await FGItem.findByIdAndUpdate(targetItemDoc, { $set: { quantity: newStock } });
+                }
 
-              const currentDate = new Date();
-              const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-              const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
-              
-              try {
-                await FGInventoryMonthly.findOneAndUpdate(
-                  { company: companyId, fgItem: targetItemDoc, month: currentMonthStr },
-                  { $inc: { totalInwardQuantity: effectiveQty } },
-                  { new: true, upsert: true }
-                );
-              } catch (mErr) {
-                console.error("Error updating FG monthly inward quantity on JW GRN:", mErr);
-              }
+                const currentDate = new Date();
+                const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+                const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
+                
+                try {
+                  await FGInventoryMonthly.findOneAndUpdate(
+                    { company: companyId, fgItem: targetItemDoc, month: currentMonthStr },
+                    { $inc: { totalInwardQuantity: effectiveQty } },
+                    { new: true, upsert: true }
+                  );
+                } catch (mErr) {
+                  console.error("Error updating FG monthly inward quantity on JW GRN:", mErr);
+                }
 
-              await recordStockTransaction(req, {
-                itemType: "FGItem",
-                item: targetItemDoc,
-                itemName: matchedItemName,
-                unit: fgDoc.unit || "Nos",
-                movementType: "INWARD",
-                transactionCategory: isPendingQC ? "GRN_QC_PENDING_INWARD" : "JOB_WORK_FG_INWARD",
-                quantity: effectiveQty,
-                previousStock,
-                newStock,
-                referenceDocType: "FGGRN",
-                referenceDocId: jobWork._id,
-                referenceDocNumber: generatedGrnNumber,
-                recipientOrSource: vendorName,
-                purpose: `Job Work FG Return GRN Inward (Challan #${jobWork.challanNumber})`,
-                performedBy: req.user?.id || req.user?._id,
-              });
+                await recordStockTransaction(req, {
+                  itemType: "FGItem",
+                  item: targetItemDoc,
+                  itemName: matchedItemName,
+                  unit: fgDoc.unit || "Nos",
+                  movementType: "INWARD",
+                  transactionCategory: isPendingQC ? "GRN_QC_PENDING_INWARD" : "JOB_WORK_FG_INWARD",
+                  quantity: effectiveQty,
+                  previousStock,
+                  newStock,
+                  referenceDocType: "FGGRN",
+                  referenceDocId: jobWork._id,
+                  referenceDocNumber: generatedGrnNumber,
+                  recipientOrSource: vendorName,
+                  purpose: `Job Work FG Return GRN Inward to Main Store (Challan #${jobWork.challanNumber})`,
+                  performedBy: req.user?.id || req.user?._id,
+                });
+              }
             }
           }
+        } else if (isWipWorkflow) {
+          // Store-to-WIP or WIP-to-WIP: Stays in WIP under mrpNumber, does NOT touch Main FG Store
+          await recordStockTransaction(req, {
+            itemType: "Component",
+            item: targetItemDoc,
+            itemName: matchedItemName,
+            unit: "Nos",
+            movementType: "INWARD",
+            transactionCategory: "JOB_WORK_WIP_RETURN",
+            quantity: effectiveQty,
+            previousStock: 0,
+            newStock: effectiveQty,
+            referenceDocType: "JobWorkChallan",
+            referenceDocId: jobWork._id,
+            referenceDocNumber: jobWork.challanNumber,
+            recipientOrSource: `WIP Return (${jobWork.mrpNumber || 'In-Process'})`,
+            purpose: `Returned to WIP FG under MRP ${jobWork.mrpNumber || 'Production'} from ${vendorName}`,
+            performedBy: req.user?.id || req.user?._id,
+          });
         }
       } else if (isRouteCard && acceptedNum > 0) {
         // Route-Card Subcontracting: Update PPC Job Operation Status to Completed

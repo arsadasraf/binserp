@@ -55,8 +55,15 @@ export const jobWorkSchema = new mongoose.Schema(
     },
     jobWorkType: {
       type: String,
-      enum: ["route-card", "inventory-conversion"],
-      default: "inventory-conversion",
+      enum: ["store-conversion", "store-to-wip", "wip-to-wip", "route-card", "inventory-conversion"],
+      default: "store-conversion",
+    },
+    mrpPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MRPPlan",
+    },
+    mrpNumber: {
+      type: String,
     },
     routeCardRef: {
       job: { type: mongoose.Schema.Types.ObjectId, ref: "Job" },
@@ -78,8 +85,8 @@ export const jobWorkSchema = new mongoose.Schema(
         itemName: String,
         itemType: {
           type: String,
-          enum: ["bo", "inhouse", "fg", "Component", "SubAssembly", "Assembly", "custom"],
-          default: "bo",
+          enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+          default: "rm",
         },
         quantitySent: {
           type: Number,
@@ -116,7 +123,7 @@ export const jobWorkSchema = new mongoose.Schema(
             receivedItemName: String,
             receivedItemType: {
               type: String,
-              enum: ["bo", "inhouse", "fg", "Component", "SubAssembly", "Assembly", "custom"],
+              enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
               default: "fg",
             },
             quantityToBeReceived: {

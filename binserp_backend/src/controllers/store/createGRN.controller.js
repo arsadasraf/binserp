@@ -14,7 +14,7 @@ import {
   fgInventoryMonthlySchema, 
   fgItemSchema 
 } from "../../models/store/index.js";
-import { purchaseOrderSchema } from "../../models/purchase/index.js";
+import { purchaseOrderSchema, mrpPlanSchema } from "../../models/purchase/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
@@ -55,6 +55,8 @@ export const createGRN = async (req, res) => {
       items, 
       poReference, 
       purchaseOrder, 
+      mrpPlan,
+      mrpNumber,
       qcRequired 
     } = req.body;
 
@@ -235,6 +237,7 @@ export const createGRN = async (req, res) => {
           fgItem: fgItemId || undefined,
           component: componentId || undefined,
           materialName: itemName || 'Received Item',
+          description: item.description || item.descriptions || undefined,
           quantity: qty,
           unit: itemUnit,
           locationId: itemLocationId || undefined,
@@ -249,6 +252,7 @@ export const createGRN = async (req, res) => {
       itemsArray.push({
         material: isValidObjectId(material.toString()) ? material : undefined,
         materialName: req.body.materialName || 'Material Item',
+        description: req.body.description || req.body.descriptions || undefined,
         quantity: qty,
         unit: req.body.unit || 'PCS',
         locationId: req.body.locationId || undefined,
@@ -274,6 +278,8 @@ export const createGRN = async (req, res) => {
       purchaseOrder: purchaseOrder && isValidObjectId(purchaseOrder.toString()) ? purchaseOrder : undefined,
       poNumber: poReference || "",
       poReference: poReference || "",
+      mrpPlan: mrpPlan && isValidObjectId(mrpPlan.toString()) ? mrpPlan : undefined,
+      mrpNumber: mrpNumber || "",
       items: itemsArray,
       pdf: pdfUrl,
       photos: photoUrls,
@@ -338,6 +344,57 @@ export const createGRN = async (req, res) => {
       }
     }
 
+    // Update Linked Purchase MRP Plan Item Quantities & Status if linked (FG / InHouse)
+    if (isFG && (mrpPlan || mrpNumber)) {
+      try {
+        const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
+        const planQuery = mrpPlan && isValidObjectId(mrpPlan.toString())
+          ? { _id: mrpPlan, company: companyId } 
+          : { mrpNumber: mrpNumber, company: companyId };
+        
+        const planDoc = await MRPPlan.findOne(planQuery);
+        if (planDoc && Array.isArray(planDoc.fgItems) && planDoc.fgItems.length > 0) {
+          let planUpdated = false;
+          let allItemsCompleted = true;
+          let anyItemReceived = false;
+
+          planDoc.fgItems.forEach(fgItem => {
+            const matchingGrnItem = itemsArray.find(gItem => 
+              (gItem.material && fgItem.fgItem && gItem.material.toString() === fgItem.fgItem.toString()) ||
+              (gItem.fgItem && fgItem.fgItem && gItem.fgItem.toString() === fgItem.fgItem.toString()) ||
+              (gItem.materialName && fgItem.fgItemName && gItem.materialName.toLowerCase().trim() === fgItem.fgItemName.toLowerCase().trim())
+            );
+
+            if (matchingGrnItem) {
+              const addedQty = parseFloat(matchingGrnItem.quantity || matchingGrnItem.receivedQuantity || 0);
+              fgItem.receivedQuantity = (fgItem.receivedQuantity || 0) + addedQty;
+              planUpdated = true;
+            }
+
+            const itemReceived = fgItem.receivedQuantity || 0;
+            const itemTarget = fgItem.quantity || 0;
+            if (itemReceived < itemTarget) {
+              allItemsCompleted = false;
+            }
+            if (itemReceived > 0) {
+              anyItemReceived = true;
+            }
+          });
+
+          if (planUpdated) {
+            if (allItemsCompleted) {
+              planDoc.status = "Completed";
+            } else if (anyItemReceived) {
+              planDoc.status = "Partially Completed";
+            }
+            await planDoc.save();
+          }
+        }
+      } catch (mrpErr) {
+        console.error("Error updating linked MRP Plan from GRN:", mrpErr);
+      }
+    }
+
     // Auto-update inventory (RM, BO, Consumables)
     if (!isFG && (status === "Accepted" || status === "Received" || !status)) {
       try {
@@ -389,7 +446,7 @@ export const createGRN = async (req, res) => {
     }
 
     // Auto-update inventory for InHouse / FG
-    if (!qcRequired && isFG && (status === "Accepted" || status === "Received")) {
+    if (isFG && (status === "Accepted" || status === "Received" || !status)) {
       try {
         const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
         const currentDate = new Date();
@@ -399,8 +456,25 @@ export const createGRN = async (req, res) => {
           const compId = item.fgItem || item.component || item.material;
           const qty = parseFloat(item.quantity);
           if (compId && !isNaN(qty)) {
-            await FGItem.findByIdAndUpdate(compId, { $inc: { quantity: qty } });
-            await Component.findByIdAndUpdate(compId, { $inc: { quantity: qty } });
+            await updateInventoryStock(
+              req,
+              compId,
+              qty,
+              item.unit || "PCS",
+              item.locationId,
+              {
+                isPending: !!qcRequired,
+                itemType: "FinishedGoods",
+                transactionCategory: qcRequired ? "GRN_QC_PENDING_INWARD" : "GRN_PURCHASE_INWARD",
+                referenceDocType: "GRN",
+                referenceDocId: grn._id,
+                referenceDocNumber: grnNumber,
+                recipientOrSource: supplierName || "In-House Production",
+                purpose: "Goods Receipt Note (Finished Goods)",
+                performedBy: userId,
+                performedByName: userName
+              }
+            );
 
             try {
               await FGInventoryMonthly.findOneAndUpdate(

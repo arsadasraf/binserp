@@ -41,9 +41,12 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         vendors,
         locations,
         categories,
-        materials,
-        consumables,
+        materials = [],
+        rawMaterials = [],
+        boughtOuts = [],
+        consumables = [],
         customers,
+        inventoryList = [],
         refetch,
     } = storeData;
 
@@ -62,87 +65,176 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         }
     }, [activeSubTab, setMasterTab, masterTab]);
 
+    // Combined inventory lookup list
+    const combinedInventoryList = useMemo(() => {
+        const inv = Array.isArray(data) ? [...data] : [];
+        if (Array.isArray(inventoryList)) {
+            inventoryList.forEach(item => {
+                if (item && !inv.some(d => d._id === item._id || (d.materialId && item.materialId && String(d.materialId) === String(item.materialId)))) {
+                    inv.push(item);
+                }
+            });
+        }
+        return inv;
+    }, [data, inventoryList]);
+
+    // Filtered master raw materials list (combines rawMaterials + materials)
+    const effectiveRmList = useMemo(() => {
+        const list: any[] = [];
+        const seenIds = new Set<string>();
+
+        if (Array.isArray(rawMaterials) && rawMaterials.length > 0) {
+            rawMaterials.forEach((m: any) => {
+                if (m && m._id && !seenIds.has(String(m._id))) {
+                    seenIds.add(String(m._id));
+                    list.push(m);
+                }
+            });
+        }
+
+        if (Array.isArray(materials) && materials.length > 0) {
+            materials
+                .filter((m: any) => {
+                    const type = (m.itemType || '').toString().trim().toLowerCase();
+                    return type !== 'bought out' && type !== 'bo';
+                })
+                .forEach((m: any) => {
+                    if (m && m._id && !seenIds.has(String(m._id))) {
+                        seenIds.add(String(m._id));
+                        list.push(m);
+                    }
+                });
+        }
+
+        return list;
+    }, [rawMaterials, materials]);
+
+    // Filtered master bought-out list (combines boughtOuts + materials)
+    const effectiveBoList = useMemo(() => {
+        const list: any[] = [];
+        const seenIds = new Set<string>();
+
+        if (Array.isArray(boughtOuts) && boughtOuts.length > 0) {
+            boughtOuts.forEach((m: any) => {
+                if (m && m._id && !seenIds.has(String(m._id))) {
+                    seenIds.add(String(m._id));
+                    list.push(m);
+                }
+            });
+        }
+
+        if (Array.isArray(materials) && materials.length > 0) {
+            materials
+                .filter((m: any) => {
+                    const type = (m.itemType || '').toString().trim().toLowerCase();
+                    return type === 'bought out' || type === 'bo';
+                })
+                .forEach((m: any) => {
+                    if (m && m._id && !seenIds.has(String(m._id))) {
+                        seenIds.add(String(m._id));
+                        list.push(m);
+                    }
+                });
+        }
+
+        return list;
+    }, [boughtOuts, materials]);
+
     // Map RM master data to inventory format
     const mappedRmInventory = useMemo(() => {
-        if (!materials) return [];
-        return materials
-            .filter((m: any) => {
-                const type = (m.itemType || '').toString().trim().toLowerCase();
-                return type !== 'bought out' && type !== 'bo';
-            })
-            .map((m: any) => {
-                const invItem = data?.find((d: any) => {
-                    return d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
-                });
-                return {
-                    ...m,
-                    _id: invItem?._id || m._id,
-                    materialId: m,
-                    materialName: m.name,
-                    materialCode: m.code || 'N/A',
-                    itemType: 'Raw Material',
-                    description: m.descriptions || m.description || invItem?.description || '-',
-                    descriptions: m.descriptions || m.description || invItem?.description || '-',
-                    currentStock: invItem ? invItem.currentStock : 0,
-                    qcPendingStock: invItem ? invItem.qcPendingStock : 0,
-                    reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
-                    unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || '',
-                    category: m.categoryId, 
-                    location: m.locationId, 
-                    monthlyData: invItem?.monthlyData || {
-                        openingStock: 0,
-                        received: 0,
-                        issued: 0,
-                        closingStock: 0
-                    }
-                };
+        if (!effectiveRmList || effectiveRmList.length === 0) return [];
+        return effectiveRmList.map((m: any) => {
+            const invItem = combinedInventoryList.find((d: any) => {
+                const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
+                return String(dMatId) === String(m._id) || String(d._id) === String(m._id) || (m.code && d.materialCode === m.code);
             });
-    }, [materials, data]);
+
+            return {
+                ...m,
+                _id: invItem?._id || m._id,
+                materialId: m,
+                materialName: m.name,
+                materialCode: m.code || 'N/A',
+                itemType: 'Raw Material',
+                description: m.descriptions || m.description || invItem?.description || '-',
+                descriptions: m.descriptions || m.description || invItem?.description || '-',
+                currentStock: invItem ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) : (m.quantity !== undefined ? m.quantity : (m.currentStock || 0)),
+                qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
+                reorderLevel: m.minimumStock !== undefined ? m.minimumStock : (invItem?.reorderLevel || 0),
+                unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                category: m.categoryId, 
+                location: m.locationId, 
+                monthlyData: invItem?.monthlyData ? {
+                    openingStock: invItem.monthlyData.openingStock || 0,
+                    totalInwardQuantity: invItem.monthlyData.totalInwardQuantity || invItem.monthlyData.received || 0,
+                    totalOutwardQuantity: invItem.monthlyData.totalOutwardQuantity || invItem.monthlyData.issued || 0,
+                    received: invItem.monthlyData.received || invItem.monthlyData.totalInwardQuantity || 0,
+                    issued: invItem.monthlyData.issued || invItem.monthlyData.totalOutwardQuantity || 0,
+                    closingStock: invItem.monthlyData.closingStock || invItem.currentStock || 0
+                } : {
+                    openingStock: 0,
+                    totalInwardQuantity: 0,
+                    totalOutwardQuantity: 0,
+                    received: 0,
+                    issued: 0,
+                    closingStock: 0
+                }
+            };
+        });
+    }, [effectiveRmList, combinedInventoryList]);
 
     // Map BO master data to inventory format
     const mappedBoInventory = useMemo(() => {
-        if (!materials) return [];
-        return materials
-            .filter((m: any) => {
-                const type = (m.itemType || '').toString().trim().toLowerCase();
-                return type === 'bought out' || type === 'bo';
-            })
-            .map((m: any) => {
-                const invItem = data?.find((d: any) => {
-                    return d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
-                });
-                return {
-                    ...m,
-                    _id: invItem?._id || m._id,
-                    materialId: m,
-                    materialName: m.name,
-                    materialCode: m.code || 'N/A',
-                    itemType: 'Bought Out',
-                    description: m.descriptions || m.description || invItem?.description || '-',
-                    descriptions: m.descriptions || m.description || invItem?.description || '-',
-                    currentStock: invItem ? invItem.currentStock : 0,
-                    qcPendingStock: invItem ? invItem.qcPendingStock : 0,
-                    reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
-                    unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || '',
-                    category: m.categoryId, 
-                    location: m.locationId, 
-                    monthlyData: invItem?.monthlyData || {
-                        openingStock: 0,
-                        received: 0,
-                        issued: 0,
-                        closingStock: 0
-                    }
-                };
+        if (!effectiveBoList || effectiveBoList.length === 0) return [];
+        return effectiveBoList.map((m: any) => {
+            const invItem = combinedInventoryList.find((d: any) => {
+                const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
+                return String(dMatId) === String(m._id) || String(d._id) === String(m._id) || (m.code && d.materialCode === m.code);
             });
-    }, [materials, data]);
+
+            return {
+                ...m,
+                _id: invItem?._id || m._id,
+                materialId: m,
+                materialName: m.name,
+                materialCode: m.code || 'N/A',
+                itemType: 'Bought Out',
+                description: m.descriptions || m.description || invItem?.description || '-',
+                descriptions: m.descriptions || m.description || invItem?.description || '-',
+                currentStock: invItem ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) : (m.quantity !== undefined ? m.quantity : (m.currentStock || 0)),
+                qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
+                reorderLevel: m.minimumStock !== undefined ? m.minimumStock : (invItem?.reorderLevel || 0),
+                unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                category: m.categoryId, 
+                location: m.locationId, 
+                monthlyData: invItem?.monthlyData ? {
+                    openingStock: invItem.monthlyData.openingStock || 0,
+                    totalInwardQuantity: invItem.monthlyData.totalInwardQuantity || invItem.monthlyData.received || 0,
+                    totalOutwardQuantity: invItem.monthlyData.totalOutwardQuantity || invItem.monthlyData.issued || 0,
+                    received: invItem.monthlyData.received || invItem.monthlyData.totalInwardQuantity || 0,
+                    issued: invItem.monthlyData.issued || invItem.monthlyData.totalOutwardQuantity || 0,
+                    closingStock: invItem.monthlyData.closingStock || invItem.currentStock || 0
+                } : {
+                    openingStock: 0,
+                    totalInwardQuantity: 0,
+                    totalOutwardQuantity: 0,
+                    received: 0,
+                    issued: 0,
+                    closingStock: 0
+                }
+            };
+        });
+    }, [effectiveBoList, combinedInventoryList]);
 
     // Map Consumable master data to inventory format
     const mappedConsumableInventory = useMemo(() => {
-        if (!consumables) return [];
+        if (!consumables || consumables.length === 0) return [];
         return consumables.map((c: any) => {
-            const invItem = data?.find((d: any) => {
-                return d.materialId === c._id || d.materialId?._id === c._id || d.materialCode === c.code || d.materialName === c.name;
+            const invItem = combinedInventoryList.find((d: any) => {
+                const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
+                return String(dMatId) === String(c._id) || String(d._id) === String(c._id) || d.materialCode === c.code || d.materialName === c.name;
             });
+
             return {
                 ...c,
                 _id: invItem?._id || c._id,
@@ -151,49 +243,39 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 materialCode: c.code || 'N/A',
                 description: c.descriptions || c.description || invItem?.description || '-',
                 descriptions: c.descriptions || c.description || invItem?.description || '-',
-                currentStock: invItem ? invItem.currentStock : 0,
-                qcPendingStock: invItem ? invItem.qcPendingStock : 0,
-                reorderLevel: c.minimumStock || invItem?.reorderLevel || 0,
+                currentStock: invItem ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) : (c.quantity !== undefined ? c.quantity : (c.currentStock || 0)),
+                qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
+                reorderLevel: c.minimumStock !== undefined ? c.minimumStock : (invItem?.reorderLevel || 0),
                 unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
                 category: c.categoryId,
                 location: c.locationId,
-                monthlyData: invItem?.monthlyData || {
+                monthlyData: invItem?.monthlyData ? {
+                    openingStock: invItem.monthlyData.openingStock || 0,
+                    totalInwardQuantity: invItem.monthlyData.totalInwardQuantity || invItem.monthlyData.received || 0,
+                    totalOutwardQuantity: invItem.monthlyData.totalOutwardQuantity || invItem.monthlyData.issued || 0,
+                    received: invItem.monthlyData.received || invItem.monthlyData.totalInwardQuantity || 0,
+                    issued: invItem.monthlyData.issued || invItem.monthlyData.totalOutwardQuantity || 0,
+                    closingStock: invItem.monthlyData.closingStock || invItem.currentStock || 0
+                } : {
                     openingStock: 0,
+                    totalInwardQuantity: 0,
+                    totalOutwardQuantity: 0,
                     received: 0,
                     issued: 0,
                     closingStock: 0
                 }
             };
         });
-    }, [consumables, data]);
+    }, [consumables, combinedInventoryList]);
 
-
-    // Filtered items lists for dedicated inventory types
-    const rawMaterialItems = useMemo(() => {
-        if (!materials) return [];
-        return materials.filter((m: any) => {
-            const t = (m.itemType || '').toString().trim().toLowerCase();
-            const c = (m.code || '').toUpperCase();
-            return t !== 'bought out' && t !== 'bo' && !c.startsWith('BO-');
-        });
-    }, [materials]);
-
-    const boughtOutItems = useMemo(() => {
-        if (!materials) return [];
-        return materials.filter((m: any) => {
-            const t = (m.itemType || '').toString().trim().toLowerCase();
-            const c = (m.code || '').toUpperCase();
-            return t === 'bought out' || t === 'bo' || c.startsWith('BO-');
-        });
-    }, [materials]);
-
+    // Active materials for GRN modal
     const activeGrnMaterials = useMemo(() => {
-        if (activeSubTab === 'rm') return rawMaterialItems;
-        if (activeSubTab === 'bo') return boughtOutItems;
+        if (activeSubTab === 'rm') return effectiveRmList;
+        if (activeSubTab === 'bo') return effectiveBoList;
         if (activeSubTab === 'consumable') return consumables || [];
         if (activeSubTab === 'inhouse' || activeSubTab === 'fg-history') return inHouseComponents || [];
-        return materials || [];
-    }, [activeSubTab, rawMaterialItems, boughtOutItems, consumables, inHouseComponents, materials]);
+        return effectiveRmList || [];
+    }, [activeSubTab, effectiveRmList, effectiveBoList, consumables, inHouseComponents]);
 
     const activeGrnType = activeSubTab === 'inhouse' || activeSubTab === 'fg-history' 
         ? 'inhouse' 

@@ -60,8 +60,12 @@ export default function WipJobWorkPage() {
       <JobWorkStore
         vendors={storeData.vendors}
         jobWorkSuppliers={storeData.jobWorkSuppliers}
+        rawMaterials={storeData.rawMaterials}
+        boughtOuts={storeData.boughtOuts}
         materials={storeData.materials}
+        inventoryList={storeData.inventoryList}
         inHouseItems={storeData.fgItems}
+        mrpPlans={storeData.mrpPlans}
         activeTab="wip"
         token={token}
         companyInfo={storeData.companyInfo}

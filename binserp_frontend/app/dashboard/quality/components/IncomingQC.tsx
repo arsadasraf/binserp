@@ -34,8 +34,8 @@ export default function IncomingQC() {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.data.grns) {
-                // Filter for QC Pending
-                const pending = res.data.grns.filter((g: any) => g.qcRequired && g.qcStatus === 'Pending');
+                // Filter for QC Pending or Partial
+                const pending = res.data.grns.filter((g: any) => g.qcRequired && (g.qcStatus === 'Pending' || g.qcStatus === 'Partial' || !g.qcStatus));
                 setPendingGRNs(pending);
             }
         } catch (error) {
@@ -89,7 +89,7 @@ export default function IncomingQC() {
             // Allow multiple concurrent submissions for all items in the GRN
             // In a real app, this might be a single bulk endpoint, but reusing existing endpoint for now
             const promises = selectedGRN.items.map((item: any) => {
-                const data = inspectionData[item._id];
+                const data = inspectionData[item._id] || { rejectedQuantity: 0, remarks: "" };
                 const acceptedQty = item.quantity - (data.rejectedQuantity || 0);
                 const status = data.rejectedQuantity > 0 ? "Rejected" : "Accepted";
 
@@ -100,18 +100,22 @@ export default function IncomingQC() {
                         matName = item.component.componentName || item.component.name;
                     } else if (item.material && typeof item.material === 'object') {
                         matName = item.material.name;
+                    } else if (item.fgItem && typeof item.fgItem === 'object') {
+                        matName = item.fgItem.name;
                     }
                 }
                 // Fallback if still empty
                 if (!matName) matName = "Unknown Material";
 
+                const resolvedMatId = item.material?._id || (typeof item.material === 'string' ? item.material : (item.fgItem?._id || (typeof item.fgItem === 'string' ? item.fgItem : null)));
+
                 const payload = {
                     grnId: selectedGRN._id,
                     grnItemId: item._id,
-                    materialId: item.material?._id || (typeof item.material === 'string' ? item.material : null),
+                    materialId: resolvedMatId,
                     componentId: item.component?._id || (typeof item.component === 'string' ? item.component : null),
                     materialName: matName,
-                    supplierName: selectedGRN.supplierName || selectedGRN.supplier?.name || "",
+                    supplierName: selectedGRN.supplierName || selectedGRN.supplier?.name || selectedGRN.customerName || selectedGRN.customer?.name || "Supplier / Production",
                     batchNumber: "",
                     receivedQuantity: Number(item.quantity) || 0,
                     inspectedQuantity: Number(item.quantity) || 0,

@@ -1,11 +1,28 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, consumableItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { 
+  grnSchema, 
+  materialIssueSchema, 
+  bomSchema, 
+  inventorySchema, 
+  materialRequestSchema, 
+  vendorSchema, 
+  customerSchema, 
+  locationSchema, 
+  categorySchema, 
+  rmBoItemSchema, 
+  rawMaterialSchema, 
+  boughtOutSchema, 
+  consumableItemSchema, 
+  fgItemSchema, 
+  companyInfoSchema, 
+  jobWorkSchema, 
+  jobWorkSupplierSchema 
+} from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
-import fs from 'fs';
-import path from 'path';
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -15,22 +32,16 @@ const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
 };
 
-// Helper function to update COMPONENT stock (InHouse)
-const updateComponentStock = async (req, componentId, quantity) => {
-  try {
-    const companyId = getCompanyId(req); // Derive companyId from req
-    const Component = req.getModel("Component", componentSchema);
-    const component = await Component.findById(componentId);
-    if (!component) {
-      console.error(`Component not found: ${componentId}`);
-      return null;
-    }
+const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
-    // Update quantity
+// Helper function to update COMPONENT stock (InHouse)
+export const updateComponentStock = async (req, componentId, quantity) => {
+  try {
+    const Component = req.getModel("Component", componentSchema);
+    if (!componentId) return null;
     await Component.findByIdAndUpdate(componentId, {
       $inc: { quantity: quantity }
     });
-
     return true;
   } catch (error) {
     console.error("Error updating component stock:", error);
@@ -38,15 +49,8 @@ const updateComponentStock = async (req, componentId, quantity) => {
   }
 };
 
-
-
-// ========== GRN (Goods Receipt Note) ==========
-
-
-import { recordStockTransaction } from "../../services/stockTransaction.service.js";
-
+// ========== Update Inventory Stock Controller ==========
 export const updateInventoryStock = async (req, materialId, quantity, unit, locationId, options = {}) => {
-  console.log(`>>> [updateInventoryStock] Updating MatID: ${materialId}, Qty: ${quantity}, Unit: ${unit}, Options:`, options);
   const {
     isPending = false,
     isQCRelease = false,
@@ -61,40 +65,112 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     performedByName,
   } = options;
 
+  console.log(`>>> [updateInventoryStock] Updating MatID: ${materialId}, Qty: ${quantity}, Unit: ${unit}, isPending: ${isPending}, isQCRelease: ${isQCRelease}`);
+
   try {
     const companyId = getCompanyId(req);
-    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const Component = req.getModel('Component', componentSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
     const Location = req.getModel('Location', locationSchema);
-
-    // Register Category for populate
     req.getModel('Category', categorySchema);
 
-    // Find material to get details
-    let material = await Material.findById(materialId).populate('categoryId');
-    if (!material) {
-      material = await ConsumableItem.findById(materialId).populate('categoryId');
+    let material = null;
+    let itemMasterType = 'RawMaterial';
+
+    const validId = materialId && (isValidObjectId(materialId.toString()) || (typeof materialId === 'object' && materialId._id)) 
+      ? (typeof materialId === 'object' ? materialId._id.toString() : materialId.toString()) 
+      : null;
+
+    if (validId) {
+      material = await RawMaterial.findOne({ _id: validId, company: companyId }).populate('categoryId');
+      if (material) {
+        itemMasterType = 'RawMaterial';
+      } else {
+        material = await BoughtOut.findOne({ _id: validId, company: companyId }).populate('categoryId');
+        if (material) itemMasterType = 'BoughtOut';
+      }
+      if (!material) {
+        material = await ConsumableItem.findOne({ _id: validId, company: companyId }).populate('categoryId');
+        if (material) itemMasterType = 'Consumable';
+      }
+      if (!material) {
+        material = await Material.findOne({ _id: validId, company: companyId }).populate('categoryId');
+        if (material) itemMasterType = material.itemType === 'Bought Out' ? 'BoughtOut' : 'RawMaterial';
+      }
+      if (!material) {
+        material = await FGItem.findOne({ _id: validId, company: companyId });
+        if (material) itemMasterType = 'FinishedGoods';
+      }
+      if (!material) {
+        material = await Component.findOne({ _id: validId, company: companyId });
+        if (material) itemMasterType = 'Component';
+      }
     }
+
+    // Fallback: If not found by ID, search by code or name
+    if (!material && materialId && typeof materialId === 'string') {
+      material = await RawMaterial.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
+      if (material) itemMasterType = 'RawMaterial';
+      if (!material) {
+        material = await BoughtOut.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
+        if (material) itemMasterType = 'BoughtOut';
+      }
+      if (!material) {
+        material = await ConsumableItem.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
+        if (material) itemMasterType = 'Consumable';
+      }
+      if (!material) {
+        material = await Material.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
+        if (material) itemMasterType = material.itemType === 'Bought Out' ? 'BoughtOut' : 'RawMaterial';
+      }
+    }
+
     if (!material) {
-      console.error(`Material or Consumable not found: ${materialId}`);
+      console.warn(`[updateInventoryStock] Material not found in any master table: ${materialId}`);
+      // Fallback: Create or update inventory directly with provided ID
+      let inventory = await Inventory.findOne({
+        company: companyId,
+        $or: [
+          { materialId: validId || materialId },
+          { materialCode: String(materialId) }
+        ]
+      });
+
+      if (inventory) {
+        if (isPending) {
+          inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) + quantity);
+        } else if (isQCRelease) {
+          inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
+          inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) - inspectedQuantity);
+        } else {
+          inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
+        }
+        await inventory.save();
+        return inventory;
+      }
       return null;
     }
 
-    const materialName = material.name;
-    const materialCode = material.code || materialId.toString();
+    const actualMatId = material._id;
+    const materialName = material.name || material.componentName || 'Material';
+    const materialCode = material.code || (typeof materialId === 'string' ? materialId : actualMatId.toString());
     const categoryId = material.categoryId?._id || material.categoryId;
+    const resolvedUnit = unit || material.unit || "PCS";
+    const resolvedLocId = locationId || material.locationId?._id || material.locationId;
 
-    // Find inventory item - Try by materialId first (more robust), then code (backward compatibility)
+    // Find inventory item - Try by actual materialId first, then code
     let inventory = await Inventory.findOne({
       company: companyId,
       $or: [
-        { materialId: materialId },
+        { materialId: actualMatId },
         { materialCode: materialCode }
       ]
     });
-
-    console.log(`>>> [updateInventoryStock] Inventory Found? ${!!inventory}. Current Stock: ${inventory?.currentStock}`);
 
     let previousStock = 0;
     let newStock = 0;
@@ -102,8 +178,8 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     if (!inventory) {
       // Create new inventory entry
       let locationName = "";
-      if (locationId) {
-        const location = await Location.findById(locationId);
+      if (resolvedLocId) {
+        const location = await Location.findById(resolvedLocId);
         if (location) locationName = location.name;
       }
 
@@ -114,56 +190,64 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
         company: companyId,
         materialCode,
         materialName,
-        unit: unit || material.unit || "PCS",
+        unit: resolvedUnit,
         currentStock: newStock,
         qcPendingStock: (isPending) ? Math.max(0, quantity) : 0,
-        locationId: locationId || undefined,
+        locationId: resolvedLocId || undefined,
         categoryId: categoryId || undefined,
-        materialId, // Save materialId
+        materialId: actualMatId,
         location: locationName
       });
     } else {
-      // Update existing inventory
-      console.log(`>>> [updateInventoryStock] Updating Existing. Old: ${inventory.currentStock}, Change: ${quantity}`);
-
-      previousStock = inventory.currentStock;
+      previousStock = inventory.currentStock || 0;
 
       if (isPending) {
-        // Add to Pending Stock (GRN created, waiting QC)
-        inventory.qcPendingStock = (inventory.qcPendingStock || 0) + quantity;
-        newStock = inventory.currentStock;
+        inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) + quantity);
+        newStock = inventory.currentStock || 0;
       } else if (isQCRelease) {
-        // Move from Pending to Main (QC Passed)
-        // Increase main stock by Accepted Quantity (passed in 'quantity')
-        inventory.currentStock = Math.max(0, inventory.currentStock + quantity);
-        // Decrease pending stock by Inspected Quantity (processed amount)
+        inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
         inventory.qcPendingStock = Math.max(0, (inventory.qcPendingStock || 0) - inspectedQuantity);
         newStock = inventory.currentStock;
       } else {
-        // Regular update (Direct GRN or Issue)
-        inventory.currentStock = Math.max(0, inventory.currentStock + quantity);
+        inventory.currentStock = Math.max(0, (inventory.currentStock || 0) + quantity);
         newStock = inventory.currentStock;
       }
 
-      console.log(`>>> [updateInventoryStock] New Stock: ${inventory.currentStock}, Pending: ${inventory.qcPendingStock}`);
-
-      // Ensure materialId is set if missing (migration)
       if (!inventory.materialId) {
-        inventory.materialId = materialId;
+        inventory.materialId = actualMatId;
       }
-
-      // Update location/category if provided
-      if (locationId) {
-        inventory.locationId = locationId;
-        const location = await Location.findById(locationId);
+      if (resolvedLocId) {
+        inventory.locationId = resolvedLocId;
+        const location = await Location.findById(resolvedLocId);
         if (location) inventory.location = location.name;
       }
-
       if (categoryId) {
         inventory.categoryId = categoryId;
       }
 
       await inventory.save();
+    }
+
+    // Direct synchronization on Master model so master tables reflect actual current stock
+    if (!isPending) {
+      try {
+        const stockDelta = isQCRelease ? quantity : quantity;
+        if (itemMasterType === 'RawMaterial') {
+          await RawMaterial.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+        } else if (itemMasterType === 'BoughtOut') {
+          await BoughtOut.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+        } else if (itemMasterType === 'Consumable') {
+          await ConsumableItem.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+        } else if (itemMasterType === 'RmBoItem') {
+          await Material.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+        } else if (itemMasterType === 'FinishedGoods') {
+          await FGItem.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+        } else if (itemMasterType === 'Component') {
+          await Component.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+        }
+      } catch (masterSyncErr) {
+        console.error("[updateInventoryStock] Master model stock sync error:", masterSyncErr);
+      }
     }
 
     // Log Stock Transaction Ledger entry if category or doc info is provided
@@ -175,24 +259,14 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
             : (quantity >= 0 ? "GRN_PURCHASE_INWARD" : "MATERIAL_ISSUE_SHOPFLOOR_OUTWARD"));
 
       const movementType = (isPending || isQCRelease || quantity >= 0) ? "INWARD" : "OUTWARD";
-
-      let transactionItemType = options.itemType || "RawMaterial";
-      if (!options.itemType) {
-        if (material.constructor?.modelName === 'ConsumableItem' || (!material.itemType && material.unit && !material.code?.startsWith('RM') && !material.code?.startsWith('BO'))) {
-          transactionItemType = "Consumable";
-        } else if (material.itemType === 'Bought Out' || materialCode?.startsWith('BO')) {
-          transactionItemType = "BoughtOut";
-        } else {
-          transactionItemType = "RawMaterial";
-        }
-      }
+      const transactionItemType = options.itemType || itemMasterType;
 
       await recordStockTransaction(req, {
         itemType: transactionItemType,
-        item: materialId,
+        item: actualMatId,
         itemCode: materialCode,
         itemName: materialName,
-        unit: unit || material.unit || "PCS",
+        unit: resolvedUnit,
         movementType,
         transactionCategory: transactionCategory || defaultCategory,
         quantity: Math.abs(quantity),
@@ -214,6 +288,3 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     throw error;
   }
 };
-
-
-// Create Inventory

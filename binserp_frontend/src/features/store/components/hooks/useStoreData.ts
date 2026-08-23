@@ -52,6 +52,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: vendorPriceListsData = [] } = useGetStoreDataQuery("vendor-price-list", { skip: !token });
     const { data: quotationsData = [] } = useGetStoreDataQuery("quotation", { skip: !token });
     const { data: salesOrdersData = [] } = useGetStoreDataQuery("order", { skip: !token });
+    const { data: mrpsData = [] } = useGetStoreDataQuery("mrp", { skip: !token });
     const { data: fgItems = [] } = useGetStoreDataQuery('fg-item', { skip: !token }); const { data: fgGrns = [] } = useGetStoreDataQuery('fg-grn', { skip: !token });
     const { data: pendingProducts = [] } = useGetPpcComponentsQuery({ isInventoryItem: false }, { skip: !token });
 
@@ -721,6 +722,8 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         boughtOuts: boughtOutsData,
         consumables: consumablesData,
         materials: materialsData,
+        mrpPlans: mrpsData,
+        mrps: mrpsData,
         refetch: fetchData,
     };
 }

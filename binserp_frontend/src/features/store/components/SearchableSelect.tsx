@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Check, ChevronDown, Plus } from 'lucide-react';
 
 interface SearchableOption {
@@ -27,39 +28,82 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     placeholder = "Select an option...", 
     className = "w-full", 
     innerClassName = "", 
-    dropdownPosition = "bottom", 
+    dropdownPosition = "auto", 
     allowCustom = false,
     disabled = false
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
-    const [actualPosition, setActualPosition] = useState<'top' | 'bottom'>('bottom');
+    const [mounted, setMounted] = useState(false);
+    const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+    
     const wrapperRef = useRef<HTMLDivElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Calculate smart position whenever dropdown opens
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    // Calculate position for the portal dropdown
+    const updatePosition = () => {
+        if (!wrapperRef.current) return;
+        const rect = wrapperRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+
+        // Choose whether to open upward or downward
+        let openUpward = false;
+        if (dropdownPosition === 'top') {
+            openUpward = true;
+        } else if (dropdownPosition === 'bottom') {
+            openUpward = false;
+        } else {
+            // Auto: open upward if space below is limited and space above has room
+            openUpward = spaceBelow < 220 && spaceAbove > 180;
+        }
+
+        const width = Math.max(rect.width, 280);
+        // Constrain width to window bounds
+        const maxAllowedWidth = Math.min(width, window.innerWidth - 16);
+        let left = rect.left;
+        if (left + maxAllowedWidth > window.innerWidth - 8) {
+            left = window.innerWidth - maxAllowedWidth - 8;
+        }
+        left = Math.max(8, left);
+
+        const newStyle: React.CSSProperties = {
+            position: 'fixed',
+            left: `${left}px`,
+            width: `${maxAllowedWidth}px`,
+            zIndex: 999999,
+        };
+
+        if (openUpward) {
+            newStyle.bottom = `${window.innerHeight - rect.top + 4}px`;
+            newStyle.maxHeight = `${Math.min(280, Math.max(120, spaceAbove - 16))}px`;
+        } else {
+            newStyle.top = `${rect.bottom + 4}px`;
+            newStyle.maxHeight = `${Math.min(280, Math.max(120, spaceBelow - 16))}px`;
+        }
+
+        setMenuStyle(newStyle);
+    };
+
+    // Recalculate position when open or on scroll/resize
     useEffect(() => {
         if (isOpen) {
-            if (dropdownPosition === 'top') {
-                setActualPosition('top');
-            } else if (dropdownPosition === 'bottom') {
-                setActualPosition('bottom');
-            } else {
-                // Auto calculate based on viewport space
-                if (wrapperRef.current) {
-                    const rect = wrapperRef.current.getBoundingClientRect();
-                    const spaceBelow = window.innerHeight - rect.bottom;
-                    const spaceAbove = rect.top;
-                    // Only open upward if space below is severely cramped (< 180px) and space above has room
-                    if (spaceBelow < 180 && spaceAbove > 220) {
-                        setActualPosition('top');
-                    } else {
-                        setActualPosition('bottom');
-                    }
-                } else {
-                    setActualPosition('bottom');
-                }
-            }
+            updatePosition();
+            const handleScroll = () => updatePosition();
+            const handleResize = () => updatePosition();
+
+            window.addEventListener('scroll', handleScroll, true);
+            window.addEventListener('resize', handleResize);
+
+            return () => {
+                window.removeEventListener('scroll', handleScroll, true);
+                window.removeEventListener('resize', handleResize);
+            };
         }
     }, [isOpen, dropdownPosition]);
 
@@ -82,15 +126,21 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     // Handle click outside to close dropdown
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            if (
+                wrapperRef.current && !wrapperRef.current.contains(target) &&
+                menuRef.current && !menuRef.current.contains(target)
+            ) {
                 setIsOpen(false);
             }
         }
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, []);
+        if (isOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+            return () => document.removeEventListener("mousedown", handleClickOutside);
+        }
+    }, [isOpen]);
 
-    // Focus input when dropdown opens
+    // Focus search input when dropdown opens
     useEffect(() => {
         if (isOpen) {
             setTimeout(() => {
@@ -101,7 +151,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }
     }, [isOpen]);
 
-    const selectedOption = uniqueOptions.find((o) => o.value === value) || (value ? { value, label: value } : null);
+    const stringValue = typeof value === 'object' && value !== null 
+        ? String((value as any)._id || (value as any).id || (value as any).name || '') 
+        : (value !== undefined && value !== null ? String(value) : '');
+
+    const selectedOption = uniqueOptions.find((o) => o.value === stringValue) || (stringValue ? { value: stringValue, label: stringValue } : null);
     
     const filteredOptions = useMemo(() => {
         if (!searchTerm.trim()) return uniqueOptions;
@@ -113,14 +167,15 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
 
     // Helper to format option label (detects "(CODE)" at the end)
     const formatOptionLabel = (label: string) => {
-        const match = label.match(/^(.*?)\s*(\([A-Za-z0-9\-_./\\]+\))$/);
+        const strLabel = typeof label === 'string' ? label : String(label || '');
+        const match = strLabel.match(/^(.*?)\s*(\([A-Za-z0-9\-_./\\]+\))$/);
         if (match) {
             return {
                 name: match[1],
                 code: match[2]
             };
         }
-        return { name: label, code: null };
+        return { name: strLabel, code: null };
     };
 
     return (
@@ -136,7 +191,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' 
                         : isOpen 
                             ? 'border-indigo-500 ring-2 ring-indigo-500/20' 
-                            : !selectedOption && !value 
+                            : !selectedOption && !stringValue 
                                 ? 'border-gray-300 hover:border-gray-400' 
                                 : 'border-gray-300 hover:border-indigo-300'
                 }`}
@@ -145,26 +200,26 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 }}
             >
                 <span className={`truncate font-medium ${!selectedOption ? 'text-gray-400' : 'text-gray-800'}`}>
-                    {selectedOption ? selectedOption.label : placeholder}
+                    {selectedOption ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label)) : placeholder}
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
             </div>
 
-            {/* Dropdown Menu (Opens Upward or Downward with Smart Positioning) */}
-            {isOpen && (
+            {/* Portal Dropdown Menu: immune to parent container overflow, clipping, or scroll bounds */}
+            {mounted && isOpen && createPortal(
                 <div 
-                    className={`absolute z-[99999] min-w-full sm:min-w-[320px] max-w-[95vw] ${
-                        actualPosition === 'top' ? 'bottom-full mb-2 origin-bottom' : 'top-full mt-2 origin-top'
-                    } bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150`}
+                    ref={menuRef}
+                    style={menuStyle}
+                    className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in duration-100"
                 >
                     {/* Search Bar */}
-                    <div className="p-2.5 bg-gray-50/95 dark:bg-slate-800/95 border-b border-gray-100 dark:border-slate-800 sticky top-0 z-10">
+                    <div className="p-2.5 bg-gray-50/95 dark:bg-slate-800/95 border-b border-gray-100 dark:border-slate-800 flex-shrink-0">
                         <div className="relative flex items-center">
                             <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 pointer-events-none" />
                             <input
                                 ref={inputRef}
                                 type="text"
-                                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder-gray-400 text-gray-800 font-medium"
+                                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 placeholder-gray-400 text-gray-800 dark:text-gray-100 font-medium"
                                 placeholder="Type to filter items..."
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
@@ -190,7 +245,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     </div>
 
                     {/* Options List */}
-                    <div className="max-h-56 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800 custom-scrollbar">
+                    <div className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800 flex-1 custom-scrollbar min-h-[60px]">
                         {filteredOptions.length > 0 ? (
                             filteredOptions.map((o) => {
                                 const isSelected = value === o.value;
@@ -245,7 +300,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                             )
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
