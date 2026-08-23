@@ -9,8 +9,10 @@ interface FGItemFormProps {
     categories?: Category[];
     locations?: Location[];
     customers?: any[];
-    materials: any[]; // Materials for BOM
-    fgItems: any[]; // Other FG Items for BOM
+    rawMaterials?: any[]; // Raw materials for BOM
+    boughtOuts?: any[]; // Bought out items for BOM
+    materials?: any[]; // Fallback materials
+    fgItems?: any[]; // Other FG Items for BOM
     photos: File[];
     setPhotos: (photos: File[]) => void;
 }
@@ -19,11 +21,17 @@ export default function FGItemForm({
     formData,
     setFormData,
     locations = [],
+    rawMaterials = [],
+    boughtOuts = [],
     materials = [],
     fgItems = [],
     photos,
     setPhotos
 }: FGItemFormProps) {
+    // Merge fallback materials if rawMaterials / boughtOuts are empty
+    const effectiveRM = (rawMaterials && rawMaterials.length > 0) ? rawMaterials : materials.filter((m: any) => (m.itemType || '').toLowerCase().includes('raw') || (m.category?.name || '').toLowerCase().includes('raw') || !m.itemType);
+    const effectiveBO = (boughtOuts && boughtOuts.length > 0) ? boughtOuts : materials.filter((m: any) => (m.itemType || '').toLowerCase().includes('bought') || (m.category?.name || '').toLowerCase().includes('bought'));
+
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             setPhotos(Array.from(e.target.files));
@@ -42,8 +50,20 @@ export default function FGItemForm({
     const addBOMItem = () => {
         setFormData((prev: any) => ({
             ...prev,
-            bom: [...(prev.bom || []), { itemType: 'Material', item: '', itemName: '', quantity: 1, unit: 'Nos' }]
+            bom: [...(prev.bom || []), { itemType: 'RawMaterial', item: '', itemName: '', quantity: 1, unit: 'Nos' }]
         }));
+    };
+
+    const handleBOMTypeChange = (idx: number, newType: 'RawMaterial' | 'BoughtOut' | 'FGItem') => {
+        const newBOM = [...(formData.bom || [])];
+        newBOM[idx] = {
+            ...newBOM[idx],
+            itemType: newType,
+            item: '',
+            itemName: '',
+            unit: 'Nos'
+        };
+        setFormData((prev: any) => ({ ...prev, bom: newBOM }));
     };
 
     const updateBOMItem = (idx: number, field: string, value: any) => {
@@ -51,19 +71,26 @@ export default function FGItemForm({
         newBOM[idx] = { ...newBOM[idx], [field]: value };
         
         if (field === 'item') {
-            const type = newBOM[idx].itemType;
+            const type = newBOM[idx].itemType || 'RawMaterial';
             let foundName = '';
             let foundUnit = 'Nos';
-            if (type === 'Material') {
-                const mat = materials.find(m => m._id === value);
+            
+            if (type === 'RawMaterial' || type === 'Material') {
+                const mat = effectiveRM.find((m: any) => (m._id || m.id) === value);
                 if (mat) {
-                    foundName = mat.name;
+                    foundName = mat.name || mat.materialName || '';
                     foundUnit = mat.unit || mat.category?.unit || 'Nos';
                 }
+            } else if (type === 'BoughtOut') {
+                const bo = effectiveBO.find((b: any) => (b._id || b.id) === value);
+                if (bo) {
+                    foundName = bo.name || bo.materialName || '';
+                    foundUnit = bo.unit || bo.category?.unit || 'Nos';
+                }
             } else if (type === 'FGItem') {
-                const fg = fgItems.find(f => f._id === value);
+                const fg = fgItems.find((f: any) => (f._id || f.id) === value);
                 if (fg) {
-                    foundName = fg.name;
+                    foundName = fg.name || '';
                     foundUnit = fg.unit || 'Nos';
                 }
             }
@@ -200,11 +227,158 @@ export default function FGItemForm({
                 </div>
             </div>
 
+            {/* Bill of Materials (BOM) Section */}
+            <div className="bg-gray-50 dark:bg-slate-800/40 rounded-xl p-5 border border-gray-200 dark:border-slate-700">
+                <div className="flex justify-between items-center mb-4">
+                    {renderSectionHeader("Bill of Materials (BOM)", "bg-amber-500")}
+                    <button
+                        type="button"
+                        onClick={addBOMItem}
+                        className="flex items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-3.5 py-2 rounded-xl hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors shadow-xs cursor-pointer"
+                    >
+                        <Plus size={15} /> Add BOM Item
+                    </button>
+                </div>
+
+                <div className="space-y-3.5">
+                    {(formData.bom || []).map((item: any, idx: number) => {
+                        const currentType = item.itemType || 'RawMaterial';
+
+                        // Options based on selected 3-way type
+                        let optionsForThisType: any[] = [];
+                        if (currentType === 'RawMaterial' || currentType === 'Material') {
+                            optionsForThisType = effectiveRM.map((m: any) => ({
+                                value: (m._id || m.id)?.toString(),
+                                label: `${m.name || m.materialName || ''} ${m.code ? `(${m.code})` : ''}`.trim()
+                            })).filter(o => o.value);
+                        } else if (currentType === 'BoughtOut') {
+                            optionsForThisType = effectiveBO.map((b: any) => ({
+                                value: (b._id || b.id)?.toString(),
+                                label: `${b.name || b.materialName || ''} ${b.code ? `(${b.code})` : ''}`.trim()
+                            })).filter(o => o.value);
+                        } else if (currentType === 'FGItem') {
+                            optionsForThisType = fgItems
+                                .filter((f: any) => (f._id || f.id)?.toString() !== formData._id?.toString())
+                                .map((f: any) => ({
+                                    value: (f._id || f.id)?.toString(),
+                                    label: `${f.name || ''} ${f.code ? `(${f.code})` : ''} [${f.type || 'Sub Assembly'}]`.trim()
+                                })).filter(o => o.value);
+                        }
+
+                        return (
+                            <div key={idx} className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm space-y-3">
+                                
+                                {/* 3-Way BOM Classification Switcher + Remove Button */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-100 dark:border-slate-800">
+                                    <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-slate-800 rounded-lg">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleBOMTypeChange(idx, 'RawMaterial')}
+                                            className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                                                currentType === 'RawMaterial' || currentType === 'Material'
+                                                    ? 'bg-blue-600 text-white shadow-xs'
+                                                    : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            Raw Material (RM)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleBOMTypeChange(idx, 'BoughtOut')}
+                                            className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                                                currentType === 'BoughtOut'
+                                                    ? 'bg-amber-600 text-white shadow-xs'
+                                                    : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            Bought Out (BO)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleBOMTypeChange(idx, 'FGItem')}
+                                            className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                                                currentType === 'FGItem'
+                                                    ? 'bg-purple-600 text-white shadow-xs'
+                                                    : 'text-gray-600 dark:text-slate-400 hover:text-gray-900'
+                                            }`}
+                                        >
+                                            FG / Sub-Assembly
+                                        </button>
+                                    </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => removeBOMItem(idx)}
+                                        className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                                        title="Delete BOM Item"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+
+                                {/* Inputs Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                                    <div className="md:col-span-8">
+                                        <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                            {currentType === 'RawMaterial' || currentType === 'Material'
+                                                ? 'Select Raw Material *'
+                                                : currentType === 'BoughtOut'
+                                                ? 'Select Bought Out Item *'
+                                                : 'Select Sub-Assembly / FG Item *'}
+                                        </label>
+                                        <SearchableSelect 
+                                            options={optionsForThisType}
+                                            value={typeof item.item === 'object' ? (item.item?._id || item.item?.id) : (item.item || '')}
+                                            onChange={(val: any) => updateBOMItem(idx, 'item', val)}
+                                            placeholder={`Choose ${currentType === 'FGItem' ? 'Sub-Assembly FG' : currentType === 'BoughtOut' ? 'Bought Out Item' : 'Raw Material'}...`}
+                                        />
+                                    </div>
+
+                                    <div className="md:col-span-4 flex items-end gap-2">
+                                        <div className="flex-1">
+                                            <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                Qty Required *
+                                            </label>
+                                            <input
+                                                type="number"
+                                                min="0.001"
+                                                step="any"
+                                                placeholder="Qty"
+                                                value={item.quantity || ''}
+                                                onChange={e => updateBOMItem(idx, 'quantity', parseFloat(e.target.value))}
+                                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-amber-500 outline-none font-bold text-gray-900 dark:text-white"
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="w-20">
+                                            <label className="block text-[11px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                Unit
+                                            </label>
+                                            <div className="px-3 py-2 bg-gray-100 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs font-bold text-gray-700 dark:text-slate-300 text-center">
+                                                {item.unit || 'Nos'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+
+                    {(!formData.bom || formData.bom.length === 0) && (
+                        <div className="text-center py-6 bg-white dark:bg-slate-900 border border-dashed border-gray-300 dark:border-slate-700 rounded-xl">
+                            <p className="text-sm font-semibold text-gray-600 dark:text-slate-300">No BOM items added.</p>
+                            <p className="text-xs text-gray-400 mt-1">Add raw materials, bought out components, or sub-assemblies to build the multi-level BOM structure.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             {/* Photos & PDFs Attachment */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
+            <div className="bg-gray-50 dark:bg-slate-800/40 rounded-xl p-5 border border-gray-200 dark:border-slate-700">
                 {renderSectionHeader("Photos & Attachments", "bg-pink-500")}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                         Photos & PDFs (Max 5)
                     </label>
                     <input
@@ -212,7 +386,7 @@ export default function FGItemForm({
                         multiple
                         accept="image/*,application/pdf"
                         onChange={handlePhotoChange}
-                        className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-4 py-2.5 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                     {((photos && photos.length > 0) || (formData.photos && formData.photos.length > 0)) && (
                         <div className="flex flex-wrap gap-3 mt-3">
@@ -222,12 +396,12 @@ export default function FGItemForm({
                                 return (
                                     <div
                                         key={idx}
-                                        className="relative group w-20 h-20 rounded-lg border border-gray-200 bg-white flex items-center justify-center overflow-hidden shadow-sm"
+                                        className="relative group w-20 h-20 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center overflow-hidden shadow-sm"
                                     >
                                         {isPdf ? (
                                             <a href={fileUrl} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center p-2 text-center text-red-600 hover:underline">
                                                 <span className="text-xs font-bold">PDF</span>
-                                                <span className="text-[10px] text-gray-500 truncate max-w-[60px]">Preview</span>
+                                                <span className="text-[10px] text-gray-500 dark:text-slate-400 truncate max-w-[60px]">Preview</span>
                                             </a>
                                         ) : (
                                             <a href={fileUrl} target="_blank" rel="noreferrer" className="w-full h-full">
@@ -237,7 +411,7 @@ export default function FGItemForm({
                                         <button
                                             type="button"
                                             onClick={(e) => { e.stopPropagation(); removePhoto(idx); }}
-                                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow"
+                                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow cursor-pointer"
                                             title="Remove"
                                         >
                                             <X size={12} />
@@ -250,12 +424,12 @@ export default function FGItemForm({
                                 return (
                                     <div
                                         key={`existing-${idx}`}
-                                        className="relative group w-20 h-20 rounded-lg border border-gray-200 bg-white flex items-center justify-center overflow-hidden shadow-sm"
+                                        className="relative group w-20 h-20 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center justify-center overflow-hidden shadow-sm"
                                     >
                                         {isPdf ? (
                                             <a href={photo} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center p-2 text-center text-red-600 hover:underline">
                                                 <span className="text-xs font-bold">PDF</span>
-                                                <span className="text-[10px] text-gray-500 truncate max-w-[60px]">Preview</span>
+                                                <span className="text-[10px] text-gray-500 dark:text-slate-400 truncate max-w-[60px]">Preview</span>
                                             </a>
                                         ) : (
                                             <a href={photo} target="_blank" rel="noreferrer" className="w-full h-full">
@@ -265,76 +439,6 @@ export default function FGItemForm({
                                     </div>
                                 );
                             })}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Bill of Materials (BOM) Section */}
-            <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-                <div className="flex justify-between items-center mb-4">
-                    {renderSectionHeader("Bill of Materials (BOM)", "bg-amber-500")}
-                    <button
-                        type="button"
-                        onClick={addBOMItem}
-                        className="flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-lg hover:bg-amber-200 transition-colors shadow-sm"
-                    >
-                        <Plus size={14} /> Add BOM Item
-                    </button>
-                </div>
-
-                <div className="space-y-3">
-                    {(formData.bom || []).map((item: any, idx: number) => (
-                        <div key={idx} className="flex flex-wrap md:flex-nowrap gap-3 items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm">
-                            <select
-                                value={item.itemType || ''}
-                                onChange={e => updateBOMItem(idx, 'itemType', e.target.value)}
-                                className="w-full md:w-1/4 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                            >
-                                <option value="Material">RM / BO (Material)</option>
-                                <option value="FGItem">FG Item</option>
-                            </select>
-                            
-                            <div className="w-full md:w-2/4">
-                                <SearchableSelect 
-                                    options={item.itemType === 'Material' ? 
-                                        (materials || []).map(m => ({ value: m._id, label: `${m.name || ''} ${m.code ? `(${m.code})` : ''}` })) : 
-                                        (fgItems || []).filter(f => f._id !== formData._id).map(f => ({ value: f._id, label: `${f.name || ''} (${f.type || ''})` }))
-                                    }
-                                    value={typeof item.item === 'object' ? item.item?._id : item.item || ''}
-                                    onChange={(val: any) => updateBOMItem(idx, 'item', val)}
-                                    placeholder="Select Item..."
-                                />
-                            </div>
-
-                            <div className="w-1/2 md:w-1/4 flex items-center gap-2">
-                                <input
-                                    type="number"
-                                    min="0.001"
-                                    step="any"
-                                    placeholder="Qty"
-                                    value={item.quantity || ''}
-                                    onChange={e => updateBOMItem(idx, 'quantity', parseFloat(e.target.value))}
-                                    className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                                    required
-                                />
-                                <span className="text-xs font-medium text-gray-500 min-w-[35px]">{item.unit || 'Nos'}</span>
-                            </div>
-
-                            <button
-                                type="button"
-                                onClick={() => removeBOMItem(idx)}
-                                className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200 ml-auto"
-                                title="Delete BOM Item"
-                            >
-                                <Trash2 size={18} />
-                            </button>
-                        </div>
-                    ))}
-                    {(!formData.bom || formData.bom.length === 0) && (
-                        <div className="text-center py-6 bg-white border border-dashed border-gray-300 rounded-lg">
-                            <p className="text-sm font-medium text-gray-500">No BOM items added.</p>
-                            <p className="text-xs text-gray-400 mt-1">Add raw materials or other FG components to build the assembly structure.</p>
                         </div>
                     )}
                 </div>

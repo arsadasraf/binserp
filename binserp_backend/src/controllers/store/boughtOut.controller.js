@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { boughtOutSchema, categorySchema, locationSchema, inventorySchema, rmBoItemSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -20,6 +21,7 @@ export const createBoughtOut = async (req, res) => {
     const Inventory = req.getModel('Inventory', inventorySchema);
 
     const companyId = getCompanyId(req);
+    const { userId, userName } = getUserAudit(req);
     let { name, code, descriptions, minimumStock, categoryId, locationId, unit } = req.body;
 
     if (!name || !name.toString().trim()) {
@@ -58,7 +60,11 @@ export const createBoughtOut = async (req, res) => {
               name: catName,
               code: genCode,
               unit: unit || 'PCS',
-              description: `${catName} Category`
+              description: `${catName} Category`,
+              createdBy: userId,
+              createdByName: userName,
+              updatedBy: userId,
+              updatedByName: userName
             });
           } catch {
             cat = await Category.findOne({ company: companyId, name: { $regex: new RegExp(`^${catName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
@@ -83,7 +89,11 @@ export const createBoughtOut = async (req, res) => {
           name: 'Bought Out',
           code: 'CAT-BO',
           unit: 'PCS',
-          description: 'Default Bought Out Category'
+          description: 'Default Bought Out Category',
+          createdBy: userId,
+          createdByName: userName,
+          updatedBy: userId,
+          updatedByName: userName
         });
       }
       resolvedCategoryId = defaultCat._id;
@@ -115,7 +125,11 @@ export const createBoughtOut = async (req, res) => {
               name: locName,
               code: `LOC-${Math.floor(100 + Math.random() * 900)}`,
               type: 'Rack',
-              description: locName
+              description: locName,
+              createdBy: userId,
+              createdByName: userName,
+              updatedBy: userId,
+              updatedByName: userName
             });
           } catch {
             loc = await Location.findOne({ company: companyId, name: { $regex: new RegExp(`^${locName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
@@ -153,7 +167,11 @@ export const createBoughtOut = async (req, res) => {
       minimumStock: Number(minimumStock || 0),
       categoryId: resolvedCategoryId,
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
-      photos: photoUrls
+      photos: photoUrls,
+      createdBy: userId,
+      createdByName: userName,
+      updatedBy: userId,
+      updatedByName: userName
     });
 
     // Also sync to legacy RmBoItem for foreign keys compatibility
@@ -169,7 +187,11 @@ export const createBoughtOut = async (req, res) => {
             minimumStock: Number(minimumStock || 0),
             categoryId: resolvedCategoryId,
             ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
-            photos: photoUrls
+            photos: photoUrls,
+            createdBy: userId,
+            createdByName: userName,
+            updatedBy: userId,
+            updatedByName: userName
           }
         },
         { upsert: true, new: true }
@@ -368,6 +390,10 @@ export const updateBoughtOut = async (req, res) => {
       return res.status(400).json({ message: "Maximum 2 photos allowed" });
     }
     req.body.photos = finalPhotos;
+
+    const { userId, userName } = getUserAudit(req);
+    req.body.updatedBy = userId;
+    req.body.updatedByName = userName;
 
     let boughtOut = await BoughtOut.findOneAndUpdate(
       { _id: id, company: companyId },

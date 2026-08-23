@@ -6,6 +6,7 @@ import {
   inventorySchema,
 } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -22,6 +23,7 @@ export const createConsumableItem = async (req, res) => {
     const Inventory = req.getModel('Inventory', inventorySchema);
 
     const companyId = getCompanyId(req);
+    const { userId, userName } = getUserAudit(req);
     let { name, descriptions, minimumStock, categoryId, locationId, unit } = req.body;
 
     if (!name || !name.toString().trim()) {
@@ -157,40 +159,45 @@ export const createConsumableItem = async (req, res) => {
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
       photos: photoUrls,
       company: companyId,
+      createdBy: userId,
+      createdByName: userName,
+      updatedBy: userId,
+      updatedByName: userName
     });
 
-    // Ensure Inventory entry exists
+    // Auto-create / Sync corresponding Inventory record
     try {
-      const matCode = `CON-${Math.floor(10000 + Math.random() * 90000)}`;
+      const generatedMatCode = `CON-${Math.floor(10000 + Math.random() * 90000)}`;
       await Inventory.findOneAndUpdate(
         { company: companyId, materialId: consumableItem._id },
         {
           $setOnInsert: {
             company: companyId,
-            materialId: consumableItem._id,
+            materialCode: generatedMatCode,
             materialName: cleanName,
-            materialCode: matCode,
+            itemType: 'Consumable',
             unit: unit || categoryUnit || 'PCS',
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),
-            categoryId: resolvedCategoryId,
+            reorderQuantity: 0,
+            materialId: consumableItem._id,
+            ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
             ...(resolvedLocationId ? { locationId: resolvedLocationId } : {})
           }
         },
         { upsert: true, new: true }
       );
     } catch (invErr) {
-      console.warn("Auto inventory create skipped:", invErr.message);
+      console.error("Inventory sync error on consumable create:", invErr);
     }
 
-    const populated = await ConsumableItem.findById(consumableItem._id).populate(['categoryId', 'locationId']);
-    res.status(201).json({ message: "Consumable Item created successfully", consumableItem: populated });
+    await consumableItem.populate(['categoryId', 'locationId']);
+    res.status(201).json({ message: "Consumable Item created successfully", consumableItem });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(400).json({ message: "Consumable Item name already exists" });
     }
-    console.error("Create Consumable Error:", error);
-    res.status(500).json({ message: error.message || "Failed to create Consumable Item" });
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -200,8 +207,8 @@ export const getAllConsumableItems = async (req, res) => {
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
     req.getModel('Category', categorySchema);
     req.getModel('Location', locationSchema);
-    const companyId = getCompanyId(req);
 
+    const companyId = getCompanyId(req);
     const consumableItems = await ConsumableItem.find({ company: companyId })
       .populate('categoryId')
       .populate('locationId')
@@ -209,17 +216,17 @@ export const getAllConsumableItems = async (req, res) => {
 
     res.status(200).json({ consumableItems, count: consumableItems.length });
   } catch (error) {
-    console.error("Get Consumables Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
-// ========== Get Consumable Item By ID ==========
+// ========== Get Single Consumable Item ==========
 export const getConsumableItemById = async (req, res) => {
   try {
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
     req.getModel('Category', categorySchema);
     req.getModel('Location', locationSchema);
+
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
@@ -227,10 +234,12 @@ export const getConsumableItemById = async (req, res) => {
       .populate('categoryId')
       .populate('locationId');
 
-    if (!consumableItem) return res.status(404).json({ message: "Consumable Item not found" });
+    if (!consumableItem) {
+      return res.status(404).json({ message: "Consumable Item not found" });
+    }
+
     res.status(200).json({ consumableItem });
   } catch (error) {
-    console.error("Get Consumable By ID Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -346,9 +355,13 @@ export const updateConsumableItem = async (req, res) => {
 
     req.body.photos = finalPhotos;
 
+    const { userId, userName } = getUserAudit(req);
+    req.body.updatedBy = userId;
+    req.body.updatedByName = userName;
+
     const consumableItem = await ConsumableItem.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      { $set: req.body },
       { new: true }
     ).populate(['categoryId', 'locationId']);
 

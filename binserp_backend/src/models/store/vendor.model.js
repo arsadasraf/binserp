@@ -46,11 +46,25 @@ export const vendorSchema = new mongoose.Schema(
       accountName: String,
       swiftCode: String,
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
+    }
   },
   { timestamps: true }
 );
-
-// Job-Work Supplier Master Schema
 
 // Indexes
 vendorSchema.index({ company: 1, code: 1 }, { unique: true });

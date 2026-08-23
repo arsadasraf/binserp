@@ -4,6 +4,7 @@ import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../mod
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -49,9 +50,10 @@ export const updateCategory = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+    const { userId, userName } = getUserAudit(req);
     const category = await Category.findOneAndUpdate(
       { _id: id, company: companyId },
-      req.body,
+      { ...req.body, updatedBy: userId, updatedByName: userName },
       { new: true }
     );
     if (!category) return res.status(404).json({ message: "Category not found" });

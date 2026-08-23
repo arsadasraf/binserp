@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Download, MapPin, Phone, Mail, Globe, Hash, Building2, CreditCard } from 'lucide-react';
+import { X, Download, MapPin, Phone, Mail, Globe, Hash, Building2, CreditCard, User, ShieldCheck, Edit3 } from 'lucide-react';
 import { MasterType } from "@/src/features/store/types/store.types";
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -490,7 +490,6 @@ export default function MasterDetailModal({ isOpen, onClose, data, type }: Maste
                                     </div>
                                 </section>
                             )}
-
                             {type === 'job-work-supplier' && (
                                 <section>
                                     <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-4 flex items-center gap-2">
@@ -503,7 +502,7 @@ export default function MasterDetailModal({ isOpen, onClose, data, type }: Maste
                                                 {data.processList?.length > 0 ? (
                                                     data.processList.map((p: any, i: number) => (
                                                         <span key={i} className="px-2.5 py-1 bg-white border border-gray-200 rounded text-xs font-medium text-gray-700 shadow-sm">
-                                                            {p.processName || p}
+                                                             {p.processName || p}
                                                         </span>
                                                     ))
                                                 ) : (
@@ -514,6 +513,39 @@ export default function MasterDetailModal({ isOpen, onClose, data, type }: Maste
                                     </div>
                                 </section>
                             )}
+
+                            {/* Audit & Tracking Information */}
+                            <section>
+                                <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider mb-3 flex items-center gap-2">
+                                    <ShieldCheck size={16} className="text-indigo-500" /> Audit & Tracking
+                                </h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                        <div className="p-2 rounded-lg bg-emerald-100/60 text-emerald-700">
+                                            <User size={15} />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-[10px] uppercase font-bold text-gray-400">Created By</div>
+                                            <div className="font-bold text-gray-900">{data.createdByName || 'System'}</div>
+                                            <div className="text-xs text-gray-500">
+                                                {data.createdAt ? new Date(data.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-start gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                                        <div className="p-2 rounded-lg bg-indigo-100/60 text-indigo-700">
+                                            <Edit3 size={15} />
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <div className="text-[10px] uppercase font-bold text-gray-400">Last Updated By</div>
+                                            <div className="font-bold text-gray-900">{data.updatedByName || data.createdByName || 'System'}</div>
+                                            <div className="text-xs text-gray-500">
+                                                {data.updatedAt ? new Date(data.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
                     </div>
                 </div>

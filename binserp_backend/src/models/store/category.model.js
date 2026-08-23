@@ -12,11 +12,25 @@ export const categorySchema = new mongoose.Schema(
     unit: { type: String, default: "PCS" },
     hsnCode: { type: String },
     description: { type: String, default: "" },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
+    }
   },
   { timestamps: true }
 );
-
-// Material Master Schema
 
 // Indexes
 categorySchema.index({ company: 1, code: 1 }, { unique: true });

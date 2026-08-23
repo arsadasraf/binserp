@@ -26,6 +26,22 @@ export const consumableItemSchema = new mongoose.Schema(
         (val) => val.length <= 2,
         '{PATH} exceeds the limit of 2'
       ]
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
     }
   },
   { timestamps: true }

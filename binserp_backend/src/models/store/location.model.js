@@ -11,11 +11,25 @@ export const locationSchema = new mongoose.Schema(
     code: { type: String },
     type: { type: String, enum: ['Rack', 'Bin', 'Bucket', 'Pallet', 'Table', 'Almirah', 'Shelf', 'Floor', 'Cabinet', 'Box', 'Container'], default: 'Rack' },
     description: String,
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    createdByName: {
+      type: String,
+      default: "System",
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "System",
+    }
   },
   { timestamps: true }
 );
-
-// Category Master Schema
 
 // Indexes
 locationSchema.index({ company: 1, code: 1 }, { unique: true });

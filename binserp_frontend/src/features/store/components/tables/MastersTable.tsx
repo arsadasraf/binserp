@@ -511,6 +511,9 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                     <th className="px-6 py-3 text-left font-semibold text-gray-900">Location</th>
                                 </>
                             )}
+                            {(masterTab !== "grn-history" && masterTab !== "fg-grn-history" && masterTab !== "po-history") && (
+                                <th className="px-6 py-3 text-left font-semibold text-gray-900">Activity</th>
+                            )}
                             <th className="px-6 py-3 text-right font-semibold text-gray-900">Actions</th>
                         </tr>
                     </thead>
@@ -608,6 +611,16 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                                 </td>
                                             </>
                                         )}
+                                        <td className="px-6 py-4 text-xs text-gray-500 whitespace-nowrap">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-gray-800 font-medium">
+                                                    {item.updatedByName || item.createdByName || 'System'}
+                                                </span>
+                                                <span className="text-[11px] text-gray-400">
+                                                    {item.updatedAt ? new Date(item.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
+                                                </span>
+                                            </div>
+                                        </td>
                                     </>
                                 )}
                                 <td className="px-6 py-4 text-right">
@@ -788,6 +801,15 @@ export default function MastersTable({ data, masterTab, onEdit, onDelete }: Mast
                                     <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(item.date).toLocaleDateString()}</span></div>
                                     <div className="flex justify-between"><span className="text-gray-500">Amount:</span> <span className="font-bold">₹ {(item.totalAmount || item.amount || 0).toFixed(2)}</span></div>
                                 </>
+                            )}
+
+                            {(masterTab !== "grn-history" && masterTab !== "fg-grn-history" && masterTab !== "po-history") && (
+                                <div className="flex justify-between items-center pt-1.5 border-t border-gray-100 text-xs">
+                                    <span className="text-gray-500">Activity By:</span>
+                                    <span className="font-medium text-gray-800">
+                                        {item.updatedByName || item.createdByName || 'System'} {item.updatedAt ? `(${new Date(item.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })})` : ''}
+                                    </span>
+                                </div>
                             )}
                         </div>
 

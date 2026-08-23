@@ -6,6 +6,7 @@ import {
   categorySchema, jobWorkSupplierSchema, fgItemSchema, inventorySchema, storePrefixSchema
 } from "../../models/store/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -14,6 +15,7 @@ const getCompanyId = (req) => {
 export const bulkImportMasters = asyncHandler(async (req, res) => {
   const { masterTab, items, overwrite } = req.body;
   const companyId = getCompanyId(req);
+  const { userId, userName } = getUserAudit(req);
 
   if (!companyId) {
     throw new ApiError(400, "Company ID could not be determined from request context.");
@@ -164,7 +166,11 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
         categoryId: category?._id,
-        ...(locationId ? { locationId } : {})
+        ...(locationId ? { locationId } : {}),
+        createdBy: userId,
+        createdByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
       };
 
       let rmBoItem = null;
@@ -235,6 +241,9 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
   } else if (masterTab === 'fg-items') {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const Location = req.getModel('Location', locationSchema);
+    const Category = req.getModel('Category', categorySchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
     req.getModel('Material', rmBoItemSchema); // Register Material ref for Mongoose refPath
     const Inventory = req.getModel('Inventory', inventorySchema);
@@ -242,7 +251,40 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
 
     const prefixSettings = await StorePrefix.findOne({ company: companyId });
     const fgPrefix = prefixSettings?.finishedGoodsPrefix || "FG";
+    const rmPrefix = prefixSettings?.rawMaterialPrefix || "RM";
+    const boPrefix = prefixSettings?.boughtOutPrefix || "BO";
     let currentCount = await FGItem.countDocuments({ company: companyId });
+
+    // Pre-resolve or auto-create default categories for RM and BO items
+    let defaultRMCat = await Category.findOne({ company: companyId, name: { $regex: /^raw material/i } });
+    if (!defaultRMCat) {
+      try {
+        defaultRMCat = await Category.create({
+          company: companyId,
+          name: "Raw Material",
+          code: `CAT-${Math.floor(1000 + Math.random() * 9000)}`,
+          unit: "PCS",
+          description: "Default Raw Material Category"
+        });
+      } catch (e) {
+        defaultRMCat = await Category.findOne({ company: companyId });
+      }
+    }
+
+    let defaultBOCat = await Category.findOne({ company: companyId, name: { $regex: /^bought out/i } });
+    if (!defaultBOCat) {
+      try {
+        defaultBOCat = await Category.create({
+          company: companyId,
+          name: "Bought Out",
+          code: `CAT-${Math.floor(1000 + Math.random() * 9000)}`,
+          unit: "PCS",
+          description: "Default Bought Out Category"
+        });
+      } catch (e) {
+        defaultBOCat = defaultRMCat || await Category.findOne({ company: companyId });
+      }
+    }
 
     for (const item of items) {
       if (!item.name) continue;
@@ -299,10 +341,9 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         const bQty = Number(bItem.quantity || 1) || 1;
         const bUnit = (bItem.unit || 'Nos').toString().trim();
         const rawTypeStr = (bItem.itemType || '').toString().trim().toLowerCase();
-        const isFG = rawTypeStr.includes('fg') || rawTypeStr.includes('sub') || rawTypeStr.includes('comp');
 
-        if (isFG) {
-          // Resolve or auto-create in FGItem
+        if (rawTypeStr.includes('fg') || rawTypeStr.includes('sub') || rawTypeStr.includes('assembly')) {
+          // 1. Resolve or auto-create in FGItem
           let subFg = await FGItem.findOne({
             company: companyId,
             name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
@@ -315,7 +356,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
                 code: `${fgPrefix}-${String(++currentCount).padStart(4, '0')}`,
                 type: 'Component',
                 unit: bUnit,
-                description: 'Auto-created component from FG BOM import'
+                description: bItem.description || 'Auto-created component from FG BOM import'
               });
             } catch (e) {
               subFg = await FGItem.findOne({ company: companyId, name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
@@ -331,21 +372,79 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
               unit: bUnit || subFg.unit || 'Nos'
             });
           }
+        } else if (rawTypeStr.includes('bought') || rawTypeStr === 'bo' || rawTypeStr === 'boughtout') {
+          // 2. Resolve or auto-create in BoughtOut & Inventory
+          let boItem = await BoughtOut.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!boItem) {
+            boItem = await RmBoItem.findOne({
+              company: companyId,
+              name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+
+          if (!boItem) {
+            try {
+              const boCode = `${boPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
+              boItem = await BoughtOut.create({
+                company: companyId,
+                name: bName,
+                code: boCode,
+                categoryId: defaultBOCat?._id,
+                descriptions: bItem.description || 'Auto-created bought out item from FG BOM import'
+              });
+
+              await Inventory.create({
+                company: companyId,
+                materialCode: boCode,
+                materialName: bName,
+                unit: bUnit,
+                currentStock: 0,
+                reorderLevel: 0,
+                reorderQuantity: 0,
+                materialId: boItem._id
+              });
+            } catch (e) {
+              console.error("Auto-create BoughtOut error:", e);
+              boItem = await BoughtOut.findOne({ company: companyId, name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+            }
+          }
+
+          if (boItem) {
+            resolvedBOM.push({
+              itemType: 'BoughtOut',
+              item: boItem._id,
+              itemName: boItem.name,
+              quantity: bQty,
+              unit: bUnit || 'Nos'
+            });
+          }
         } else {
-          // Resolve or auto-create in RmBoItem & Inventory
-          let rmItem = await RmBoItem.findOne({
+          // 3. Resolve or auto-create in RawMaterial & Inventory
+          let rmItem = await RawMaterial.findOne({
             company: companyId,
             name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
           });
           if (!rmItem) {
+            rmItem = await RmBoItem.findOne({
+              company: companyId,
+              name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+
+          if (!rmItem) {
             try {
-              rmItem = await RmBoItem.create({
+              const matCode = `${rmPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
+              rmItem = await RawMaterial.create({
                 company: companyId,
                 name: bName,
-                descriptions: 'Auto-created raw material from FG BOM import'
+                code: matCode,
+                categoryId: defaultRMCat?._id,
+                descriptions: bItem.description || 'Auto-created raw material from FG BOM import'
               });
 
-              const matCode = `RM-${Math.floor(10000 + Math.random() * 90000)}`;
               await Inventory.create({
                 company: companyId,
                 materialCode: matCode,
@@ -357,17 +456,18 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
                 materialId: rmItem._id
               });
             } catch (e) {
-              rmItem = await RmBoItem.findOne({ company: companyId, name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+              console.error("Auto-create RawMaterial error:", e);
+              rmItem = await RawMaterial.findOne({ company: companyId, name: { $regex: new RegExp(`^${bName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
             }
           }
 
           if (rmItem) {
             resolvedBOM.push({
-              itemType: 'Material',
+              itemType: 'RawMaterial',
               item: rmItem._id,
               itemName: rmItem.name,
               quantity: bQty,
-              unit: bUnit || rmItem.unit || 'Nos'
+              unit: bUnit || 'Nos'
             });
           }
         }
@@ -384,7 +484,11 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         revisionNumber: item.revisionNumber || '',
         description: item.description || '',
         ...(locationId ? { location: locationId } : {}),
-        ...(resolvedBOM.length > 0 ? { bom: resolvedBOM } : {})
+        ...(resolvedBOM.length > 0 ? { bom: resolvedBOM } : {}),
+        createdBy: userId,
+        createdByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
       };
 
       if (overwrite) {
@@ -439,6 +543,10 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         district: item.district || item.billingDistrict || '',
         billingDistrict: item.billingDistrict || item.district || '',
         shippingDistrict: item.shippingDistrict || item.district || '',
+        createdBy: userId,
+        createdByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
       };
 
       if (overwrite) {
@@ -493,6 +601,10 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         district: item.district || item.billingDistrict || '',
         billingDistrict: item.billingDistrict || item.district || '',
         shippingDistrict: item.shippingDistrict || item.district || '',
+        createdBy: userId,
+        createdByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
       };
 
       if (overwrite) {
@@ -524,6 +636,10 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         code,
         type: matchedType,
         description: item.description || (item.rackNumber ? `Rack: ${item.rackNumber}${item.binNumber ? `, Bin: ${item.binNumber}` : ''}` : ''),
+        createdBy: userId,
+        createdByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
       };
 
       if (overwrite) {
@@ -551,6 +667,10 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         unit: item.unit || 'PCS',
         hsnCode: item.hsnCode ? String(item.hsnCode).trim() : '',
         description: item.description || '',
+        createdBy: userId,
+        createdByName: userName,
+        updatedBy: userId,
+        updatedByName: userName
       };
 
       if (overwrite) {

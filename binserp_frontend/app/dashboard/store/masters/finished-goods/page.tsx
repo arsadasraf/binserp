@@ -11,10 +11,11 @@ import { StoreFormData } from '@/src/features/store/types/store.types';
 
 export default function FinishedGoodsPage() {
   const { data: finishedGoods = [], isLoading } = useGetStoreDataQuery("fg-item");
+  const { data: rawMaterials = [] } = useGetStoreDataQuery("raw-material");
+  const { data: boughtOuts = [] } = useGetStoreDataQuery("bought-out");
   const { data: categories = [] } = useGetStoreDataQuery("category");
   const { data: locations = [] } = useGetStoreDataQuery("location");
   const { data: customers = [] } = useGetStoreDataQuery("customer");
-  const { data: materials = [] } = useGetStoreDataQuery("rm-bo-item");
 
   const [deleteRecord] = useDeleteStoreRecordMutation();
   const [createRecord, { isLoading: isCreating }] = useCreateStoreRecordMutation();
@@ -52,9 +53,12 @@ export default function FinishedGoodsPage() {
       Object.keys(formData).forEach((key) => {
         if (key === 'bom' && Array.isArray(formData.bom)) {
           const cleanedBOM = formData.bom.map((bItem: any) => ({
-            ...bItem,
-            item: typeof bItem.item === 'object' && bItem.item !== null ? bItem.item._id : bItem.item
-          }));
+            itemType: bItem.itemType || 'RawMaterial',
+            item: typeof bItem.item === 'object' && bItem.item !== null ? bItem.item._id : bItem.item,
+            itemName: bItem.itemName || '',
+            quantity: Number(bItem.quantity) || 1,
+            unit: bItem.unit || 'Nos'
+          })).filter((b: any) => b.item && b.itemName);
           submitData.append('bom', JSON.stringify(cleanedBOM));
         } else if (key === 'photos' && Array.isArray(formData.photos)) {
           formData.photos.forEach((photo: any) => {
@@ -132,7 +136,8 @@ export default function FinishedGoodsPage() {
             categories={categories}
             locations={locations}
             customers={customers}
-            materials={materials}
+            rawMaterials={rawMaterials}
+            boughtOuts={boughtOuts}
             fgItems={finishedGoods}
             photos={photos}
             setPhotos={setPhotos}

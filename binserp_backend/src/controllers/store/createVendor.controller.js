@@ -4,6 +4,7 @@ import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../mod
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -82,12 +83,18 @@ export const createVendor = async (req, res) => {
       swiftCode: bankDetails.swiftCode || "",
     } : {};
 
+    const { userId, userName } = getUserAudit(req);
+
     const vendor = await Vendor.create({
       ...otherData,
       name,
       code,
       bankDetails: formattedBankDetails,
-      company: companyId
+      company: companyId,
+      createdBy: userId,
+      createdByName: userName,
+      updatedBy: userId,
+      updatedByName: userName
     });
 
     res.status(201).json({ message: "Vendor created successfully", vendor });

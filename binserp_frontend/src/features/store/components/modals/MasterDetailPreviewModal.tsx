@@ -355,7 +355,12 @@ export default function MasterDetailPreviewModal({
                     )}
 
                     {/* RM/BO & CONSUMABLE ITEM VIEW */}
-                    {(tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material' || tabKey === 'consumable-item' || tabKey === 'consumables' || tabKey === 'consumable') && (
+                    {(
+                        tabKey === 'raw-material' || tabKey === 'raw-materials' || tabKey === 'rm-item' || tabKey === 'rm-items' ||
+                        tabKey === 'bought-out' || tabKey === 'bought-outs' || tabKey === 'bo-item' || tabKey === 'bo-items' ||
+                        tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material' || tabKey === 'rm-bo' ||
+                        tabKey === 'consumable-item' || tabKey === 'consumables' || tabKey === 'consumable'
+                    ) && (
                         <div className="space-y-6">
                             {/* Grid 1: Core Specifications */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -553,9 +558,29 @@ export default function MasterDetailPreviewModal({
                                                         <td className="px-3 py-2 font-mono text-slate-400">{idx + 1}</td>
                                                         <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{b.itemName || '-'}</td>
                                                         <td className="px-3 py-2">
-                                                            <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold rounded text-[10px]">
-                                                                {b.itemType || 'Material'}
-                                                            </span>
+                                                            {(() => {
+                                                                const rawType = (b.itemType || 'RawMaterial').toString();
+                                                                if (rawType === 'FGItem' || rawType.toLowerCase().includes('fg')) {
+                                                                    const specificType = b.item?.type || 'Component';
+                                                                    return (
+                                                                        <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold rounded text-[10px] border border-purple-200 dark:border-purple-800">
+                                                                            FG {specificType}
+                                                                        </span>
+                                                                    );
+                                                                } else if (rawType === 'BoughtOut' || rawType.toLowerCase().includes('bought') || rawType === 'BO') {
+                                                                    return (
+                                                                        <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold rounded text-[10px] border border-amber-200 dark:border-amber-800">
+                                                                            Bought Out (BO)
+                                                                        </span>
+                                                                    );
+                                                                } else {
+                                                                    return (
+                                                                        <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold rounded text-[10px] border border-blue-200 dark:border-blue-800">
+                                                                            Raw Material (RM)
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                            })()}
                                                         </td>
                                                         <td className="px-3 py-2 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
                                                             {b.quantity || 1} {b.unit || 'Nos'}
@@ -624,13 +649,43 @@ export default function MasterDetailPreviewModal({
                         </div>
                     )}
 
+                    {/* Audit & History Card */}
+                    <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+                        <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">
+                            <ShieldCheck size={14} className="text-indigo-500" /> Audit & Tracking Information
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                            <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60">
+                                <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
+                                    <User size={15} />
+                                </div>
+                                <div className="space-y-0.5">
+                                    <div className="text-[10px] uppercase font-bold text-slate-400">Created By</div>
+                                    <div className="font-bold text-slate-800 dark:text-slate-200">{item.createdByName || 'System'}</div>
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        {item.createdAt ? new Date(item.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Initial creation'}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60">
+                                <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                                    <Edit3 size={15} />
+                                </div>
+                                <div className="space-y-0.5">
+                                    <div className="text-[10px] uppercase font-bold text-slate-400">Last Updated By</div>
+                                    <div className="font-bold text-slate-800 dark:text-slate-200">{item.updatedByName || item.createdByName || 'System'}</div>
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        {item.updatedAt ? new Date(item.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Recent'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Metadata Footer */}
-                    <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-[11px] text-slate-400">
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-[11px] text-slate-400">
                         <div>
                             Record ID: <span className="font-mono text-slate-500">{item._id || 'N/A'}</span>
-                        </div>
-                        <div>
-                            Last Updated: <span className="text-slate-600 dark:text-slate-300 font-medium">{item.updatedAt ? new Date(item.updatedAt).toLocaleString() : 'Recent'}</span>
                         </div>
                     </div>
 

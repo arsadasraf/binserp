@@ -4,6 +4,7 @@ import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../mod
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -49,7 +50,8 @@ export const updateVendor = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
-    let updateData = { ...req.body };
+    const { userId, userName } = getUserAudit(req);
+    let updateData = { ...req.body, updatedBy: userId, updatedByName: userName };
     if (req.body.bankDetails) {
       updateData.bankDetails = {
         accountNumber: req.body.bankDetails.accountNumber || "",

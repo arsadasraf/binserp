@@ -279,10 +279,16 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
                 </table>
             </div>
         `;
-    } else if (tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material' || tabKey === 'consumable-item' || tabKey === 'consumables') {
-        const isConsumable = tabKey === 'consumable-item' || tabKey === 'consumables';
-        docTitle = isConsumable ? 'CONSUMABLE ITEM SPECIFICATION' : 'RAW MATERIAL & BOUGHT OUT ITEM SPECIFICATION';
-        docThemeColor = isConsumable ? '#0d9488' : '#2563eb'; // Teal / Blue
+    } else if (
+        tabKey === 'raw-material' || tabKey === 'raw-materials' || tabKey === 'rm-item' || tabKey === 'rm-items' ||
+        tabKey === 'bought-out' || tabKey === 'bought-outs' || tabKey === 'bo-item' || tabKey === 'bo-items' ||
+        tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material' || tabKey === 'rm-bo' ||
+        tabKey === 'consumable-item' || tabKey === 'consumables' || tabKey === 'consumable'
+    ) {
+        const isConsumable = tabKey === 'consumable-item' || tabKey === 'consumables' || tabKey === 'consumable';
+        const isBO = tabKey === 'bought-out' || tabKey === 'bought-outs' || tabKey === 'bo-item' || tabKey === 'bo-items';
+        docTitle = isConsumable ? 'CONSUMABLE ITEM SPECIFICATION' : (isBO ? 'BOUGHT OUT ITEM SPECIFICATION' : 'RAW MATERIAL SPECIFICATION');
+        docThemeColor = isConsumable ? '#0d9488' : (isBO ? '#d97706' : '#2563eb'); // Teal / Amber / Blue
         const m = item;
         const catName = typeof m.categoryId === 'object' ? m.categoryId?.name : m.category || '-';
         const catUnit = typeof m.categoryId === 'object' ? m.categoryId?.unit : m.unit || 'PCS';

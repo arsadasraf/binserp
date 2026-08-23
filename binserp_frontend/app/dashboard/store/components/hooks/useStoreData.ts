@@ -40,6 +40,9 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: locationsData = [] } = useGetStoreDataQuery("location", { skip: !token });
     const { data: categoriesData = [] } = useGetStoreDataQuery("category", { skip: !token });
     const { data: materialsData = [] } = useGetStoreDataQuery("rm-bo-item", { skip: !token });
+    const { data: rawMaterialsData = [] } = useGetStoreDataQuery("raw-materials", { skip: !token });
+    const { data: boughtOutsData = [] } = useGetStoreDataQuery("bought-out", { skip: !token });
+    const { data: consumablesData = [] } = useGetStoreDataQuery("consumable-item", { skip: !token });
     const { data: jobWorkSuppliersData = [] } = useGetStoreDataQuery("job-work-supplier", { skip: !token });
     const { data: processesData = [] } = useGetStoreDataQuery("process", { skip: !token });
     const { data: companyInfoData } = useGetStoreDataQuery("company-info", { skip: !token });
@@ -707,6 +710,9 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         jobWorkSuppliers, // Added
         priceLists, // Added
         vendorPriceLists: vendorPriceListsData,
+        rawMaterials: rawMaterialsData,
+        boughtOuts: boughtOutsData,
+        consumables: consumablesData,
         refetch: fetchData,
     };
 }

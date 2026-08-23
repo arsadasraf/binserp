@@ -76,18 +76,49 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         title: 'Finished Goods Items Master Template',
         filename: 'Template_Finished_Goods_Master.xlsx',
         columns: [
-            { label: 'FG Name*', key: 'name', required: true, sample: 'Electric Motor Assembly' },
             { label: 'FG Code', key: 'code', sample: 'FG-0001' },
+            { label: 'FG Name*', key: 'name', required: true, sample: 'Electric Motor 2HP' },
+            { label: 'Description', key: 'description', sample: '3-Phase AC Induction Motor 2HP 415V' },
+            { label: 'Revision Number', key: 'revisionNumber', sample: 'Rev 1.0' },
             { label: 'Item Type* (Assembly/Sub Assembly/Component)', key: 'type', required: true, sample: 'Assembly' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'Nos' },
             { label: 'Storage Location', key: 'location', sample: 'Main Store' },
-            { label: 'Revision Number', key: 'revisionNumber', sample: 'Rev 1.0' },
             { label: 'Reorder Level', key: 'reorderLevel', sample: 10 },
-            { label: 'Description', key: 'description', sample: '3-Phase AC Electric Motor 2HP' },
-            { label: 'BOM Item Name', key: 'bomItemName', sample: 'Copper Wire 0.5mm' },
-            { label: 'BOM Item Type (Material/FGItem)', key: 'bomItemType', sample: 'Material' },
-            { label: 'BOM Quantity', key: 'bomQuantity', sample: 2.5 },
-            { label: 'BOM Unit', key: 'bomUnit', sample: 'KG' }
+            
+            // BOM Set 1
+            { label: 'BOM 1 Item Name', key: 'bom1ItemName', sample: 'Copper Wire 0.5mm' },
+            { label: 'BOM 1 Item Type (RM / BO / FG)', key: 'bom1ItemType', sample: 'RM' },
+            { label: 'BOM 1 Quantity', key: 'bom1Quantity', sample: 2.5 },
+            { label: 'BOM 1 Unit', key: 'bom1Unit', sample: 'KG' },
+            { label: 'BOM 1 Description', key: 'bom1Description', sample: 'Enameled copper magnet wire' },
+
+            // BOM Set 2
+            { label: 'BOM 2 Item Name', key: 'bom2ItemName', sample: 'Deep Groove Ball Bearing 6204' },
+            { label: 'BOM 2 Item Type (RM / BO / FG)', key: 'bom2ItemType', sample: 'BO' },
+            { label: 'BOM 2 Quantity', key: 'bom2Quantity', sample: 2 },
+            { label: 'BOM 2 Unit', key: 'bom2Unit', sample: 'Nos' },
+            { label: 'BOM 2 Description', key: 'bom2Description', sample: 'SKF Rubber sealed bearing' },
+
+            // BOM Set 3
+            { label: 'BOM 3 Item Name', key: 'bom3ItemName', sample: 'Rotor Shaft Sub-Assembly' },
+            { label: 'BOM 3 Item Type (RM / BO / FG)', key: 'bom3ItemType', sample: 'FG' },
+            { label: 'BOM 3 Quantity', key: 'bom3Quantity', sample: 1 },
+            { label: 'BOM 3 Unit', key: 'bom3Unit', sample: 'Nos' },
+            { label: 'BOM 3 Description', key: 'bom3Description', sample: 'Machined rotor assembly' },
+
+            // BOM Set 4
+            { label: 'BOM 4 Item Name', key: 'bom4ItemName', sample: '' },
+            { label: 'BOM 4 Item Type (RM / BO / FG)', key: 'bom4ItemType', sample: '' },
+            { label: 'BOM 4 Quantity', key: 'bom4Quantity', sample: '' },
+            { label: 'BOM 4 Unit', key: 'bom4Unit', sample: '' },
+            { label: 'BOM 4 Description', key: 'bom4Description', sample: '' },
+
+            // BOM Set 5
+            { label: 'BOM 5 Item Name', key: 'bom5ItemName', sample: '' },
+            { label: 'BOM 5 Item Type (RM / BO / FG)', key: 'bom5ItemType', sample: '' },
+            { label: 'BOM 5 Quantity', key: 'bom5Quantity', sample: '' },
+            { label: 'BOM 5 Unit', key: 'bom5Unit', sample: '' },
+            { label: 'BOM 5 Description', key: 'bom5Description', sample: '' }
         ]
     },
     'inhouse-items': {
@@ -289,19 +320,23 @@ export const downloadMasterExcelTemplate = (masterTab: string) => {
     let rows: any[][] = [];
 
     if (key === 'fg-items') {
-        // Multi-row BOM demonstration in sample template
+        // Single-row Multi-BOM demonstration in sample template
         rows = [
             [
-                'Electric Motor Assembly', 'FG-0001', 'Assembly', 'Nos', 'Main Store', 'Rev 1.0', 10,
-                '3-Phase AC Electric Motor 2HP', 'Copper Wire 0.5mm', 'Material', 2.5, 'KG'
+                'FG-0001', 'Electric Motor 2HP', '3-Phase AC Induction Motor 2HP 415V', 'Rev 1.0', 'Assembly', 'Nos', 'Main Store', 10,
+                'Copper Wire 0.5mm', 'RM', 2.5, 'KG', 'Enameled copper magnet wire Grade 2',
+                'Deep Groove Ball Bearing 6204', 'BO', 2, 'Nos', 'SKF Rubber sealed bearing',
+                'Rotor Shaft Sub-Assembly', 'FG', 1, 'Nos', 'Precision machined rotor with shaft',
+                '', '', '', '', '',
+                '', '', '', '', ''
             ],
             [
-                'Electric Motor Assembly', 'FG-0001', 'Assembly', 'Nos', 'Main Store', 'Rev 1.0', 10,
-                '3-Phase AC Electric Motor 2HP', 'Rotor Shaft 25mm', 'FGItem', 1, 'Nos'
-            ],
-            [
-                'Electric Motor Assembly', 'FG-0001', 'Assembly', 'Nos', 'Main Store', 'Rev 1.0', 10,
-                '3-Phase AC Electric Motor 2HP', 'Ball Bearing 6204', 'Material', 2, 'Nos'
+                'FG-0002', 'Water Pump 1HP', 'Centrifugal monoblock pump 1HP', 'Rev 1.0', 'Assembly', 'Nos', 'Pump Store', 5,
+                'Cast Iron Impeller 120mm', 'RM', 1, 'Nos', 'Grade FG260 grey iron impeller',
+                'Mechanical Shaft Seal 16mm', 'BO', 1, 'Set', 'Silicon carbide mechanical seal',
+                '', '', '', '', '',
+                '', '', '', '', '',
+                '', '', '', '', ''
             ]
         ];
     } else {
@@ -322,15 +357,15 @@ export const STORE_COLUMN_ALIASES: Record<string, string[]> = {
     // Finished Goods
     'name': ['fg name', 'finished good name', 'finished goods name', 'item name', 'product name', 'name', 'component name', 'material name', 'supplier name', 'customer name', 'location name', 'category name'],
     'code': ['fg code', 'item code', 'part code', 'part no', 'part number', 'code', 'component code', 'supplier code', 'vendor code', 'customer code', 'location code', 'category code', 'material code'],
-    'type': ['item type', 'type', 'fg item type', 'item type (assembly/sub assembly/component)', 'storage type', 'customer type', 'component type'],
+    'type': ['item type', 'type', 'fg type', 'fg item type', 'product type', 'classification', 'item type (assembly/sub assembly/component)', 'item type (assembly/sub assembly)', 'assembly type', 'category', 'item category', 'type (assembly/sub assembly/component)'],
     'unit': ['unit', 'uom', 'unit of measure', 'default unit', 'unit*'],
     'location': ['storage location', 'location', 'store location', 'location name'],
     'revisionNumber': ['revision number', 'revision', 'rev no', 'rev', 'rev.', 'revision no'],
     'reorderLevel': ['reorder level', 'reorder qty', 'reorder point', 'min stock', 'minimum stock', 'reorder'],
     'description': ['description', 'desc', 'specification', 'specifications', 'specs', 'remarks', 'note', 'notes', 'descriptions'],
-    'bomItemName': ['bom item name', 'bom item', 'bom component', 'bom material', 'raw material', 'bom part name', 'component'],
-    'bomItemType': ['bom item type', 'bom type', 'bom item type (material/fgitem)', 'bom type (material/fgitem)'],
-    'bomQuantity': ['bom quantity', 'bom qty', 'quantity', 'qty', 'bom count'],
+    'bomItemName': ['bom item name', 'bom item', 'bom component', 'bom material', 'raw material', 'bom part name', 'component', 'component name'],
+    'bomItemType': ['bom item type', 'bom type', 'bom item type (rm / bo / fg)', 'bom item type (rm/bo/fg)', 'bom item type (material/fgitem)', 'bom type (rm / bo / fg)', 'item type (rm / bo / fg)', 'bom classification'],
+    'bomQuantity': ['bom quantity', 'bom qty', 'quantity', 'qty', 'bom count', 'bom quantity required'],
     'bomUnit': ['bom unit', 'bom uom', 'unit'],
 
     // Raw Material & Bought Out
@@ -458,24 +493,45 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                     });
                 });
 
-                // Pass 2: Match against aliases
+                // Pass 2: Match against aliases and dynamic BOM numbered column patterns
                 config.columns.forEach(col => {
                     if (colKeyToHeaderIndex[col.key] !== undefined) return;
                     const aliases = STORE_COLUMN_ALIASES[col.key] || [];
+
+                    // Generate dynamic aliases for numbered BOM column keys (bom1ItemName, bom1ItemType, etc.)
+                    const bomMatch = col.key.match(/^bom(\d+)(itemname|itemtype|quantity|unit|description)$/i);
+                    const dynamicBomAliases: string[] = [];
+                    if (bomMatch) {
+                        const num = bomMatch[1];
+                        const field = bomMatch[2].toLowerCase();
+                        if (field === 'itemname') {
+                            dynamicBomAliases.push(`bom ${num} item name`, `bom ${num} name`, `bom ${num} item`, `bom ${num} component`, `bom ${num} material`, `bom ${num} part`, `bom ${num}`);
+                        } else if (field === 'itemtype') {
+                            dynamicBomAliases.push(`bom ${num} item type`, `bom ${num} type`, `bom ${num} item type (rm / bo / fg)`, `bom ${num} item type (rm/bo/fg)`, `bom ${num} type (rm/bo/fg)`, `bom ${num} classification`, `bom ${num} category`);
+                        } else if (field === 'quantity') {
+                            dynamicBomAliases.push(`bom ${num} quantity`, `bom ${num} qty`, `bom ${num} count`, `bom ${num} quantity required`, `bom ${num} req qty`);
+                        } else if (field === 'unit') {
+                            dynamicBomAliases.push(`bom ${num} unit`, `bom ${num} uom`, `bom ${num} unit of measure`);
+                        } else if (field === 'description') {
+                            dynamicBomAliases.push(`bom ${num} description`, `bom ${num} desc`, `bom ${num} specifications`, `bom ${num} specs`, `bom ${num} remarks`, `bom ${num} note`);
+                        }
+                    }
+
+                    const allAliases = [...aliases, ...dynamicBomAliases];
 
                     uploadedHeaders.forEach((uploadedHeader, index) => {
                         if (usedHeaderIndices.has(index)) return;
                         const cleanUploaded = cleanHeaderStr(uploadedHeader);
                         if (!cleanUploaded) return;
 
-                        if (aliases.some(alias => cleanHeaderStr(alias) === cleanUploaded)) {
+                        if (allAliases.some(alias => cleanHeaderStr(alias) === cleanUploaded)) {
                             colKeyToHeaderIndex[col.key] = index;
                             usedHeaderIndices.add(index);
                         }
                     });
                 });
 
-                // Pass 3: Fuzzy / Substring match for missing required columns
+                // Pass 3: Fuzzy / Substring match for missing columns
                 config.columns.forEach(col => {
                     if (colKeyToHeaderIndex[col.key] !== undefined) return;
                     const cleanColLabel = cleanHeaderStr(col.label);
@@ -595,7 +651,7 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                     }
                 });
 
-                // Finished Goods: Multi-row BOM aggregation
+                // Finished Goods: Multi-BOM aggregation (Supports both Single-Row Column Sets & Multi-Row formats)
                 if (key === 'fg-items') {
                     const groupedMap = new Map<string, any>();
                     let lastFgKey = '';
@@ -624,15 +680,49 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                         }
 
                         const existing = groupedMap.get(targetKey);
+
+                        // 1. Check Single-Row Multi-BOM column sets (BOM 1 to BOM 20)
+                        for (let i = 1; i <= 20; i++) {
+                            const bName = item[`bom${i}ItemName`];
+                            if (bName && String(bName).trim() !== '') {
+                                const rawBomType = String(item[`bom${i}ItemType`] || '').trim().toLowerCase();
+                                let normalizedBomType = 'RawMaterial';
+                                if (rawBomType.includes('fg') || rawBomType.includes('sub') || rawBomType.includes('assembly')) {
+                                    normalizedBomType = 'FGItem';
+                                } else if (rawBomType.includes('bought') || rawBomType === 'bo' || rawBomType === 'boughtout') {
+                                    normalizedBomType = 'BoughtOut';
+                                } else {
+                                    normalizedBomType = 'RawMaterial';
+                                }
+
+                                existing.bom.push({
+                                    itemName: String(bName).trim(),
+                                    itemType: normalizedBomType,
+                                    quantity: Number(item[`bom${i}Quantity`] || 1) || 1,
+                                    unit: String(item[`bom${i}Unit`] || 'Nos').trim(),
+                                    description: String(item[`bom${i}Description`] || '').trim()
+                                });
+                            }
+                        }
+
+                        // 2. Check Generic/Single BOM column format (for backward compatibility)
                         if (item.bomItemName && String(item.bomItemName).trim() !== '') {
                             const rawBomType = String(item.bomItemType || '').trim().toLowerCase();
-                            const normalizedBomType = (rawBomType.includes('fg') || rawBomType.includes('sub') || rawBomType.includes('comp') || rawBomType.includes('assembly')) ? 'FGItem' : 'Material';
+                            let normalizedBomType = 'RawMaterial';
+                            if (rawBomType.includes('fg') || rawBomType.includes('sub') || rawBomType.includes('assembly')) {
+                                normalizedBomType = 'FGItem';
+                            } else if (rawBomType.includes('bought') || rawBomType === 'bo' || rawBomType === 'boughtout') {
+                                normalizedBomType = 'BoughtOut';
+                            } else {
+                                normalizedBomType = 'RawMaterial';
+                            }
 
                             existing.bom.push({
                                 itemName: String(item.bomItemName).trim(),
                                 itemType: normalizedBomType,
                                 quantity: Number(item.bomQuantity || 1) || 1,
-                                unit: String(item.bomUnit || 'Nos').trim()
+                                unit: String(item.bomUnit || 'Nos').trim(),
+                                description: String(item.bomDescription || '').trim()
                             });
                         }
 

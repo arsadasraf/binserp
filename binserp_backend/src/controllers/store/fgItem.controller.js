@@ -1,6 +1,7 @@
-import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, storeOrderFulfillmentSchema, storePrefixSchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema } from "../../models/store/index.js";
 import { salesOrderSchema } from "../../models/sales/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
+import { getUserAudit } from "../../utils/userAudit.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -10,6 +11,7 @@ export const createFGItem = async (req, res) => {
   try {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
+    const { userId, userName } = getUserAudit(req);
     let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel } = req.body;
 
     if (!name || !type) {
@@ -71,7 +73,11 @@ export const createFGItem = async (req, res) => {
       reorderLevel: Number(reorderLevel || 0),
       bom: bom || [],
       revisionNumber: revisionNumber || "",
-      photos: photoUrls
+      photos: photoUrls,
+      createdBy: userId,
+      createdByName: userName,
+      updatedBy: userId,
+      updatedByName: userName
     });
 
     res.status(201).json({ message: "FG Item created successfully", fgItem: newFGItem });
@@ -87,12 +93,16 @@ export const getAllFGItems = async (req, res) => {
   try {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     req.getModel('Location', locationSchema);
+    req.getModel('Category', categorySchema);
+    req.getModel('RawMaterial', rawMaterialSchema);
+    req.getModel('BoughtOut', boughtOutSchema);
     req.getModel('RmBoItem', rmBoItemSchema);
+    req.getModel('Material', rmBoItemSchema);
     const companyId = getCompanyId(req);
 
     const fgItems = await FGItem.find({ company: companyId })
       .populate('location', 'name')
-      .populate('bom.item', 'name componentName code componentCode') 
+      .populate('bom.item', 'name componentName code componentCode unit rate descriptions description type') 
       .sort({ createdAt: -1 })
       .lean();
 
@@ -195,6 +205,10 @@ export const updateFGItem = async (req, res) => {
       }
       updateData.photos = photoUrls;
     }
+
+    const { userId, userName } = getUserAudit(req);
+    updateData.updatedBy = userId;
+    updateData.updatedByName = userName;
 
     // Clean up undefined fields
     Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
