@@ -19,23 +19,11 @@ export default function SalesBillingPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Invoice</h1>
-          <p className="text-xs text-gray-500">Manage sales billing and tax invoices</p>
-        </div>
-        <button
-          onClick={() => { setEditingBilling(null); setShowModal(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors"
-        >
-          <Plus size={16} />
-          Create Invoice
-        </button>
-      </div>
-
       <BillingTable
         data={bills || []}
         companyInfo={companyInfo}
+        onAddBill={() => { setEditingBilling(null); setShowModal(true); }}
+        addLabel="Create Invoice"
         onEdit={(b) => { setEditingBilling(b); setShowModal(true); }}
         onDelete={(id) => handleDelete(id)}
       />

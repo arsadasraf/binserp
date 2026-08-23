@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye } from 'lucide-react';
+import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadDCExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import DCPreviewModal from '../modals/DCPreviewModal';
@@ -9,6 +9,7 @@ interface DCTableProps {
     companyInfo?: CompanyInfo;
     onEdit: (item: any) => void;
     onDelete: (id: string) => void;
+    onCreateDC?: () => void;
 }
 
 const generateEWayBill = (dc: any) => {
@@ -40,7 +41,7 @@ const getCurrentMonth = () => {
     return `${year}-${month}`;
 };
 
-export default function DCTable({ data = [], companyInfo, onEdit, onDelete }: DCTableProps) {
+export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCreateDC }: DCTableProps) {
     const currentMonthStr = useMemo(() => getCurrentMonth(), []);
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedCustomerFilter, setSelectedCustomerFilter] = useState("all");
@@ -133,7 +134,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete }: DC
                     />
                 </div>
 
-                <div className="flex flex-wrap gap-2.5 w-full md:w-auto items-center">
+                <div className="flex flex-wrap gap-2.5 w-full md:w-auto items-center justify-between md:justify-end">
                     {/* Customer Filter */}
                     <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
                         <User size={14} className="text-blue-500 shrink-0" />
@@ -160,7 +161,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete }: DC
                             className="bg-transparent font-medium text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                         />
                         {selectedMonth && (
-                            <button onClick={() => setSelectedMonth("")} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5" title="Clear Month">
+                            <button onClick={() => setSelectedMonth("")} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer" title="Clear Month">
                                 <X size={12} />
                             </button>
                         )}
@@ -177,7 +178,7 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete }: DC
                             className="bg-transparent font-medium text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
                         />
                         {selectedDay && (
-                            <button onClick={() => setSelectedDay("")} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5" title="Clear Day">
+                            <button onClick={() => setSelectedDay("")} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer" title="Clear Day">
                                 <X size={12} />
                             </button>
                         )}
@@ -186,9 +187,18 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete }: DC
                     {hasActiveFilters && (
                         <button
                             onClick={resetFilters}
-                            className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline px-2 py-1"
+                            className="text-xs font-semibold text-red-600 dark:text-red-400 hover:underline px-2 py-1 cursor-pointer"
                         >
-                            Reset Filters
+                            Reset
+                        </button>
+                    )}
+
+                    {onCreateDC && (
+                        <button
+                            onClick={onCreateDC}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} /> Create DC
                         </button>
                     )}
                 </div>

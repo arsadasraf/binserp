@@ -1,16 +1,19 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation, useCreateStoreRecordMutation, useUpdateStoreRecordMutation } from '@/src/store/services/storeService';
-import CustomerTable from '@/src/features/store/components/tables/CustomerTable';
+import MaterialTable from '@/src/features/store/components/tables/MaterialTable';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import Modal from '@/src/components/Modal';
 import MasterForm from '@/src/features/store/components/forms/MasterForm';
 import MasterDetailPreviewModal from '@/src/features/store/components/modals/MasterDetailPreviewModal';
 import { StoreFormData } from '@/src/features/store/types/store.types';
 
-export default function CustomersPage() {
-  const { data: customers = [], isLoading } = useGetStoreDataQuery("customer");
+export default function RawMaterialsPage() {
+  const { data: rawMaterials = [], isLoading } = useGetStoreDataQuery("raw-material");
+  const { data: categories = [] } = useGetStoreDataQuery("category");
+  const { data: locations = [] } = useGetStoreDataQuery("location");
+  
   const [deleteRecord] = useDeleteStoreRecordMutation();
   const [createRecord, { isLoading: isCreating }] = useCreateStoreRecordMutation();
   const [updateRecord, { isLoading: isUpdating }] = useUpdateStoreRecordMutation();
@@ -20,37 +23,23 @@ export default function CustomersPage() {
   const [previewItem, setPreviewItem] = useState<any>(null);
   const [formData, setFormData] = useState<StoreFormData>({});
 
-  const handleEdit = (customer: any) => {
-    setEditingItem(customer);
-    const normalized = {
-      ...customer,
-      billingAddress: customer.billingAddress || customer.address || "",
-      billingCity: customer.billingCity || customer.city || "",
-      billingState: customer.billingState || customer.state || "",
-      billingPincode: customer.billingPincode || customer.pincode || "",
-      billingDistrict: customer.billingDistrict || customer.district || "",
-      billingCountry: customer.billingCountry || customer.country || "India",
-      shippingAddress: customer.shippingAddress || customer.billingAddress || customer.address || "",
-      shippingCity: customer.shippingCity || customer.billingCity || customer.city || "",
-      shippingState: customer.shippingState || customer.billingState || customer.state || "",
-      shippingPincode: customer.shippingPincode || customer.billingPincode || customer.pincode || "",
-      shippingDistrict: customer.shippingDistrict || customer.billingDistrict || customer.district || "",
-      shippingCountry: customer.shippingCountry || customer.billingCountry || customer.country || "India",
-      address: customer.address || customer.billingAddress || "",
-      city: customer.city || customer.billingCity || "",
-      state: customer.state || customer.billingState || "",
-      pincode: customer.pincode || customer.billingPincode || "",
-    };
-    setFormData(normalized);
+  const handleEdit = (material: any) => {
+    setEditingItem(material);
+    setFormData({
+      ...material,
+      itemType: 'Raw Material'
+    });
     setIsModalOpen(true);
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this customer?")) {
+    if (confirm("Are you sure you want to delete this Raw Material?")) {
       try {
-        await deleteRecord({ tab: "customer", id }).unwrap();
-      } catch (error) {
-        console.error("Failed to delete customer", error);
+        await deleteRecord({ tab: "raw-material", id }).unwrap();
+      } catch (error: any) {
+        console.error("Failed to delete Raw Material", error);
+        const errMsg = error?.data?.message || error?.message || "Failed to delete item";
+        alert(`Error deleting Raw Material: ${errMsg}`);
       }
     }
   };
@@ -58,24 +47,43 @@ export default function CustomersPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const submitData = new FormData();
       const payload = {
         ...formData,
-        address: formData.billingAddress || formData.address || "",
-        city: formData.billingCity || formData.city || "",
-        state: formData.billingState || formData.state || "",
-        pincode: formData.billingPincode || formData.pincode || "",
+        itemType: 'Raw Material'
       };
+
+      Object.keys(payload).forEach((key) => {
+        if (key === 'photos' && Array.isArray(payload.photos)) {
+          payload.photos.forEach((photo: any) => {
+            if (photo instanceof File) {
+              submitData.append('photos', photo);
+            } else if (typeof photo === 'string') {
+              submitData.append('photos', photo);
+            }
+          });
+        } else if (payload[key as keyof StoreFormData] !== undefined && payload[key as keyof StoreFormData] !== null) {
+          const val = payload[key as keyof StoreFormData];
+          if (typeof val === 'object' && val !== null && '_id' in val) {
+            submitData.append(key, (val as any)._id);
+          } else {
+            submitData.append(key, String(val));
+          }
+        }
+      });
+
       if (editingItem) {
-        await updateRecord({ tab: "customer", id: editingItem._id, body: payload }).unwrap();
+        await updateRecord({ tab: "raw-material", id: editingItem._id, body: submitData, isFormData: true }).unwrap();
       } else {
-        await createRecord({ tab: "customer", body: payload }).unwrap();
+        await createRecord({ tab: "raw-material", body: submitData, isFormData: true }).unwrap();
       }
       setIsModalOpen(false);
       setFormData({});
       setEditingItem(null);
-    } catch (error) {
-      console.error("Failed to save customer", error);
-      alert("Failed to save customer");
+    } catch (error: any) {
+      console.error("Failed to save Raw Material", error);
+      const errMsg = error?.data?.message || error?.message || "Failed to save Raw Material. Please check all fields.";
+      alert(`Error saving Raw Material: ${errMsg}`);
     }
   };
 
@@ -84,16 +92,18 @@ export default function CustomersPage() {
   return (
     <div className="space-y-4">
       <div className="h-[calc(100vh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
-        <CustomerTable
+        <MaterialTable
           onAdd={() => {
             setEditingItem(null);
-            setFormData({});
+            setFormData({ itemType: 'Raw Material' });
             setIsModalOpen(true);
           }} 
-          data={customers} 
+          data={rawMaterials} 
           onEdit={handleEdit} 
           onDelete={handleDelete}
-          onView={(customer) => setPreviewItem(customer)}
+          onView={(item) => setPreviewItem(item)}
+          masterTab="raw-material"
+          itemTypeLabel="Raw Material"
         />
       </div>
 
@@ -102,23 +112,25 @@ export default function CustomersPage() {
         isOpen={Boolean(previewItem)}
         onClose={() => setPreviewItem(null)}
         item={previewItem}
-        masterTab="customer"
+        masterTab="raw-material"
         onEdit={(item) => handleEdit(item)}
         onDelete={(id) => handleDelete(id)}
       />
 
       {/* Edit / Add Modal */}
-      <Modal 
-        isOpen={isModalOpen} 
+      <Modal
+        isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingItem ? "Edit Customer" : "Add Customer"}
+        title={editingItem ? "Edit Raw Material (RM)" : "Add Raw Material (RM)"}
         maxWidth="6xl"
       >
         <form onSubmit={handleSubmit} className="space-y-6">
           <MasterForm
             formData={formData}
             setFormData={setFormData}
-            masterTab="customer"
+            masterTab="rm-bo-item"
+            categories={categories}
+            locations={locations}
           />
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
             <button
@@ -133,7 +145,7 @@ export default function CustomersPage() {
               disabled={isCreating || isUpdating}
               className="px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
             >
-              {isCreating || isUpdating ? "Saving..." : "Save Customer"}
+              {isCreating || isUpdating ? "Saving..." : "Save Raw Material"}
             </button>
           </div>
         </form>

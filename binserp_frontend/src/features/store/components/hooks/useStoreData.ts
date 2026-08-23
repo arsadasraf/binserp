@@ -39,6 +39,8 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: customersData = [] } = useGetStoreDataQuery("customer", { skip: !token });
     const { data: locationsData = [] } = useGetStoreDataQuery("location", { skip: !token });
     const { data: categoriesData = [] } = useGetStoreDataQuery("category", { skip: !token });
+    const { data: rawMaterialsData = [], refetch: refetchRawMaterials } = useGetStoreDataQuery("raw-material", { skip: !token });
+    const { data: boughtOutsData = [], refetch: refetchBoughtOuts } = useGetStoreDataQuery("bought-out", { skip: !token });
     const { data: materialsData = [], refetch: refetchMaterials } = useGetStoreDataQuery("rm-bo-item", { skip: !token });
     const { data: consumablesData = [], refetch: refetchConsumables } = useGetStoreDataQuery("consumable-item", { skip: !token });
     const { data: jobWorkSuppliersData = [] } = useGetStoreDataQuery("job-work-supplier", { skip: !token });
@@ -668,8 +670,6 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         quotations: quotationsData,
         locations,
         categories,
-        materials,
-        consumables: consumablesData,
         processes, // Added
 
 
@@ -714,13 +714,13 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         updateMaterialIssue,
         materialRequests,
         inventoryList,
-        inHouseComponents: fgItems,
+        jobWorkSuppliers,
         fgItems,
-        pendingProducts,
-        jobWorkSuppliers, // Added
-        salesOrders: salesOrdersData,
-        priceLists, // Added
-        vendorPriceLists: vendorPriceListsData,
+        inHouseComponents: fgItems,
+        rawMaterials: rawMaterialsData,
+        boughtOuts: boughtOutsData,
+        consumables: consumablesData,
+        materials: materialsData,
         refetch: fetchData,
     };
 }

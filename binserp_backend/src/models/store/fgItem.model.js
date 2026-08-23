@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 
 const fgBOMItemSchema = new mongoose.Schema({
-  // Can reference an RM (Material), another FGItem, or a PPC Component
+  // Can reference an RM (Material / RawMaterial), BoughtOut, another FGItem, or a PPC Component
   itemType: {
     type: String,
-    enum: ["Material", "FGItem", "Component"], // RM = Material, FGItem = FGItem, PPC Component = Component
+    enum: ["Material", "RawMaterial", "BoughtOut", "FGItem", "Component"],
     required: true,
   },
   item: {

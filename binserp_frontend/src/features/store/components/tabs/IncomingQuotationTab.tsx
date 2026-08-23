@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, BarChart3, ShoppingCart, Award, Download, FileSpreadsheet } from 'lucide-react';
+import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, BarChart3, ShoppingCart, Award, Download, FileSpreadsheet, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
@@ -54,13 +54,20 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
     // View / Preview Modal State
     const [selectedQuote, setSelectedQuote] = useState<any | null>(null);
 
+    const [rawMaterials, setRawMaterials] = useState<any[]>([]);
+    const [boughtOuts, setBoughtOuts] = useState<any[]>([]);
+    const [consumables, setConsumables] = useState<any[]>([]);
+
     const fetchData = async () => {
         if (!token) return;
         try {
             setLoading(true);
-            const [quotRes, rfqRes, venRes, compRes] = await Promise.all([
+            const [quotRes, rfqRes, rmRes, boRes, conRes, venRes, compRes] = await Promise.all([
                 apiGet('/api/purchase/quotation', token).catch(() => ({ data: [] })),
                 apiGet('/api/purchase/rfq', token).catch(() => ({ data: [] })),
+                apiGet('/api/store/raw-material', token).catch(() => []),
+                apiGet('/api/store/bought-out', token).catch(() => []),
+                apiGet('/api/store/consumable-item', token).catch(() => []),
                 apiGet('/api/store/vendor', token).catch(() => []),
                 apiGet('/api/store/company-info', token).catch(() => null)
             ]);
@@ -71,6 +78,9 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
             setQuotations(quotList);
             setRfqs(rfqList);
+            setRawMaterials(Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []));
+            setBoughtOuts(Array.isArray(boRes) ? boRes : (boRes?.boughtOuts || []));
+            setConsumables(Array.isArray(conRes) ? conRes : (conRes?.consumables || conRes?.consumableItems || []));
             setVendors(venList);
             setCompanyInfo(compRes?.companyInfo || compRes);
         } catch (err: any) {
@@ -158,9 +168,81 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         }));
     };
 
+    const handleAddQuoteItem = () => {
+        setNewQuote(prev => ({
+            ...prev,
+            items: [...prev.items, {
+                itemType: 'rm',
+                materialId: '',
+                materialName: '',
+                quantity: 1,
+                unit: 'PCS',
+                unitPrice: 0,
+                tax: 18,
+                total: 0,
+                remarks: ''
+            }]
+        }));
+    };
+
+    const handleRemoveQuoteItem = (index: number) => {
+        setNewQuote(prev => {
+            const updated = prev.items.filter((_, i) => i !== index);
+            let sub = 0;
+            let tax = 0;
+            updated.forEach((it: any) => {
+                const lineSub = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+                const lineTax = lineSub * ((Number(it.tax) || 0) / 100);
+                sub += lineSub;
+                tax += lineTax;
+            });
+            return {
+                ...prev,
+                items: updated,
+                subtotal: sub,
+                totalTax: tax,
+                grandTotal: sub + tax
+            };
+        });
+    };
+
+    const handleItemTypeChange = (index: number, newType: string) => {
+        const updatedItems = [...newQuote.items];
+        updatedItems[index] = {
+            ...updatedItems[index],
+            itemType: newType,
+            materialId: '',
+            materialName: '',
+            unit: 'PCS',
+            unitPrice: 0,
+            total: 0
+        };
+        setNewQuote(prev => ({ ...prev, items: updatedItems }));
+    };
+
+    const handleItemMaterialSelect = (index: number, selectedId: string) => {
+        const updatedItems = [...newQuote.items];
+        const entryType = updatedItems[index].itemType || 'rm';
+        let sourceList: any[] = rawMaterials;
+        if (entryType === 'bo') sourceList = boughtOuts;
+        else if (entryType === 'consumable') sourceList = consumables;
+
+        const found = (Array.isArray(sourceList) ? sourceList : []).find((m: any) => (m._id || m.id)?.toString() === selectedId?.toString());
+        const autoName = found?.name || found?.materialName || 'Material';
+        const autoUnit = found?.unit || found?.uom || (typeof found?.category === 'object' ? found?.category?.unit : '') || 'PCS';
+
+        updatedItems[index] = {
+            ...updatedItems[index],
+            materialId: selectedId,
+            materialName: autoName,
+            unit: autoUnit
+        };
+        setNewQuote(prev => ({ ...prev, items: updatedItems }));
+    };
+
     const handleItemPriceChange = (index: number, field: string, value: any) => {
         const updatedItems = [...newQuote.items];
-        updatedItems[index] = { ...updatedItems[index], [field]: Number(value) || 0 };
+        updatedItems[index] = { ...updatedItems[index], [field]: field === 'quantity' || field === 'unitPrice' || field === 'tax' ? (parseFloat(value) || 0) : value };
 
         const qty = Number(updatedItems[index].quantity) || 0;
         const rate = Number(updatedItems[index].unitPrice) || 0;
@@ -295,29 +377,10 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
     }, [quotations, searchTerm, filterStatus, filterVendor]);
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Header & Actions */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        <FileText size={22} className="text-cyan-600" /> Inward Quotations & Bid Evaluation
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                        Log vendor rate quotes, compare bids (L1 / L2), preview details, and generate Outward Purchase Orders.
-                    </p>
-                </div>
-
-                <button
-                    onClick={handleOpenCreateModal}
-                    className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold text-xs rounded-xl shadow-md shadow-cyan-600/20 hover:shadow-lg transition-all flex items-center gap-2"
-                >
-                    <Plus size={16} /> Log Inward Quote
-                </button>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -326,7 +389,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                             placeholder="Search Quote #, RFQ #, or Vendor..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
                     </div>
 
@@ -348,17 +411,26 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                     </div>
                 </div>
 
-                {/* Status Filter - Scrollable on mobile */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                    {['All', 'Pending Approval', 'Approved', 'Rejected'].map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            {status}
-                        </button>
-                    ))}
+                {/* Right Side: Status Filter + Log Inward Quote Button */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                        {['All', 'Pending Approval', 'Approved', 'Rejected'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={handleOpenCreateModal}
+                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                        <Plus size={15} /> Log Inward Quote
+                    </button>
                 </div>
             </div>
 
@@ -809,59 +881,140 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                 </div>
                             </div>
 
-                            {/* Step 3: Quoted Material Rates Table (Only Enter Price!) */}
+                            {/* Step 3: Quoted Material Rates Table */}
                             <div className="space-y-3">
-                                <h3 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                    Materials Requested & Vendor Quoted Rates
-                                </h3>
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-xs font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                        Materials Quoted & Vendor Rates
+                                    </h3>
+                                    <button
+                                        type="button"
+                                        onClick={handleAddQuoteItem}
+                                        className="text-xs font-bold text-cyan-600 dark:text-cyan-400 hover:underline bg-cyan-50 dark:bg-cyan-950/60 px-3 py-1 rounded-lg border border-cyan-200 dark:border-cyan-800 cursor-pointer"
+                                    >
+                                        + Add Quoted Item
+                                    </button>
+                                </div>
 
                                 <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
                                             <tr>
-                                                <th className="px-4 py-3">Requested Material</th>
-                                                <th className="px-4 py-3 text-center">Req Qty</th>
-                                                <th className="px-4 py-3 text-right w-36">Quoted Unit Rate (₹)</th>
-                                                <th className="px-4 py-3 text-center w-24">GST %</th>
-                                                <th className="px-4 py-3 text-right">Line Total (₹)</th>
+                                                <th className="px-3 py-3 w-28">Category</th>
+                                                <th className="px-3 py-3 min-w-[200px]">Material Item</th>
+                                                <th className="px-3 py-3 text-center w-24">Req Qty</th>
+                                                <th className="px-3 py-3 text-center w-20">Unit</th>
+                                                <th className="px-3 py-3 text-right w-32">Unit Rate (₹)</th>
+                                                <th className="px-3 py-3 text-center w-20">GST %</th>
+                                                <th className="px-3 py-3 text-right w-28">Total (₹)</th>
+                                                <th className="px-2 py-3 text-center w-10"></th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                                            {newQuote.items.map((item, idx) => (
-                                                <tr key={idx}>
-                                                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">
-                                                        {item.materialName}
-                                                    </td>
-                                                    <td className="px-4 py-3 text-center font-bold text-slate-700 dark:text-slate-300">
-                                                        {item.quantity} {item.unit}
-                                                    </td>
-                                                    <td className="px-3 py-2">
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="any"
-                                                            value={item.unitPrice || ''}
-                                                            onChange={(e) => handleItemPriceChange(idx, 'unitPrice', e.target.value)}
-                                                            placeholder="0.00"
-                                                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-slate-900 dark:text-white text-right focus:ring-2 focus:ring-cyan-500/20"
-                                                        />
-                                                    </td>
-                                                    <td className="px-3 py-2">
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="any"
-                                                            value={item.tax || ''}
-                                                            onChange={(e) => handleItemPriceChange(idx, 'tax', e.target.value)}
-                                                            placeholder="18"
-                                                            className="w-full px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-center"
-                                                        />
-                                                    </td>
-                                                    <td className="px-4 py-3 text-right font-extrabold text-cyan-600 font-mono">
-                                                        ₹{Number(item.total || 0).toLocaleString()}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                            {newQuote.items.map((item, idx) => {
+                                                const currentType = (item as any).itemType || 'rm';
+                                                let sourceList: any[] = rawMaterials;
+                                                if (currentType === 'bo') sourceList = boughtOuts;
+                                                else if (currentType === 'consumable') sourceList = consumables;
+
+                                                const itemOptions = (Array.isArray(sourceList) ? sourceList : []).map(m => ({
+                                                    value: (m._id || m.id)?.toString(),
+                                                    label: `${m.name || 'Item'} ${m.code ? `(${m.code})` : ''}`.trim()
+                                                })).filter(o => o.value);
+
+                                                return (
+                                                    <tr key={idx} className="hover:bg-slate-50/50">
+                                                        {/* Category Switch */}
+                                                        <td className="px-2 py-2">
+                                                            <select
+                                                                value={currentType}
+                                                                onChange={(e) => handleItemTypeChange(idx, e.target.value)}
+                                                                className="w-full px-2 py-1 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-[11px] font-bold cursor-pointer"
+                                                            >
+                                                                <option value="rm">RM</option>
+                                                                <option value="bo">BO</option>
+                                                                <option value="consumable">Consumable</option>
+                                                            </select>
+                                                        </td>
+
+                                                        {/* Material Name / Dropdown */}
+                                                        <td className="px-2 py-2">
+                                                            {item.materialId && selectedRfqId ? (
+                                                                <span className="font-bold text-slate-900 dark:text-white">
+                                                                    {item.materialName}
+                                                                </span>
+                                                            ) : (
+                                                                <SearchableSelect
+                                                                    options={itemOptions}
+                                                                    value={item.materialId || ''}
+                                                                    onChange={(val: any) => handleItemMaterialSelect(idx, val)}
+                                                                    placeholder="Select Item..."
+                                                                />
+                                                            )}
+                                                        </td>
+
+                                                        {/* Qty */}
+                                                        <td className="px-2 py-2 text-center">
+                                                            <input
+                                                                type="number"
+                                                                min="1"
+                                                                value={item.quantity || ''}
+                                                                onChange={(e) => handleItemPriceChange(idx, 'quantity', e.target.value)}
+                                                                className="w-full px-1.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-center"
+                                                            />
+                                                        </td>
+
+                                                        {/* Unit */}
+                                                        <td className="px-2 py-2 text-center font-bold text-slate-600 dark:text-slate-300">
+                                                            {item.unit || 'PCS'}
+                                                        </td>
+
+                                                        {/* Rate */}
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="any"
+                                                                value={item.unitPrice || ''}
+                                                                onChange={(e) => handleItemPriceChange(idx, 'unitPrice', e.target.value)}
+                                                                placeholder="0.00"
+                                                                className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg font-bold text-right"
+                                                            />
+                                                        </td>
+
+                                                        {/* GST */}
+                                                        <td className="px-2 py-2">
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                step="any"
+                                                                value={item.tax || ''}
+                                                                onChange={(e) => handleItemPriceChange(idx, 'tax', e.target.value)}
+                                                                placeholder="18"
+                                                                className="w-full px-1 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-center"
+                                                            />
+                                                        </td>
+
+                                                        {/* Total */}
+                                                        <td className="px-3 py-2 text-right font-extrabold text-cyan-600 font-mono">
+                                                            ₹{Number(item.total || 0).toLocaleString()}
+                                                        </td>
+
+                                                        {/* Delete */}
+                                                        <td className="px-2 py-2 text-center">
+                                                            {newQuote.items.length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRemoveQuoteItem(idx)}
+                                                                    className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                                                >
+                                                                    <Trash2 size={14} />
+                                                                </button>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                         </tbody>
                                     </table>
                                 </div>

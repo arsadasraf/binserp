@@ -51,7 +51,8 @@ export const createRmBoItem = async (req, res) => {
     const Inventory = req.getModel('Inventory', inventorySchema);
 
     const companyId = getCompanyId(req);
-    let { name, descriptions, minimumStock, categoryId, locationId, unit } = req.body;
+    let { name, descriptions, minimumStock, categoryId, locationId, unit, itemType } = req.body;
+    const finalItemType = (itemType === 'Bought Out' || itemType === 'BO' || itemType === 'bought-out' || itemType === 'bo-item') ? 'Bought Out' : 'Raw Material';
 
     if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Name is required" });
@@ -178,6 +179,7 @@ export const createRmBoItem = async (req, res) => {
 
     const rmBoItem = await RmBoItem.create({ 
       name: cleanName, 
+      itemType: finalItemType,
       descriptions: descriptions || '', 
       minimumStock: Number(minimumStock || 0), 
       categoryId: resolvedCategoryId, 
@@ -188,7 +190,8 @@ export const createRmBoItem = async (req, res) => {
 
     // Also ensure Inventory record exists
     try {
-      const matCode = `RM-${Math.floor(10000 + Math.random() * 90000)}`;
+      const defaultPrefix = finalItemType === 'Bought Out' ? 'BO' : 'RM';
+      const matCode = `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
       await Inventory.findOneAndUpdate(
         { company: companyId, materialId: rmBoItem._id },
         {
@@ -197,6 +200,7 @@ export const createRmBoItem = async (req, res) => {
             materialCode: matCode,
             materialName: cleanName,
             unit: categoryUnit,
+            itemType: finalItemType,
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),
             reorderQuantity: 0,

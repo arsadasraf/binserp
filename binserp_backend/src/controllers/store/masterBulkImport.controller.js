@@ -2,7 +2,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import {
-  rmBoItemSchema, consumableItemSchema, vendorSchema, customerSchema, locationSchema,
+  rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, vendorSchema, customerSchema, locationSchema,
   categorySchema, jobWorkSupplierSchema, fgItemSchema, inventorySchema, storePrefixSchema
 } from "../../models/store/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
@@ -26,9 +26,20 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
   let insertedCount = 0;
   let updatedCount = 0;
 
-  if (masterTab === 'rm-bo-item' || masterTab === 'materials' || masterTab === 'inventory-bo' || masterTab === 'consumable-item' || masterTab === 'consumables' || masterTab === 'inventory-consumable') {
+  if (
+    masterTab === 'rm-bo-item' || masterTab === 'materials' || masterTab === 'rm-item' || masterTab === 'raw-materials' || masterTab === 'raw-material' ||
+    masterTab === 'bo-item' || masterTab === 'bought-out' || masterTab === 'bought-outs' || masterTab === 'bo-items' ||
+    masterTab === 'inventory-bo' || masterTab === 'inventory-rm' ||
+    masterTab === 'consumable-item' || masterTab === 'consumables' || masterTab === 'inventory-consumable'
+  ) {
     const isConsumable = masterTab === 'consumable-item' || masterTab === 'consumables' || masterTab === 'inventory-consumable';
-    const ItemModel = isConsumable ? req.getModel('ConsumableItem', consumableItemSchema) : req.getModel('RmBoItem', rmBoItemSchema);
+    const isBoughtOut = masterTab === 'bo-item' || masterTab === 'bought-out' || masterTab === 'bought-outs' || masterTab === 'bo-items' || masterTab === 'inventory-bo';
+    
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    req.getModel('Material', rmBoItemSchema);
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
     const Category = req.getModel('Category', categorySchema);
     const Location = req.getModel('Location', locationSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
@@ -52,8 +63,17 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       const itemName = (item.name || item.materialName || '').toString().trim();
       if (!itemName) continue;
 
+      const rawItemType = (item.itemType || item.type || '').toString().trim().toLowerCase();
+      let determinedItemType = isBoughtOut ? 'Bought Out' : 'Raw Material';
+      if (rawItemType.includes('bought') || rawItemType === 'bo') {
+        determinedItemType = 'Bought Out';
+      } else if (rawItemType.includes('raw') || rawItemType === 'rm') {
+        determinedItemType = 'Raw Material';
+      }
+
       // 1. Resolve or create Category
-      const rawCategory = (item.category || item.categoryName || 'Raw Material').toString().trim();
+      const defaultCategoryName = isConsumable ? 'Consumables' : (determinedItemType === 'Bought Out' ? 'Bought Out' : 'Raw Material');
+      const rawCategory = (item.category || item.categoryName || defaultCategoryName).toString().trim();
       let category = categoryMap.get(rawCategory.toLowerCase());
 
       if (!category) {
@@ -136,10 +156,11 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         }
       }
 
-      // 3. Upsert or Create RmBoItem
+      // 3. Upsert or Create Record in Dedicated Collection and sync to RmBoItem
       const rmBoDoc = {
         company: companyId,
         name: itemName,
+        itemType: determinedItemType,
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
         categoryId: category?._id,
@@ -149,28 +170,45 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       let rmBoItem = null;
       const rmBoQuery = { company: companyId, name: { $regex: new RegExp(`^${itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } };
 
+      const DedicatedModel = isConsumable ? ConsumableItem : (determinedItemType === 'Bought Out' ? BoughtOut : RawMaterial);
+
       if (overwrite) {
-        rmBoItem = await ItemModel.findOneAndUpdate(
+        rmBoItem = await DedicatedModel.findOneAndUpdate(
           rmBoQuery,
           { $set: rmBoDoc },
           { upsert: true, new: true }
         );
+        if (!isConsumable) {
+          await RmBoItem.findOneAndUpdate(
+            { _id: rmBoItem._id },
+            { $set: { ...rmBoDoc, company: companyId } },
+            { upsert: true, new: true }
+          );
+        }
         updatedCount++;
       } else {
-        rmBoItem = await ItemModel.findOne(rmBoQuery);
+        rmBoItem = await DedicatedModel.findOne(rmBoQuery);
         if (!rmBoItem) {
-          rmBoItem = await ItemModel.create(rmBoDoc);
+          rmBoItem = await DedicatedModel.create(rmBoDoc);
+          if (!isConsumable) {
+            await RmBoItem.findOneAndUpdate(
+              { _id: rmBoItem._id },
+              { $set: { ...rmBoDoc, company: companyId } },
+              { upsert: true, new: true }
+            );
+          }
           insertedCount++;
         }
       }
 
       // 4. Upsert or Create Inventory Record
-      const defaultPrefix = isConsumable ? 'CON' : 'RM';
+      const defaultPrefix = isConsumable ? 'CON' : (determinedItemType === 'Bought Out' ? 'BO' : 'RM');
       const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
       const invDoc = {
         company: companyId,
         materialCode,
         materialName: itemName,
+        itemType: determinedItemType,
         unit: item.unit || category?.unit || 'PCS',
         currentStock: Number(item.openingStock ?? item.currentStock ?? 0),
         reorderLevel: Number(item.minStock ?? item.minimumStock ?? 0),
@@ -198,6 +236,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const Location = req.getModel('Location', locationSchema);
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    req.getModel('Material', rmBoItemSchema); // Register Material ref for Mongoose refPath
     const Inventory = req.getModel('Inventory', inventorySchema);
     const StorePrefix = req.getModel('StorePrefix', storePrefixSchema);
 
@@ -366,19 +405,40 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       const vendName = item.name.toString().trim();
       const code = item.code ? String(item.code).trim() : `VEND-${Math.floor(1000 + Math.random() * 9000)}`;
       const query = { company: companyId, $or: [{ name: vendName }, { code }] };
+      const rawAddress = item.address || item.billingAddress || '';
+      const rawCity = item.city || item.billingCity || '';
+      const rawState = item.state || item.billingState || '';
+      const rawPincode = (item.pincode || item.billingPincode) ? String(item.pincode || item.billingPincode).trim() : '';
+      const rawCountry = item.country || item.billingCountry || 'India';
+
       const doc = {
         company: companyId,
         name: vendName,
         code,
+        vendorType: item.vendorType || 'Rm Vendor',
         contactPerson: item.contactPerson || '',
         phone: item.phone ? String(item.phone).trim() : '',
         email: item.email ? String(item.email).trim() : '',
         gst: item.gst ? String(item.gst).trim() : '',
         pan: item.pan ? String(item.pan).trim() : '',
-        address: item.address || '',
-        city: item.city || '',
-        state: item.state || '',
-        pincode: item.pincode ? String(item.pincode).trim() : '',
+        address: rawAddress,
+        billingAddress: rawAddress,
+        shippingAddress: item.shippingAddress || rawAddress,
+        city: rawCity,
+        billingCity: rawCity,
+        shippingCity: item.shippingCity || rawCity,
+        state: rawState,
+        billingState: rawState,
+        shippingState: item.shippingState || rawState,
+        pincode: rawPincode,
+        billingPincode: rawPincode,
+        shippingPincode: item.shippingPincode || rawPincode,
+        country: rawCountry,
+        billingCountry: rawCountry,
+        shippingCountry: item.shippingCountry || rawCountry,
+        district: item.district || item.billingDistrict || '',
+        billingDistrict: item.billingDistrict || item.district || '',
+        shippingDistrict: item.shippingDistrict || item.district || '',
       };
 
       if (overwrite) {
@@ -399,6 +459,12 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       const custName = item.name.toString().trim();
       const code = item.code ? String(item.code).trim() : `CUST-${Math.floor(1000 + Math.random() * 9000)}`;
       const query = { company: companyId, $or: [{ name: custName }, { code }] };
+      const rawAddress = item.address || item.billingAddress || '';
+      const rawCity = item.city || item.billingCity || '';
+      const rawState = item.state || item.billingState || '';
+      const rawPincode = (item.pincode || item.billingPincode) ? String(item.pincode || item.billingPincode).trim() : '';
+      const rawCountry = item.country || item.billingCountry || 'India';
+
       const doc = {
         company: companyId,
         name: custName,
@@ -409,14 +475,24 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         email: item.email ? String(item.email).trim() : '',
         gst: item.gst ? String(item.gst).trim() : '',
         pan: item.pan ? String(item.pan).trim() : '',
-        address: item.address || '',
-        billingAddress: item.address || '',
-        city: item.city || '',
-        billingCity: item.city || '',
-        state: item.state || '',
-        billingState: item.state || '',
-        pincode: item.pincode ? String(item.pincode).trim() : '',
-        billingPincode: item.pincode ? String(item.pincode).trim() : '',
+        address: rawAddress,
+        billingAddress: rawAddress,
+        shippingAddress: item.shippingAddress || rawAddress,
+        city: rawCity,
+        billingCity: rawCity,
+        shippingCity: item.shippingCity || rawCity,
+        state: rawState,
+        billingState: rawState,
+        shippingState: item.shippingState || rawState,
+        pincode: rawPincode,
+        billingPincode: rawPincode,
+        shippingPincode: item.shippingPincode || rawPincode,
+        country: rawCountry,
+        billingCountry: rawCountry,
+        shippingCountry: item.shippingCountry || rawCountry,
+        district: item.district || item.billingDistrict || '',
+        billingDistrict: item.billingDistrict || item.district || '',
+        shippingDistrict: item.shippingDistrict || item.district || '',
       };
 
       if (overwrite) {

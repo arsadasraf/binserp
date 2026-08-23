@@ -21,23 +21,10 @@ export default function SalesPriceListPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">FG Pricelist</h1>
-          <p className="text-xs text-gray-500">Set and manage prices and GST tax rates for finished goods</p>
-        </div>
-        <button
-          onClick={() => { setEditingItem(null); setShowModal(true); }}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 transition-colors shadow-sm"
-        >
-          <Plus size={16} />
-          Add Price & Tax Rate
-        </button>
-      </div>
-
       <PriceListTable
         priceLists={priceLists || []}
         fgItems={fgItems || []}
+        onAddPriceList={() => { setEditingItem(null); setShowModal(true); }}
         onEdit={(item) => { setEditingItem(item); setShowModal(true); }}
         onDelete={async (id) => {
           if (confirm("Are you sure you want to delete this price list entry?")) {

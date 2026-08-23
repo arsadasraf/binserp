@@ -1,5 +1,5 @@
 import { purchaseOrderSchema } from "../../models/purchase/index.js";
-import { vendorSchema, grnSchema, rmBoItemSchema } from "../../models/store/index.js";
+import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -114,8 +114,11 @@ export const createPO = asyncHandler(async (req, res) => {
 });
 
 export const getAllPOs = asyncHandler(async (req, res) => {
-  req.getModel('RmBoItem', rmBoItemSchema);
   req.getModel('Vendor', vendorSchema);
+  req.getModel('RawMaterial', rawMaterialSchema);
+  req.getModel('BoughtOut', boughtOutSchema);
+  req.getModel('ConsumableItem', consumableItemSchema);
+  req.getModel('RmBoItem', rmBoItemSchema);
   const GRN = req.getModel('GRN', grnSchema);
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
 
@@ -123,7 +126,7 @@ export const getAllPOs = asyncHandler(async (req, res) => {
   const pos = await PurchaseOrder.find({ company: companyId })
     .populate("vendor", "name code email phone address gst")
     .populate("material", "name code")
-    .populate("items.material", "name code")
+    .populate("items.material", "name code unit category")
     .populate("createdBy", "name username email")
     .populate("updatedBy", "name username email")
     .sort({ createdAt: -1 });
@@ -190,7 +193,11 @@ export const getAllPOs = asyncHandler(async (req, res) => {
 });
 
 export const getVendorActivePOs = asyncHandler(async (req, res) => {
+  req.getModel('Vendor', vendorSchema);
   req.getModel('RmBoItem', rmBoItemSchema);
+  req.getModel('RawMaterial', rawMaterialSchema);
+  req.getModel('BoughtOut', boughtOutSchema);
+  req.getModel('ConsumableItem', consumableItemSchema);
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
   const companyId = getCompanyId(req);
   const { vendorId } = req.params;
@@ -205,7 +212,7 @@ export const getVendorActivePOs = asyncHandler(async (req, res) => {
 
   const pos = await PurchaseOrder.find(query)
     .populate("vendor", "name code")
-    .populate("items.material", "name code")
+    .populate("items.material", "name code unit category")
     .sort({ date: -1 });
 
   const posFormatted = pos.map(po => {

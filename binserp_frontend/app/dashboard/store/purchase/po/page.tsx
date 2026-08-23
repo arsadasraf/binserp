@@ -18,24 +18,11 @@ export default function PurchasePOPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Outward PO</h1>
-          <p className="text-xs text-gray-500 font-medium">Manage outward Purchase Orders issued to vendors and subcontractors</p>
-        </div>
-        <button
-          onClick={() => { setEditingPO(null); setShowModal(true); }}
-          className="bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors"
-        >
-          <Plus size={16} />
-          Create Outward PO
-        </button>
-      </div>
-
       <POTable
         data={poList || []}
         vendors={vendors || []}
         companyInfo={companyInfo}
+        onCreatePO={() => { setEditingPO(null); setShowModal(true); }}
         onEdit={(po) => { setEditingPO(po); setShowModal(true); }}
         onDelete={(id) => handleDelete(id)}
       />

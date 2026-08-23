@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
-// RM/BO Item Schema
-export const rmBoItemSchema = new mongoose.Schema(
+// Raw Material Schema
+export const rawMaterialSchema = new mongoose.Schema(
   {
     company: {
       type: mongoose.Schema.Types.ObjectId,
@@ -9,13 +9,9 @@ export const rmBoItemSchema = new mongoose.Schema(
       required: true,
     },
     name: { type: String, required: true },
-    itemType: {
-      type: String,
-      enum: ['Raw Material', 'Bought Out'],
-      default: 'Raw Material'
-    },
+    code: { type: String },
     descriptions: { type: String },
-    minimumStock: { type: Number },
+    minimumStock: { type: Number, default: 0 },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
@@ -37,4 +33,5 @@ export const rmBoItemSchema = new mongoose.Schema(
 );
 
 // Indexes
-rmBoItemSchema.index({ company: 1, name: 1 }, { unique: true });
+rawMaterialSchema.index({ company: 1, name: 1 }, { unique: true });
+rawMaterialSchema.index({ company: 1, code: 1 });

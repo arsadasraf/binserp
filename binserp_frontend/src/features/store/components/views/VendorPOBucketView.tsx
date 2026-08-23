@@ -69,26 +69,7 @@ export default function VendorPOBucketView() {
   });
 
   return (
-    <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-2xl text-white shadow-xl border border-indigo-900/50 flex flex-col md:flex-row justify-between md:items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs uppercase tracking-wider mb-1">
-            <Building2 size={16} /> Vendor Management & Ledger
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Vendor PO Bucket</h1>
-          <p className="text-slate-300 text-xs mt-1">
-            Track vendor-wise Outward PO balances, material receipts, pending quantities, and GRN transaction settlement.
-          </p>
-        </div>
-
-        <button 
-          onClick={fetchBucketData}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-2 self-start md:self-auto"
-        >
-          Refresh Bucket Data
-        </button>
-      </div>
+    <div className="space-y-4">
 
       {/* Global Analytics Overview Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -203,6 +184,15 @@ export default function VendorPOBucketView() {
               {f.label}
             </button>
           ))}
+
+          {/* Refresh Action */}
+          <button 
+            onClick={fetchBucketData}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+            title="Refresh Bucket Data"
+          >
+            Refresh
+          </button>
         </div>
       </div>
 

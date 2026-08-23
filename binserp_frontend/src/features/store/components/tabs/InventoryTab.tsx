@@ -5,6 +5,7 @@ import StockTransactionLedgerTable from '../tables/StockTransactionLedgerTable';
 import GRNModal from '../modals/GRNModal';
 import ItemDetailsModal from '../modals/ItemDetailsModal';
 import MastersTable from '../tables/MastersTable'; // For GRN History
+import UnifiedGrnHistoryTable from '../tables/UnifiedGrnHistoryTable';
 import Swal from 'sweetalert2';
 
 interface InventoryTabProps {
@@ -12,7 +13,7 @@ interface InventoryTabProps {
     token: string | null;
     masterTab?: string;
     setMasterTab?: (tab: any) => void;
-    activeSubTab: 'bo' | 'consumable' | 'inhouse' | 'history' | 'fg-history' | 'ledger';
+    activeSubTab: 'rm' | 'bo' | 'consumable' | 'inhouse' | 'history' | 'fg-history' | 'ledger';
 }
 
 
@@ -61,36 +62,78 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         }
     }, [activeSubTab, setMasterTab, masterTab]);
 
-    // Map RM/BO master data to inventory format so it always shows the master list
+    // Map RM master data to inventory format
+    const mappedRmInventory = useMemo(() => {
+        if (!materials) return [];
+        return materials
+            .filter((m: any) => {
+                const type = (m.itemType || '').toString().trim().toLowerCase();
+                return type !== 'bought out' && type !== 'bo';
+            })
+            .map((m: any) => {
+                const invItem = data?.find((d: any) => {
+                    return d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
+                });
+                return {
+                    ...m,
+                    _id: invItem?._id || m._id,
+                    materialId: m,
+                    materialName: m.name,
+                    materialCode: m.code || 'N/A',
+                    itemType: 'Raw Material',
+                    description: m.descriptions || m.description || invItem?.description || '-',
+                    descriptions: m.descriptions || m.description || invItem?.description || '-',
+                    currentStock: invItem ? invItem.currentStock : 0,
+                    qcPendingStock: invItem ? invItem.qcPendingStock : 0,
+                    reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
+                    unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || '',
+                    category: m.categoryId, 
+                    location: m.locationId, 
+                    monthlyData: invItem?.monthlyData || {
+                        openingStock: 0,
+                        received: 0,
+                        issued: 0,
+                        closingStock: 0
+                    }
+                };
+            });
+    }, [materials, data]);
+
+    // Map BO master data to inventory format
     const mappedBoInventory = useMemo(() => {
         if (!materials) return [];
-        return materials.map((m: any) => {
-            // Find inventory matching this material
-            const invItem = data?.find((d: any) => {
-                return d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
+        return materials
+            .filter((m: any) => {
+                const type = (m.itemType || '').toString().trim().toLowerCase();
+                return type === 'bought out' || type === 'bo';
+            })
+            .map((m: any) => {
+                const invItem = data?.find((d: any) => {
+                    return d.materialId === m._id || d.materialId?._id === m._id || d.materialCode === m.code;
+                });
+                return {
+                    ...m,
+                    _id: invItem?._id || m._id,
+                    materialId: m,
+                    materialName: m.name,
+                    materialCode: m.code || 'N/A',
+                    itemType: 'Bought Out',
+                    description: m.descriptions || m.description || invItem?.description || '-',
+                    descriptions: m.descriptions || m.description || invItem?.description || '-',
+                    currentStock: invItem ? invItem.currentStock : 0,
+                    qcPendingStock: invItem ? invItem.qcPendingStock : 0,
+                    reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
+                    unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || '',
+                    category: m.categoryId, 
+                    location: m.locationId, 
+                    monthlyData: invItem?.monthlyData || {
+                        openingStock: 0,
+                        received: 0,
+                        issued: 0,
+                        closingStock: 0
+                    }
+                };
             });
-            return {
-                ...m,
-                _id: invItem?._id || m._id, // Prefer inventory ID for updates, fallback to material ID
-                materialId: m,
-                materialName: m.name,
-                materialCode: m.code || 'N/A',
-                description: m.descriptions || m.description || invItem?.description || '-',
-                descriptions: m.descriptions || m.description || invItem?.description || '-',
-                currentStock: invItem ? invItem.currentStock : 0,
-                qcPendingStock: invItem ? invItem.qcPendingStock : 0,
-                reorderLevel: m.minimumStock || invItem?.reorderLevel || 0,
-                unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || '',
-                category: m.categoryId, 
-                location: m.locationId, 
-                monthlyData: invItem?.monthlyData || {
-                    openingStock: 0,
-                    received: 0,
-                    issued: 0,
-                    closingStock: 0
-                }
-            };
-        });
     }, [materials, data]);
 
     // Map Consumable master data to inventory format
@@ -125,15 +168,45 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
     }, [consumables, data]);
 
 
+    // Filtered items lists for dedicated inventory types
+    const rawMaterialItems = useMemo(() => {
+        if (!materials) return [];
+        return materials.filter((m: any) => {
+            const t = (m.itemType || '').toString().trim().toLowerCase();
+            const c = (m.code || '').toUpperCase();
+            return t !== 'bought out' && t !== 'bo' && !c.startsWith('BO-');
+        });
+    }, [materials]);
+
+    const boughtOutItems = useMemo(() => {
+        if (!materials) return [];
+        return materials.filter((m: any) => {
+            const t = (m.itemType || '').toString().trim().toLowerCase();
+            const c = (m.code || '').toUpperCase();
+            return t === 'bought out' || t === 'bo' || c.startsWith('BO-');
+        });
+    }, [materials]);
+
+    const activeGrnMaterials = useMemo(() => {
+        if (activeSubTab === 'rm') return rawMaterialItems;
+        if (activeSubTab === 'bo') return boughtOutItems;
+        if (activeSubTab === 'consumable') return consumables || [];
+        if (activeSubTab === 'inhouse' || activeSubTab === 'fg-history') return inHouseComponents || [];
+        return materials || [];
+    }, [activeSubTab, rawMaterialItems, boughtOutItems, consumables, inHouseComponents, materials]);
+
+    const activeGrnType = activeSubTab === 'inhouse' || activeSubTab === 'fg-history' 
+        ? 'inhouse' 
+        : (activeSubTab === 'consumable' ? 'consumable' : (activeSubTab === 'rm' ? 'rm' : 'bo'));
+
     // Helper to handle GRN Submit
     const onGRNSubmit = async (grnData: any) => {
         try {
-            const payload = grnData instanceof FormData
-                ? grnData
-                : { ...grnData, type: activeSubTab === 'inhouse' ? 'inhouse' : 'bo' };
-
-            if (payload instanceof FormData) {
-                payload.set('type', activeSubTab === 'inhouse' ? 'inhouse' : 'bo');
+            let payload = grnData;
+            if (!(payload instanceof FormData)) {
+                payload = { ...grnData, type: grnData.type || activeGrnType };
+            } else if (!payload.get('type')) {
+                payload.set('type', activeGrnType);
             }
 
             if (editingGRN && editingGRN._id) {
@@ -146,8 +219,14 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             refetch();
             Swal.fire('Success', 'GRN submitted successfully!', 'success');
         } catch (err: any) {
-            console.error(err);
-            Swal.fire('Error', 'Failed to submit GRN: ' + (err.message || "Unknown error"), 'error');
+            console.error("GRN Submit Error:", err);
+            const errorMessage = 
+                err?.data?.message || 
+                err?.data?.error || 
+                err?.error || 
+                err?.message || 
+                (typeof err === 'string' ? err : "Failed to submit GRN");
+            Swal.fire('Error', errorMessage, 'error');
         }
     };
 
@@ -182,19 +261,20 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                         <StockTransactionLedgerTable token={token} />
                     </div>
                 ) : activeSubTab === 'history' || activeSubTab === 'fg-history' ? (
-                    <MastersTable
-                        data={data}
-                        masterTab={activeSubTab === 'history' ? "grn-history" : "fg-grn-history"}
-                        onEdit={handleMasterEdit}
-                        onDelete={handleDelete}
-                    />
+                    <div className="p-3">
+                        <UnifiedGrnHistoryTable
+                            onEdit={handleMasterEdit}
+                            onDelete={handleDelete}
+                            initialTypeFilter={activeSubTab === 'fg-history' ? 'FG' : 'all'}
+                        />
+                    </div>
                 ) : (
                     <InventoryTable
-                        data={activeSubTab === 'consumable' ? mappedConsumableInventory : activeSubTab === 'bo' ? mappedBoInventory : []}
+                        data={activeSubTab === 'consumable' ? mappedConsumableInventory : activeSubTab === 'rm' ? mappedRmInventory : activeSubTab === 'bo' ? mappedBoInventory : []}
                         inHouseData={activeSubTab === 'inhouse' ? inHouseComponents : []}
                         onEdit={handleMasterEdit}
                         onDelete={handleDelete}
-                        activeSubTab={activeSubTab === 'inhouse' ? 'inhouse' : activeSubTab === 'consumable' ? 'consumable' : 'bo'}
+                        activeSubTab={activeSubTab === 'inhouse' ? 'inhouse' : activeSubTab === 'consumable' ? 'consumable' : (activeSubTab === 'rm' ? 'rm' : 'bo')}
                         onSubTabChange={() => {}}
                         hideTabs={true}
                         onItemClick={(item) => {
@@ -219,14 +299,14 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     setEditingGRN(undefined);
                 }}
                 onSubmit={onGRNSubmit}
-                materials={activeSubTab === 'inhouse' ? inHouseComponents : (activeSubTab === 'consumable' ? consumables : materials)}
+                materials={activeGrnMaterials}
                 vendors={vendors}
                 locations={locations}
                 categories={categories}
                 loading={loading}
                 initialData={editingGRN}
                 isEditing={!!editingGRN}
-                type={activeSubTab === 'inhouse' ? 'inhouse' : 'bo'}
+                type={activeGrnType}
                 customers={customers}
             />
 

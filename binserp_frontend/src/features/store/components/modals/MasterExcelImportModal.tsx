@@ -13,6 +13,7 @@ import {
     MASTER_EXCEL_CONFIGS, 
     downloadMasterExcelTemplate, 
     parseMasterExcelFile, 
+    resolveMasterTabKey,
     ParsedMasterExcelResult 
 } from '@/src/utils/excelMasterHelper';
 import { API_BASE_URL } from '@/src/utils/config';
@@ -34,7 +35,8 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
 
     if (!isOpen) return null;
 
-    const config = MASTER_EXCEL_CONFIGS[masterTab] || MASTER_EXCEL_CONFIGS['rm-bo-item'];
+    const resolvedKey = resolveMasterTabKey(masterTab);
+    const config = MASTER_EXCEL_CONFIGS[resolvedKey] || MASTER_EXCEL_CONFIGS[masterTab] || MASTER_EXCEL_CONFIGS['raw-material'] || MASTER_EXCEL_CONFIGS['rm-bo-item'];
 
     const handleFileChange = async (selectedFile: File) => {
         if (!selectedFile) return;

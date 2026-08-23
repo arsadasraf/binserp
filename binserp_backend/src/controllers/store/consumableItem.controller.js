@@ -214,6 +214,27 @@ export const getAllConsumableItems = async (req, res) => {
   }
 };
 
+// ========== Get Consumable Item By ID ==========
+export const getConsumableItemById = async (req, res) => {
+  try {
+    const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    req.getModel('Category', categorySchema);
+    req.getModel('Location', locationSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+
+    const consumableItem = await ConsumableItem.findOne({ _id: id, company: companyId })
+      .populate('categoryId')
+      .populate('locationId');
+
+    if (!consumableItem) return res.status(404).json({ message: "Consumable Item not found" });
+    res.status(200).json({ consumableItem });
+  } catch (error) {
+    console.error("Get Consumable By ID Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // ========== Update Consumable Item ==========
 export const updateConsumableItem = async (req, res) => {
   try {

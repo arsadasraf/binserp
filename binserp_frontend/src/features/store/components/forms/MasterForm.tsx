@@ -94,12 +94,25 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
         </h3>
     );
 
-    if (masterTab === "rm-bo-item" || masterTab === "consumable-item") {
+    if (masterTab === "rm-bo-item" || masterTab === "consumable-item" || (masterTab as string) === "raw-material" || (masterTab as string) === "bought-out") {
         const isConsumable = masterTab === "consumable-item";
+        const isBoughtOut = (masterTab as string) === "bought-out";
+        const isRawMaterial = (masterTab as string) === "raw-material";
+        
+        const sectionTitle = isConsumable 
+            ? "Consumable Item Details" 
+            : (isBoughtOut ? "Bought Out (BO) Item Details" : (isRawMaterial ? "Raw Material (RM) Details" : "RM/BO Item Details"));
+        const sectionColor = isConsumable 
+            ? "bg-teal-600" 
+            : (isBoughtOut ? "bg-amber-600" : "bg-indigo-600");
+        const placeholderText = isConsumable 
+            ? "Enter Consumable Name" 
+            : (isBoughtOut ? "Enter Bought Out Item Name" : (isRawMaterial ? "Enter Raw Material Name" : "Enter Item Name"));
+
         return (
             <div className="space-y-6">
                 <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
-                    {renderSectionHeader(isConsumable ? "Consumable Item Details" : "RM/BO Item Details", isConsumable ? "bg-teal-600" : "bg-indigo-600")}
+                    {renderSectionHeader(sectionTitle, sectionColor)}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Row 1: Name, Description, Minimum Stock */}
                         <div>
@@ -112,7 +125,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 value={formData.name || ""}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                placeholder="Enter Item Name"
+                                placeholder={placeholderText}
                             />
                         </div>
                         <div>
@@ -541,8 +554,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div className="md:col-span-2 lg:col-span-4">
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                                         <textarea
-                                            value={formData.billingAddress || ""}
-                                            onChange={(e) => setFormData({ ...formData, billingAddress: e.target.value })}
+                                            value={formData.billingAddress ?? formData.address ?? ""}
+                                            onChange={(e) => setFormData({ ...formData, billingAddress: e.target.value, address: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                             placeholder="Enter Billing Address"
                                             rows={2}
@@ -552,8 +565,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                         <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                                         <input
                                             type="text"
-                                            value={formData.billingCity || ""}
-                                            onChange={(e) => setFormData({ ...formData, billingCity: e.target.value })}
+                                            value={formData.billingCity ?? formData.city ?? ""}
+                                            onChange={(e) => setFormData({ ...formData, billingCity: e.target.value, city: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                             placeholder="Enter City"
                                         />
@@ -562,8 +575,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
                                         <input
                                             type="text"
-                                            value={formData.billingPincode || ""}
-                                            onChange={(e) => setFormData({ ...formData, billingPincode: e.target.value })}
+                                            value={formData.billingPincode ?? formData.pincode ?? ""}
+                                            onChange={(e) => setFormData({ ...formData, billingPincode: e.target.value, pincode: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                             placeholder="Enter Pincode"
                                         />
@@ -571,8 +584,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
                                         <select
-                                            value={formData.billingState || ""}
-                                            onChange={(e) => setFormData({ ...formData, billingState: e.target.value })}
+                                            value={formData.billingState ?? formData.state ?? ""}
+                                            onChange={(e) => setFormData({ ...formData, billingState: e.target.value, state: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >
                                             <option value="">Select State</option>
@@ -584,8 +597,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">District</label>
                                         <select
-                                            value={formData.billingDistrict || ""}
-                                            onChange={(e) => setFormData({ ...formData, billingDistrict: e.target.value })}
+                                            value={formData.billingDistrict ?? formData.district ?? ""}
+                                            onChange={(e) => setFormData({ ...formData, billingDistrict: e.target.value, district: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >
                                             <option value="">Select District</option>
@@ -597,8 +610,8 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
                                         <select
-                                            value={formData.billingCountry || ""}
-                                            onChange={(e) => setFormData({ ...formData, billingCountry: e.target.value })}
+                                            value={formData.billingCountry ?? formData.country ?? "India"}
+                                            onChange={(e) => setFormData({ ...formData, billingCountry: e.target.value, country: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >
                                             <option value="">Select Country</option>
@@ -625,7 +638,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div className="md:col-span-2 lg:col-span-4">
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                                         <textarea
-                                            value={formData.shippingAddress || ""}
+                                            value={formData.shippingAddress ?? formData.billingAddress ?? formData.address ?? ""}
                                             onChange={(e) => setFormData({ ...formData, shippingAddress: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                             placeholder="Enter Shipping Address"
@@ -636,7 +649,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                         <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                                         <input
                                             type="text"
-                                            value={formData.shippingCity || ""}
+                                            value={formData.shippingCity ?? formData.billingCity ?? formData.city ?? ""}
                                             onChange={(e) => setFormData({ ...formData, shippingCity: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                             placeholder="Enter City"
@@ -646,7 +659,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
                                         <input
                                             type="text"
-                                            value={formData.shippingPincode || ""}
+                                            value={formData.shippingPincode ?? formData.billingPincode ?? formData.pincode ?? ""}
                                             onChange={(e) => setFormData({ ...formData, shippingPincode: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                             placeholder="Enter Pincode"
@@ -655,7 +668,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
                                         <select
-                                            value={formData.shippingState || ""}
+                                            value={formData.shippingState ?? formData.billingState ?? formData.state ?? ""}
                                             onChange={(e) => setFormData({ ...formData, shippingState: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >
@@ -668,7 +681,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">District</label>
                                         <select
-                                            value={formData.shippingDistrict || ""}
+                                            value={formData.shippingDistrict ?? formData.billingDistrict ?? formData.district ?? ""}
                                             onChange={(e) => setFormData({ ...formData, shippingDistrict: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >
@@ -681,7 +694,7 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
                                         <select
-                                            value={formData.shippingCountry || ""}
+                                            value={formData.shippingCountry ?? formData.billingCountry ?? formData.country ?? "India"}
                                             onChange={(e) => setFormData({ ...formData, shippingCountry: e.target.value })}
                                             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                                         >

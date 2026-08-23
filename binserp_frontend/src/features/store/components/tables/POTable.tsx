@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck } from 'lucide-react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
@@ -26,6 +26,7 @@ interface POTableProps {
     companyInfo?: CompanyInfo;
     onEdit: (item: any) => void;
     onDelete: (id: string) => void;
+    onCreatePO?: () => void;
     onStatusChange?: (id: string, newStatus: string) => Promise<void>;
 }
 
@@ -70,7 +71,7 @@ const getVendorGstStr = (vendorObj: any): string => {
     return vendorObj.gst || vendorObj.gstNumber || vendorObj.gstin || '';
 };
 
-export default function POTable({ data = [], onEdit, onDelete, vendors = [], companyInfo, onStatusChange }: POTableProps) {
+export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendors = [], companyInfo, onStatusChange }: POTableProps) {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedPoPreview, setSelectedPoPreview] = useState<any | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -177,8 +178,8 @@ export default function POTable({ data = [], onEdit, onDelete, vendors = [], com
     return (
         <div className="w-full space-y-4">
             
-            {/* Search & Filter Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -187,7 +188,7 @@ export default function POTable({ data = [], onEdit, onDelete, vendors = [], com
                             placeholder="Search PO #, Vendor, or Material..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
                     </div>
 
@@ -209,21 +210,40 @@ export default function POTable({ data = [], onEdit, onDelete, vendors = [], com
                     </div>
                 </div>
 
-                {/* Status Buttons - Scrollable on mobile */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                    {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
+                {/* Right Side: Status Buttons & Action Buttons */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                        {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+                                    filterStatus === status
+                                        ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={exportPOListToExcel}
+                        className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center text-xs font-bold bg-white dark:bg-slate-900 cursor-pointer shrink-0"
+                        title="Export POs to Excel"
+                    >
+                        <FileSpreadsheet size={16} className="text-emerald-600" />
+                    </button>
+
+                    {onCreatePO && (
                         <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${
-                                filterStatus === status
-                                    ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
-                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                            }`}
+                            onClick={onCreatePO}
+                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                         >
-                            {status}
+                            <Plus size={15} /> Create Outward PO
                         </button>
-                    ))}
+                    )}
                 </div>
             </div>
 

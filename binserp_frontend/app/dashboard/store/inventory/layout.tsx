@@ -10,12 +10,12 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
 
   const tabs = [
-    { name: 'RM/BO Inventory', href: '/dashboard/store/inventory/rm-bo-stock', icon: Package },
+    { name: 'RM Inventory', href: '/dashboard/store/inventory/rm-stock', icon: Package },
+    { name: 'BO Inventory', href: '/dashboard/store/inventory/bo-stock', icon: Package },
     { name: 'Consumable Inventory', href: '/dashboard/store/inventory/consumable-stock', icon: Package },
     { name: 'FG Inventory', href: '/dashboard/store/inventory/inhouse-stock', icon: Factory },
     { name: 'Transaction Ledger', href: '/dashboard/store/inventory/ledger', icon: Layers },
-    { name: 'BO GRN History', href: '/dashboard/store/inventory/grn-history', icon: History },
-    { name: 'FG GRN History', href: '/dashboard/store/inventory/fg-grn-history', icon: History },
+    { name: 'GRN History', href: '/dashboard/store/inventory/grn-history', icon: History },
   ];
 
 

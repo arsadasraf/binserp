@@ -12,36 +12,53 @@ interface MaterialTableProps {
   onDelete: (id: string) => void;
   onView?: (item: any) => void;
   onAdd?: () => void;
+  masterTab?: string;
+  itemTypeLabel?: string;
 }
 
-export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }: MaterialTableProps) {
+export default function MaterialTable({ 
+  data, 
+  onEdit, 
+  onDelete, 
+  onView, 
+  onAdd, 
+  masterTab = "rm-bo-item",
+  itemTypeLabel = "Material"
+}: MaterialTableProps) {
+  const isBO = masterTab === "bought-out" || masterTab === "bo-item" || itemTypeLabel === "Bought Out";
+  const isRM = masterTab === "raw-material" || masterTab === "raw-materials" || masterTab === "rm-item" || itemTypeLabel === "Raw Material";
+  
+  const displayLabel = isBO ? "Bought Out Item" : (isRM ? "Raw Material" : "Material");
+
   const exportToExcel = () => {
     const exportData = (data || []).map((item, idx) => ({
       'S.No': idx + 1,
       'Item Name': item.name || item.materialName || '-',
       'Item Code': item.code || item.materialCode || '-',
+      'Item Type': item.itemType || (isBO ? 'Bought Out' : 'Raw Material'),
       'Category': item.category || (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || '-',
       'Unit': item.unit || '-',
       'Opening Stock': item.openingStock || 0,
-      'Min Stock': item.minStock || 0,
+      'Min Stock': item.minimumStock ?? item.minStock ?? 0,
       'Max Stock': item.maxStock || 0,
       'Rate': item.rate || 0,
       'GST Rate': item.gstRate || 18,
       'HSN Code': item.hsnCode || '-',
-      'Location': item.storageLocation || (typeof item.location === 'object' ? item.location?.name : item.location) || '-',
+      'Location': item.storageLocation || (typeof item.location === 'object' ? item.location?.name : item.location) || (typeof item.locationId === 'object' ? item.locationId?.name : item.locationId) || '-',
       'Description': item.descriptions || item.description || '-'
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Materials');
-    XLSX.writeFile(wb, `Materials_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const sheetName = isBO ? 'Bought_Out_Items' : (isRM ? 'Raw_Materials' : 'Materials');
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, `${sheetName}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const columns: ColumnDef<any>[] = [
     {
       id: 'name',
-      label: 'Material Name',
+      label: `${displayLabel} Name`,
       render: (item) => (
         <div className="flex items-center gap-2.5">
           {item.photos && item.photos.length > 0 ? (
@@ -51,8 +68,8 @@ export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }:
               className="w-8 h-8 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
             />
           ) : (
-            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center justify-center text-xs font-black text-blue-600 dark:text-blue-400 shrink-0">
-              {((item.name || item.materialName || 'RM').slice(0, 2)).toUpperCase()}
+            <div className={`w-8 h-8 rounded-lg ${isBO ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400' : 'bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'} border flex items-center justify-center text-xs font-black shrink-0`}>
+              {((item.name || item.materialName || (isBO ? 'BO' : 'RM')).slice(0, 2)).toUpperCase()}
             </div>
           )}
           <span className="font-bold text-slate-900 dark:text-white">
@@ -147,20 +164,20 @@ export default function MaterialTable({ data, onEdit, onDelete, onView, onAdd }:
       columns={columns}
       data={data}
       onRowClick={onView}
-      searchPlaceholder="Search materials..."
+      searchPlaceholder={`Search ${displayLabel.toLowerCase()}s...`}
       searchableKeys={['name', 'descriptions', 'category', 'unit']}
       actionButton={
         <div className="flex flex-wrap items-center gap-2">
           <StoreMasterExcelActions
-            masterTab="rm-bo-item"
+            masterTab={masterTab}
             onExport={exportToExcel}
           />
           {onAdd && (
             <button
               onClick={onAdd}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 whitespace-nowrap text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
+              className={`px-4 py-2 ${isBO ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-lg whitespace-nowrap text-xs font-bold transition-colors flex items-center gap-1 shadow-sm`}
             >
-              <Plus size={14} /> Add Material
+              <Plus size={14} /> Add {displayLabel}
             </button>
           )}
         </div>

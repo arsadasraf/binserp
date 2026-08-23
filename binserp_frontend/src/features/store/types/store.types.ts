@@ -68,6 +68,7 @@ export interface StoreFormData {
     categoryId?: string;  // For material master
 
     locationId?: string;  // For material master
+    itemType?: string; // For RM vs BO item distinction
     type?: string; // For PPC Master Products and Location type
     revisionNumber?: string; // For FG items
     bom?: Array<{
@@ -340,7 +341,7 @@ export interface POFormData {
     category?: string;  // Auto-filled from material's category
     // Multiple materials support
     items?: Array<{
-        itemType?: 'bo' | 'custom';
+        itemType?: 'rm' | 'bo' | 'consumable' | 'custom' | string;
         material?: string;
         component?: string;
         materialName: string;
@@ -623,16 +624,16 @@ export interface TableRowActionsProps {
 export interface GRNModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSubmit: (data: GRNFormData) => void;
-    materials?: RmBoItem[];
-    vendors?: Vendor[];
-    locations?: Location[];
-    categories?: Category[];
+    onSubmit: (data: GRNFormData | FormData | any) => void;
+    materials?: any[];
+    vendors?: any[];
+    locations?: any[];
+    categories?: any[];
     loading?: boolean;
-    initialData?: GRNFormData;
+    initialData?: any;
     isEditing?: boolean;
-    type?: 'bo' | 'inhouse';
-    customers?: Customer[];
+    type?: 'rm' | 'bo' | 'consumable' | 'inhouse' | 'fg' | string;
+    customers?: any[];
 }
 
 // PO Modal Props

@@ -499,30 +499,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     }, [poList, searchTerm, filterStatus, filterCustomer]);
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
-            {/* Header Banner */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        <FileCheck size={22} className="text-blue-600 dark:text-blue-400" /> Customer PO & Fulfillment Tracking
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                        Log customer Purchase Orders (Inward PO), track user audit trails, and monitor linked Delivery Challans (DC) & Invoice timelines.
-                    </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={handleOpenCreateModal}
-                        className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-xs rounded-xl shadow-md shadow-blue-600/20 hover:shadow-lg transition-all flex items-center gap-2"
-                    >
-                        <Plus size={16} /> Log Customer PO
-                    </button>
-                </div>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+        <div className="space-y-4 animate-in fade-in duration-300">
+            
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -531,7 +511,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             placeholder="Search PO #, Customer or Item..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
                     </div>
 
@@ -553,17 +533,26 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     </div>
                 </div>
 
-                {/* Status Filter Tabs - Scrollable on mobile */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                    {['All', 'Received', 'Accepted', 'Processing', 'Sales Order Generated', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            {status}
-                        </button>
-                    ))}
+                {/* Right Side: Status Filter Tabs + Log Customer PO Button */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                        {['All', 'Received', 'Accepted', 'Processing', 'Sales Order Generated', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={handleOpenCreateModal}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                        <Plus size={15} /> Log Customer PO
+                    </button>
                 </div>
             </div>
 

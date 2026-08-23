@@ -23,11 +23,36 @@ export interface MasterColumnConfig {
 }
 
 export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: string; columns: MasterColumnConfig[] }> = {
+    'raw-material': {
+        title: 'Raw Materials Master Template',
+        filename: 'Template_Raw_Materials.xlsx',
+        columns: [
+            { label: 'Material Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
+            { label: 'Category Name*', key: 'category', required: true, sample: 'Raw Material' },
+            { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
+            { label: 'Minimum Stock', key: 'minStock', sample: 20 },
+            { label: 'Storage Location', key: 'storageLocation', sample: 'Rack A1' },
+            { label: 'Description', key: 'description', sample: 'High tensile steel rod grade EN8' }
+        ]
+    },
+    'bought-out': {
+        title: 'Bought Out Items Master Template',
+        filename: 'Template_Bought_Out_Items.xlsx',
+        columns: [
+            { label: 'Item Name*', key: 'name', required: true, sample: 'Ball Bearing 6204' },
+            { label: 'Category Name*', key: 'category', required: true, sample: 'Bought Out' },
+            { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
+            { label: 'Minimum Stock', key: 'minStock', sample: 50 },
+            { label: 'Storage Location', key: 'storageLocation', sample: 'Bin B3' },
+            { label: 'Description', key: 'description', sample: 'Deep groove ball bearing SKF' }
+        ]
+    },
     'rm-bo-item': {
         title: 'Raw Material & Bought Out Items Master Template',
         filename: 'Template_Raw_Material_Bought_Out_Items.xlsx',
         columns: [
             { label: 'Material Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
+            { label: 'Item Type (Raw Material/Bought Out)', key: 'itemType', sample: 'Raw Material' },
             { label: 'Category Name*', key: 'category', required: true, sample: 'Raw Material' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
             { label: 'Minimum Stock', key: 'minStock', sample: 20 },
@@ -218,6 +243,14 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
  */
 export const resolveMasterTabKey = (tabKey: string): string => {
     const map: Record<string, string> = {
+        'raw-materials': 'raw-material',
+        'raw-material': 'raw-material',
+        'rm-item': 'raw-material',
+        'rm-items': 'raw-material',
+        'bought-outs': 'bought-out',
+        'bought-out': 'bought-out',
+        'bo-item': 'bought-out',
+        'bo-items': 'bought-out',
         'materials': 'rm-bo-item',
         'rm-bo': 'rm-bo-item',
         'rm-bo-item': 'rm-bo-item',
@@ -314,11 +347,11 @@ export const STORE_COLUMN_ALIASES: Record<string, string[]> = {
     'phone': ['phone number', 'phone', 'mobile', 'mobile number', 'contact number', 'telephone'],
     'email': ['email', 'email address', 'mail', 'email id'],
     'gst': ['gstin', 'gst', 'gst number', 'gst no'],
-    'pan': ['pan number', 'pan', 'pan no'],
-    'address': ['address', 'billing address', 'street', 'location address'],
-    'city': ['city', 'town'],
-    'state': ['state', 'province'],
-    'pincode': ['pincode', 'pin code', 'postal code', 'zip', 'zip code'],
+    'address': ['address', 'billing address', 'registered address', 'office address', 'street', 'location address'],
+    'shippingAddress': ['shipping address', 'delivery address', 'dispatch address', 'consignee address'],
+    'city': ['city', 'billing city', 'town'],
+    'state': ['state', 'billing state', 'province'],
+    'pincode': ['pincode', 'pin code', 'postal code', 'zip', 'zip code', 'billing pincode', 'billing pin code'],
     'customerType': ['customer type', 'type of customer', 'client type'],
 
     // Category & Location
@@ -469,6 +502,9 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                 const invalidRows: { rowNumber: number; data: any; errors: string[] }[] = [];
                 let totalNonEmptyRows = 0;
 
+                // State to forward-fill FG metadata across secondary BOM rows
+                let lastParentFG: Record<string, any> | null = null;
+
                 dataRows.forEach((row, rowIdx) => {
                     if (!Array.isArray(row)) return;
 
@@ -502,6 +538,35 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                             rawRowData[h] = row[idx];
                         }
                     });
+
+                    // For FG items: if name is absent but BOM item name is present, forward fill from last parent FG
+                    if (key === 'fg-items') {
+                        const currentName = String(mappedItem.name || '').trim();
+                        const currentBomItem = String(mappedItem.bomItemName || '').trim();
+
+                        if (currentName) {
+                            lastParentFG = {
+                                name: currentName,
+                                type: mappedItem.type || 'Assembly',
+                                unit: mappedItem.unit || 'Nos',
+                                code: mappedItem.code || '',
+                                location: mappedItem.location || '',
+                                revisionNumber: mappedItem.revisionNumber || '',
+                                reorderLevel: mappedItem.reorderLevel || 0,
+                                description: mappedItem.description || ''
+                            };
+                        } else if (currentBomItem && lastParentFG) {
+                            // Forward-fill parent FG properties so secondary BOM rows pass validation
+                            mappedItem.name = lastParentFG.name;
+                            mappedItem.type = mappedItem.type || lastParentFG.type;
+                            mappedItem.unit = mappedItem.unit || lastParentFG.unit;
+                            mappedItem.code = mappedItem.code || lastParentFG.code;
+                            mappedItem.location = mappedItem.location || lastParentFG.location;
+                            mappedItem.revisionNumber = mappedItem.revisionNumber || lastParentFG.revisionNumber;
+                            mappedItem.reorderLevel = mappedItem.reorderLevel !== undefined ? mappedItem.reorderLevel : lastParentFG.reorderLevel;
+                            mappedItem.description = mappedItem.description || lastParentFG.description;
+                        }
+                    }
 
                     // Validate required fields
                     config.columns.filter(c => c.required).forEach(reqCol => {
@@ -560,9 +625,12 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
 
                         const existing = groupedMap.get(targetKey);
                         if (item.bomItemName && String(item.bomItemName).trim() !== '') {
+                            const rawBomType = String(item.bomItemType || '').trim().toLowerCase();
+                            const normalizedBomType = (rawBomType.includes('fg') || rawBomType.includes('sub') || rawBomType.includes('comp') || rawBomType.includes('assembly')) ? 'FGItem' : 'Material';
+
                             existing.bom.push({
                                 itemName: String(item.bomItemName).trim(),
-                                itemType: String(item.bomItemType || 'Material').trim(),
+                                itemType: normalizedBomType,
                                 quantity: Number(item.bomQuantity || 1) || 1,
                                 unit: String(item.bomUnit || 'Nos').trim()
                             });

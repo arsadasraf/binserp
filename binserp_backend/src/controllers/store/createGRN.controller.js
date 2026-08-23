@@ -1,6 +1,6 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, consumableItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema, fgItemSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { purchaseOrderSchema } from "../../models/purchase/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
@@ -50,11 +50,12 @@ export const createGRN = async (req, res) => {
   const Vendor = req.getModel('Vendor', vendorSchema);
   const Customer = req.getModel('Customer', customerSchema);
   const Material = req.getModel('RmBoItem', rmBoItemSchema);
+  const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+  const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
   const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+  const FGItem = req.getModel('FGItem', fgItemSchema);
   const Component = req.getModel('Component', componentSchema);
-  console.log(">>> [createGRN] HIT! Request received. (ORIGINAL FUNCTION)");
-  console.log(">>> [createGRN] Body Type:", typeof req.body);
-  console.log(">>> [createGRN] Body Keys:", Object.keys(req.body));
+  console.log(">>> [createGRN] HIT! Request received.");
 
   try {
     const companyId = getCompanyId(req);
@@ -65,9 +66,9 @@ export const createGRN = async (req, res) => {
     else if (qcRequired === 'false') qcRequired = false;
     else qcRequired = !!qcRequired; // Fallback for boolean or undefined/null
 
-    // Default type to 'bo' if not provided
-    type = type || 'bo';
-    console.log(`>>> [createGRN] Processing Type: ${type}, Status: ${status}, QC Required: ${qcRequired} (${typeof qcRequired})`);
+    // Default type to 'rm' if not provided
+    type = type || 'rm';
+    console.log(`>>> [createGRN] Processing Type: ${type}, Status: ${status}, QC Required: ${qcRequired}`);
 
     // Default status to 'Received' if not provided
     status = status || "Received";
@@ -81,29 +82,26 @@ export const createGRN = async (req, res) => {
     let supplierName = "";
     let supplierAddress = "";
 
-    if (type === 'inhouse') {
-      if (!customer) {
-        return res.status(400).json({ message: "Customer is required for InHouse GRN" });
+    const supplierId = typeof supplier === 'object' && supplier !== null ? (supplier._id || supplier.id) : (supplier || null);
+    const customerId = typeof customer === 'object' && customer !== null ? (customer._id || customer.id) : (customer || null);
+
+    if (type === 'inhouse' || type === 'fg') {
+      if (customerId) {
+        const customerData = await Customer.findById(customerId);
+        if (customerData) {
+          supplierName = customerData.name || "";
+          supplierAddress = customerData.address || "";
+        }
       }
-      // Validate Customer
-      const customerData = await Customer.findById(customer);
-      if (!customerData) {
-        return res.status(400).json({ message: "Customer not found" });
-      }
-      // InHouse GRNs don't have supplier, but we might want to store customer name for display consistency or UI logic
-      // For now, leaving supplierName empty or N/A
     } else {
-      // BO Type (Default)
-      if (!supplier) {
-        return res.status(400).json({ message: "Supplier is required" });
+      if (!supplierId) {
+        return res.status(400).json({ message: "Supplier / Vendor is required" });
       }
-      // Get supplier name from Vendor model
-      const vendorData = await Vendor.findById(supplier);
-      if (!vendorData) {
-        return res.status(400).json({ message: "Supplier not found" });
+      const vendorData = await Vendor.findById(supplierId);
+      if (vendorData) {
+        supplierName = vendorData.name || "";
+        supplierAddress = vendorData.address || "";
       }
-      supplierName = vendorData.name;
-      supplierAddress = vendorData.address || "";
     }
 
 
@@ -200,17 +198,26 @@ export const createGRN = async (req, res) => {
           // itemLocationId = ??? Components don't usually have stored location in schema yet?
 
         } else {
-          // Processing Material or Consumable (BO)
+          // Processing Material or Consumable (RM, BO, Consumable)
           if (!item.material) {
             return res.status(400).json({ message: "Material/Item is required for each entry" });
           }
 
           let materialDoc = await Material.findById(item.material);
           if (!materialDoc) {
+            materialDoc = await RawMaterial.findById(item.material);
+          }
+          if (!materialDoc) {
+            materialDoc = await BoughtOut.findById(item.material);
+          }
+          if (!materialDoc) {
             materialDoc = await ConsumableItem.findById(item.material);
           }
           if (!materialDoc) {
-            return res.status(400).json({ message: `Material or Consumable not found: ${item.material}` });
+            materialDoc = await FGItem.findById(item.material);
+          }
+          if (!materialDoc) {
+            return res.status(400).json({ message: `Material, Consumable or FG Item not found: ${item.material}` });
           }
 
           materialId = item.material;
@@ -363,14 +370,19 @@ export const createGRN = async (req, res) => {
       }
     }
 
-    // Auto-update inventory (BO ONLY for now)
+    // Auto-update inventory (RM, BO, Consumables)
     // If QC Required -> Add to Pending Stock
     // If QC Not Required -> Add to Main Stock
-    if (type === 'bo' && (status === "Accepted" || status === "Received" || !status)) {
+    if (type !== 'inhouse' && (status === "Accepted" || status === "Received" || !status)) {
       try {
         const currentDate = new Date();
         const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
         const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+
+        let itemTypeOption = "RawMaterial";
+        if (type === 'bo') itemTypeOption = "BoughtOut";
+        else if (type === 'consumable') itemTypeOption = "Consumable";
+        else if (type === 'rm') itemTypeOption = "RawMaterial";
 
         for (const item of itemsArray) {
           await updateInventoryStock(
@@ -381,12 +393,13 @@ export const createGRN = async (req, res) => {
             item.locationId,
             {
               isPending: !!qcRequired,
+              itemType: itemTypeOption,
               transactionCategory: qcRequired ? "GRN_QC_PENDING_INWARD" : "GRN_PURCHASE_INWARD",
               referenceDocType: "GRN",
               referenceDocId: grn._id,
               referenceDocNumber: grnNumber,
               recipientOrSource: supplierName || "Supplier",
-              purpose: "Goods Receipt Note Purchase Inward",
+              purpose: `Goods Receipt Note (${itemTypeOption})`,
               performedBy: req.user?.id || req.user?._id,
             }
           );

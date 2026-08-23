@@ -75,12 +75,25 @@ export default function MasterDetailPreviewModal({
             accentColor: 'text-indigo-400',
             btnBg: 'bg-indigo-600 hover:bg-indigo-700',
         };
-    } else if (tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'material') {
+    } else if (tabKey === 'bought-out' || tabKey === 'bought-outs' || tabKey === 'bo-item' || tabKey === 'bo-items') {
         const cat = typeof item.categoryId === 'object' ? item.categoryId?.name : item.category;
         theme = {
-            title: item.name || item.materialName || 'RM/BO Item Details',
+            title: item.name || item.materialName || 'Bought Out Item Details',
+            subtitle: `Item Code: ${item.code || item.materialCode || 'N/A'} • Category: ${cat || 'Bought Out'}`,
+            badge: 'Bought Out',
+            headerGradient: 'from-amber-950 via-yellow-900 to-amber-900',
+            borderColor: 'border-amber-700',
+            badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-400/30',
+            icon: Box,
+            accentColor: 'text-amber-400',
+            btnBg: 'bg-amber-600 hover:bg-amber-700',
+        };
+    } else if (tabKey === 'raw-material' || tabKey === 'raw-materials' || tabKey === 'rm-item' || tabKey === 'rm-items' || tabKey === 'rm-bo-item' || tabKey === 'materials' || tabKey === 'rm-bo') {
+        const cat = typeof item.categoryId === 'object' ? item.categoryId?.name : item.category;
+        theme = {
+            title: item.name || item.materialName || 'Raw Material Details',
             subtitle: `Item Code: ${item.code || item.materialCode || 'N/A'} • Category: ${cat || 'Raw Material'}`,
-            badge: cat || 'Raw Material',
+            badge: item.itemType || cat || 'Raw Material',
             headerGradient: 'from-blue-950 via-indigo-900 to-blue-900',
             borderColor: 'border-blue-700',
             badgeBg: 'bg-blue-500/20 text-blue-300 border-blue-400/30',

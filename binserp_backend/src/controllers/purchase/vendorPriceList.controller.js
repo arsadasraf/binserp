@@ -1,5 +1,5 @@
 import { vendorPriceListSchema } from "../../models/purchase/index.js";
-import { vendorSchema, rmBoItemSchema } from "../../models/store/index.js";
+import { vendorSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -52,14 +52,17 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
 });
 
 export const getVendorPriceLists = asyncHandler(async (req, res) => {
-  req.getModel('RmBoItem', rmBoItemSchema);
   req.getModel('Vendor', vendorSchema);
+  req.getModel('RawMaterial', rawMaterialSchema);
+  req.getModel('BoughtOut', boughtOutSchema);
+  req.getModel('ConsumableItem', consumableItemSchema);
+  req.getModel('RmBoItem', rmBoItemSchema);
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);
 
   const priceLists = await VendorPriceList.find({ company: companyId })
     .populate('vendor', 'name code')
-    .populate('material', 'name code')
+    .populate('material', 'name code unit category')
     .sort({ createdAt: -1 });
 
   return res.status(200).json(new ApiResponse(200, priceLists, "Vendor Price Lists fetched successfully"));

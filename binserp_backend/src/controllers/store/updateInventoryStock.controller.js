@@ -176,8 +176,19 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
 
       const movementType = (isPending || isQCRelease || quantity >= 0) ? "INWARD" : "OUTWARD";
 
+      let transactionItemType = options.itemType || "RawMaterial";
+      if (!options.itemType) {
+        if (material.constructor?.modelName === 'ConsumableItem' || (!material.itemType && material.unit && !material.code?.startsWith('RM') && !material.code?.startsWith('BO'))) {
+          transactionItemType = "Consumable";
+        } else if (material.itemType === 'Bought Out' || materialCode?.startsWith('BO')) {
+          transactionItemType = "BoughtOut";
+        } else {
+          transactionItemType = "RawMaterial";
+        }
+      }
+
       await recordStockTransaction(req, {
-        itemType: "RmBo",
+        itemType: transactionItemType,
         item: materialId,
         itemCode: materialCode,
         itemName: materialName,

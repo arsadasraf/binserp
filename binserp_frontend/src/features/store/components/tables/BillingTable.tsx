@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye } from 'lucide-react';
+import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadInvoiceExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import InvoicePreviewModal from '../modals/InvoicePreviewModal';
@@ -9,6 +9,8 @@ interface BillingTableProps {
     companyInfo?: CompanyInfo;
     onEdit: (item: any) => void;
     onDelete: (id: string) => void;
+    onAddBill?: () => void;
+    addLabel?: string;
 }
 
 const generateEWayBill = (invoice: any) => {
@@ -36,7 +38,7 @@ const getCurrentMonth = () => {
     return `${year}-${month}`;
 };
 
-export default function BillingTable({ data = [], companyInfo, onEdit, onDelete }: BillingTableProps) {
+export default function BillingTable({ data = [], companyInfo, onEdit, onDelete, onAddBill, addLabel = "Add Invoice" }: BillingTableProps) {
     const currentMonthStr = useMemo(() => getCurrentMonth(), []);
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedCustomerFilter, setSelectedCustomerFilter] = useState("all");
@@ -120,7 +122,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                     />
                 </div>
 
-                <div className="flex flex-wrap gap-2.5 w-full md:w-auto items-center">
+                <div className="flex flex-wrap gap-2.5 w-full md:w-auto items-center justify-between md:justify-end">
                     {/* Customer Filter */}
                     <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
                         <User size={14} className="text-indigo-500 shrink-0" />
@@ -129,7 +131,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                             onChange={(e) => setSelectedCustomerFilter(e.target.value)}
                             className="bg-transparent font-medium text-slate-700 dark:text-slate-200 focus:outline-none max-w-[160px] truncate"
                         >
-                            <option value="all">All Customers ({uniqueCustomers.length})</option>
+                            <option value="all">All ({uniqueCustomers.length})</option>
                             {uniqueCustomers.map((c) => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
@@ -149,7 +151,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                         {selectedMonth && (
                             <button
                                 onClick={() => setSelectedMonth("")}
-                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1"
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1 cursor-pointer"
                                 title="Clear Month Filter"
                             >
                                 <X size={13} />
@@ -158,7 +160,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                         {selectedMonth !== currentMonthStr && (
                             <button
                                 onClick={() => setSelectedMonth(currentMonthStr)}
-                                className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded ml-1"
+                                className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/40 px-1.5 py-0.5 rounded ml-1 cursor-pointer"
                                 title="Set to Current Month"
                             >
                                 This Month
@@ -179,13 +181,22 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete 
                         {selectedDay && (
                             <button
                                 onClick={() => setSelectedDay("")}
-                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1"
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1 cursor-pointer"
                                 title="Clear Day Filter"
                             >
                                 <X size={13} />
                             </button>
                         )}
                     </div>
+
+                    {onAddBill && (
+                        <button
+                            onClick={onAddBill}
+                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} /> {addLabel}
+                        </button>
+                    )}
                 </div>
             </div>
 

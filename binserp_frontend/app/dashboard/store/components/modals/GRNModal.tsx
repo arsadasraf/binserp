@@ -1,60 +1,76 @@
-/**
- * GRNModal Component - Enhanced Version
- * 
- * Modal dialog for creating/editing Goods Receipt Notes (GRN).
- * Features:
- * - Auto-generated GRN number based on date and time
- * - Supplier selection with searchable dropdown (or Customer for InHouse)
- * - Multiple material entries support
- * - Auto-filled unit and category from selected material
- * - Location selection from master data
- * - Improved UI/UX with clear visual hierarchy
- */
-
-import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, FileText, Camera } from 'lucide-react';
-import { GRNModalProps, RmBoItem } from "@/src/features/store/types/store.types";
-import SearchableSelect from '../SearchableSelect';
-import { API_BASE_URL } from '@/src/utils/config';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+    X, 
+    Upload, 
+    Plus, 
+    Trash2, 
+    FileText, 
+    Layers, 
+    CheckCircle2, 
+    AlertCircle, 
+    Camera, 
+    Image, 
+    Sparkles, 
+    ShoppingCart,
+    ShieldAlert,
+    ShieldCheck,
+    Paperclip
+} from 'lucide-react';
+import { GRNModalProps } from "@/src/features/store/types/store.types";
+import SearchableSelect from '@/src/features/store/components/SearchableSelect';
 import { apiGet } from '@/src/lib/api';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 interface MaterialEntry {
     material: string;
-    materialName: string;
+    materialName?: string;
     quantity: number;
-    unit: string;
-    category: string;
-    locationId: string;
-    rate: number;  // Price per unit
+    unit?: string;
+    category?: string;
+    locationId?: string;
+    rate?: number;
 }
 
 export default function GRNModal({
     isOpen,
     onClose,
     onSubmit,
-    materials,
-    vendors,
-    customers = [], // Default to empty array
-    locations,
-    loading,
+    materials = [],
+    vendors = [],
+    locations = [],
+    categories = [],
+    customers = [],
+    loading = false,
     initialData,
     isEditing = false,
-    type = 'bo', // Default to 'bo'
+    type = 'rm'
 }: GRNModalProps) {
     const safeMaterials = Array.isArray(materials) ? materials : [];
     const safeVendors = Array.isArray(vendors) ? vendors : [];
     const safeCustomers = Array.isArray(customers) ? customers : [];
 
-    // Form state
+    // Form states
     const [grnNumber, setGrnNumber] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [supplier, setSupplier] = useState('');
-    const [customer, setCustomer] = useState(''); // New state for customer
+    const [customer, setCustomer] = useState('');
     const [poReference, setPoReference] = useState('');
-    const [qcRequired, setQcRequired] = useState(false); // New state for QC Check
+    const [selectedPO, setSelectedPO] = useState('');
+    const [vendorActivePOs, setVendorActivePOs] = useState<any[]>([]);
+    const [loadingPOs, setLoadingPOs] = useState(false);
+    const [poLinkedNotice, setPoLinkedNotice] = useState<string | null>(null);
+
+    // MRP Plan state for InHouse / FG
+    const [mrpPlan, setMrpPlan] = useState('');
+    const [mrpNumber, setMrpNumber] = useState('');
+    const [mrpPlansList, setMrpPlansList] = useState<any[]>([]);
+
+    // QC & Media
+    const [qcRequired, setQcRequired] = useState(false);
     const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
-    const [existingPhotos, setExistingPhotos] = useState<string[]>([]); // New state for existing URLs
+    const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
     const [materialEntries, setMaterialEntries] = useState<MaterialEntry[]>([{
         material: '',
         materialName: '',
@@ -66,11 +82,19 @@ export default function GRNModal({
     }]);
 
     // Refs for file inputs
-    const cameraInputRef = React.useRef<HTMLInputElement>(null);
-    const galleryInputRef = React.useRef<HTMLInputElement>(null);
+    const cameraInputRef = useRef<HTMLInputElement>(null);
+    const galleryInputRef = useRef<HTMLInputElement>(null);
+    const docCameraInputRef = useRef<HTMLInputElement>(null);
+    const docFileInputRef = useRef<HTMLInputElement>(null);
 
-    const [prefixSettings, setPrefixSettings] = useState<{ rmBoGrnPrefix?: string; fgGrnPrefix?: string; grnPrefix?: string } | null>(null);
+    const [prefixSettings, setPrefixSettings] = useState<{ 
+        rmBoGrnPrefix?: string; 
+        fgGrnPrefix?: string; 
+        grnPrefix?: string; 
+        consumablePrefix?: string 
+    } | null>(null);
 
+    // Fetch custom prefix settings
     useEffect(() => {
         const fetchPrefixes = async () => {
             try {
@@ -81,68 +105,77 @@ export default function GRNModal({
                     setPrefixSettings(data.settings);
                 }
             } catch (e) {
-                // Ignore silent fetch prefix error
+                console.error("Failed to fetch prefix settings:", e);
             }
         };
         fetchPrefixes();
     }, []);
 
-    /**
-     * Generates GRN number based on type and prefix settings
-     */
-    const generateGRNNumber = (grnType: 'bo' | 'inhouse', customPrefix?: string) => {
+    // Generate prefix-based GRN Number
+    const generateGRNNumber = (grnType: string, customPrefix?: string) => {
         const now = new Date();
-        const year = now.getFullYear();
+        const year = now.getFullYear().toString().slice(-2);
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
         const hours = String(now.getHours()).padStart(2, '0');
         const minutes = String(now.getMinutes()).padStart(2, '0');
         const seconds = String(now.getSeconds()).padStart(2, '0');
 
-        const prefix = customPrefix || (grnType === 'inhouse' 
-            ? (prefixSettings?.fgGrnPrefix || 'GRN-FG') 
-            : (prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM'));
-
+        let prefix = customPrefix;
+        if (!prefix) {
+            switch (grnType) {
+                case 'inhouse':
+                case 'fg':
+                    prefix = 'GRN-FG';
+                    break;
+                case 'bo':
+                    prefix = 'GRN-BO';
+                    break;
+                case 'consumable':
+                    prefix = 'GRN-CON';
+                    break;
+                case 'rm':
+                default:
+                    prefix = 'GRN-RM';
+                    break;
+            }
+        }
         return `${prefix}/${year}${month}${day}-${hours}${minutes}${seconds}`;
     };
 
     // Initialize form when modal opens
     useEffect(() => {
         if (isOpen) {
-            const activePrefix = type === 'inhouse' 
-                ? (prefixSettings?.fgGrnPrefix || 'GRN-FG') 
-                : (prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM');
+            let activePrefix = prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM';
+            if (type === 'inhouse' || type === 'fg') {
+                activePrefix = prefixSettings?.fgGrnPrefix || 'GRN-FG';
+            } else if (type === 'bo') {
+                activePrefix = prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-BO';
+            } else if (type === 'consumable') {
+                activePrefix = (prefixSettings as any)?.consumablePrefix || 'GRN-CON';
+            }
 
             if (isEditing && initialData) {
                 setGrnNumber(initialData.grnNumber || '');
                 setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : '');
-                setSupplier(initialData.supplier || '');
-                setCustomer(initialData.customerId || ''); // Assuming customerId in initialData
-                setPoReference(initialData.poReference || '');
-                setExistingPhotos(initialData.photos || []); // Load existing photos
+                setSupplier(typeof (initialData as any).supplier === 'object' && (initialData as any).supplier !== null ? ((initialData as any).supplier as any)._id : ((initialData as any).supplier || ''));
+                setCustomer((initialData as any).customerId || (initialData as any).customer || '');
+                setPoReference((initialData as any).poReference || (initialData as any).poNumber || '');
+                setSelectedPO((initialData as any).purchaseOrder || '');
+                setExistingPhotos((initialData as any).photos || []);
+                setQcRequired((initialData as any).qcRequired || false);
 
                 if (Array.isArray(initialData.items) && initialData.items.length > 0) {
                     const entries = initialData.items.map((item: any) => ({
-                        material: item.material?._id || item.material || '', 
-                        materialName: item.materialName || '',
+                        material: item.material?._id || item.material || item.component?._id || item.component || '',
+                        materialName: item.materialName || item.material?.name || item.component?.name || '',
                         quantity: item.quantity || 0,
                         unit: item.unit || '',
                         category: item.category || '',
-                        locationId: item.locationId || '',
-                        rate: item.rate || 0,  
+                        locationId: item.locationId?._id || item.locationId || item.location?._id || item.location || '',
+                        rate: item.rate || 0,
                     }));
                     setMaterialEntries(entries);
-                } else {
-                    setMaterialEntries([{
-                        material: initialData.material || '',
-                        materialName: initialData.materialName || '',
-                        quantity: initialData.quantity || 0,
-                        unit: initialData.unit || '',
-                        category: initialData.category || '',
-                        locationId: initialData.locationId || '',
-                        rate: initialData.rate || 0,  
-                    }]);
-                    setQcRequired(initialData.qcRequired || false); 
                 }
             } else {
                 setGrnNumber(generateGRNNumber(type, activePrefix));
@@ -150,7 +183,9 @@ export default function GRNModal({
                 setSupplier('');
                 setCustomer('');
                 setPoReference('');
-                setQcRequired(false); 
+                setSelectedPO('');
+                setPoLinkedNotice(null);
+                setQcRequired(false);
                 setPdfFile(null);
                 setPhotoFiles([]);
                 setExistingPhotos([]);
@@ -165,85 +200,156 @@ export default function GRNModal({
                 }]);
             }
         }
-    }, [isOpen, isEditing, initialData]);
+    }, [isOpen, isEditing, initialData, type, prefixSettings]);
 
-    /**
-     * Handles material selection for a specific entry
-     * Auto-fills unit, category, and location from selected material
-     */
-    const handleMaterialChange = (index: number, materialId: string) => {
-        const selectedMaterial = safeMaterials.find(item => item._id === materialId);
-        // For InHouse (components), mapped properties might differ slightly, but assuming consistent 'unit' and 'category' if available
-        // If materials are components, adapt as needed.
-
-        // Check if selectedMaterial is a Component (InHouse) or Material (BO)
-        // Ideally types should verify this, but for now we assume dynamic access
-        const isComponent = type === 'inhouse';
-
-        const newEntries = [...materialEntries];
-        newEntries[index] = {
-            ...newEntries[index],
-            material: materialId,
-            materialName: selectedMaterial?.name || (selectedMaterial as any)?.componentName || '',
-            unit: isComponent ? 'Nos' : (getCategoryUnit(selectedMaterial) || ''), // Default unit for components is often Nos
-            category: isComponent ? 'InHouse' : (getCategoryName(selectedMaterial) || ''),
-            // Auto-fill location from material if available
-            locationId: getLocationId(selectedMaterial) || newEntries[index].locationId,
-        };
-        setMaterialEntries(newEntries);
-    };
-
-    /**
-     * Helper function to get category unit from material
-     */
-    const getCategoryUnit = (material: RmBoItem | undefined): string => {
-        if (!material) return '';
-        if (typeof material.categoryId === 'object' && material.categoryId?.unit) {
-            return material.categoryId.unit;
+    // Fetch active Outward POs released from Purchase tab when supplier changes (RM, BO, Consumables)
+    useEffect(() => {
+        const supplierId = typeof supplier === 'object' ? (supplier as any)?._id : supplier;
+        if (supplierId && type !== 'inhouse' && type !== 'fg') {
+            setLoadingPOs(true);
+            const fetchPOs = async () => {
+                try {
+                    const token = localStorage.getItem('token');
+                    const res = await fetch(`${API_BASE_URL}/api/purchase/po/active-by-vendor/${supplierId}`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                        const json = await res.json();
+                        setVendorActivePOs(json.data || []);
+                    } else {
+                        setVendorActivePOs([]);
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch active vendor POs:", e);
+                    setVendorActivePOs([]);
+                } finally {
+                    setLoadingPOs(false);
+                }
+            };
+            fetchPOs();
+        } else {
+            setVendorActivePOs([]);
+            setSelectedPO('');
+            setPoLinkedNotice(null);
         }
-        return material.category?.unit || '';
-    };
+    }, [supplier, type]);
 
-    /**
-     * Helper function to get category name from material
-     */
-    const getCategoryName = (material: RmBoItem | undefined): string => {
-        if (!material) return '';
-        if (typeof material.categoryId === 'object' && material.categoryId?.name) {
-            return material.categoryId.name;
+    // Fetch active MRP plans for InHouse / FG GRN
+    useEffect(() => {
+        if (isOpen && (type === 'inhouse' || type === 'fg')) {
+            const token = localStorage.getItem('token');
+            if (token) {
+                apiGet('/api/purchase/mrp/plans', token)
+                    .then(res => setMrpPlansList(res.mrpPlans || []))
+                    .catch(err => console.error("Failed to load MRP plans for FG GRN:", err));
+            }
         }
-        return material.category?.name || '';
-    };
+    }, [isOpen, type]);
 
-    /**
-     * Helper function to get location ID from material
-     */
-    const getLocationId = (material: RmBoItem | undefined): string => {
-        if (!material) return '';
-        // Handle InHouse component location if needed, otherwise standard logic
-        if (typeof material.locationId === 'object' && material.locationId?._id) {
-            return material.locationId._id;
+    // Handle PO Selection and Auto-Populate Items
+    const handleSelectPO = (poId: string) => {
+        setSelectedPO(poId);
+        if (!poId) {
+            setPoReference('');
+            setPoLinkedNotice(null);
+            return;
         }
-        if (typeof material.locationId === 'string') {
-            return material.locationId;
+
+        const foundPO = vendorActivePOs.find(p => p._id === poId);
+        if (!foundPO) return;
+
+        setPoReference(foundPO.poNumber || '');
+
+        if (Array.isArray(foundPO.items) && foundPO.items.length > 0) {
+            const newEntries: MaterialEntry[] = foundPO.items.map((poItem: any) => {
+                const materialObj = poItem.material;
+                const matId = typeof materialObj === 'object' && materialObj !== null
+                    ? materialObj._id 
+                    : (poItem.material || poItem.item || '');
+
+                const matName = typeof materialObj === 'object' && materialObj !== null
+                    ? materialObj.name 
+                    : (poItem.itemName || poItem.name || '');
+
+                let unit = poItem.unit || '';
+                if (!unit && typeof materialObj === 'object' && materialObj !== null) {
+                    unit = materialObj.unit || '';
+                }
+
+                let category = poItem.category || '';
+                if (!category && typeof materialObj === 'object' && materialObj !== null) {
+                    category = typeof materialObj.category === 'object' ? materialObj.category?.name : materialObj.category;
+                }
+
+                let locationId = poItem.locationId || '';
+                if (!locationId && typeof materialObj === 'object' && materialObj !== null) {
+                    locationId = typeof materialObj.locationId === 'object' ? materialObj.locationId?._id : materialObj.locationId;
+                }
+
+                const qtyRemaining = poItem.pendingQuantity !== undefined 
+                    ? Number(poItem.pendingQuantity) 
+                    : Math.max(0, (Number(poItem.quantity) || 0) - (Number(poItem.receivedQuantity) || 0));
+
+                const rate = Number(poItem.rate) || Number(poItem.unitPrice) || Number(poItem.price) || 0;
+
+                return {
+                    material: matId,
+                    materialName: matName,
+                    quantity: qtyRemaining > 0 ? qtyRemaining : Number(poItem.quantity) || 0,
+                    unit: unit || 'PCS',
+                    category: category || '',
+                    locationId: locationId || '',
+                    rate: rate
+                };
+            });
+
+            setMaterialEntries(newEntries);
+            setPoLinkedNotice(`Loaded ${newEntries.length} items from PO #${foundPO.poNumber}`);
         }
-        return material.location?._id || '';
     };
 
-    /**
-     * Updates a field in a specific material entry
-     */
-    const updateEntry = (index: number, field: keyof MaterialEntry, value: any) => {
-        const newEntries = [...materialEntries];
-        newEntries[index] = { ...newEntries[index], [field]: value };
-        setMaterialEntries(newEntries);
+    // Handle MRP Plan Selection for InHouse / FG GRN
+    const handleSelectMRPPlan = (planId: string) => {
+        setMrpPlan(planId);
+        if (!planId) {
+            setMrpNumber('');
+            return;
+        }
+
+        const foundPlan = mrpPlansList.find(p => p._id === planId);
+        if (!foundPlan) return;
+
+        setMrpNumber(foundPlan.mrpNumber || '');
+        if (foundPlan.customerId) {
+            const cId = typeof foundPlan.customerId === 'object' ? foundPlan.customerId._id : foundPlan.customerId;
+            setCustomer(cId || '');
+        }
+
+        if (Array.isArray(foundPlan.items) && foundPlan.items.length > 0) {
+            const newEntries: MaterialEntry[] = foundPlan.items.map((mrpItem: any) => {
+                const fgObj = mrpItem.fgItem || mrpItem.product || mrpItem.finishedGood;
+                const fgId = typeof fgObj === 'object' && fgObj !== null ? fgObj._id : (fgObj || mrpItem.material || '');
+                const fgName = typeof fgObj === 'object' && fgObj !== null ? fgObj.name : (mrpItem.productName || mrpItem.name || '');
+                const unit = mrpItem.unit || (typeof fgObj === 'object' ? fgObj?.unit : 'PCS');
+                const qty = Number(mrpItem.quantity) || Number(mrpItem.plannedQuantity) || 0;
+
+                return {
+                    material: fgId,
+                    materialName: fgName,
+                    quantity: qty,
+                    unit: unit || 'PCS',
+                    category: 'Finished Goods',
+                    locationId: '',
+                    rate: Number(mrpItem.rate) || 0
+                };
+            });
+            setMaterialEntries(newEntries);
+        }
     };
 
-    /**
-     * Adds a new material entry
-     */
-    const addMaterialEntry = () => {
-        setMaterialEntries([...materialEntries, {
+    // Items table handlers
+    const handleAddMaterial = () => {
+        setMaterialEntries(prev => [...prev, {
             material: '',
             materialName: '',
             quantity: 0,
@@ -254,574 +360,692 @@ export default function GRNModal({
         }]);
     };
 
-    /**
-     * Removes a material entry
-     */
-    const removeMaterialEntry = (index: number) => {
+    const handleRemoveMaterial = (index: number) => {
         if (materialEntries.length > 1) {
-            setMaterialEntries(materialEntries.filter((_, i) => i !== index));
+            setMaterialEntries(prev => prev.filter((_, i) => i !== index));
         }
     };
 
-    /**
-     * Handles form submission
-     */
+    const handleMaterialChange = (index: number, field: keyof MaterialEntry, value: any) => {
+        setMaterialEntries(prev => {
+            const updated = [...prev];
+            updated[index] = { ...updated[index], [field]: value };
+
+            if (field === 'material') {
+                const selectedMaterial = safeMaterials.find(m => m._id === value);
+                if (selectedMaterial) {
+                    updated[index].materialName = selectedMaterial.name;
+                    let unitVal = (selectedMaterial as any).unit || '';
+                    if (!unitVal && selectedMaterial.category && typeof selectedMaterial.category === 'object') {
+                        unitVal = (selectedMaterial.category as any).unit || '';
+                    }
+                    updated[index].unit = unitVal || 'PCS';
+
+                    let categoryVal = '';
+                    if (typeof selectedMaterial.category === 'object') {
+                        categoryVal = (selectedMaterial.category as any).name || '';
+                    } else if (typeof selectedMaterial.category === 'string') {
+                        categoryVal = selectedMaterial.category;
+                    }
+                    updated[index].category = categoryVal;
+
+                    if ((selectedMaterial as any).locationId) {
+                        const locId = typeof (selectedMaterial as any).locationId === 'object' 
+                            ? ((selectedMaterial as any).locationId as any)._id 
+                            : (selectedMaterial as any).locationId;
+                        updated[index].locationId = locId;
+                    }
+                }
+            }
+            return updated;
+        });
+    };
+
+    // Form Submission
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Prepare items array with all material entries
+        // Validate items
+        const invalidItems = materialEntries.filter(m => !m.material || m.quantity <= 0);
+        if (invalidItems.length > 0) {
+            alert("Please ensure all items have a selected material and a valid quantity greater than 0.");
+            return;
+        }
+
         const items = materialEntries.map(entry => ({
             material: entry.material,
             fgItem: entry.material,
             materialName: entry.materialName,
-            quantity: entry.quantity,
+            quantity: Number(entry.quantity),
             unit: entry.unit,
             locationId: entry.locationId,
-            rate: entry.rate,
+            rate: Number(entry.rate) || 0,
         }));
 
-        // Create FormData for file uploads
         const formData = new FormData();
         formData.append('grnNumber', grnNumber);
         formData.append('date', date);
-        formData.append('type', type); // Add type
-        formData.append('qcRequired', String(qcRequired)); // Send boolean as string if needed, backend body-parser usually handles booleans if JSON, but safe as string/boolean
-
-
-        if (type === 'bo') {
-            formData.append('supplier', supplier);
-            if (poReference) formData.append('poReference', poReference);
-            // Add PDF if selected
-            if (pdfFile) {
-                formData.append('pdf', pdfFile);
-            }
-            // Add photos if selected
-            photoFiles.forEach((photo) => {
-                formData.append('photos', photo);
-            });
-            // Add existing photos to keep
-            if (isEditing) {
-                formData.append('existingPhotos', JSON.stringify(existingPhotos));
-            }
-        } else {
-            // InHouse explicitly does NOT send customer, poReference, pdf, photos
-        }
-
-
-
-        // Add items as JSON string, relevant for both BO and InHouse
+        formData.append('type', type);
+        formData.append('qcRequired', String(qcRequired));
         formData.append('items', JSON.stringify(items));
 
-        // For backward compatibility (if backend expects flat fields for single item)
-        // Assuming backend handles 'items' array primarily now, or we might need to adjust based on backend logic
-        formData.append('material', materialEntries[0]?.material || '');
-        formData.append('materialName', materialEntries[0]?.materialName || '');
-        formData.append('quantity', String(materialEntries[0]?.quantity || 0));
-        formData.append('unit', materialEntries[0]?.unit || '');
-        formData.append('locationId', materialEntries[0]?.locationId || '');
-        formData.append('category', materialEntries[0]?.category || '');
-        if (type === 'bo') {
-            formData.append('rate', String(materialEntries[0]?.rate || 0));
+        if (type !== 'inhouse' && type !== 'fg') {
+            const supplierId = typeof supplier === 'object' ? (supplier as any)._id : supplier;
+            formData.append('supplier', supplierId);
+            if (selectedPO) formData.append('purchaseOrder', selectedPO);
+            if (poReference) formData.append('poReference', poReference);
+            if (pdfFile) formData.append('pdf', pdfFile);
+            photoFiles.forEach(photo => formData.append('photos', photo));
+            if (isEditing) formData.append('existingPhotos', JSON.stringify(existingPhotos));
+        } else {
+            if (customer) formData.append('customer', customer);
+            if (mrpPlan) formData.append('mrpPlan', mrpPlan);
+            if (mrpNumber) formData.append('mrpNumber', mrpNumber);
         }
 
-        onSubmit(formData as any);
+        onSubmit(formData);
+    };
+
+    // Calculate totals
+    const totalItemsCount = materialEntries.filter(m => m.material).length;
+    const totalQuantity = materialEntries.reduce((sum, m) => sum + (Number(m.quantity) || 0), 0);
+    const totalNetValue = materialEntries.reduce((sum, m) => sum + ((Number(m.quantity) || 0) * (Number(m.rate) || 0)), 0);
+
+    // Theming Helpers
+    const theme = {
+        rm: {
+            title: "Raw Material (RM) GRN",
+            badge: "RM",
+            gradient: "from-blue-600 to-indigo-700",
+            buttonBg: "bg-blue-600 hover:bg-blue-700",
+            itemLabel: "Raw Material",
+        },
+        bo: {
+            title: "Bought Out (BO) GRN",
+            badge: "BO",
+            gradient: "from-indigo-600 to-purple-700",
+            buttonBg: "bg-indigo-600 hover:bg-indigo-700",
+            itemLabel: "Bought Out Item",
+        },
+        consumable: {
+            title: "Consumable Goods GRN",
+            badge: "Consumable",
+            gradient: "from-emerald-600 to-teal-700",
+            buttonBg: "bg-emerald-600 hover:bg-emerald-700",
+            itemLabel: "Consumable Item",
+        },
+        inhouse: {
+            title: "In-House (FG) GRN",
+            badge: "FG",
+            gradient: "from-purple-600 to-pink-700",
+            buttonBg: "bg-purple-600 hover:bg-purple-700",
+            itemLabel: "Finished Good",
+        },
+        fg: {
+            title: "Finished Goods (FG) GRN",
+            badge: "FG",
+            gradient: "from-purple-600 to-pink-700",
+            buttonBg: "bg-purple-600 hover:bg-purple-700",
+            itemLabel: "Finished Good",
+        }
+    }[type] || {
+        title: "Goods Receipt Note (GRN)",
+        badge: "GRN",
+        gradient: "from-blue-600 to-indigo-700",
+        buttonBg: "bg-blue-600 hover:bg-blue-700",
+        itemLabel: "Material",
     };
 
     if (!isOpen) return null;
 
     return (
-        <>
-            {/* Modal backdrop */}
-            <div className="fixed inset-0 bg-black bg-opacity-50 z-[105]" onClick={onClose} />
-
-            {/* Modal content */}
-            <div className="fixed inset-0 flex items-center justify-center z-[110] p-2 sm:p-4">
-                <div className="bg-white rounded-2xl shadow-2xl max-w-7xl w-full max-h-[95vh] overflow-hidden flex flex-col">
-                    {/* Modal header */}
-                    <div className={`flex items-center justify-between p-4 border-b ${type === 'inhouse' ? 'bg-gradient-to-r from-purple-600 to-pink-600' : 'bg-gradient-to-r from-indigo-600 to-purple-600'}`}>
-                        <div>
-                            <h2 className="text-xl font-bold text-white">
-                                {isEditing ? 'Edit GRN' : `Create ${type === 'inhouse' ? 'InHouse' : ''} GRN`}
-                            </h2>
-                            <p className="text-indigo-100 text-xs mt-0.5">
-                                {type === 'inhouse' ? 'Receive InHouse components' : 'Add materials received from supplier'}
-                            </p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-7xl max-h-[94vh] flex flex-col overflow-hidden border border-gray-100">
+                
+                {/* Modal Header */}
+                <div className={`px-4 sm:px-6 py-3 bg-gradient-to-r ${theme.gradient} text-white flex items-center justify-between shrink-0 shadow-md`}>
+                    <div className="flex items-center gap-2.5">
+                        <div className="p-1.5 bg-white/15 rounded-lg border border-white/20">
+                            <Layers className="w-4 h-4 text-white" />
                         </div>
-                        <button
-                            onClick={onClose}
-                            className="p-1.5 hover:bg-white hover:bg-opacity-20 rounded-lg transition-colors text-white"
-                            title="Close"
-                        >
-                            <X size={20} />
-                        </button>
+                        <h2 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                            {isEditing ? `Edit ${theme.title}` : `Create ${theme.title}`}
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/20 text-white border border-white/30">
+                                {theme.badge}
+                            </span>
+                        </h2>
                     </div>
 
-                    {/* Modal body - Scrollable */}
-                    <div className="flex-1 overflow-y-auto p-4">
-                        <form id="grn-form" onSubmit={handleSubmit} className="space-y-4 pb-32">
-                            {/* GRN Details Section - Compact */}
-                            <div className="bg-gray-50 rounded-xl p-3 border border-gray-200 shadow-sm">
-                                <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
-                                    <div className={`w-1 h-4 ${type === 'inhouse' ? 'bg-purple-600' : 'bg-indigo-600'} rounded`}></div>
-                                    GRN Details
-                                </h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                    {/* GRN Number */}
-                                    <div>
-                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                            GRN Number
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={grnNumber}
-                                            readOnly
-                                            className="w-full px-3 py-1.5 bg-white border border-gray-300 rounded-md text-gray-900 font-mono text-xs cursor-not-allowed"
-                                        />
-                                    </div>
+                    <div className="flex items-center gap-3">
+                        {/* Compact QC Inspection Toggle */}
+                        <label className="flex items-center gap-1.5 px-2.5 py-1 bg-white/15 hover:bg-white/25 border border-white/30 rounded-lg cursor-pointer transition-colors text-white text-xs font-bold">
+                            <input
+                                type="checkbox"
+                                checked={qcRequired}
+                                onChange={(e) => setQcRequired(e.target.checked)}
+                                className="w-3.5 h-3.5 rounded text-amber-500 border-white/50 focus:ring-0 cursor-pointer"
+                            />
+                            <span className="hidden sm:inline">QC Required</span>
+                            <span className="sm:hidden">QC</span>
+                        </label>
 
+                        <button
+                            onClick={onClose}
+                            className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/20 transition-all cursor-pointer"
+                            title="Close"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
 
-
-                                    {/* Date */}
-                                    <div>
-                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                            Date <span className="text-red-500">*</span>
-                                        </label>
-                                        <input
-                                            type="date"
-                                            required
-                                            value={date}
-                                            onChange={(e) => setDate(e.target.value)}
-                                            className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                        />
-                                    </div>
-
-                                    {/* QC Required Checkbox */}
-                                    {/* QC Required Checkbox */}
-                                    <div>
-                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                            Quality Control
-                                        </label>
-                                        <div className="flex items-center h-[30px]"> {/* Match rough height of inputs */}
-                                            <label className="flex items-center gap-2 cursor-pointer select-none">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={qcRequired}
-                                                    onChange={(e) => setQcRequired(e.target.checked)}
-                                                    className={`w-4 h-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500`}
-                                                />
-                                                <span className="text-xs font-medium text-gray-700">Required</span>
-                                            </label>
-                                        </div>
-                                    </div>
-
-                                    {/* Supplier - BO Only */}
-                                    {type === 'bo' && (
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                Supplier <span className="text-red-500">*</span>
-                                            </label>
-                                            <SearchableSelect
-                                                options={safeVendors.map(vendor => ({ value: vendor._id, label: `${vendor.name || ''} ${vendor.code ? `(${vendor.code})` : ''}` }))}
-                                                value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
-                                                onChange={(val: any) => setSupplier(val)}
-                                                placeholder="Select Supplier"
-                                            />
-                                        </div>
-                                    )}
-
-                                    {/* PO Reference - BO Only */}
-                                    {type === 'bo' && (
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                PO Reference
-                                            </label>
-                                            <input
-                                                type="text"
-                                                value={poReference}
-                                                onChange={(e) => setPoReference(e.target.value)}
-                                                className="w-full px-3 py-1.5 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                                placeholder="Enter PO No."
-                                            />
-                                        </div>
-                                    )}
-                                </div>
+                {/* Modal Body */}
+                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 bg-gray-50/60">
+                    
+                    {/* Basic Info & Vendor Grid */}
+                    <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200/80 shadow-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                            
+                            {/* GRN Number */}
+                            <div>
+                                <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                    GRN Number
+                                </label>
+                                <input
+                                    type="text"
+                                    value={grnNumber}
+                                    readOnly
+                                    className="w-full px-2.5 py-1.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-900 font-mono text-xs font-semibold cursor-not-allowed select-all"
+                                />
                             </div>
 
-                            {/* Photos Section - BO Only */}
-                            {type === 'bo' && (
-                                <div className="mt-4 bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 mb-6">
-                                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                                        Photos <span className="text-gray-400 font-normal">(Goods, Invoice, etc.)</span>
+                            {/* Receipt Date */}
+                            <div>
+                                <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                    Receipt Date <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="date"
+                                    required
+                                    value={date}
+                                    onChange={(e) => setDate(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                            </div>
+
+                            {/* Supplier for RM, BO, Consumable */}
+                            {type !== 'inhouse' && type !== 'fg' && (
+                                <div className="sm:col-span-2 lg:col-span-1">
+                                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                        Supplier / Vendor <span className="text-red-500">*</span>
                                     </label>
-
-                                    <div className="flex flex-col gap-4">
-                                        {/* Small Action Icons */}
-                                        <div className="flex items-center gap-4">
-                                            {/* Camera Button */}
-                                            <div
-                                                onClick={() => cameraInputRef.current?.click()}
-                                                className="cursor-pointer group flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 rounded-xl hover:bg-indigo-50 hover:border-indigo-500 transition-all shadow-sm active:scale-95 touch-manipulation"
-                                            >
-                                                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 group-hover:bg-indigo-100 transition-colors">
-                                                    <Camera className="w-5 h-5" />
-                                                </div>
-                                                <span className="text-sm text-gray-700 font-semibold">Camera</span>
-                                                <input
-                                                    ref={cameraInputRef}
-                                                    type="file"
-                                                    className="hidden"
-                                                    accept="image/*"
-                                                    capture="environment" // Rear camera
-                                                    onChange={(e) => {
-                                                        if (e.target.files && e.target.files.length > 0) {
-                                                            const newFiles = Array.from(e.target.files);
-                                                            setPhotoFiles(prev => [...prev, ...newFiles]);
-                                                            e.target.value = '';
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Gallery Button */}
-                                            <div
-                                                onClick={() => galleryInputRef.current?.click()}
-                                                className="cursor-pointer group flex items-center gap-2 px-4 py-3 bg-white border border-gray-300 rounded-xl hover:bg-green-50 hover:border-green-500 transition-all shadow-sm active:scale-95 touch-manipulation"
-                                            >
-                                                <div className="p-2 bg-green-50 rounded-lg text-green-600 group-hover:bg-green-100 transition-colors">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                                    </svg>
-                                                </div>
-                                                <span className="text-sm text-gray-700 font-semibold">Gallery</span>
-                                                <input
-                                                    ref={galleryInputRef}
-                                                    type="file"
-                                                    className="hidden"
-                                                    accept="image/*,application/pdf"
-                                                    multiple
-                                                    onChange={(e) => {
-                                                        if (e.target.files && e.target.files.length > 0) {
-                                                            const newFiles = Array.from(e.target.files);
-                                                            setPhotoFiles(prev => [...prev, ...newFiles]);
-                                                            e.target.value = '';
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Preview Row */}
-                                        <div className="flex flex-wrap gap-3">
-                                            {/* New Photo Previews */}
-                                            {photoFiles.map((file, index) => (
-                                                <div key={`new-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-lg overflow-hidden group shadow-sm bg-white flex items-center justify-center">
-                                                    {file.type === 'application/pdf' ? (
-                                                        <span className="text-xs font-bold text-red-500">PDF</span>
-                                                    ) : (
-                                                        <img
-                                                            src={URL.createObjectURL(file)}
-                                                            alt={`New ${index}`}
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setPhotoFiles(files => files.filter((_, i) => i !== index))}
-                                                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        title="Remove photo"
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
-                                                </div>
-                                            ))}
-
-                                            {/* Existing Server Photos */}
-                                            {existingPhotos.map((url, index) => (
-                                                <div key={`server-${index}`} className="relative w-20 h-20 border border-gray-200 rounded-lg overflow-hidden shrink-0 shadow-sm bg-gray-50 group flex items-center justify-center">
-                                                    {url.toLowerCase().includes('.pdf') ? (
-                                                        <span className="text-xs font-bold text-red-500">PDF</span>
-                                                    ) : (
-                                                        <img
-                                                            src={url}
-                                                            alt={`Server Photo ${index}`}
-                                                            className="w-full h-full object-cover opacity-90"
-                                                        />
-                                                    )}
-                                                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] py-0.5 text-center">
-                                                        Saved
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setExistingPhotos(prev => prev.filter((_, i) => i !== index))}
-                                                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        title="Remove saved photo"
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
+                                    <SearchableSelect
+                                        options={safeVendors.map(vendor => ({
+                                            value: vendor._id,
+                                            label: `${vendor.name || 'Unnamed'} ${vendor.code ? `(${vendor.code})` : ''}`
+                                        }))}
+                                        value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
+                                        onChange={(val: any) => {
+                                            setSupplier(val);
+                                            setSelectedPO('');
+                                            setPoReference('');
+                                            setPoLinkedNotice(null);
+                                        }}
+                                        placeholder="Select Vendor..."
+                                    />
                                 </div>
                             )}
 
-                            {/* Materials Section */}
-                            {/* Materials Section */}
-                            <div className={`bg-white rounded-xl border-2 ${type === 'inhouse' ? 'border-purple-100' : 'border-indigo-100'}`}>
-                                <div className={`p-3 border-b rounded-t-xl flex items-center justify-between ${type === 'inhouse' ? 'border-purple-100 bg-purple-50' : 'border-indigo-100 bg-indigo-50'}`}>
-                                    <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                                        <div className={`w-1 h-4 ${type === 'inhouse' ? 'bg-purple-600' : 'bg-indigo-600'} rounded`}></div>
-                                        {type === 'inhouse' ? 'Items Received' : 'Material Entries'}
-                                    </h3>
-                                    <button
-                                        type="button"
-                                        onClick={addMaterialEntry}
-                                        className={`px-3 py-1.5 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1 shadow-sm ${type === 'inhouse' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                                        title="Add Item"
+                            {/* Customer for FG / InHouse */}
+                            {(type === 'inhouse' || type === 'fg') && (
+                                <div className="sm:col-span-2 lg:col-span-1">
+                                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                        Customer <span className="text-red-500">*</span>
+                                    </label>
+                                    <SearchableSelect
+                                        options={safeCustomers.map(cust => ({
+                                            value: cust._id,
+                                            label: `${cust.name || 'Unnamed'} ${cust.code ? `(${cust.code})` : ''}`
+                                        }))}
+                                        value={typeof customer === 'object' ? (customer as any)._id : customer || ''}
+                                        onChange={(val: any) => setCustomer(val)}
+                                        placeholder="Select Customer..."
+                                    />
+                                </div>
+                            )}
+
+                            {/* Outward PO Selector (if vendor selected) */}
+                            {type !== 'inhouse' && type !== 'fg' && supplier && (
+                                <div className="sm:col-span-2 lg:col-span-1">
+                                    <label className="block text-[11px] font-bold text-indigo-900 mb-1 flex items-center justify-between">
+                                        <span>Link Outward PO</span>
+                                        <span className="text-[10px] text-indigo-600 font-semibold">({vendorActivePOs.length} Open)</span>
+                                    </label>
+                                    <select
+                                        value={selectedPO}
+                                        onChange={(e) => handleSelectPO(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 bg-indigo-50/50 border border-indigo-300 rounded-lg text-xs font-bold text-indigo-950 focus:ring-2 focus:ring-indigo-500 cursor-pointer truncate"
                                     >
-                                        <Plus size={14} /> Add Item
-                                    </button>
+                                        <option value="">-- Direct / No PO Link --</option>
+                                        {vendorActivePOs.map(po => {
+                                            const poDate = po.date ? new Date(po.date).toLocaleDateString('en-GB') : '';
+                                            return (
+                                                <option key={po._id} value={po._id}>
+                                                    PO #{po.poNumber} ({poDate}) - {po.status || 'Active'}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
                                 </div>
+                            )}
 
-                                {/* Desktop View: Table Layout */}
-                                <div className="hidden md:block overflow-visible p-2">
-                                    <table className="w-full text-left text-xs">
-                                        <thead>
-                                            <tr className="border-b border-gray-100 text-gray-500">
-                                                <th className="px-2 py-2 w-10">#</th>
-                                                <th className="px-2 py-2 w-1/3">{type === 'inhouse' ? 'Component/Item' : 'Material'} <span className="text-red-500">*</span></th>
-                                                <th className="px-2 py-2 w-24">Qty <span className="text-red-500">*</span></th>
-                                                <th className="px-2 py-2 w-20">Unit</th>
-                                                {type === 'bo' && <th className="px-2 py-2 w-28">Rate (₹)</th>}
-                                                <th className="px-2 py-2 w-10"></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-50">
-                                            {materialEntries.map((entry, index) => (
-                                                <tr key={`desktop-${index}`} className="group hover:bg-gray-50 transition-colors">
-                                                    <td className="px-2 py-2 text-gray-400 font-medium">{index + 1}</td>
-                                                    <td className="px-2 py-2">
-                                                        <SearchableSelect
-                                                            options={safeMaterials.map((item) => ({
-                                                                value: item._id,
-                                                                label: type === 'inhouse'
-                                                                    ? `${(item as any).componentName || item.name || ''} ${(item as any).description ? `(${(item as any).description})` : ''}`
-                                                                    : `${item.name || (item as any).componentName || ''} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
-                                                            }))}
-                                                            value={typeof entry.material === 'object' ? (entry.material as any)._id : entry.material || ''}
-                                                            onChange={(val: any) => handleMaterialChange(index, val)}
-                                                            placeholder={`Select ${type === 'inhouse' ? 'Item' : 'Material'}`}
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2">
-                                                        <input
-                                                            type="number"
-                                                            required
-                                                            min="0"
-                                                            step="0.01"
-                                                            value={entry.quantity || ''}
-                                                            onChange={(e) => updateEntry(index, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                                            className="w-full px-2 py-1.5 border border-gray-200 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs"
-                                                            placeholder="0"
-                                                        />
-                                                    </td>
-                                                    <td className="px-2 py-2 text-gray-500">
-                                                        <input
-                                                            type="text"
-                                                            readOnly
-                                                            value={entry.unit || '-'}
-                                                            className="w-full px-2 py-1.5 bg-gray-50 border border-gray-200 rounded text-xs text-gray-500 cursor-not-allowed"
-                                                        />
-                                                    </td>
-                                                    {type === 'bo' && (
-                                                        <td className="px-2 py-2">
-                                                            <input
-                                                                type="number"
-                                                                min="0"
-                                                                step="0.01"
-                                                                value={entry.rate || ''}
-                                                                onChange={(e) => updateEntry(index, 'rate', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                                                className="w-full px-2 py-1.5 border border-gray-200 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-xs"
-                                                                placeholder="0.00"
-                                                            />
-                                                        </td>
-                                                    )}
-                                                    <td className="px-2 py-2 text-right">
-                                                        <div className="flex items-center justify-end gap-1">
-                                                            {/* Add button only on last row */}
-                                                            {index === materialEntries.length - 1 && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={addMaterialEntry}
-                                                                    className={`p-1.5 text-white rounded transition-colors shadow-sm ${type === 'inhouse' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                                                                    title="Add New Item"
-                                                                >
-                                                                    <Plus size={14} />
-                                                                </button>
-                                                            )}
-
-                                                            {/* Delete button */}
-                                                            {materialEntries.length > 1 && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => removeMaterialEntry(index)}
-                                                                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                                    title="Remove"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                            {/* Manual PO / Invoice Ref */}
+                            {type !== 'inhouse' && type !== 'fg' && (
+                                <div>
+                                    <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                                        PO / Invoice Ref No.
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={poReference}
+                                        onChange={(e) => setPoReference(e.target.value)}
+                                        placeholder="Manual / Offline Ref"
+                                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-800 focus:ring-2 focus:ring-indigo-500"
+                                    />
                                 </div>
+                            )}
 
-                                {/* Mobile View: Card Layout */}
-                                <div className="md:hidden p-4 space-y-4">
-                                    {materialEntries.map((entry, index) => (
-                                        <div key={`mobile-${index}`} className="bg-gray-50 rounded-lg p-4 border border-gray-200 relative">
-                                            {/* Entry number badge */}
-                                            <div className={`absolute -top-3 -left-3 w-6 h-6 text-white rounded-full flex items-center justify-center font-bold text-xs ${type === 'inhouse' ? 'bg-purple-600' : 'bg-indigo-600'}`}>
-                                                {index + 1}
-                                            </div>
-
-                                            {/* Action buttons (Top Right) */}
-                                            <div className="absolute -top-3 -right-3 flex items-center gap-1">
-                                                {/* Add button only on last card */}
-                                                {index === materialEntries.length - 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={addMaterialEntry}
-                                                        className={`w-6 h-6 text-white rounded-full flex items-center justify-center hover:opacity-90 transition-colors shadow-sm ${type === 'inhouse' ? 'bg-purple-600' : 'bg-indigo-600'}`}
-                                                        title="Add New Item"
-                                                    >
-                                                        <Plus size={12} />
-                                                    </button>
-                                                )}
-
-                                                {/* Delete button */}
-                                                {materialEntries.length > 1 && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => removeMaterialEntry(index)}
-                                                        className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-sm"
-                                                        title="Remove"
-                                                    >
-                                                        <Trash2 size={12} />
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            <div className="space-y-3 mt-1">
-                                                {/* Material */}
-                                                <div>
-                                                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                        {type === 'inhouse' ? 'Component/Item' : 'Material'} <span className="text-red-500">*</span>
-                                                    </label>
-                                                    <SearchableSelect
-                                                        options={safeMaterials.map((item) => ({
-                                                            value: item._id,
-                                                            label: type === 'inhouse'
-                                                                ? `${(item as any).componentName || item.name || ''} ${(item as any).description ? `(${(item as any).description})` : ''}`
-                                                                : `${item.name || (item as any).componentName || ''} ${((item as any).code || (item as any).componentCode) ? `(${((item as any).code || (item as any).componentCode)})` : ''}`
-                                                        }))}
-                                                        value={typeof entry.material === 'object' ? (entry.material as any)._id : entry.material || ''}
-                                                        onChange={(val: any) => handleMaterialChange(index, val)}
-                                                        placeholder={`Select ${type === 'inhouse' ? 'Item' : 'Material'}`}
-                                                    />
-                                                </div>
-
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    {/* Quantity */}
-                                                    <div>
-                                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                            Quantity <span className="text-red-500">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="number"
-                                                            required
-                                                            min="0"
-                                                            step="0.01"
-                                                            value={entry.quantity || ''}
-                                                            onChange={(e) => updateEntry(index, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                                            placeholder="0"
-                                                        />
-                                                    </div>
-
-                                                    {/* Unit (ReadOnly) */}
-                                                    <div>
-                                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                            Unit
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            readOnly
-                                                            value={entry.unit || ''}
-                                                            className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-500 text-sm"
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                {/* Rate/Price - BO Only */}
-                                                {type === 'bo' && (
-                                                    <div>
-                                                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                                                            Rate (Optional)
-                                                        </label>
-                                                        <div className="relative">
-                                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">₹</span>
-                                                            <input
-                                                                type="number"
-                                                                min="0"
-                                                                step="0.01"
-                                                                value={entry.rate || ''}
-                                                                onChange={(e) => updateEntry(index, 'rate', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                                                                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                                                placeholder="0.00"
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
-
-                                    {materialEntries.length === 0 && (
-                                        <div className="text-center py-8 text-gray-500 text-sm">
-                                            No items added. Click "Add Item" to start.
-                                        </div>
-                                    )}
+                            {/* MRP Plan for FG */}
+                            {(type === 'inhouse' || type === 'fg') && mrpPlansList.length > 0 && (
+                                <div className="sm:col-span-2">
+                                    <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                                        Link MRP Demand Plan
+                                    </label>
+                                    <select
+                                        value={mrpPlan}
+                                        onChange={(e) => handleSelectMRPPlan(e.target.value)}
+                                        className="w-full px-2.5 py-1.5 bg-purple-50/50 border border-purple-300 rounded-lg text-xs font-bold text-purple-950 focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                                    >
+                                        <option value="">-- Select MRP Plan (Optional) --</option>
+                                        {mrpPlansList.map(plan => (
+                                            <option key={plan._id} value={plan._id}>
+                                                MRP #{plan.mrpNumber} {plan.customerName ? `(${plan.customerName})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
+                            )}
+                        </div>
+
+                        {/* PO Auto-link Notice */}
+                        {poLinkedNotice && (
+                            <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>{poLinkedNotice}</span>
                             </div>
-                        </form>
+                        )}
                     </div>
 
-                    {/* Modal footer - Fixed at bottom */}
-                    <div className="p-6 border-t bg-gray-50">
-                        <div className="flex gap-3">
-                            <button
-                                type="submit"
-                                form="grn-form"
-                                disabled={loading}
-                                className={`flex-1 text-white py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl ${type === 'inhouse' ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'}`}
-                            >
-                                {loading ? 'Saving...' : isEditing ? 'Update GRN' : 'Create GRN'}
-                            </button>
+                    {/* Compact Single-Bar Attachment Toolbar */}
+                    {type !== 'inhouse' && type !== 'fg' && (
+                        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold text-gray-700 flex items-center gap-1 shrink-0">
+                                    <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
+                                    Attach:
+                                </span>
+
+                                {/* Camera Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => docCameraInputRef.current?.click()}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-lg font-bold text-indigo-700 transition-colors cursor-pointer"
+                                    title="Open rear camera to photograph document/invoice"
+                                >
+                                    <Camera className="w-3.5 h-3.5 text-indigo-600" />
+                                    Camera
+                                </button>
+
+                                {/* Gallery / Photo Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => galleryInputRef.current?.click()}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-lg font-semibold text-gray-700 transition-colors cursor-pointer"
+                                >
+                                    <Image className="w-3.5 h-3.5 text-gray-600" />
+                                    Photos
+                                </button>
+
+                                {/* File / PDF Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => docFileInputRef.current?.click()}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-50 border border-gray-200 hover:bg-gray-100 rounded-lg font-semibold text-gray-700 transition-colors cursor-pointer"
+                                >
+                                    <FileText className="w-3.5 h-3.5 text-gray-600" />
+                                    Invoice PDF
+                                </button>
+
+                                {/* Hidden file inputs */}
+                                <input
+                                    ref={docCameraInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        if (e.target.files?.[0]) {
+                                            setPdfFile(e.target.files[0]);
+                                        }
+                                    }}
+                                />
+                                <input
+                                    ref={docFileInputRef}
+                                    type="file"
+                                    accept="application/pdf,image/*"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        if (e.target.files?.[0]) {
+                                            setPdfFile(e.target.files[0]);
+                                        }
+                                    }}
+                                />
+                                <input
+                                    ref={galleryInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        if (e.target.files?.length) {
+                                            setPhotoFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            {/* Active Attachments Badges */}
+                            <div className="flex flex-wrap items-center gap-2">
+                                {/* Attached PDF/Invoice Pill */}
+                                {pdfFile && (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg font-semibold text-[11px]">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                        <span className="truncate max-w-[140px] sm:max-w-[200px]">{pdfFile.name}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPdfFile(null)}
+                                            className="text-emerald-700 hover:text-red-600 transition-colors ml-0.5 cursor-pointer"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Attached Photos Count & Mini Previews */}
+                                {photoFiles.length > 0 && (
+                                    <div className="flex items-center gap-1.5">
+                                        <div className="flex -space-x-1.5 overflow-hidden">
+                                            {photoFiles.slice(0, 3).map((file, idx) => (
+                                                <img
+                                                    key={idx}
+                                                    src={URL.createObjectURL(file)}
+                                                    alt="thumb"
+                                                    className="w-6 h-6 rounded-md object-cover border border-white ring-1 ring-gray-200 shadow-2xs"
+                                                />
+                                            ))}
+                                        </div>
+                                        <span className="text-[11px] font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
+                                            {photoFiles.length} photo{photoFiles.length > 1 ? 's' : ''}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setPhotoFiles([])}
+                                            className="text-gray-400 hover:text-red-600 transition-colors p-0.5 cursor-pointer"
+                                            title="Clear photos"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Items Section */}
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+                        {/* Section Header */}
+                        <div className="px-4 py-2.5 bg-gray-50/90 border-b border-gray-200 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-indigo-600" />
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-800">
+                                    Item Details
+                                </h3>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-800">
+                                    {materialEntries.length} Item(s)
+                                </span>
+                            </div>
                             <button
                                 type="button"
-                                onClick={onClose}
-                                className="flex-1 bg-white text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors border-2 border-gray-300"
+                                onClick={handleAddMaterial}
+                                className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
                             >
-                                Cancel
+                                <Plus className="w-3.5 h-3.5" />
+                                Add Item
                             </button>
                         </div>
+
+                        {/* Desktop View: Wide Responsive Table (hidden on mobile) */}
+                        <div className="hidden md:block overflow-x-auto min-h-[260px] pb-24">
+                            <table className="w-full text-left border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-100/75 text-gray-600 text-[11px] font-bold uppercase tracking-wider border-b border-gray-200">
+                                        <th className="py-2.5 px-3 w-10 text-center">#</th>
+                                        <th className="py-2.5 px-3 min-w-[320px]">{theme.itemLabel} <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-3 w-32">Qty Received <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-3 w-24">Unit</th>
+                                        <th className="py-2.5 px-3 w-32">Rate (₹)</th>
+                                        <th className="py-2.5 px-3 w-36 text-right">Total (₹)</th>
+                                        <th className="py-2.5 px-3 w-12 text-center">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100 text-xs">
+                                    {materialEntries.map((entry, index) => {
+                                        const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
+                                        return (
+                                            <tr key={index} className="hover:bg-indigo-50/30 transition-colors">
+                                                <td className="py-2 px-3 text-center text-gray-400 font-bold">
+                                                    {index + 1}
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                    <SearchableSelect
+                                                        options={safeMaterials.map(m => ({
+                                                            value: m._id,
+                                                            label: `${m.name || 'Unnamed'} ${m.code ? `(${m.code})` : ''}`
+                                                        }))}
+                                                        value={entry.material}
+                                                        onChange={(val: any) => handleMaterialChange(index, 'material', val)}
+                                                        placeholder={`Search or select ${theme.itemLabel}...`}
+                                                    />
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                    <input
+                                                        type="number"
+                                                        min="0.001"
+                                                        step="any"
+                                                        required
+                                                        value={entry.quantity || ''}
+                                                        onChange={(e) => handleMaterialChange(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                        placeholder="0"
+                                                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                                                    />
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                    <span className="inline-block px-2.5 py-1 bg-gray-100 text-gray-700 rounded-md text-[11px] font-bold border border-gray-200">
+                                                        {entry.unit || 'PCS'}
+                                                    </span>
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        value={entry.rate || ''}
+                                                        onChange={(e) => handleMaterialChange(index, 'rate', parseFloat(e.target.value) || 0)}
+                                                        placeholder="0.00"
+                                                        className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-500"
+                                                    />
+                                                </td>
+                                                <td className="py-2 px-3 text-right font-mono font-bold text-gray-900">
+                                                    ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </td>
+                                                <td className="py-2 px-3 text-center">
+                                                    {materialEntries.length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveMaterial(index)}
+                                                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                                            title="Remove Item"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Mobile View: Touch-Friendly Compact Cards (shown on mobile only) */}
+                        <div className="block md:hidden p-3 space-y-3 bg-gray-50/70">
+                            {materialEntries.map((entry, index) => {
+                                const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
+                                return (
+                                    <div key={index} className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-2.5">
+                                        {/* Card Header: Index & Trash */}
+                                        <div className="flex items-center justify-between pb-1 border-b border-gray-100">
+                                            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+                                                Item #{index + 1}
+                                            </span>
+                                            {materialEntries.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRemoveMaterial(index)}
+                                                    className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Material Selection */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">
+                                                {theme.itemLabel} <span className="text-red-500">*</span>
+                                            </label>
+                                            <SearchableSelect
+                                                options={safeMaterials.map(m => ({
+                                                    value: m._id,
+                                                    label: `${m.name || 'Unnamed'} ${m.code ? `(${m.code})` : ''}`
+                                                }))}
+                                                value={entry.material}
+                                                onChange={(val: any) => handleMaterialChange(index, 'material', val)}
+                                                placeholder={`Select ${theme.itemLabel}...`}
+                                            />
+                                        </div>
+
+                                        {/* Qty, Unit & Rate Grid */}
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">
+                                                    Qty ({entry.unit || 'PCS'}) <span className="text-red-500">*</span>
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0.001"
+                                                    step="any"
+                                                    required
+                                                    value={entry.quantity || ''}
+                                                    onChange={(e) => handleMaterialChange(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                    placeholder="Qty"
+                                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold uppercase text-gray-500 mb-1">
+                                                    Rate (₹)
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="any"
+                                                    value={entry.rate || ''}
+                                                    onChange={(e) => handleMaterialChange(index, 'rate', parseFloat(e.target.value) || 0)}
+                                                    placeholder="Rate"
+                                                    className="w-full px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-semibold text-gray-800 focus:ring-2 focus:ring-indigo-500"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Total Amount Bar */}
+                                        <div className="flex items-center justify-between pt-1 text-xs">
+                                            <span className="text-gray-500 font-semibold">Row Total:</span>
+                                            <span className="font-mono font-bold text-gray-900">
+                                                ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Summary Bar */}
+                        <div className="p-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-4 text-gray-600 font-medium">
+                                <div>Items: <span className="font-bold text-gray-900">{totalItemsCount}</span></div>
+                                <div>Total Qty: <span className="font-bold text-gray-900">{totalQuantity}</span></div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-gray-500 font-semibold">Total Value:</span>
+                                <span className="text-sm font-extrabold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200">
+                                    ₹{totalNetValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                            </div>
+                        </div>
                     </div>
-                </div >
-            </div >
-        </>
+
+                    {/* Modal Actions */}
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-4 py-2 rounded-xl border border-gray-300 bg-white text-gray-700 text-xs font-bold hover:bg-gray-50 transition-colors cursor-pointer"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className={`px-6 py-2 rounded-xl text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-2 ${
+                                theme.buttonBg
+                            } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            {loading ? (
+                                <>
+                                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    <span>Saving...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>{isEditing ? 'Update GRN' : 'Submit GRN'}</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     );
 }

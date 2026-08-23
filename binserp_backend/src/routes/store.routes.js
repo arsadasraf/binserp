@@ -38,8 +38,19 @@ import {
   getAllRmBoItems,
   updateRmBoItem,
   deleteRmBoItem,
+  createRawMaterial,
+  getAllRawMaterials,
+  getRawMaterialById,
+  updateRawMaterial,
+  deleteRawMaterial,
+  createBoughtOut,
+  getAllBoughtOuts,
+  getBoughtOutById,
+  updateBoughtOut,
+  deleteBoughtOut,
   createConsumableItem,
   getAllConsumableItems,
+  getConsumableItemById,
   updateConsumableItem,
   deleteConsumableItem,
   getCompanyInfo,
@@ -82,7 +93,7 @@ const router = express.Router();
 router.use(verifyJWT);
 
 // Restrict Master routes for Executives
-router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/consumable-item", "/company-info", "/fg-item", "/masters/bulk-import"], restrictExecutive);
+router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/raw-material", "/bought-out", "/consumable-item", "/consumables", "/company-info", "/fg-item", "/masters/bulk-import"], restrictExecutive);
 
 router.post("/masters/bulk-import", bulkImportMasters);
 
@@ -144,6 +155,21 @@ router.get("/category", getAllCategories);
 router.put("/category/:id", updateCategory);
 router.delete("/category/:id", deleteCategory);
 
+// Raw Material (RM) routes
+router.post("/raw-material", upload.array('photos', 2), createRawMaterial);
+router.get("/raw-material", getAllRawMaterials);
+router.get("/raw-material/:id", getRawMaterialById);
+router.put("/raw-material/:id", upload.array('photos', 2), updateRawMaterial);
+router.delete("/raw-material/:id", deleteRawMaterial);
+
+// Bought Out (BO) routes
+router.post("/bought-out", upload.array('photos', 2), createBoughtOut);
+router.get("/bought-out", getAllBoughtOuts);
+router.get("/bought-out/:id", getBoughtOutById);
+router.put("/bought-out/:id", upload.array('photos', 2), updateBoughtOut);
+router.delete("/bought-out/:id", deleteBoughtOut);
+
+// Legacy RM/BO Item routes for backwards compatibility
 router.post("/rm-bo-item", upload.array('photos', 2), createRmBoItem);
 router.get("/rm-bo-item", getAllRmBoItems);
 router.put("/rm-bo-item/:id", upload.array('photos', 2), updateRmBoItem);
@@ -152,8 +178,16 @@ router.delete("/rm-bo-item/:id", deleteRmBoItem);
 // Consumable Item routes
 router.post("/consumable-item", upload.array('photos', 2), createConsumableItem);
 router.get("/consumable-item", getAllConsumableItems);
+router.get("/consumable-item/:id", getConsumableItemById);
 router.put("/consumable-item/:id", upload.array('photos', 2), updateConsumableItem);
 router.delete("/consumable-item/:id", deleteConsumableItem);
+
+// Consumables alias routes
+router.post("/consumables", upload.array('photos', 2), createConsumableItem);
+router.get("/consumables", getAllConsumableItems);
+router.get("/consumables/:id", getConsumableItemById);
+router.put("/consumables/:id", upload.array('photos', 2), updateConsumableItem);
+router.delete("/consumables/:id", deleteConsumableItem);
 
 // Company Info routes
 router.get("/company-info", getCompanyInfo);

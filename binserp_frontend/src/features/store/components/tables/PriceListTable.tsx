@@ -1,16 +1,17 @@
 "use client";
-import { Edit2, Trash2, Search, IndianRupee, Tag, Info, Image as ImageIcon } from "lucide-react";
+import { Edit2, Trash2, Search, IndianRupee, Tag, Info, Image as ImageIcon, Plus } from "lucide-react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 
 interface PriceListTableProps {
   priceLists: any[];
   fgItems: any[];
+  onAddPriceList?: () => void;
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
 }
 
-export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }: PriceListTableProps) {
+export default function PriceListTable({ priceLists, fgItems, onAddPriceList, onEdit, onDelete }: PriceListTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
   const filteredItems = fgItems.filter((item) => {
@@ -29,9 +30,9 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 overflow-hidden">
-      {/* Search Bar */}
-      <div className="p-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-800/50">
-        <div className="relative w-full max-w-md">
+      {/* Search Bar & Actions */}
+      <div className="p-3.5 border-b border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 bg-gray-50/50 dark:bg-gray-800/50">
+        <div className="relative flex-1 max-w-md">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-gray-400" />
           </div>
@@ -40,11 +41,24 @@ export default function PriceListTable({ priceLists, fgItems, onEdit, onDelete }
             placeholder="Search by FG Item name or code..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            className="w-full pl-10 pr-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
           />
         </div>
-        <div className="text-xs text-gray-500 hidden sm:flex items-center gap-1.5">
-          <Info size={14} /> Showing {filteredItems.length} FG Items
+
+        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+          <div className="text-xs text-gray-500 hidden sm:flex items-center gap-1.5 font-medium">
+            <Info size={14} /> Showing {filteredItems.length} FG Items
+          </div>
+
+          {onAddPriceList && (
+            <button
+              type="button"
+              onClick={onAddPriceList}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+            >
+              <Plus size={14} /> Add Price & Tax Rate
+            </button>
+          )}
         </div>
       </div>
 

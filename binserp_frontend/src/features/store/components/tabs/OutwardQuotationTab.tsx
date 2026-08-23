@@ -441,30 +441,10 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     }, [quotations, searchTerm, filterStatus, filterCustomer]);
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
-            {/* Header & Title Banner */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        <FileText size={22} className="text-indigo-600 dark:text-indigo-400" /> Outward Sales Quotations & Proposals
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                        Manage sales rate proposals issued to customers, track statuses, monitor audit logs, and generate PDF quotation sheets.
-                    </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={handleOpenCreateModal}
-                        className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/20 hover:shadow-lg transition-all flex items-center gap-2"
-                    >
-                        <Plus size={16} /> Create Outward Quote
-                    </button>
-                </div>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+        <div className="space-y-4 animate-in fade-in duration-300">
+            
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -473,7 +453,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             placeholder="Search Quote #, RFQ #, Customer or Item..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
                     </div>
 
@@ -495,17 +475,26 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                     </div>
                 </div>
 
-                {/* Status Filter Tabs - Scrollable on mobile */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                    {['All', 'Draft', 'Pending Approval', 'Approved', 'Sent', 'Closed', 'Rejected'].map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            {status}
-                        </button>
-                    ))}
+                {/* Right Side: Status Filter Tabs + Create Quote Button */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                        {['All', 'Draft', 'Pending Approval', 'Approved', 'Sent', 'Closed', 'Rejected'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={handleOpenCreateModal}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                        <Plus size={15} /> Create Outward Quote
+                    </button>
                 </div>
             </div>
 

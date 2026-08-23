@@ -57,11 +57,14 @@ export const inventorySchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "RmBoItem",
     },
+    itemType: {
+      type: String,
+      enum: ['Raw Material', 'Bought Out'],
+      default: 'Raw Material'
+    },
   },
   { timestamps: true }
 );
-
-// Material Request Schema
 
 // Indexes
 inventorySchema.index({ company: 1, materialCode: 1 }, { unique: true });

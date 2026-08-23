@@ -22,7 +22,26 @@ export default function VendorsPage() {
 
   const handleEdit = (vendor: any) => {
     setEditingItem(vendor);
-    setFormData(vendor);
+    const normalized = {
+      ...vendor,
+      billingAddress: vendor.billingAddress || vendor.address || "",
+      billingCity: vendor.billingCity || vendor.city || "",
+      billingState: vendor.billingState || vendor.state || "",
+      billingPincode: vendor.billingPincode || vendor.pincode || "",
+      billingDistrict: vendor.billingDistrict || vendor.district || "",
+      billingCountry: vendor.billingCountry || vendor.country || "India",
+      shippingAddress: vendor.shippingAddress || vendor.billingAddress || vendor.address || "",
+      shippingCity: vendor.shippingCity || vendor.billingCity || vendor.city || "",
+      shippingState: vendor.shippingState || vendor.billingState || vendor.state || "",
+      shippingPincode: vendor.shippingPincode || vendor.billingPincode || vendor.pincode || "",
+      shippingDistrict: vendor.shippingDistrict || vendor.billingDistrict || vendor.district || "",
+      shippingCountry: vendor.shippingCountry || vendor.billingCountry || vendor.country || "India",
+      address: vendor.address || vendor.billingAddress || "",
+      city: vendor.city || vendor.billingCity || "",
+      state: vendor.state || vendor.billingState || "",
+      pincode: vendor.pincode || vendor.billingPincode || "",
+    };
+    setFormData(normalized);
     setIsModalOpen(true);
   };
 
@@ -39,10 +58,17 @@ export default function VendorsPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...formData,
+        address: formData.billingAddress || formData.address || "",
+        city: formData.billingCity || formData.city || "",
+        state: formData.billingState || formData.state || "",
+        pincode: formData.billingPincode || formData.pincode || "",
+      };
       if (editingItem) {
-        await updateRecord({ tab: "vendor", id: editingItem._id, body: formData }).unwrap();
+        await updateRecord({ tab: "vendor", id: editingItem._id, body: payload }).unwrap();
       } else {
-        await createRecord({ tab: "vendor", body: formData }).unwrap();
+        await createRecord({ tab: "vendor", body: payload }).unwrap();
       }
       setIsModalOpen(false);
       setFormData({});

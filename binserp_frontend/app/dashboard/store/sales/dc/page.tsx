@@ -20,23 +20,10 @@ export default function SalesDCPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Delivery Challans (DC)</h1>
-          <p className="text-xs text-gray-500">Manage dispatch and delivery challans</p>
-        </div>
-        <button
-          onClick={() => { setEditingDC(null); setShowModal(true); }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-colors"
-        >
-          <Plus size={16} />
-          Create DC
-        </button>
-      </div>
-
       <DCTable
         data={dcList || []}
         companyInfo={companyInfo}
+        onCreateDC={() => { setEditingDC(null); setShowModal(true); }}
         onEdit={(dc) => { setEditingDC(dc); setShowModal(true); }}
         onDelete={(id) => handleDelete(id)}
       />

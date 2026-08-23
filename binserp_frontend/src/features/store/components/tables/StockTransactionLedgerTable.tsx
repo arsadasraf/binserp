@@ -13,12 +13,18 @@ import {
   Tag,
   ChevronLeft,
   ChevronRight,
-  Layers
+  Layers,
+  Download,
+  CheckCircle2,
+  Clock,
+  Boxes,
+  ArrowUpDown
 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 interface Transaction {
   _id: string;
-  itemType: "RmBo" | "FGItem" | "Component";
+  itemType: string;
   itemCode: string;
   itemName: string;
   unit: string;
@@ -54,6 +60,8 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
   STOCK_ADJUSTMENT: { label: "Stock Adjustment", color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300" },
 };
 
+type DateFilterMode = "preset" | "day" | "month" | "range";
+
 export default function StockTransactionLedgerTable({ token }: StockTransactionLedgerTableProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -64,6 +72,12 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
   const [itemTypeFilter, setItemTypeFilter] = useState<string>("");
   const [movementFilter, setMovementFilter] = useState<string>("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
+  
+  // Date Filtering Mode & Inputs
+  const [dateMode, setDateMode] = useState<DateFilterMode>("preset");
+  const [activePreset, setActivePreset] = useState<string>("all");
+  const [singleDate, setSingleDate] = useState<string>("");
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
@@ -71,6 +85,49 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalCount, setTotalCount] = useState<number>(0);
+
+  // Helper to get formatted date string for presets
+  const getPresetDates = (preset: string) => {
+    const today = new Date();
+    const formatDate = (d: Date) => {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    switch (preset) {
+      case "today": {
+        const todayStr = formatDate(today);
+        return { startDate: todayStr, endDate: todayStr, singleDate: todayStr, month: "" };
+      }
+      case "yesterday": {
+        const yest = new Date(today);
+        yest.setDate(yest.getDate() - 1);
+        const yestStr = formatDate(yest);
+        return { startDate: yestStr, endDate: yestStr, singleDate: yestStr, month: "" };
+      }
+      case "this-week": {
+        const curr = new Date(today);
+        const first = curr.getDate() - curr.getDay(); // First day is the day of the month - the day of the week
+        const firstDay = new Date(curr.setDate(first));
+        return { startDate: formatDate(firstDay), endDate: formatDate(today), singleDate: "", month: "" };
+      }
+      case "this-month": {
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        return { startDate: "", endDate: "", singleDate: "", month: `${year}-${month}` };
+      }
+      case "last-month": {
+        const lastMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const year = lastMonthDate.getFullYear();
+        const month = String(lastMonthDate.getMonth() + 1).padStart(2, '0');
+        return { startDate: "", endDate: "", singleDate: "", month: `${year}-${month}` };
+      }
+      default:
+        return { startDate: "", endDate: "", singleDate: "", month: "" };
+    }
+  };
 
   const fetchTransactions = useCallback(async () => {
     try {
@@ -85,12 +142,27 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
       if (itemTypeFilter) queryParams.append("itemType", itemTypeFilter);
       if (movementFilter) queryParams.append("movementType", movementFilter);
       if (categoryFilter) queryParams.append("transactionCategory", categoryFilter);
-      if (startDate) queryParams.append("startDate", startDate);
-      if (endDate) queryParams.append("endDate", endDate);
+
+      // Date handling based on active filter mode
+      if (dateMode === "day" && singleDate) {
+        queryParams.append("date", singleDate);
+      } else if (dateMode === "month" && selectedMonth) {
+        queryParams.append("month", selectedMonth);
+      } else if (dateMode === "range") {
+        if (startDate) queryParams.append("startDate", startDate);
+        if (endDate) queryParams.append("endDate", endDate);
+      } else if (dateMode === "preset" && activePreset !== "all") {
+        const { startDate: sDate, endDate: eDate, singleDate: sDay, month: sMonth } = getPresetDates(activePreset);
+        if (sDay) queryParams.append("date", sDay);
+        else if (sMonth) queryParams.append("month", sMonth);
+        else {
+          if (sDate) queryParams.append("startDate", sDate);
+          if (eDate) queryParams.append("endDate", eDate);
+        }
+      }
 
       const baseUrl = getApiBaseUrl();
       const endpoint = `${baseUrl}/api/store/transactions?${queryParams.toString()}`;
-
 
       const res = await fetch(endpoint, {
         headers: {
@@ -103,7 +175,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
       if (!contentType || !contentType.includes("application/json")) {
         const text = await res.text();
         console.error("Non-JSON API Response received:", text.slice(0, 200));
-        throw new Error(`Server returned HTML response (${res.status}). Verify API server is running on port 8000.`);
+        throw new Error(`Server returned HTML response (${res.status}). Verify API server is running.`);
       }
 
       const data = await res.json();
@@ -118,8 +190,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
     } finally {
       setLoading(false);
     }
-  }, [token, page, search, itemTypeFilter, movementFilter, categoryFilter, startDate, endDate]);
-
+  }, [token, page, search, itemTypeFilter, movementFilter, categoryFilter, dateMode, activePreset, singleDate, selectedMonth, startDate, endDate]);
 
   useEffect(() => {
     fetchTransactions();
@@ -130,22 +201,158 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
     setItemTypeFilter("");
     setMovementFilter("");
     setCategoryFilter("");
+    setDateMode("preset");
+    setActivePreset("all");
+    setSingleDate("");
+    setSelectedMonth("");
     setStartDate("");
     setEndDate("");
     setPage(1);
   };
 
+  const exportToExcel = () => {
+    const exportData = (transactions || []).map((tx, idx) => {
+      const formattedDate = new Date(tx.timestamp || (tx as any).createdAt).toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const itemTypeLabel = getItemTypeMeta(tx).label;
+      const catLabel = CATEGORY_LABELS[tx.transactionCategory]?.label || tx.transactionCategory;
+
+      return {
+        "S.No": idx + 1,
+        "Date & Time": formattedDate,
+        "Item Name": tx.itemName || "-",
+        "Item Code": tx.itemCode || "-",
+        "Item Type": itemTypeLabel,
+        "Movement": tx.movementType,
+        "Transaction Type": catLabel,
+        "Quantity": tx.quantity,
+        "Unit": tx.unit,
+        "Previous Stock": tx.previousStock,
+        "New Stock Balance": tx.newStock,
+        "Ref Document Type": tx.referenceDocType || "-",
+        "Ref Document Number": tx.referenceDocNumber || "-",
+        "Party / Department": tx.recipientOrSource || "-",
+        "Purpose": tx.purpose || "-",
+        "Performed By": tx.performedByName || "System",
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Stock Ledger");
+    XLSX.writeFile(wb, `Stock_Transaction_Ledger_${new Date().toISOString().split("T")[0]}.xlsx`);
+  };
+
+  // Helper to get item type badge styling & normalized label
+  const getItemTypeMeta = (tx: Transaction) => {
+    const rawType = (tx.itemType || "").toLowerCase();
+    const code = (tx.itemCode || "").toUpperCase();
+
+    if (rawType.includes("bought") || rawType === "bo" || code.startsWith("BO-")) {
+      return {
+        label: "Bought Out (BO)",
+        badge: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800",
+      };
+    }
+    if (rawType.includes("consumable") || code.startsWith("CON-")) {
+      return {
+        label: "Consumable",
+        badge: "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-800",
+      };
+    }
+    if (rawType.includes("fg") || rawType === "finished goods") {
+      return {
+        label: "Finished Goods (FG)",
+        badge: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800",
+      };
+    }
+    if (rawType.includes("component")) {
+      return {
+        label: "Component",
+        badge: "bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-800",
+      };
+    }
+    // Default to Raw Material
+    return {
+      label: "Raw Material (RM)",
+      badge: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800",
+    };
+  };
+
+  // Quick stats calculations
+  const totalInwardQty = transactions.filter(t => t.movementType === "INWARD").reduce((sum, t) => sum + (t.quantity || 0), 0);
+  const totalOutwardQty = transactions.filter(t => t.movementType === "OUTWARD").reduce((sum, t) => sum + (t.quantity || 0), 0);
+
   return (
     <div className="space-y-4">
+      {/* Top Metrics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+            <ArrowUpDown size={18} />
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Total Entries</p>
+            <h4 className="text-base font-bold text-gray-900 dark:text-white font-mono">{totalCount}</h4>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
+            <ArrowDownLeft size={18} />
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Page Inward Qty</p>
+            <h4 className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono">+{totalInwardQty.toLocaleString()}</h4>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
+            <ArrowUpRight size={18} />
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Page Outward Qty</p>
+            <h4 className="text-base font-bold text-rose-600 dark:text-rose-400 font-mono">-{totalOutwardQty.toLocaleString()}</h4>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
+              <Boxes size={18} />
+            </div>
+            <div>
+              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Export Ledger</p>
+              <h4 className="text-xs font-bold text-gray-900 dark:text-white">Excel Report</h4>
+            </div>
+          </div>
+          <button
+            onClick={exportToExcel}
+            title="Download Excel Spreadsheet"
+            className="p-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-xl transition-all border border-emerald-200/60 dark:border-emerald-800/60"
+          >
+            <Download size={16} />
+          </button>
+        </div>
+      </div>
+
       {/* Search & Filter Header Bar */}
       <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-3">
+        {/* Main Controls Row */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Search Box */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Search by Item, Doc #, User, Party..."
+              placeholder="Search by Item, Code, Doc #, User, Party..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -157,15 +364,18 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
 
           {/* Action & Filter Controls */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Item Type */}
+            {/* Item Type (RM, BO, Consumables, FG, Component) */}
             <select
               value={itemTypeFilter}
               onChange={(e) => { setItemTypeFilter(e.target.value); setPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
             >
-              <option value="">All Item Types</option>
-              <option value="RmBo">RM / BO (Raw Material)</option>
-              <option value="FGItem">FG (Finished Goods)</option>
+              <option value="">All Item Types (All)</option>
+              <option value="RM">Raw Material (RM)</option>
+              <option value="BO">Bought Out (BO)</option>
+              <option value="Consumable">Consumables</option>
+              <option value="FG">Finished Goods (FG)</option>
+              <option value="Component">PPC Component</option>
             </select>
 
             {/* Movement Type */}
@@ -183,7 +393,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
             <select
               value={categoryFilter}
               onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
-              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 max-w-[200px] truncate"
+              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40 max-w-[180px] truncate"
             >
               <option value="">All Categories</option>
               {Object.entries(CATEGORY_LABELS).map(([key, val]) => (
@@ -191,20 +401,22 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
               ))}
             </select>
 
-            {/* Date Pickers */}
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-              className="px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-700 dark:text-gray-300"
-            />
-            <span className="text-gray-400 text-xs">-</span>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-              className="px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-700 dark:text-gray-300"
-            />
+            {/* Date Mode Selector */}
+            <select
+              value={dateMode}
+              onChange={(e) => {
+                const mode = e.target.value as DateFilterMode;
+                setDateMode(mode);
+                setPage(1);
+                if (mode === "preset") setActivePreset("all");
+              }}
+              className="px-3 py-2 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-bold text-blue-700 dark:text-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            >
+              <option value="preset">⚡ Quick Presets</option>
+              <option value="day">📅 Single Day</option>
+              <option value="month">🗓️ Month-wise</option>
+              <option value="range">📆 Custom Range</option>
+            </select>
 
             {/* Refresh / Reset */}
             <button
@@ -217,17 +429,104 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
             <button
               onClick={handleResetFilters}
               title="Reset Filters"
-              className="px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl transition-colors font-medium"
+              className="px-3 py-2 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors font-semibold"
             >
               Reset
             </button>
           </div>
         </div>
 
-        {/* Counter Summary */}
-        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-800">
-          <span>Showing <strong className="text-gray-800 dark:text-gray-200">{transactions.length}</strong> of <strong className="text-gray-800 dark:text-gray-200">{totalCount}</strong> transaction entries</span>
-          <span>Page {page} of {totalPages}</span>
+        {/* Date Filter Inputs Row */}
+        <div className="pt-2 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          {dateMode === "preset" && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-gray-400 text-[11px] font-medium mr-1">Period:</span>
+              {[
+                { id: "all", label: "All Time" },
+                { id: "today", label: "Today" },
+                { id: "yesterday", label: "Yesterday" },
+                { id: "this-week", label: "This Week" },
+                { id: "this-month", label: "This Month" },
+                { id: "last-month", label: "Last Month" },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => { setActivePreset(p.id); setPage(1); }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                    activePreset === p.id
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {dateMode === "day" && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 font-medium">Select Specific Day:</span>
+              <input
+                type="date"
+                value={singleDate}
+                onChange={(e) => { setSingleDate(e.target.value); setPage(1); }}
+                className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-800 dark:text-gray-200"
+              />
+              {singleDate && (
+                <button
+                  onClick={() => { setSingleDate(""); setPage(1); }}
+                  className="text-gray-400 hover:text-gray-600 text-[11px]"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+
+          {dateMode === "month" && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 font-medium">Select Month:</span>
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => { setSelectedMonth(e.target.value); setPage(1); }}
+                className="px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-800 dark:text-gray-200"
+              />
+              {selectedMonth && (
+                <button
+                  onClick={() => { setSelectedMonth(""); setPage(1); }}
+                  className="text-gray-400 hover:text-gray-600 text-[11px]"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+
+          {dateMode === "range" && (
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 font-medium">Date Range:</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+                className="px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-700 dark:text-gray-300"
+              />
+              <span className="text-gray-400 font-bold">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+                className="px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-700 dark:text-gray-300"
+              />
+            </div>
+          )}
+
+          {/* Counter Summary */}
+          <div className="text-gray-500 dark:text-gray-400 font-medium">
+            Showing <strong className="text-gray-800 dark:text-gray-200">{transactions.length}</strong> of <strong className="text-gray-800 dark:text-gray-200">{totalCount}</strong> entries
+          </div>
         </div>
       </div>
 
@@ -246,7 +545,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
           <div className="flex flex-col items-center justify-center p-16 text-center text-gray-400 space-y-2">
             <Layers size={36} className="text-gray-300 dark:text-gray-700" />
             <p className="font-semibold text-gray-600 dark:text-gray-300 text-sm">No transaction records found</p>
-            <p className="text-xs text-gray-400 max-w-sm">No inventory inward or outward movements match the selected search or filter criteria.</p>
+            <p className="text-xs text-gray-400 max-w-sm">No inventory inward or outward movements match the selected search, item type, or date criteria.</p>
           </div>
         ) : (
           <>
@@ -257,10 +556,11 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                   <tr className="bg-gray-50/80 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Item Details</th>
+                    <th className="py-3 px-4">Item Type</th>
                     <th className="py-3 px-4">Movement</th>
                     <th className="py-3 px-4">Transaction Type</th>
                     <th className="py-3 px-4 text-right">Quantity</th>
-                    <th className="py-3 px-4 text-right">Stock Ledger Balance</th>
+                    <th className="py-3 px-4 text-right">Stock Balance</th>
                     <th className="py-3 px-4">Ref Document</th>
                     <th className="py-3 px-4">Party / Department</th>
                     <th className="py-3 px-4">Performed By</th>
@@ -273,6 +573,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                       label: tx.transactionCategory,
                       color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
                     };
+                    const typeMeta = getItemTypeMeta(tx);
 
                     const formattedDate = new Date(tx.timestamp || (tx as any).createdAt).toLocaleString("en-IN", {
                       day: "2-digit",
@@ -295,11 +596,16 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         {/* Item Details */}
                         <td className="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
                           <div className="flex flex-col">
-                            <span className="font-semibold text-gray-900 dark:text-gray-100">{tx.itemName}</span>
-                            <span className="text-[10px] text-gray-400 font-mono">
-                              {tx.itemCode ? `Code: ${tx.itemCode}` : `Type: ${tx.itemType}`}
-                            </span>
+                            <span className="font-bold text-gray-900 dark:text-gray-100">{tx.itemName}</span>
+                            {tx.itemCode && <span className="text-[10px] text-gray-400 font-mono">{tx.itemCode}</span>}
                           </div>
+                        </td>
+
+                        {/* Item Type Badge */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-bold border ${typeMeta.badge}`}>
+                            {typeMeta.label}
+                          </span>
                         </td>
 
                         {/* Movement */}
@@ -380,6 +686,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                   label: tx.transactionCategory,
                   color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300",
                 };
+                const typeMeta = getItemTypeMeta(tx);
                 const formattedDate = new Date(tx.timestamp || (tx as any).createdAt).toLocaleString("en-IN", {
                   day: "2-digit",
                   month: "short",
@@ -395,10 +702,17 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm">{tx.itemName}</h4>
-                        <span className="text-[10px] text-gray-400 font-mono">
-                          {tx.itemCode ? `Code: ${tx.itemCode}` : `Type: ${tx.itemType}`}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-gray-900 dark:text-gray-100 text-sm">{tx.itemName}</h4>
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${typeMeta.badge}`}>
+                            {typeMeta.label}
+                          </span>
+                        </div>
+                        {tx.itemCode && (
+                          <span className="text-[10px] text-gray-400 font-mono block">
+                            Code: {tx.itemCode}
+                          </span>
+                        )}
                       </div>
                       <span
                         className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${

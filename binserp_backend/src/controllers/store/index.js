@@ -32,11 +32,13 @@ export { createCategory } from './createCategory.controller.js';
 export { getAllCategories } from './getAllCategories.controller.js';
 export { updateCategory } from './updateCategory.controller.js';
 export { deleteCategory } from './deleteCategory.controller.js';
+export { createRawMaterial, getAllRawMaterials, getRawMaterialById, updateRawMaterial, deleteRawMaterial } from './rawMaterial.controller.js';
+export { createBoughtOut, getAllBoughtOuts, getBoughtOutById, updateBoughtOut, deleteBoughtOut } from './boughtOut.controller.js';
 export { createRmBoItem } from './rmBoItem.controller.js';
 export { getAllRmBoItems } from './getAllRmBoItems.controller.js';
 export { updateRmBoItem } from './updateRmBoItem.controller.js';
 export { deleteRmBoItem } from './deleteRmBoItem.controller.js';
-export { createConsumableItem, getAllConsumableItems, updateConsumableItem, deleteConsumableItem } from './consumableItem.controller.js';
+export { createConsumableItem, getAllConsumableItems, getConsumableItemById, updateConsumableItem, deleteConsumableItem } from './consumableItem.controller.js';
 export { getCompanyInfo } from './getCompanyInfo.controller.js';
 export { updateCompanyInfo } from './updateCompanyInfo.controller.js';
 

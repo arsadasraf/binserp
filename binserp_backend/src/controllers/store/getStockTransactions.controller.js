@@ -15,6 +15,8 @@ export const getStockTransactions = async (req, res) => {
       transactionCategory,
       referenceDocType,
       search,
+      date,
+      month,
       startDate,
       endDate,
       page = 1,
@@ -23,18 +25,63 @@ export const getStockTransactions = async (req, res) => {
 
     const query = { company: companyId };
 
-    if (itemType) query.itemType = itemType;
+    // Item Type Filter with normalized aliases
+    if (itemType) {
+      const cleanType = itemType.toString().trim().toLowerCase();
+      if (cleanType === 'rm' || cleanType === 'rawmaterial' || cleanType === 'raw material' || cleanType === 'raw-material') {
+        query.$or = [
+          { itemType: { $in: ["RawMaterial", "Raw Material", "RM"] } },
+          { itemType: "RmBo", itemCode: { $regex: /^RM/i } },
+          { itemType: "RmBo", itemCode: { $not: /^BO/i } }
+        ];
+      } else if (cleanType === 'bo' || cleanType === 'boughtout' || cleanType === 'bought out' || cleanType === 'bought-out') {
+        query.$or = [
+          { itemType: { $in: ["BoughtOut", "Bought Out", "BO"] } },
+          { itemCode: { $regex: /^BO/i } }
+        ];
+      } else if (cleanType === 'consumable' || cleanType === 'consumables' || cleanType === 'consumableitem' || cleanType === 'consumable-item') {
+        query.$or = [
+          { itemType: { $in: ["Consumable", "Consumables", "ConsumableItem", "consumable-item"] } },
+          { itemCode: { $regex: /^CON/i } }
+        ];
+      } else if (cleanType === 'fg' || cleanType === 'fgitem' || cleanType === 'finished goods' || cleanType === 'finished-goods') {
+        query.itemType = { $in: ["FGItem", "FG", "Component"] };
+      } else if (cleanType === 'component') {
+        query.itemType = "Component";
+      } else {
+        query.itemType = itemType;
+      }
+    }
+
     if (movementType) query.movementType = movementType.toUpperCase();
     if (transactionCategory) query.transactionCategory = transactionCategory;
     if (referenceDocType) query.referenceDocType = referenceDocType;
 
-    if (startDate || endDate) {
+    // Day and Month Date Filtering Logic
+    if (date) {
+      const targetDate = new Date(date);
+      const startOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 0, 0, 0, 0);
+      const endOfDay = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate(), 23, 59, 59, 999);
+      query.timestamp = { $gte: startOfDay, $lte: endOfDay };
+    } else if (month) {
+      // Month format: YYYY-MM or YYYY-M
+      const [yearStr, monthStr] = month.split('-');
+      const year = parseInt(yearStr, 10);
+      const monthIndex = parseInt(monthStr, 10) - 1; // 0-indexed
+      const startOfMonth = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+      const endOfMonth = new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+      query.timestamp = { $gte: startOfMonth, $lte: endOfMonth };
+    } else if (startDate || endDate) {
       query.timestamp = {};
-      if (startDate) query.timestamp.$gte = new Date(startDate);
+      if (startDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        query.timestamp.$gte = s;
+      }
       if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        query.timestamp.$lte = end;
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        query.timestamp.$lte = e;
       }
     }
 

@@ -46,9 +46,15 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const getAllRmBoItems = async (req, res) => {
   try {
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    req.getModel('Category', categorySchema);
+    req.getModel('Location', locationSchema);
 
     const companyId = getCompanyId(req);
-    const rmBoItems = await RmBoItem.find({ company: companyId })
+    const filter = { company: companyId };
+    if (req.query.itemType) {
+      filter.itemType = req.query.itemType;
+    }
+    const rmBoItems = await RmBoItem.find(filter)
       .populate('categoryId')
       .populate('locationId')
       .sort({ name: 1 });

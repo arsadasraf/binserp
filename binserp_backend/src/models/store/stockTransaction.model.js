@@ -9,7 +9,7 @@ export const stockTransactionSchema = new mongoose.Schema(
     },
     itemType: {
       type: String,
-      enum: ["RmBo", "FGItem", "Component"],
+      enum: ["RawMaterial", "BoughtOut", "Consumable", "RmBo", "FGItem", "Component", "ConsumableItem", "Material"],
       required: true,
     },
     item: {

@@ -14,7 +14,7 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
     { name: 'Outward RFQ', href: '/dashboard/store/purchase/rfq', icon: Send },
     { name: 'Inward Quotation', href: '/dashboard/store/purchase/vendor-quotation', icon: FileText },
     { name: 'Outward PO', href: '/dashboard/store/purchase/po', icon: ShoppingCart },
-    { name: 'RM/BO Price List', href: '/dashboard/store/purchase/vendor-price-list', icon: Tag },
+    { name: 'Price List', href: '/dashboard/store/purchase/vendor-price-list', icon: Tag },
   ];
 
   return (

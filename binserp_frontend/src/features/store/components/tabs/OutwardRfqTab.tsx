@@ -30,13 +30,32 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
     const [editingRfq, setEditingRfq] = useState<any | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [vendorSearchTerm, setVendorSearchTerm] = useState('');
-    const [newRfq, setNewRfq] = useState({
+    const [newRfq, setNewRfq] = useState<{
+        rfqNumber: string;
+        dueDate: string;
+        vendorIds: string[];
+        remarks: string;
+        items: Array<{
+            itemType?: 'rm' | 'bo' | 'consumable' | string;
+            materialId: string;
+            materialName: string;
+            description: string;
+            quantity: number | string;
+            unit: string;
+            targetPrice?: string | number;
+        }>;
+    }>({
         rfqNumber: '',
         dueDate: '',
-        vendorIds: [] as string[],
+        vendorIds: [],
         remarks: '',
-        items: [{ materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+        items: [{ itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
     });
+
+    // 3 distinct inventory lists
+    const [rawMaterials, setRawMaterials] = useState<any[]>([]);
+    const [boughtOuts, setBoughtOuts] = useState<any[]>([]);
+    const [consumables, setConsumables] = useState<any[]>([]);
 
     // View Modal & Print State
     const [selectedRfq, setSelectedRfq] = useState<any | null>(null);
@@ -76,54 +95,26 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
         if (!token) return;
         try {
             setLoading(true);
-            const [rfqRes, matRes, invRes, venRes, compRes] = await Promise.all([
+            const [rfqRes, rmRes, boRes, conRes, venRes, compRes] = await Promise.all([
                 apiGet('/api/purchase/rfq', token).catch(() => ({ data: [] })),
-                apiGet('/api/store/rm-bo-item', token).catch(() => []),
-                apiGet('/api/store/inventory', token).catch(() => []),
+                apiGet('/api/store/raw-material', token).catch(() => []),
+                apiGet('/api/store/bought-out', token).catch(() => []),
+                apiGet('/api/store/consumable-item', token).catch(() => []),
                 apiGet('/api/store/vendor', token).catch(() => []),
                 apiGet('/api/store/company-info', token).catch(() => null)
             ]);
 
             const rfqsList = Array.isArray(rfqRes?.data) ? rfqRes.data : (Array.isArray(rfqRes?.rfqs) ? rfqRes.rfqs : (Array.isArray(rfqRes) ? rfqRes : []));
             const venList = Array.isArray(venRes?.vendors) ? venRes.vendors : (Array.isArray(venRes) ? venRes : []);
-
-            let matList: any[] = [];
-            if (Array.isArray(matRes)) matList = matRes;
-            else if (Array.isArray(matRes?.rmBoItems)) matList = matRes.rmBoItems;
-            else if (Array.isArray(matRes?.data?.rmBoItems)) matList = matRes.data.rmBoItems;
-            else if (Array.isArray(matRes?.materials)) matList = matRes.materials;
-            else if (Array.isArray(matRes?.data)) matList = matRes.data;
-
-            let invList: any[] = [];
-            if (Array.isArray(invRes)) invList = invRes;
-            else if (Array.isArray(invRes?.inventory)) invList = invRes.inventory;
-            else if (Array.isArray(invRes?.data?.inventory)) invList = invRes.data.inventory;
-            else if (Array.isArray(invRes?.data)) invList = invRes.data;
-
-            const finalMaterials: any[] = [];
-            const seenKeys = new Set<string>();
-
-            const processItem = (m: any) => {
-                if (!m) return;
-                const realId = (m.materialId?._id || m.materialId || m._id || m.id)?.toString();
-                const cleanName = (m.name || m.materialName || m.itemName || '').trim().toLowerCase();
-
-                if (realId && seenKeys.has(realId)) return;
-                if (cleanName && seenKeys.has(cleanName)) return;
-
-                if (realId) seenKeys.add(realId);
-                if (cleanName) seenKeys.add(cleanName);
-
-                finalMaterials.push(m);
-            };
-
-            matList.forEach(processItem);
-            if (finalMaterials.length === 0) {
-                invList.forEach(processItem);
-            }
+            const rmList = Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []);
+            const boList = Array.isArray(boRes) ? boRes : (boRes?.boughtOuts || []);
+            const conList = Array.isArray(conRes) ? conRes : (conRes?.consumables || conRes?.consumableItems || []);
 
             setRfqs(rfqsList);
-            setMaterials(finalMaterials);
+            setRawMaterials(rmList);
+            setBoughtOuts(boList);
+            setConsumables(conList);
+            setMaterials([...rmList, ...boList, ...conList]);
             setVendors(venList);
             setCompanyInfo(compRes?.companyInfo || compRes);
         } catch (err: any) {
@@ -231,7 +222,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
     const handleAddItem = () => {
         setNewRfq(prev => ({
             ...prev,
-            items: [...prev.items, { materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [...prev.items, { itemType: 'rm', materialId: '', materialName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         }));
     };
 
@@ -244,8 +235,22 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
 
     const handleItemChange = (index: number, field: string, value: any) => {
         const updatedItems = [...newRfq.items];
-        if (field === 'materialId') {
-            const selectedMat = (Array.isArray(materials) ? materials : []).find((m: any) => (m._id || m.id)?.toString() === value?.toString());
+        if (field === 'itemType') {
+            updatedItems[index] = {
+                ...updatedItems[index],
+                itemType: value,
+                materialId: '',
+                materialName: '',
+                description: '',
+                unit: 'PCS'
+            };
+        } else if (field === 'materialId') {
+            const entryType = updatedItems[index].itemType || 'rm';
+            let sourceList: any[] = rawMaterials;
+            if (entryType === 'bo') sourceList = boughtOuts;
+            else if (entryType === 'consumable') sourceList = consumables;
+
+            const selectedMat = (Array.isArray(sourceList) ? sourceList : []).find((m: any) => (m._id || m.id)?.toString() === value?.toString());
             const autoName = selectedMat?.name || selectedMat?.materialName || selectedMat?.itemName || '';
             const autoDesc = selectedMat?.descriptions || selectedMat?.description || selectedMat?.details || autoName;
             const autoUnit = selectedMat?.unit || selectedMat?.uom || selectedMat?.categoryId?.unit || selectedMat?.category?.unit || 'PCS';
@@ -319,31 +324,10 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
     }, [rfqs, searchTerm, filterStatus, filterVendor, vendors]);
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Header & KPI Summary */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                <div>
-                    <h2 className="text-xl font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                        <Send size={22} className="text-cyan-600" /> Outward RFQs & Inquiries
-                    </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                        Issue inquiries to vendors, filter by specific vendors or statuses, and generate tailored PDF quote sheets.
-                    </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={handleOpenCreateModal}
-                        className="px-5 py-2.5 bg-gradient-to-r from-cyan-600 to-blue-600 text-white font-bold text-xs rounded-xl shadow-md shadow-cyan-600/20 hover:shadow-lg transition-all flex items-center gap-2"
-                    >
-                        <Plus size={16} /> Create Outward RFQ
-                    </button>
-                </div>
-            </div>
-
-            {/* Filter Bar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -352,7 +336,7 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                             placeholder="Search RFQ #, Vendor or Item..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
                     </div>
 
@@ -374,17 +358,26 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                     </div>
                 </div>
 
-                {/* Status Filter - Scrollable on mobile */}
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                    {['All', 'Sent', 'Quoted', 'Closed'].map(status => (
-                        <button
-                            key={status}
-                            onClick={() => setFilterStatus(status)}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm font-bold' : 'text-slate-500'}`}
-                        >
-                            {status}
-                        </button>
-                    ))}
+                {/* Right Side: Status Filter + Create RFQ Button */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                        {['All', 'Sent', 'Quoted', 'Closed'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={handleOpenCreateModal}
+                        className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                    >
+                        <Plus size={15} /> Create Outward RFQ
+                    </button>
                 </div>
             </div>
 
@@ -677,78 +670,116 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                 </div>
 
                                 <div className="space-y-3">
-                                    {newRfq.items.map((item, idx) => (
-                                        <div key={idx} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2.5">
-                                            <div className="grid grid-cols-12 gap-2.5 items-center">
-                                                <div className="col-span-6">
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                        RM / BO Material Item
-                                                    </label>
-                                                    <SearchableSelect
-                                                        options={(Array.isArray(materials) ? materials : [])
-                                                            .map(m => {
-                                                                const id = (m._id || m.id)?.toString();
-                                                                const name = m.name || m.materialName || m.itemName || 'Material Item';
-                                                                const code = m.code ? `(${m.code})` : '';
-                                                                const desc = (m.descriptions || m.description || m.details) ? ` - ${m.descriptions || m.description || m.details}` : '';
-                                                                return {
-                                                                    value: id,
-                                                                    label: `${name} ${code}${desc}`.trim()
-                                                                };
-                                                            })
-                                                            .filter(o => o.value)}
-                                                        value={item.materialId}
-                                                        onChange={(val: any) => handleItemChange(idx, 'materialId', val)}
-                                                        placeholder="Select Material..."
-                                                    />
-                                                </div>
+                                    {newRfq.items.map((item, idx) => {
+                                        const currentType = (item as any).itemType || 'rm';
+                                        let sourceList: any[] = rawMaterials;
+                                        if (currentType === 'bo') sourceList = boughtOuts;
+                                        else if (currentType === 'consumable') sourceList = consumables;
 
-                                                <div className="col-span-3">
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                        Required Qty
-                                                    </label>
-                                                    <input
-                                                        type="number"
-                                                        min="1"
-                                                        value={item.quantity}
-                                                        onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
-                                                        placeholder="Qty"
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white"
-                                                    />
-                                                </div>
+                                        const itemOptions = (Array.isArray(sourceList) ? sourceList : []).map(m => {
+                                            const id = (m._id || m.id)?.toString();
+                                            const name = m.name || m.materialName || m.itemName || 'Material Item';
+                                            const code = m.code ? `(${m.code})` : '';
+                                            return {
+                                                value: id,
+                                                label: `${name} ${code}`.trim()
+                                            };
+                                        }).filter(o => o.value);
 
-                                                <div className="col-span-2">
-                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                        Unit
-                                                    </label>
-                                                    <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 text-center">
-                                                        {item.unit || 'PCS'}
+                                        return (
+                                            <div key={idx} className="p-3.5 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2.5">
+                                                
+                                                {/* Inventory Type 3-way Switch */}
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-1 p-0.5 bg-slate-200 dark:bg-slate-700 rounded-lg">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleItemChange(idx, 'itemType', 'rm')}
+                                                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                                                currentType === 'rm' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300'
+                                                            }`}
+                                                        >
+                                                            Raw Material (RM)
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleItemChange(idx, 'itemType', 'bo')}
+                                                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                                                currentType === 'bo' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300'
+                                                            }`}
+                                                        >
+                                                            Bought Out (BO)
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleItemChange(idx, 'itemType', 'consumable')}
+                                                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                                                                currentType === 'consumable' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-300'
+                                                            }`}
+                                                        >
+                                                            Consumables
+                                                        </button>
                                                     </div>
-                                                </div>
 
-                                                <div className="col-span-1 text-right pt-4">
                                                     {newRfq.items.length > 1 && (
-                                                        <button onClick={() => handleRemoveItem(idx)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl transition-colors">
-                                                            <X size={18} />
+                                                        <button onClick={() => handleRemoveItem(idx)} className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer">
+                                                            <X size={15} />
                                                         </button>
                                                     )}
                                                 </div>
-                                            </div>
 
-                                            <div>
-                                                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                                    Item Description / Specifications (Auto-filled)
-                                                </label>
-                                                <input
-                                                    type="text"
-                                                    value={item.description || ''}
-                                                    onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
-                                                    placeholder="Item description or technical specs..."
-                                                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-1 focus:ring-cyan-500"
-                                                />
+                                                <div className="grid grid-cols-12 gap-2.5 items-center">
+                                                    <div className="col-span-6">
+                                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                            {currentType === 'rm' ? 'Raw Material' : currentType === 'bo' ? 'Bought Out Item' : 'Consumable Item'}
+                                                        </label>
+                                                        <SearchableSelect
+                                                            options={itemOptions}
+                                                            value={item.materialId}
+                                                            onChange={(val: any) => handleItemChange(idx, 'materialId', val)}
+                                                            placeholder={`Select ${currentType.toUpperCase()}...`}
+                                                        />
+                                                    </div>
+
+                                                    <div className="col-span-3">
+                                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                            Required Qty
+                                                        </label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            value={item.quantity}
+                                                            onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                                                            placeholder="Qty"
+                                                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white"
+                                                        />
+                                                    </div>
+
+                                                    <div className="col-span-3">
+                                                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                            Unit
+                                                        </label>
+                                                        <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 text-center">
+                                                            {item.unit || 'PCS'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                                        Item Description / Specifications (Auto-filled)
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.description || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'description', e.target.value)}
+                                                        placeholder="Item description or technical specs..."
+                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-1 focus:ring-cyan-500"
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
 
