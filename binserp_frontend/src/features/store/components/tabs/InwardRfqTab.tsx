@@ -17,6 +17,8 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const [customers, setCustomers] = useState<any[]>([]);
     const [companyInfo, setCompanyInfo] = useState<any>(null);
     
+    const [priceLists, setPriceLists] = useState<any[]>([]);
+    
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
     const [filterCustomer, setFilterCustomer] = useState<string>('All');
@@ -37,7 +39,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         customerPhone: '',
         remarks: '',
         status: 'Open',
-        items: [{ fgItem: '', customItemName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+        items: [{ fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
     });
 
     // View Modal State
@@ -47,20 +49,23 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         if (!token) return;
         try {
             setLoading(true);
-            const [rfqRes, fgRes, custRes, compRes] = await Promise.all([
+            const [rfqRes, fgRes, custRes, compRes, priceRes] = await Promise.all([
                 apiGet('/api/sales/incoming-rfq', token).catch(() => ({ rfqs: [] })),
                 apiGet('/api/store/fg-item', token).catch(() => []),
                 apiGet('/api/store/customer', token).catch(() => []),
-                apiGet('/api/store/company-info', token).catch(() => null)
+                apiGet('/api/store/company-info', token).catch(() => null),
+                apiGet('/api/sales/price-list', token).catch(() => ({ priceLists: [] }))
             ]);
 
             const rfqsList = Array.isArray(rfqRes?.rfqs) ? rfqRes.rfqs : (Array.isArray(rfqRes?.data) ? rfqRes.data : (Array.isArray(rfqRes) ? rfqRes : []));
             const fgList = Array.isArray(fgRes?.fgItems) ? fgRes.fgItems : (Array.isArray(fgRes) ? fgRes : []);
             const custList = Array.isArray(custRes?.customers) ? custRes.customers : (Array.isArray(custRes) ? custRes : []);
+            const priceList = Array.isArray(priceRes?.priceLists) ? priceRes.priceLists : (Array.isArray(priceRes?.data) ? priceRes.data : (Array.isArray(priceRes) ? priceRes : []));
 
             setRfqs(rfqsList);
             setFgItems(fgList);
             setCustomers(custList);
+            setPriceLists(priceList);
             setCompanyInfo(compRes?.companyInfo || compRes);
         } catch (err: any) {
             console.error("Inward RFQ Fetch error:", err);
@@ -99,6 +104,29 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         }
     };
 
+    // Formatted FG options for SearchableSelect with list price and descriptions
+    const fgOptions = useMemo(() => {
+        return (Array.isArray(fgItems) ? fgItems : []).map(fg => {
+            const priceEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === (fg._id || fg.id)?.toString();
+            });
+            const rate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : Number(fg.sellingPrice || fg.rate || 0);
+            const desc = fg.descriptions || fg.description || '';
+            const code = fg.code ? `[${fg.code}]` : '';
+            const rateLabel = rate > 0 ? ` — ₹${rate.toLocaleString('en-IN')}` : '';
+
+            return {
+                value: (fg._id || fg.id)?.toString(),
+                label: `${fg.name || fg.itemName || 'Unnamed FG'} ${code} ${desc ? `— ${desc}` : ''}${rateLabel}`.trim(),
+                description: desc,
+                code: fg.code,
+                rate: rate,
+                unit: fg.unit || 'PCS'
+            };
+        }).filter(o => o.value);
+    }, [fgItems, priceLists]);
+
     const handleOpenCreateModal = () => {
         setEditingRfq(null);
         setCustomerSearchTerm('');
@@ -112,7 +140,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             customerPhone: '',
             remarks: '',
             status: 'Open',
-            items: [{ fgItem: '', customItemName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [{ fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         });
         setIsCreateModalOpen(true);
     };
@@ -133,13 +161,12 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             items: Array.isArray(rfq.items) && rfq.items.length > 0
                 ? rfq.items.map((it: any) => ({
                     fgItem: it.fgItem?._id || it.fgItem || '',
-                    customItemName: it.customItemName || it.itemName || it.materialName || '',
                     description: it.description || '',
                     quantity: it.quantity || 1,
                     unit: it.unit || 'PCS',
-                    targetPrice: it.targetPrice || ''
+                    targetPrice: it.targetPrice != null ? it.targetPrice : ''
                 }))
-                : [{ fgItem: '', customItemName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+                : [{ fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         });
         setIsCreateModalOpen(true);
     };
@@ -177,7 +204,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const handleAddItem = () => {
         setNewRfq(prev => ({
             ...prev,
-            items: [...prev.items, { fgItem: '', customItemName: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [...prev.items, { fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         }));
     };
 
@@ -192,16 +219,21 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         const updatedItems = [...newRfq.items];
         if (field === 'fgItem') {
             const selectedFg = (Array.isArray(fgItems) ? fgItems : []).find((m: any) => (m._id || m.id)?.toString() === value?.toString());
+            const priceEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === value?.toString();
+            });
+            const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.rate || 0));
             const autoName = selectedFg?.name || selectedFg?.itemName || '';
-            const autoDesc = selectedFg?.description || selectedFg?.details || autoName;
-            const autoUnit = selectedFg?.unit || selectedFg?.uom || 'PCS';
+            const autoDesc = selectedFg?.descriptions || selectedFg?.description || autoName;
+            const autoUnit = selectedFg?.unit || 'PCS';
 
             updatedItems[index] = {
                 ...updatedItems[index],
                 fgItem: value,
-                customItemName: autoName,
                 description: autoDesc,
-                unit: autoUnit
+                unit: autoUnit,
+                targetPrice: autoRate > 0 ? String(autoRate) : (updatedItems[index].targetPrice || '')
             };
         } else {
             updatedItems[index] = { ...updatedItems[index], [field]: value };
@@ -229,8 +261,8 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             onError("Please select or enter customer name");
             return;
         }
-        if (!newRfq.items.some(i => (i.fgItem || i.customItemName) && Number(i.quantity) > 0)) {
-            onError("Please add at least one item with quantity");
+        if (!newRfq.items.some(i => i.fgItem && Number(i.quantity) > 0)) {
+            onError("Please select a Finished Good (FG) item and enter quantity for all items");
             return;
         }
 
@@ -258,7 +290,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             const matchSearch =
                 (rfq.rfqNumber && rfq.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (rfq.customerName && rfq.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.items && rfq.items.some((i: any) => (i.customItemName || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                (rfq.items && rfq.items.some((i: any) => (i.fgItem?.name || i.itemName || '').toLowerCase().includes(searchTerm.toLowerCase())));
 
             const matchStatus = filterStatus === 'All' || rfq.status === filterStatus;
 
@@ -359,7 +391,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                             </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                 {filteredRfqs.map((rfq) => {
-                                    const firstItemName = rfq.items?.[0]?.fgItem?.name || rfq.items?.[0]?.customItemName || rfq.items?.[0]?.itemName || rfq.items?.[0]?.materialName || 'Item';
+                                    const firstItemName = rfq.items?.[0]?.fgItem?.name || rfq.items?.[0]?.itemName || 'FG Item';
                                     const extraCount = (rfq.items?.length || 1) - 1;
 
                                     return (
@@ -409,38 +441,23 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 </select>
                                             </td>
 
-                                            <td className="px-4 py-3.5 text-center text-xs font-medium text-slate-600 dark:text-slate-400">
-                                                <div className="flex items-center justify-center gap-1 font-bold text-slate-700 dark:text-slate-300">
-                                                    <User size={13} className="text-indigo-500" />
-                                                    {getUserName(rfq.createdBy || rfq.receivedBy)}
-                                                </div>
-                                                {rfq.createdAt && <div className="text-[10px] text-slate-400">{new Date(rfq.createdAt).toLocaleDateString('en-GB')}</div>}
+                                            <td className="px-4 py-3.5 text-center text-xs font-medium text-slate-500">
+                                                <span className="inline-flex items-center gap-1">
+                                                    <User size={12} className="text-slate-400" />
+                                                    {getUserName(rfq.receivedBy)}
+                                                </span>
                                             </td>
 
-                                             <td className="px-4 py-3.5 text-right space-x-1.5">
+                                            <td className="px-4 py-3.5 text-right space-x-1.5 whitespace-nowrap">
                                                 <button
                                                     onClick={() => setSelectedRfq(rfq)}
-                                                    title="View Details"
-                                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                    className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
                                                 >
                                                     <Eye size={13} /> View
                                                 </button>
 
                                                 <button
-                                                    onClick={() => {
-                                                        if (typeof window !== 'undefined') {
-                                                            window.location.href = `/dashboard/store/sales/quotations?rfqId=${rfq._id}`;
-                                                        }
-                                                    }}
-                                                    title="Create Outward Quotation"
-                                                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 shadow-sm"
-                                                >
-                                                    <FileText size={13} /> Quote
-                                                </button>
-
-                                                <button
                                                     onClick={() => handleOpenEditModal(rfq)}
-                                                    title="Edit RFQ"
                                                     className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
                                                 >
                                                     <Edit2 size={13} /> Edit
@@ -471,7 +488,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                     {/* Mobile Card View */}
                     <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
                         {filteredRfqs.map((rfq) => {
-                            const firstItemName = rfq.items?.[0]?.fgItem?.name || rfq.items?.[0]?.customItemName || rfq.items?.[0]?.itemName || rfq.items?.[0]?.materialName || 'Item';
+                            const firstItemName = rfq.items?.[0]?.fgItem?.name || rfq.items?.[0]?.itemName || 'FG Item';
                             const extraCount = (rfq.items?.length || 1) - 1;
 
                             return (
@@ -677,9 +694,10 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                    <div className="col-span-4">Product Item *</div>
-                                    <div className="col-span-4">Item Specifications / Details</div>
-                                    <div className="col-span-2 text-center">Required Qty</div>
+                                    <div className="col-span-4">Finished Good (FG Item) *</div>
+                                    <div className="col-span-3">Item Specifications / Details</div>
+                                    <div className="col-span-2 text-center">Target Price (₹)</div>
+                                    <div className="col-span-1 text-center">Required Qty *</div>
                                     <div className="col-span-1 text-center">Unit</div>
                                     <div className="col-span-1 text-right">Action</div>
                                 </div>
@@ -690,35 +708,22 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                         <div key={idx} className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                                             <div className="grid grid-cols-12 gap-3 items-center">
                                                 
-                                                {/* Product Item Column */}
+                                                {/* FG Item Column */}
                                                 <div className="col-span-12 lg:col-span-4">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Product Item *
+                                                        Finished Good (FG Item) *
                                                     </label>
                                                     <SearchableSelect
-                                                        options={(Array.isArray(fgItems) ? fgItems : [])
-                                                            .map(m => ({
-                                                                value: (m._id || m.id)?.toString(),
-                                                                label: `${m.name || m.itemName} ${m.code ? `(${m.code})` : ''}`.trim()
-                                                            }))
-                                                            .filter(o => o.value)}
+                                                        options={fgOptions}
                                                         value={item.fgItem}
                                                         onChange={(val: any) => handleItemChange(idx, 'fgItem', val)}
-                                                        placeholder="Select Product..."
+                                                        placeholder="Select FG Item..."
+                                                        dropdownPosition="auto"
                                                     />
-                                                    {!item.fgItem && (
-                                                        <input
-                                                            type="text"
-                                                            value={item.customItemName}
-                                                            onChange={(e) => handleItemChange(idx, 'customItemName', e.target.value)}
-                                                            placeholder="Or type custom item name..."
-                                                            className="w-full mt-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200"
-                                                        />
-                                                    )}
                                                 </div>
 
                                                 {/* Specifications / Technical Details Column */}
-                                                <div className="col-span-12 lg:col-span-4">
+                                                <div className="col-span-12 lg:col-span-3">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Item Specifications
                                                     </label>
@@ -731,10 +736,26 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                     />
                                                 </div>
 
-                                                {/* Required Qty Column */}
+                                                {/* Target / List Price Column */}
                                                 <div className="col-span-6 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Required Qty
+                                                        Target Price (₹)
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        value={item.targetPrice}
+                                                        onChange={(e) => handleItemChange(idx, 'targetPrice', e.target.value)}
+                                                        placeholder="Target / List Rate"
+                                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center"
+                                                    />
+                                                </div>
+
+                                                {/* Required Qty Column */}
+                                                <div className="col-span-3 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        Qty *
                                                     </label>
                                                     <input
                                                         type="number"
@@ -747,7 +768,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 </div>
 
                                                 {/* Unit Column */}
-                                                <div className="col-span-5 lg:col-span-1">
+                                                <div className="col-span-3 lg:col-span-1">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Unit
                                                     </label>
@@ -772,7 +793,6 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                         </button>
                                                     )}
                                                 </div>
-
                                             </div>
                                         </div>
                                     ))}
@@ -912,7 +932,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
                             {/* Requested Items Section */}
                             <div>
-                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Requested Customer Items</h4>
+                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Requested FG Items</h4>
                                 <div className="border rounded-xl overflow-hidden">
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
@@ -926,7 +946,8 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                             {(selectedRfq.items || []).map((item: any, idx: number) => (
                                                 <tr key={idx}>
                                                     <td className="p-3 font-bold">
-                                                        {item.fgItem?.name || item.customItemName || item.itemName || item.materialName || 'Item'}
+                                                        {item.fgItem?.name || item.itemName || item.productName || 'FG Item'}
+                                                        {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
                                                         {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
                                                     </td>
                                                     <td className="p-3 text-center font-bold text-indigo-600">{item.quantity} {item.unit || 'PCS'}</td>

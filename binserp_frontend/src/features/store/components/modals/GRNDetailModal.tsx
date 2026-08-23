@@ -72,6 +72,12 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     <p className="text-base font-medium text-gray-900 dark:text-gray-100 font-mono">{grn.poReference}</p>
                                 </div>
                             )}
+                            {grn.mrpNumber && (
+                                <div className="bg-purple-50 dark:bg-purple-950/40 p-4 rounded-xl border border-purple-100 dark:border-purple-900/60">
+                                    <label className="text-xs font-bold text-purple-700 dark:text-purple-300 uppercase">MRP Plan Link</label>
+                                    <p className="text-base font-bold text-purple-900 dark:text-purple-200 font-mono">MRP #{grn.mrpNumber}</p>
+                                </div>
+                            )}
                             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                                 <label className="text-xs font-semibold text-gray-500 uppercase">QC Status</label>
                                 <div>

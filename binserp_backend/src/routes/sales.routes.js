@@ -13,6 +13,7 @@ import {
   createInvoice,
   getAllInvoices,
   updateInvoice,
+  deleteInvoice,
   createSalesOrder,
   getAllSalesOrders,
   getSalesOrderById,
@@ -96,5 +97,6 @@ router.delete("/dc/:id", deleteDC);
 router.post("/invoice", createInvoice);
 router.get("/invoice", getAllInvoices);
 router.put("/invoice/:id", updateInvoice);
+router.delete("/invoice/:id", deleteInvoice);
 
 export default router;

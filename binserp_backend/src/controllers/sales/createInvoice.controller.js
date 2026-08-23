@@ -128,19 +128,23 @@ export const createInvoice = async (req, res) => {
       const FGItem = req.getModel("FGItem", fgItemSchema);
       for (const invItem of req.body.items) {
         const fgId = invItem.fgItem || invItem.material || invItem.component;
-        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
-          const fgDoc = await FGItem.findById(fgId);
-          const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
-          if (!fgDoc || availableStock <= 0) {
-            return res.status(400).json({
-              message: `Cannot create Tax Invoice for item '${invItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
-            });
-          }
-          if (Number(invItem.quantity) > availableStock) {
-            return res.status(400).json({
-              message: `Requested billing quantity (${invItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${invItem.materialName || fgDoc.name}'.`
-            });
-          }
+        if (!fgId || !mongoose.Types.ObjectId.isValid(fgId)) {
+          return res.status(400).json({
+            message: `Cannot create Tax Invoice: Item '${invItem.materialName || 'Unnamed'}' is not linked to a valid Finished Goods (FG) item.`
+          });
+        }
+
+        const fgDoc = await FGItem.findById(fgId);
+        const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
+        if (!fgDoc || availableStock <= 0) {
+          return res.status(400).json({
+            message: `Cannot create Tax Invoice for item '${invItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
+          });
+        }
+        if (Number(invItem.quantity) > availableStock) {
+          return res.status(400).json({
+            message: `Requested billing quantity (${invItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${invItem.materialName || fgDoc.name}'.`
+          });
         }
       }
     }

@@ -21,7 +21,7 @@ interface ExtendedDCModalProps extends DCModalProps {
 }
 
 interface DCItemEntry {
-    itemType: 'fg' | 'custom';
+    itemType: 'fg';
     fgItem?: string;
     material?: string;
     component?: string;
@@ -122,7 +122,7 @@ export default function DCModal({
                     const qty = item.quantity || 1;
                     const rate = item.rate || item.pricePerQuantity || 0;
                     return {
-                        itemType: item.itemType || (fgId ? 'fg' : 'custom'),
+                        itemType: 'fg' as const,
                         fgItem: fgId,
                         material: item.material || "",
                         component: item.component || "",
@@ -218,7 +218,7 @@ export default function DCModal({
                     const availableForDispatch = Math.max(1, reservedStock > 0 ? (reservedStock - alreadyDispatched) : ((i.quantity || 1) - alreadyDispatched));
                     const rate = i.pricePerQuantity || i.rate || 0;
                     return {
-                        itemType: fgId ? 'fg' : 'custom',
+                        itemType: 'fg' as const,
                         fgItem: fgId,
                         component: fgId,
                         materialName: i.productName || i.name || "",
@@ -271,12 +271,6 @@ export default function DCModal({
         const newItems = [...items];
         const item = { ...newItems[index], [field]: value };
 
-        if (field === 'itemType' && value === 'custom') {
-            item.fgItem = '';
-            item.component = '';
-            item.material = '';
-        }
-
         if (field === 'quantity' || field === 'rate') {
             const qty = field === 'quantity' ? Number(value) : item.quantity;
             const rate = field === 'rate' ? Number(value) : (item.rate || 0);
@@ -304,9 +298,53 @@ export default function DCModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
+        // Strict Validation for FG item selection and Inventory Stock
+        for (const item of items) {
+            const fgId = item.fgItem || item.material || item.component;
+            if (!fgId) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'FG Item Required',
+                    text: 'Please select a Finished Goods (FG) item for all lines in the Delivery Challan.',
+                    confirmButtonColor: '#3b82f6'
+                });
+                return;
+            }
+
+            const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === fgId);
+            const stock = fg ? Number(fg.quantity || 0) : 0;
+            if (!fg || stock <= 0) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Zero Inventory Stock',
+                    text: `Cannot create Delivery Challan. Item '${item.materialName || fg?.name || 'Selected Item'}' has 0 available inventory stock.`,
+                    confirmButtonColor: '#d33'
+                });
+                return;
+            }
+            if (Number(item.quantity) > stock) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Insufficient Inventory Stock',
+                    text: `Dispatch quantity (${item.quantity} PCS) exceeds available FG inventory stock (${stock} PCS) for '${item.materialName || fg.name}'.`,
+                    confirmButtonColor: '#d33'
+                });
+                return;
+            }
+            if (Number(item.quantity) <= 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Invalid Quantity',
+                    text: `Please enter a valid dispatch quantity greater than 0 for '${item.materialName || 'item'}'.`,
+                    confirmButtonColor: '#3b82f6'
+                });
+                return;
+            }
+        }
+
         const payloadItems = items.map(entry => {
             const itemPayload: any = {
-                itemType: entry.itemType,
+                itemType: 'fg',
                 materialName: entry.materialName,
                 hsnCode: entry.hsnCode,
                 quantity: entry.quantity,
@@ -319,33 +357,6 @@ export default function DCModal({
             if (entry.component && entry.component !== "") itemPayload.component = entry.component;
             return itemPayload;
         });
-
-        // Validation for FG Inventory Stock
-        for (const item of items) {
-            if (item.itemType === 'fg' || item.fgItem) {
-                const fgId = item.fgItem || item.material || item.component;
-                const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === fgId);
-                const stock = fg ? Number(fg.quantity || 0) : 0;
-                if (!fg || stock <= 0) {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Zero Inventory Stock',
-                        text: `Cannot create Delivery Challan. Item '${item.materialName || fg?.name || 'Selected Item'}' has 0 available inventory stock.`,
-                        confirmButtonColor: '#d33'
-                    });
-                    return;
-                }
-                if (Number(item.quantity) > stock) {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Insufficient Inventory Stock',
-                        text: `Dispatch quantity (${item.quantity} PCS) exceeds available inventory stock (${stock} PCS) for '${item.materialName || fg.name}'.`,
-                        confirmButtonColor: '#d33'
-                    });
-                    return;
-                }
-            }
-        }
 
         // Validation against Customer PO
         if (customerPoReference && incomingPOs) {
@@ -591,62 +602,47 @@ export default function DCModal({
                                         )}
 
                                         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                                            {/* Type & Dropdown */}
+                                            {/* Finished Goods Item Selector */}
                                             <div className="md:col-span-4 space-y-2">
-                                                <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => updateItem(index, 'itemType', 'fg')}
-                                                        className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${entry.itemType === 'fg' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold' : 'text-slate-500'}`}
-                                                    >
-                                                        FG Item
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => updateItem(index, 'itemType', 'custom')}
-                                                        className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${entry.itemType === 'custom' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold' : 'text-slate-500'}`}
-                                                    >
-                                                        Custom Item
-                                                    </button>
-                                                </div>
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                    <Package size={13} className="text-blue-600" />
+                                                    <span>Finished Good (FG) Item *</span>
+                                                </label>
 
-                                                {entry.itemType === 'fg' ? (
-                                                    <>
-                                                        <SearchableSelect
-                                                            options={fgOptions}
-                                                            value={entry.fgItem || entry.component || ''}
-                                                            onChange={(val: any) => handleFGSelection(index, val)}
-                                                            placeholder="Select Finished Good"
-                                                        />
-                                                        {(() => {
-                                                            const selectedFgId = entry.fgItem || entry.material || entry.component;
-                                                            const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === selectedFgId);
-                                                            if (!fg) return null;
-                                                            const stock = Number(fg.quantity || 0);
-                                                            return (
-                                                                <div className="mt-1">
-                                                                    {stock > 0 ? (
-                                                                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
-                                                                            <CheckCircle2 size={12} className="text-emerald-600" /> Available Stock: {stock} {fg.unit || 'PCS'}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
-                                                                            <AlertTriangle size={12} className="text-rose-600" /> Out of Stock (0 {fg.unit || 'PCS'}) — Dispatch Blocked
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </>
-                                                ) : (
-                                                    <input
-                                                        type="text"
-                                                        value={entry.materialName}
-                                                        onChange={e => updateItem(index, 'materialName', e.target.value)}
-                                                        placeholder="Item Name *"
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
-                                                    />
-                                                )}
+                                                <SearchableSelect
+                                                    options={fgOptions}
+                                                    value={entry.fgItem || entry.component || ''}
+                                                    onChange={(val: any) => handleFGSelection(index, val)}
+                                                    placeholder="Select Finished Good"
+                                                />
+                                                {(() => {
+                                                    const selectedFgId = entry.fgItem || entry.material || entry.component;
+                                                    const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === selectedFgId);
+                                                    if (!fg) return (
+                                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 italic block mt-1">
+                                                            Select an FG item from catalog or Customer PO
+                                                        </span>
+                                                    );
+                                                    const stock = Number(fg.quantity || 0);
+                                                    const isOverStock = Number(entry.quantity || 0) > stock;
+                                                    return (
+                                                        <div className="mt-1">
+                                                            {stock <= 0 ? (
+                                                                <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
+                                                                    <AlertTriangle size={12} className="text-rose-600" /> Out of Stock (0 {fg.unit || 'PCS'}) — Dispatch Blocked
+                                                                </span>
+                                                            ) : isOverStock ? (
+                                                                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                                                                    <AlertTriangle size={12} className="text-amber-600" /> Available Stock: {stock} {fg.unit || 'PCS'} (Req: {entry.quantity})
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
+                                                                    <CheckCircle2 size={12} className="text-emerald-600" /> Available Stock: {stock} {fg.unit || 'PCS'}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
 
                                             {/* HSN & Remarks */}

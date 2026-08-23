@@ -533,7 +533,7 @@ export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; c
         items.forEach((item: any, idx: number) => {
             const qty = Number(item.quantity || 0);
             totalQty += qty;
-            const itemName = item.fgItem?.name || item.customItemName || item.itemName || item.materialName || 'Requested Item';
+            const itemName = item.fgItem?.name || item.itemName || 'FG Item';
 
             itemsTableRowsHtml += `
                 <tr>
@@ -753,7 +753,7 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
             const rate = Number(item.rate || item.unitPrice || 0);
             const tax = Number(item.taxRate != null ? item.taxRate : (item.tax != null ? item.tax : 18));
             const lineTotal = item.amount ? Number(item.amount) : (item.total ? Number(item.total) : (qty * rate * (1 + tax / 100)));
-            const itemName = item.productName || item.fgItem?.name || item.component?.componentName || item.material?.name || 'Quoted Product';
+            const itemName = item.fgItem?.name || item.productName || 'FG Item';
 
             totalQty += qty;
 
@@ -2296,8 +2296,8 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                         <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grnDate}</div>
                     </div>
                     <div>
-                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">PO Reference</div>
-                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grn.poReference || grn.purchaseOrder?.poNumber || 'Direct / Offline'}</div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">${grn.mrpNumber ? 'MRP Plan' : 'PO Reference'}</div>
+                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grn.mrpNumber ? `MRP #${grn.mrpNumber}` : (grn.poReference || grn.purchaseOrder?.poNumber || 'Direct / Offline')}</div>
                     </div>
                     <div>
                         <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">QC Status</div>

@@ -135,7 +135,8 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
         grnTypeLabel: "Finished Goods (FG)",
         typeBadge: "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800",
         displayDate: fgGrn.date || fgGrn.createdAt,
-        supplierOrCustomer: "In-House Production",
+        supplierOrCustomer: fgGrn.customerName || (typeof fgGrn.customer === 'object' ? fgGrn.customer?.name : fgGrn.customer) || (fgGrn.mrpNumber ? `MRP #${fgGrn.mrpNumber}` : "In-House Production"),
+        mrpNumber: fgGrn.mrpNumber,
         totalItemsCount: (fgGrn.items || []).length,
         totalQuantity: (fgGrn.items || []).reduce((acc: number, item: any) => acc + (parseFloat(item.quantity) || 0), 0),
       });

@@ -159,6 +159,28 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
         setIsCreateModalOpen(true);
     };
 
+    const fgOptions = useMemo(() => {
+        return (Array.isArray(fgItems) ? fgItems : [])
+            .map(m => {
+                const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                    const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                    return pFgId?.toString() === (m._id || m.id)?.toString();
+                });
+                const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.unitPrice || 0));
+                const priceText = rate > 0 ? ` — ₹${rate}` : '';
+                const descText = m.description ? ` (${m.description})` : '';
+                const codeText = m.code ? ` [${m.code}]` : '';
+                return {
+                    value: (m._id || m.id)?.toString(),
+                    label: `${m.name || m.itemName || 'FG Item'}${codeText}${descText}${priceText}`,
+                    rate: rate,
+                    raw: m,
+                    priceEntry: pEntry
+                };
+            })
+            .filter(o => o.value);
+    }, [fgItems, priceLists]);
+
     const handleOpenCreateModalWithRfq = (targetRfq: any, custList: any[], fgList: any[]) => {
         setEditingQuote(null);
         setSelectedRfqId(targetRfq._id);
@@ -167,26 +189,32 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
         const autoItems = (targetRfq.items || []).map((it: any) => {
             const qty = Number(it.quantity) || 1;
-            const rate = Number(it.targetPrice) || 0;
-            const fgId = it.fgItem?._id || it.fgItem || '';
-            const prodName = it.fgItem?.name || it.customItemName || it.itemName || 'Product Item';
-            const amount = qty * rate * 1.18;
+            const fgId = (it.fgItem?._id || it.fgItem || '').toString();
+            const matchedFg = (fgList || []).find((m: any) => (m._id || m.id)?.toString() === fgId);
+            const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === fgId;
+            });
+            const rate = Number(it.targetPrice) > 0 ? Number(it.targetPrice) : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
+            const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
+            const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
+            const amount = qty * rate * (1 + taxRate / 100);
 
             return {
                 fgItem: fgId,
                 productName: prodName,
-                description: it.description || '',
+                description: it.description || matchedFg?.description || '',
                 quantity: qty,
-                unit: it.unit || 'PCS',
+                unit: it.unit || matchedFg?.unit || 'PCS',
                 rate: rate,
-                taxRate: 18,
-                taxAmount: qty * rate * 0.18,
+                taxRate: taxRate,
+                taxAmount: qty * rate * (taxRate / 100),
                 amount: amount
             };
         });
 
         const sub = autoItems.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.rate), 0);
-        const tax = sub * 0.18;
+        const tax = autoItems.reduce((acc: number, cur: any) => acc + (cur.taxAmount || 0), 0);
 
         setNewQuote({
             quotationNumber: generateQuoteNo(),
@@ -392,8 +420,12 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             onError("Please select or enter customer name");
             return;
         }
-        if (!newQuote.items.some(i => (i.fgItem || i.productName) && Number(i.quantity) > 0 && Number(i.rate) > 0)) {
-            onError("Please add at least one product item with quantity and unit rate");
+        if (!newQuote.items || newQuote.items.length === 0 || !newQuote.items.some(i => i.fgItem && Number(i.quantity) > 0 && Number(i.rate) > 0)) {
+            onError("Please select at least one FG Item with quantity and unit rate");
+            return;
+        }
+        if (newQuote.items.some(i => !i.fgItem || Number(i.quantity) <= 0 || Number(i.rate) <= 0)) {
+            onError("Please ensure all item rows have a selected FG Item, quantity > 0, and unit rate > 0");
             return;
         }
 
@@ -919,7 +951,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                    <div className="col-span-3">Product Item *</div>
+                                    <div className="col-span-3">FG Item * (Price List)</div>
                                     <div className="col-span-3">Specifications</div>
                                     <div className="col-span-1 text-center">Qty</div>
                                     <div className="col-span-1 text-center">Unit</div>
@@ -934,31 +966,17 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         <div key={idx} className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                                             <div className="grid grid-cols-12 gap-3 items-center">
                                                 
-                                                {/* Product Item Column */}
+                                                {/* FG Item Column */}
                                                 <div className="col-span-12 lg:col-span-3">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Product Item *
+                                                        FG Item *
                                                     </label>
                                                     <SearchableSelect
-                                                        options={(Array.isArray(fgItems) ? fgItems : [])
-                                                            .map(m => ({
-                                                                value: (m._id || m.id)?.toString(),
-                                                                label: `${m.name || m.itemName} ${m.code ? `(${m.code})` : ''}`.trim()
-                                                            }))
-                                                            .filter(o => o.value)}
+                                                        options={fgOptions}
                                                         value={item.fgItem}
                                                         onChange={(val: any) => handleItemChange(idx, 'fgItem', val)}
-                                                        placeholder="Select Product..."
+                                                        placeholder="Select FG Item..."
                                                     />
-                                                    {!item.fgItem && (
-                                                        <input
-                                                            type="text"
-                                                            value={item.productName}
-                                                            onChange={(e) => handleItemChange(idx, 'productName', e.target.value)}
-                                                            placeholder="Or type custom product..."
-                                                            className="w-full mt-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200"
-                                                        />
-                                                    )}
                                                 </div>
 
                                                 {/* Specifications */}
@@ -1219,7 +1237,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
                                             <tr>
-                                                <th className="p-3">Product Name</th>
+                                                <th className="p-3">FG Item Name</th>
                                                 <th className="p-3 text-center">Quantity</th>
                                                 <th className="p-3 text-right">Unit Rate (₹)</th>
                                                 <th className="p-3 text-center">GST %</th>
@@ -1236,7 +1254,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 return (
                                                     <tr key={idx}>
                                                         <td className="p-3 font-bold">
-                                                            {item.productName || item.fgItem?.name || item.component?.componentName || 'Product Item'}
+                                                            {item.fgItem?.name || item.productName || 'FG Item'}
+                                                            {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
                                                             {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
                                                         </td>
                                                         <td className="p-3 text-center font-bold text-indigo-600">{qty} {item.unit || 'PCS'}</td>

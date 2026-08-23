@@ -66,27 +66,32 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [activeViewTab, setActiveViewTab] = useState<'overview' | 'dispatch'>('overview');
 
 
+    const [priceLists, setPriceLists] = useState<any[]>([]);
+
     const fetchData = async () => {
         if (!token) return;
         try {
             setLoading(true);
-            const [poRes, quotRes, fgRes, custRes, compRes] = await Promise.all([
+            const [poRes, quotRes, fgRes, custRes, compRes, priceRes] = await Promise.all([
                 apiGet('/api/sales/incoming-po', token).catch(() => ({ pos: [] })),
                 apiGet('/api/sales/quotation', token).catch(() => ({ quotations: [] })),
                 apiGet('/api/store/fg-item', token).catch(() => []),
                 apiGet('/api/store/customer', token).catch(() => []),
-                apiGet('/api/store/company-info', token).catch(() => null)
+                apiGet('/api/store/company-info', token).catch(() => null),
+                apiGet('/api/sales/price-list', token).catch(() => ({ priceLists: [] }))
             ]);
 
             const listPOs = Array.isArray(poRes?.pos) ? poRes.pos : (Array.isArray(poRes?.data) ? poRes.data : (Array.isArray(poRes) ? poRes : []));
             const listQuotes = Array.isArray(quotRes?.quotations) ? quotRes.quotations : (Array.isArray(quotRes?.data) ? quotRes.data : (Array.isArray(quotRes) ? quotRes : []));
             const listFgs = Array.isArray(fgRes?.fgItems) ? fgRes.fgItems : (Array.isArray(fgRes) ? fgRes : []);
             const listCusts = Array.isArray(custRes?.customers) ? custRes.customers : (Array.isArray(custRes) ? custRes : []);
+            const listPrices = Array.isArray(priceRes?.priceLists) ? priceRes.priceLists : (Array.isArray(priceRes?.data) ? priceRes.data : (Array.isArray(priceRes) ? priceRes : []));
 
             setPoList(listPOs);
             setQuotations(listQuotes);
             setFgItems(listFgs);
             setCustomers(listCusts);
+            setPriceLists(listPrices);
             setCompanyInfo(compRes?.companyInfo || compRes);
         } catch (err: any) {
             console.error("Fetch Customer POs error:", err);
@@ -95,6 +100,28 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             setLoading(false);
         }
     };
+
+    const fgOptions = useMemo(() => {
+        return (Array.isArray(fgItems) ? fgItems : [])
+            .map(m => {
+                const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                    const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                    return pFgId?.toString() === (m._id || m.id)?.toString();
+                });
+                const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.unitPrice || 0));
+                const priceText = rate > 0 ? ` — ₹${rate}` : '';
+                const descText = m.description ? ` (${m.description})` : '';
+                const codeText = m.code ? ` [${m.code}]` : '';
+                return {
+                    value: (m._id || m.id)?.toString(),
+                    label: `${m.name || m.itemName || 'FG Item'}${codeText}${descText}${priceText}`,
+                    rate: rate,
+                    raw: m,
+                    priceEntry: pEntry
+                };
+            })
+            .filter(o => o.value);
+    }, [fgItems, priceLists]);
 
     useEffect(() => {
         fetchData();
@@ -261,17 +288,27 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
         const autoItems = (selectedQuot.items || []).map((it: any) => {
             const qty = Number(it.quantity) || 1;
-            const rate = Number(it.rate || it.unitPrice) || 0;
-            const tax = Number(it.taxRate != null ? it.taxRate : 18);
+            const fgId = (it.fgItem?._id || it.fgItem || '').toString();
+            const matchedFg = (fgItems || []).find((m: any) => (m._id || m.id)?.toString() === fgId);
+            const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === fgId;
+            });
+            const rate = Number(it.rate || it.unitPrice) > 0 
+                ? Number(it.rate || it.unitPrice) 
+                : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
+            const tax = it.taxRate != null 
+                ? Number(it.taxRate) 
+                : (pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18));
             const lineSub = qty * rate;
             const lineTax = lineSub * (tax / 100);
 
             return {
-                fgItem: it.fgItem?._id || it.fgItem || '',
-                productName: it.productName || it.fgItem?.name || 'Product Item',
-                description: it.description || '',
+                fgItem: fgId,
+                productName: matchedFg?.name || it.fgItem?.name || it.productName || 'FG Item',
+                description: it.description || matchedFg?.description || '',
                 quantity: qty,
-                unit: it.unit || 'PCS',
+                unit: it.unit || matchedFg?.unit || 'PCS',
                 rate: rate,
                 taxRate: tax,
                 expectedDeliveryDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -326,7 +363,15 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             const autoName = selectedFg?.name || selectedFg?.itemName || '';
             const autoDesc = selectedFg?.description || selectedFg?.details || autoName;
             const autoUnit = selectedFg?.unit || selectedFg?.uom || 'PCS';
-            const autoRate = Number(selectedFg?.sellingPrice || selectedFg?.unitPrice || selectedFg?.rate || 0);
+
+            // Lookup price from Sales Price List
+            const priceEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === value?.toString();
+            });
+
+            const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.unitPrice || selectedFg?.rate || 0));
+            const autoTax = priceEntry && priceEntry.taxRate != null ? Number(priceEntry.taxRate) : (Number(selectedFg?.taxRate || selectedFg?.gstRate || 18));
 
             updated[index] = {
                 ...updated[index],
@@ -334,7 +379,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 productName: autoName,
                 description: autoDesc,
                 unit: autoUnit,
-                rate: autoRate
+                rate: autoRate,
+                taxRate: autoTax
             };
         } else {
             updated[index] = { ...updated[index], [field]: value };
@@ -423,8 +469,12 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             onError("Please select customer for this PO");
             return;
         }
-        if (!newPo.items.some(i => (i.fgItem || i.productName) && Number(i.quantity) > 0)) {
-            onError("Please add at least one item to the PO");
+        if (!newPo.items || newPo.items.length === 0 || !newPo.items.some(i => i.fgItem && Number(i.quantity) > 0 && Number(i.rate) > 0)) {
+            onError("Please select at least one FG Item with quantity and unit rate");
+            return;
+        }
+        if (newPo.items.some(i => !i.fgItem || Number(i.quantity) <= 0 || Number(i.rate) <= 0)) {
+            onError("Please ensure all item rows have a selected FG Item, quantity > 0, and unit rate > 0");
             return;
         }
 
@@ -993,7 +1043,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                    <div className="col-span-3">Product Item *</div>
+                                    <div className="col-span-3">FG Item * (Price List)</div>
                                     <div className="col-span-3">Specifications</div>
                                     <div className="col-span-1 text-center">Qty</div>
                                     <div className="col-span-1 text-center">Unit</div>
@@ -1008,31 +1058,17 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         <div key={idx} className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
                                             <div className="grid grid-cols-12 gap-3 items-center">
                                                 
-                                                {/* Product Item Column */}
+                                                {/* FG Item Column */}
                                                 <div className="col-span-12 lg:col-span-3">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Product Item *
+                                                        FG Item *
                                                     </label>
                                                     <SearchableSelect
-                                                        options={(Array.isArray(fgItems) ? fgItems : [])
-                                                            .map(m => ({
-                                                                value: (m._id || m.id)?.toString(),
-                                                                label: `${m.name || m.itemName} ${m.code ? `(${m.code})` : ''}`.trim()
-                                                            }))
-                                                            .filter(o => o.value)}
+                                                        options={fgOptions}
                                                         value={item.fgItem}
                                                         onChange={(val: any) => handleItemChange(idx, 'fgItem', val)}
-                                                        placeholder="Select Product..."
+                                                        placeholder="Select FG Item..."
                                                     />
-                                                    {!item.fgItem && (
-                                                        <input
-                                                            type="text"
-                                                            value={item.productName}
-                                                            onChange={(e) => handleItemChange(idx, 'productName', e.target.value)}
-                                                            placeholder="Or type custom product..."
-                                                            className="w-full mt-1.5 px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200"
-                                                        />
-                                                    )}
                                                 </div>
 
                                                 {/* Specifications */}
@@ -1441,6 +1477,46 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         <div className="text-slate-500 font-medium space-x-3">
                                             {selectedPo.customer?.email && <span>Email: {selectedPo.customer.email}</span>}
                                             {selectedPo.customer?.phone && <span>Phone: {selectedPo.customer.phone}</span>}
+                                        </div>
+                                    </div>
+
+                                    {/* Ordered FG Items Section */}
+                                    <div>
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Ordered FG Items & Rates</h4>
+                                        <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                                            <table className="w-full text-xs text-left">
+                                                <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
+                                                    <tr>
+                                                        <th className="p-3">FG Item Name</th>
+                                                        <th className="p-3 text-center">Ordered Qty</th>
+                                                        <th className="p-3 text-right">Unit Rate (₹)</th>
+                                                        <th className="p-3 text-center">GST %</th>
+                                                        <th className="p-3 text-right">Line Total (₹)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                                                    {(selectedPo.items || []).map((item: any, idx: number) => {
+                                                        const qty = Number(item.quantity) || 1;
+                                                        const rate = Number(item.rate) || 0;
+                                                        const tax = Number(item.taxRate != null ? item.taxRate : 18);
+                                                        const lineTotal = item.amount ? Number(item.amount) : (qty * rate * (1 + tax / 100));
+
+                                                        return (
+                                                            <tr key={idx}>
+                                                                <td className="p-3 font-bold">
+                                                                    {item.fgItem?.name || item.productName || 'FG Item'}
+                                                                    {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
+                                                                    {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
+                                                                </td>
+                                                                <td className="p-3 text-center font-bold text-blue-600">{qty} {item.unit || 'PCS'}</td>
+                                                                <td className="p-3 text-right font-bold font-mono">₹{rate.toLocaleString()}</td>
+                                                                <td className="p-3 text-center font-bold text-slate-600">{tax}%</td>
+                                                                <td className="p-3 text-right font-extrabold font-mono text-blue-600">₹{lineTotal.toLocaleString()}</td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
                                         </div>
                                     </div>
 

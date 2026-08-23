@@ -74,6 +74,7 @@ export default function GRNModal({
     const [mrpPlan, setMrpPlan] = useState('');
     const [mrpNumber, setMrpNumber] = useState('');
     const [mrpPlansList, setMrpPlansList] = useState<any[]>([]);
+    const [isMrpRequired, setIsMrpRequired] = useState(false);
 
     // QC & Media
     const [qcRequired, setQcRequired] = useState(true);
@@ -181,6 +182,9 @@ export default function GRNModal({
                 setCustomer((initialData as any).customerId || (initialData as any).customer || '');
                 setPoReference((initialData as any).poReference || (initialData as any).poNumber || '');
                 setSelectedPO((initialData as any).purchaseOrder || '');
+                setMrpPlan((initialData as any).mrpPlan || '');
+                setMrpNumber((initialData as any).mrpNumber || '');
+                setIsMrpRequired(!!(initialData as any).mrpPlan);
                 setExistingPhotos((initialData as any).photos || []);
                 setQcRequired((initialData as any).qcRequired || false);
 
@@ -209,6 +213,9 @@ export default function GRNModal({
                 setCustomer('');
                 setPoReference('');
                 setSelectedPO('');
+                setMrpPlan('');
+                setMrpNumber('');
+                setIsMrpRequired(false);
                 setPoLinkedNotice(null);
                 setQcRequired(false);
                 setPdfFile(null);
@@ -505,6 +512,12 @@ export default function GRNModal({
         const invalidItems = materialEntries.filter(m => !m.material || m.quantity <= 0);
         if (invalidItems.length > 0) {
             alert("Please ensure all items have a selected material and a valid quantity greater than 0.");
+            return;
+        }
+
+        // Validate Compulsory MRP mode for FG/InHouse
+        if ((type === 'inhouse' || type === 'fg') && isMrpRequired && !mrpPlan) {
+            alert("Please select an Open Purchase MRP Plan or switch to Direct / Optional MRP Mode.");
             return;
         }
 
@@ -850,19 +863,68 @@ export default function GRNModal({
                             {/* Customer & MRP Plan for FG / InHouse */}
                             {(type === 'inhouse' || type === 'fg') && (
                                 <>
-                                    {/* Open Purchase MRP Plan (Required) */}
+                                    {/* MRP Mode Toggle Switch Header */}
+                                    <div className="col-span-1 sm:col-span-2 lg:col-span-4 p-3 bg-purple-50/80 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-800/80 flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${isMrpRequired ? 'bg-purple-600 text-white shadow-xs' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                                                <Layers className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                                                    <span>Production MRP Plan Linkage</span>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-extrabold uppercase border ${isMrpRequired ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border-purple-300 dark:border-purple-700' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'}`}>
+                                                        {isMrpRequired ? 'Compulsory (Plan-Driven)' : 'Optional / Direct FG Inward'}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                    {isMrpRequired
+                                                        ? "Strictly requires selecting an active Production MRP Plan to auto-load planned FG quantities and track fulfillment."
+                                                        : "Direct FG Inward enabled — you can directly select Finished Goods from inventory or optionally choose an MRP plan."}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Interactive Mode Toggle Buttons */}
+                                        <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl border border-purple-200 dark:border-purple-800/80 shadow-xs shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsMrpRequired(false);
+                                                }}
+                                                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${!isMrpRequired ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                                            >
+                                                Direct / Optional MRP
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsMrpRequired(true);
+                                                }}
+                                                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${isMrpRequired ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
+                                            >
+                                                Compulsory MRP Plan
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Open Purchase MRP Plan Dropdown */}
                                     <div className="sm:col-span-2 lg:col-span-2">
                                         <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1 flex items-center justify-between">
-                                            <span>Open Purchase MRP Plan <span className="text-red-500">*</span></span>
+                                            <span>
+                                                {isMrpRequired ? "Open Purchase MRP Plan" : "Link MRP Plan (Optional)"}{" "}
+                                                {isMrpRequired && <span className="text-red-500">*</span>}
+                                            </span>
                                             <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">({openMrpPlans.length} Open)</span>
                                         </label>
                                         <select
-                                            required
+                                            required={isMrpRequired}
                                             value={mrpPlan}
                                             onChange={(e) => handleSelectMRPPlan(e.target.value)}
                                             className="w-full h-9 px-2.5 bg-purple-50/70 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 rounded-xl text-xs font-bold text-purple-950 dark:text-purple-200 focus:ring-2 focus:ring-purple-500 cursor-pointer truncate"
                                         >
-                                            <option value="">-- Select Open Purchase MRP Plan * --</option>
+                                            <option value="">
+                                                {isMrpRequired ? "-- Select Open Purchase MRP Plan * --" : "-- Direct Inward / No MRP Link (Optional) --"}
+                                            </option>
                                             {openMrpPlans.map(plan => {
                                                 const itemCount = plan.fgItems?.length || plan.items?.length || 0;
                                                 return (
@@ -875,9 +937,9 @@ export default function GRNModal({
                                     </div>
 
                                     {/* Customer (Optional / Auto-filled from MRP Plan) */}
-                                    <div className="sm:col-span-2 lg:col-span-1">
+                                    <div className="sm:col-span-2 lg:col-span-2">
                                         <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                            Customer <span className="text-slate-400 font-normal text-[10px]">(Optional)</span>
+                                            Customer <span className="text-slate-400 font-normal text-[10px]">(Optional / In-House Stock)</span>
                                         </label>
                                         <SearchableSelect
                                             options={safeCustomers.map(cust => ({

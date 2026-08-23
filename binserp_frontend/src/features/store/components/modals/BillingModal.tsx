@@ -21,8 +21,8 @@ interface ExtendedBillingModalProps extends BillingModalProps {
 }
 
 interface InvoiceItemEntry {
-    itemType: 'fg' | 'custom';
-    fgItem?: string;
+    itemType: 'fg';
+    fgItem: string;
     material?: string;
     component?: string;
     materialName: string;
@@ -133,7 +133,7 @@ export default function BillingModal({
                     const amt = qty * rate;
                     const taxRate = i.taxRate || 0;
                     return {
-                        itemType: i.itemType || (fgId ? 'fg' : 'custom'),
+                        itemType: 'fg' as const,
                         fgItem: fgId,
                         material: i.material || "",
                         materialName: i.materialName || i.productName || i.name || "",
@@ -215,7 +215,6 @@ export default function BillingModal({
                 handleCustomerChange(custId);
             }
             if (po.items && po.items.length > 0) {
-                // Filter only items with pending billing quantity > 0
                 const pendingItems = po.items.filter((i: any) => {
                     const remainingQty = (i.quantity || 0) - (i.billedQuantity || i.dispatchedQuantity || 0);
                     return remainingQty > 0;
@@ -233,7 +232,7 @@ export default function BillingModal({
                     const amt = remainingQty * rate;
                     const taxRate = i.taxRate || 0;
                     return {
-                        itemType: fgId ? 'fg' : 'custom',
+                        itemType: 'fg',
                         fgItem: fgId,
                         materialName: i.productName || i.name || "",
                         hsnCode: i.hsnCode || "",
@@ -284,10 +283,6 @@ export default function BillingModal({
         const newItems = [...items];
         const item = { ...newItems[index], [field]: value };
 
-        if (field === 'itemType' && value === 'custom') {
-            item.fgItem = '';
-        }
-
         if (field === 'quantity' || field === 'rate' || field === 'taxRate') {
             const qty = field === 'quantity' ? Number(value) : item.quantity;
             const rate = field === 'rate' ? Number(value) : item.rate;
@@ -337,30 +332,47 @@ export default function BillingModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
-        // Validation for FG Inventory Stock
+        // Validation for Finished Goods & Inventory Stock
         for (const item of items) {
-            if (item.itemType === 'fg' || item.fgItem) {
-                const fgId = item.fgItem || item.material || item.component;
-                const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === fgId);
-                const stock = fg ? Number(fg.quantity || 0) : 0;
-                if (!fg || stock <= 0) {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Zero Inventory Stock',
-                        text: `Cannot save Tax Invoice. Item '${item.materialName || fg?.name || 'Selected Item'}' has 0 available inventory stock.`,
-                        confirmButtonColor: '#d33'
-                    });
-                    return;
-                }
-                if (Number(item.quantity) > stock) {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Insufficient Inventory Stock',
-                        text: `Billing quantity (${item.quantity} PCS) exceeds available inventory stock (${stock} PCS) for '${item.materialName || fg.name}'.`,
-                        confirmButtonColor: '#d33'
-                    });
-                    return;
-                }
+            if (!item.fgItem || item.fgItem.trim() === "") {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Finished Good Required',
+                    text: 'Please select a Finished Good item from inventory for all line items.',
+                    confirmButtonColor: '#3085d6'
+                });
+                return;
+            }
+
+            if (!item.quantity || Number(item.quantity) <= 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Invalid Quantity',
+                    text: 'Please specify a valid quantity greater than 0 for all items.',
+                    confirmButtonColor: '#3085d6'
+                });
+                return;
+            }
+
+            const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === item.fgItem);
+            const stock = fg ? Number(fg.quantity || 0) : 0;
+            if (!fg || stock <= 0) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Zero Inventory Stock',
+                    text: `Cannot create Tax Invoice. Item '${item.materialName || fg?.name || 'Selected Item'}' has 0 available inventory stock.`,
+                    confirmButtonColor: '#d33'
+                });
+                return;
+            }
+            if (Number(item.quantity) > stock) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Insufficient Inventory Stock',
+                    text: `Billing quantity (${item.quantity} ${item.unit || 'PCS'}) exceeds available inventory stock (${stock} ${fg.unit || 'PCS'}) for '${item.materialName || fg.name}'.`,
+                    confirmButtonColor: '#d33'
+                });
+                return;
             }
         }
 
@@ -383,7 +395,7 @@ export default function BillingModal({
 
         const cleanedItems = items.map(entry => {
             const itemPayload: any = {
-                itemType: entry.itemType,
+                itemType: 'fg',
                 materialName: entry.materialName,
                 hsnCode: entry.hsnCode,
                 quantity: entry.quantity,
@@ -454,13 +466,13 @@ export default function BillingModal({
                                 {isEditing ? "Edit Tax Invoice" : "Create Tax Invoice"}
                             </h2>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Official billing & customer tax invoice documentation
+                                Generate official GST sales invoice with live Finished Goods inventory deduction
                             </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
                         <X size={20} />
                     </button>
@@ -468,94 +480,139 @@ export default function BillingModal({
 
                 {/* Modal Body */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                    <form id="billing-form" onSubmit={handleSubmit} className="space-y-6">
+                    <form onSubmit={handleSubmit} id="billing-form" className="space-y-6">
                         
-                        {/* Invoice Header Details */}
-                        <div className="bg-slate-50/70 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-                            <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                        {/* Section 1: Customer & PO Reference */}
+                        <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-700">
                                 <User className="w-4 h-4 text-blue-600" />
-                                <span>Invoice & Customer Details</span>
+                                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Customer & Order Details</h3>
                             </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Invoice Number</label>
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Customer *</label>
+                                    <select
+                                        value={customer}
+                                        onChange={(e) => handleCustomerChange(e.target.value)}
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                        required
+                                    >
+                                        <option value="">Select Customer</option>
+                                        {customers.map((c) => (
+                                            <option key={c._id || (c as any).id} value={c._id || (c as any).id}>
+                                                {c.name || (c as any).customerName}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Customer PO Reference</label>
+                                    <select
+                                        value={customerPoReference}
+                                        onChange={(e) => handlePOSelect(e.target.value)}
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                    >
+                                        <option value="">Select Customer PO (Auto-fills Items)</option>
+                                        {availablePOs.map((po: any) => (
+                                            <option key={po._id} value={po._id}>
+                                                {po.poNumber} — {po.customerName || po.customer?.name} ({po.items?.length || 0} items)
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Invoice Number *</label>
                                     <input
                                         type="text"
                                         value={invoiceNumber}
-                                        readOnly
-                                        className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono text-slate-600 dark:text-slate-300 cursor-not-allowed"
+                                        onChange={(e) => setInvoiceNumber(e.target.value)}
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-mono"
+                                        required
                                     />
                                 </div>
 
                                 <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Date *</label>
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Invoice Date *</label>
                                     <input
                                         type="date"
-                                        required
                                         value={date}
                                         onChange={(e) => setDate(e.target.value)}
-                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                        required
                                     />
                                 </div>
 
                                 <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Customer *</label>
-                                    <SearchableSelect
-                                        options={customers.map((c) => ({ value: c._id || (c as any).id, label: c.name || (c as any).customerName || '' }))}
-                                        value={customer || ""}
-                                        onChange={(val: any) => handleCustomerChange(val)}
-                                        placeholder="Select Customer"
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">GST Number</label>
+                                    <input
+                                        type="text"
+                                        value={customerGST}
+                                        onChange={(e) => setCustomerGST(e.target.value)}
+                                        placeholder="e.g. 29AAAAA0000A1Z5"
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-mono"
                                     />
                                 </div>
 
                                 <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Inward PO Ref (Optional Auto-Fill)</label>
-                                    <SearchableSelect
-                                        options={[
-                                            { value: "", label: "Direct / No PO" },
-                                            ...availablePOs.map((po: any) => ({
-                                                value: po._id,
-                                                label: `${po.poNumber} (${po.customerName || po.customer?.name || 'Customer'}) - ${po.status || 'Received'}`
-                                            }))
-                                        ]}
-                                        value={customerPoReference || ""}
-                                        onChange={(val: any) => handlePOSelect(val)}
-                                        placeholder="Link Customer PO (Optional)..."
-                                    />
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Status</label>
+                                    <select
+                                        value={status}
+                                        onChange={(e) => setStatus(e.target.value)}
+                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                    >
+                                        <option value="Draft">Draft</option>
+                                        <option value="Issued">Issued / Billed</option>
+                                        <option value="Paid">Paid</option>
+                                        <option value="Cancelled">Cancelled</option>
+                                    </select>
                                 </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Billing Address</label>
+                                <input
+                                    type="text"
+                                    value={customerAddress}
+                                    onChange={(e) => setCustomerAddress(e.target.value)}
+                                    placeholder="Customer full billing address"
+                                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                />
                             </div>
                         </div>
 
-                        {/* Freight & Logistics */}
-                        <div className="bg-slate-50/50 dark:bg-slate-800/30 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-                            <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                                <Truck className="w-4 h-4 text-indigo-600" />
-                                <span>Logistics & Freight Information</span>
+                        {/* Section 2: Logistics & Transportation */}
+                        <div className="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-700">
+                                <Truck className="w-4 h-4 text-blue-600" />
+                                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Transport & Packaging Charges</h3>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div className="space-y-1">
-                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Transport Method</label>
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Transport Mode</label>
                                     <select
                                         value={transportationType}
                                         onChange={(e) => setTransportationType(e.target.value)}
                                         className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
                                     >
-                                        <option value="Road Transport">Road Transport (By Truck / Lorry)</option>
-                                        <option value="Express Courier">Express Courier (Gati / BlueDart / DTDC)</option>
-                                        <option value="Air Freight">Air Freight</option>
-                                        <option value="Sea Freight">Sea Freight</option>
-                                        <option value="Customer Self-Pickup">Customer Self-Pickup</option>
-                                        <option value="Other / Custom">Other / Custom</option>
+                                        <option value="Road Transport">Road Transport</option>
+                                        <option value="Express Courier">Express Courier</option>
+                                        <option value="Rail Freight">Rail Freight</option>
+                                        <option value="Air Cargo">Air Cargo</option>
+                                        <option value="Customer Pick-up">Customer Pick-up</option>
+                                        <option value="Other">Other</option>
                                     </select>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Vehicle Number</label>
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Vehicle / Tracking No.</label>
                                     <input
                                         type="text"
                                         value={vehicleNumber}
                                         onChange={(e) => setVehicleNumber(e.target.value)}
-                                        placeholder="e.g. MH-12-AB-1234"
+                                        placeholder="e.g. KA-01-AB-1234"
                                         className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
                                     />
                                 </div>
@@ -569,21 +626,6 @@ export default function BillingModal({
                                         placeholder="0.00"
                                         className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
                                     />
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Type</label>
-                                    <select
-                                        value={packagingType}
-                                        onChange={(e) => setPackagingType(e.target.value)}
-                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
-                                    >
-                                        <option value="Standard Packaging">Standard Packaging (Carton Boxes)</option>
-                                        <option value="Wooden Crating">Wooden Crating</option>
-                                        <option value="Heavy Duty Pallet Packaging">Heavy Duty Pallet Packaging</option>
-                                        <option value="Bubble Wrap & Stretch Film">Bubble Wrap & Stretch Film</option>
-                                        <option value="Export Grade Packaging">Export Grade Packaging</option>
-                                        <option value="Other / Custom">Other / Custom</option>
-                                    </select>
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Charges (₹)</label>
@@ -605,7 +647,7 @@ export default function BillingModal({
                                 <div className="flex items-center gap-4">
                                     <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                                         <Package className="w-5 h-5 text-blue-600" />
-                                        Invoice Products & Items ({items.length})
+                                        Finished Goods & Invoice Items ({items.length})
                                     </h3>
                                     <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
                                         <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Apply GST % To All:</span>
@@ -629,148 +671,124 @@ export default function BillingModal({
                             </div>
 
                             <div className="space-y-4">
-                                {items.map((entry, index) => (
-                                    <div key={index} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl relative group shadow-sm">
-                                        {items.length > 1 && (
-                                            <button
-                                                type="button"
-                                                onClick={() => removeItem(index)}
-                                                className="absolute -top-2.5 -right-2.5 p-1.5 bg-red-100 text-red-600 dark:bg-red-900/80 dark:text-red-300 rounded-full opacity-90 hover:opacity-100 transition-opacity"
-                                                title="Remove Item"
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        )}
+                                {items.map((entry, index) => {
+                                    const selectedFgId = entry.fgItem || entry.material || entry.component;
+                                    const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === selectedFgId);
+                                    const stock = fg ? Number(fg.quantity || 0) : 0;
 
-                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                                            {/* Type & Dropdown */}
-                                            <div className="md:col-span-4 space-y-2">
-                                                <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => updateItem(index, 'itemType', 'fg')}
-                                                        className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${entry.itemType === 'fg' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold' : 'text-slate-500'}`}
-                                                    >
-                                                        FG Catalog Item
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => updateItem(index, 'itemType', 'custom')}
-                                                        className={`flex-1 py-1 text-xs font-medium rounded-lg transition-all ${entry.itemType === 'custom' ? 'bg-white dark:bg-slate-700 shadow-sm text-blue-600 dark:text-blue-300 font-bold' : 'text-slate-500'}`}
-                                                    >
-                                                        Custom Item
-                                                    </button>
+                                    return (
+                                        <div key={index} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl relative group shadow-sm">
+                                            {items.length > 1 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeItem(index)}
+                                                    className="absolute -top-2.5 -right-2.5 p-1.5 bg-red-100 text-red-600 dark:bg-red-900/80 dark:text-red-300 rounded-full opacity-90 hover:opacity-100 transition-opacity"
+                                                    title="Remove Item"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            )}
+
+                                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                                                {/* FG Item Dropdown & Stock Badge */}
+                                                <div className="md:col-span-5 space-y-1.5">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block">
+                                                        Finished Good Item *
+                                                    </label>
+                                                    <SearchableSelect
+                                                        options={fgOptions}
+                                                        value={entry.fgItem || ''}
+                                                        onChange={(val: any) => handleFGSelection(index, val)}
+                                                        placeholder="Select Finished Good from Inventory"
+                                                    />
+                                                    {selectedFgId && (
+                                                        <div className="mt-1">
+                                                            {stock > 0 ? (
+                                                                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
+                                                                    <CheckCircle2 size={12} className="text-emerald-600" /> Available Stock: {stock} {fg?.unit || entry.unit || 'PCS'}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
+                                                                    <AlertTriangle size={12} className="text-rose-600" /> Out of Stock (0 {fg?.unit || entry.unit || 'PCS'}) — Invoice Blocked
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
 
-                                                {entry.itemType === 'fg' ? (
-                                                    <>
-                                                        <SearchableSelect
-                                                            options={fgOptions}
-                                                            value={entry.fgItem || entry.material || ''}
-                                                            onChange={(val: any) => handleFGSelection(index, val)}
-                                                            placeholder="Select Finished Good"
-                                                        />
-                                                        {(() => {
-                                                            const selectedFgId = entry.fgItem || entry.material || entry.component;
-                                                            const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === selectedFgId);
-                                                            if (!fg) return null;
-                                                            const stock = Number(fg.quantity || 0);
-                                                            return (
-                                                                <div className="mt-1">
-                                                                    {stock > 0 ? (
-                                                                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
-                                                                            <CheckCircle2 size={12} className="text-emerald-600" /> Available Stock: {stock} {fg.unit || 'PCS'}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
-                                                                            <AlertTriangle size={12} className="text-rose-600" /> Out of Stock (0 {fg.unit || 'PCS'}) — Billing Blocked
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })()}
-                                                    </>
-                                                ) : (
+                                                {/* HSN */}
+                                                <div className="md:col-span-2 space-y-1.5">
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block">
+                                                        HSN Code
+                                                    </label>
                                                     <input
                                                         type="text"
-                                                        value={entry.materialName}
-                                                        onChange={e => updateItem(index, 'materialName', e.target.value)}
-                                                        placeholder="Custom Item Name *"
+                                                        value={entry.hsnCode || ''}
+                                                        onChange={e => updateItem(index, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN Code"
                                                         className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
                                                     />
-                                                )}
-                                            </div>
+                                                </div>
 
-                                            {/* HSN & Description */}
-                                            <div className="md:col-span-2 space-y-2">
-                                                <input
-                                                    type="text"
-                                                    value={entry.hsnCode || ''}
-                                                    onChange={e => updateItem(index, 'hsnCode', e.target.value)}
-                                                    placeholder="HSN Code"
-                                                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
-                                                />
-                                            </div>
+                                                {/* Qty & Unit */}
+                                                <div className="md:col-span-2 flex gap-2">
+                                                    <div className="flex-1">
+                                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Qty *</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0.01"
+                                                            step="0.01"
+                                                            value={entry.quantity || ''}
+                                                            onChange={e => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
+                                                        />
+                                                    </div>
+                                                    <div className="w-16">
+                                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Unit</label>
+                                                        <input
+                                                            type="text"
+                                                            value={entry.unit}
+                                                            onChange={e => updateItem(index, 'unit', e.target.value.toUpperCase())}
+                                                            className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white text-center uppercase"
+                                                        />
+                                                    </div>
+                                                </div>
 
-                                            {/* Qty & Unit */}
-                                            <div className="md:col-span-2 flex gap-2">
-                                                <div className="flex-1">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Qty</label>
-                                                    <input
-                                                        type="number"
-                                                        min="0.01"
-                                                        step="0.01"
-                                                        value={entry.quantity || ''}
-                                                        onChange={e => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
-                                                    />
-                                                </div>
-                                                <div className="w-16">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Unit</label>
-                                                    <input
-                                                        type="text"
-                                                        value={entry.unit}
-                                                        onChange={e => updateItem(index, 'unit', e.target.value.toUpperCase())}
-                                                        className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white text-center uppercase"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Financials (Unit Rate, Tax %, Line Total) */}
-                                            <div className="md:col-span-4 flex gap-2">
-                                                <div className="flex-1">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Rate (₹)</label>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.01"
-                                                        value={entry.rate === 0 ? "" : entry.rate}
-                                                        onChange={e => updateItem(index, 'rate', parseFloat(e.target.value) || 0)}
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
-                                                    />
-                                                </div>
-                                                <div className="w-16">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">GST %</label>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        step="0.1"
-                                                        value={entry.taxRate === 0 ? "" : entry.taxRate}
-                                                        onChange={e => updateItem(index, 'taxRate', parseFloat(e.target.value) || 0)}
-                                                        className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white text-center font-medium"
-                                                    />
-                                                </div>
-                                                <div className="flex-1">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Total (Incl Tax)</label>
-                                                    <div className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
-                                                        <span className="text-slate-400 text-xs">₹</span>
-                                                        <span>{((entry.amount || 0) + (entry.taxAmount || 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                                {/* Financials (Unit Rate, Tax %, Line Total) */}
+                                                <div className="md:col-span-3 flex gap-2">
+                                                    <div className="flex-1">
+                                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Rate (₹)</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            value={entry.rate === 0 ? "" : entry.rate}
+                                                            onChange={e => updateItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                                                            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
+                                                        />
+                                                    </div>
+                                                    <div className="w-16">
+                                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">GST %</label>
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.1"
+                                                            value={entry.taxRate === 0 ? "" : entry.taxRate}
+                                                            onChange={e => updateItem(index, 'taxRate', parseFloat(e.target.value) || 0)}
+                                                            className="w-full px-2 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white text-center font-medium"
+                                                        />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Total (₹)</label>
+                                                        <div className="w-full px-2 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center justify-center truncate">
+                                                            ₹{((entry.amount || 0) + (entry.taxAmount || 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
 

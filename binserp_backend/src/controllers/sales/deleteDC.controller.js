@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema } from "../../models/store/index.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -46,11 +46,52 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const deleteDC = async (req, res) => {
   try {
     const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+    const FGItem = req.getModel('FGItem', fgItemSchema);
+    const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
-    const dc = await DeliveryChallan.findOneAndDelete({ _id: id, company: companyId });
+    const dc = await DeliveryChallan.findOne({ _id: id, company: companyId });
     if (!dc) return res.status(404).json({ message: "DC not found" });
+
+    // If DC had deducted stock (not Cancelled), restore FG stock
+    if (dc.status !== "Cancelled" && Array.isArray(dc.items)) {
+      for (const item of dc.items) {
+        const fgId = item.fgItem || item.material || item.component;
+        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
+          await FGItem.findByIdAndUpdate(fgId, { $inc: { quantity: Number(item.quantity || 0) } });
+        }
+      }
+    }
+
+    // If DC had customerPoReference, reverse PO dispatchedQuantity
+    if (dc.customerPoReference) {
+      const po = await IncomingPO.findOne({
+        company: companyId,
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(dc.customerPoReference) ? dc.customerPoReference : null },
+          { poNumber: dc.customerPoReference }
+        ]
+      });
+      if (po && Array.isArray(po.items) && Array.isArray(dc.items)) {
+        for (const dcItem of dc.items) {
+          const poItem = po.items.find(i => i.productName === dcItem.materialName || i.fgItem?.toString() === dcItem.fgItem?.toString());
+          if (poItem) {
+            poItem.dispatchedQuantity = Math.max(0, (poItem.dispatchedQuantity || 0) - Number(dcItem.quantity || 0));
+          }
+        }
+        const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+        const totalDispatched = po.items.reduce((acc, item) => acc + (Number(item.dispatchedQuantity) || 0), 0);
+        if (totalDispatched <= 0) {
+          po.status = "Open";
+        } else if (totalDispatched < totalOrdered) {
+          po.status = "Partially Dispatched";
+        }
+        await po.save();
+      }
+    }
+
+    await DeliveryChallan.findByIdAndDelete(id);
     res.status(200).json({ message: "DC deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });

@@ -57,7 +57,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({
     attachedDocumentName: "",
     items: [
       {
-        itemType: "Custom",
+        itemType: "FG",
         fgItem: "",
         customItemName: "",
         quantity: 1,
@@ -252,7 +252,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({
       items: [
         ...formData.items,
         {
-          itemType: "Custom",
+          itemType: "FG",
           fgItem: "",
           customItemName: "",
           quantity: 1,

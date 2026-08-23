@@ -9,6 +9,7 @@ export * from './deleteDC.controller.js';
 export * from './createInvoice.controller.js';
 export * from './getAllInvoices.controller.js';
 export * from './updateInvoice.controller.js';
+export * from './deleteInvoice.controller.js';
 export * from './salesOrder.controller.js';
 export * from './planSalesOrder.controller.js';
 export * from './salesOrderDispatch.controller.js';

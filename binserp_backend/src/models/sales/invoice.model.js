@@ -33,6 +33,10 @@ export const invoiceSchema = new mongoose.Schema(
     customerGST: String,
     items: [
       {
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
+        },
         material: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
@@ -40,6 +44,10 @@ export const invoiceSchema = new mongoose.Schema(
         component: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component",
+        },
+        itemType: {
+          type: String,
+          default: "fg",
         },
         materialName: { type: String, required: true },
         hsnCode: String,

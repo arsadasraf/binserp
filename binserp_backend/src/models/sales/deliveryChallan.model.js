@@ -31,6 +31,10 @@ export const deliveryChallanSchema = new mongoose.Schema(
     customerAddress: String,
     items: [
       {
+        fgItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "FGItem",
+        },
         material: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",
@@ -41,7 +45,6 @@ export const deliveryChallanSchema = new mongoose.Schema(
         },
         itemType: {
           type: String,
-          enum: ["fg", "custom"],
           default: "fg",
         },
         materialName: { type: String, required: true },
