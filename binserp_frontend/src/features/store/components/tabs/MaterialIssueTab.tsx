@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Calendar, XCircle, Filter, Package } from 'lucide-react';
 import MaterialRequestTable from '../tables/MaterialRequestTable';
-import MaterialIssueHistoryTable from '../tables/MaterialIssueHistoryTable';
+import MaterialIssueHistoryTable, { resolveIssueType } from '../tables/MaterialIssueHistoryTable';
 import MaterialRequestModal from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
@@ -88,11 +88,10 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
 
             // 2. Type Dropdown Filter
             if (historyTypeFilter !== 'all') {
-                const iType = (issue.type || 'rm').toLowerCase();
-                if (historyTypeFilter === 'consumable' && iType !== 'consumable') return false;
-                if (historyTypeFilter === 'fg' && (iType !== 'fg' && iType !== 'inhouse')) return false;
-                if (historyTypeFilter === 'bo' && (iType !== 'bo' && iType !== 'bought-out')) return false;
-                if (historyTypeFilter === 'rm' && (iType !== 'rm' && iType !== 'raw-material' && iType !== '')) return false;
+                const resolved = resolveIssueType(issue);
+                if (historyTypeFilter !== resolved.typeKey) {
+                    return false;
+                }
             }
 
             // 3. Date Filter (Day, Month, Year)

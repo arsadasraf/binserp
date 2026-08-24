@@ -77,7 +77,7 @@ export default function GRNModal({
     const [isMrpRequired, setIsMrpRequired] = useState(false);
 
     // QC & Media
-    const [qcRequired, setQcRequired] = useState(true);
+    const [qcRequired, setQcRequired] = useState(false);
     const [pdfFile, setPdfFile] = useState<File | null>(null);
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
     const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
@@ -86,6 +86,19 @@ export default function GRNModal({
     // Post-submission success & preview states
     const [createdGRNData, setCreatedGRNData] = useState<any>(null);
     const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null);
+
+    // Compulsory field validation state
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+    const [isSubmitted, setIsSubmitted] = useState(false);
+
+    const clearError = (fieldKey: string) => {
+        setFormErrors(prev => {
+            if (!prev[fieldKey]) return prev;
+            const updated = { ...prev };
+            delete updated[fieldKey];
+            return updated;
+        });
+    };
 
     const [materialEntries, setMaterialEntries] = useState<MaterialEntry[]>([{
         material: '',
@@ -221,6 +234,8 @@ export default function GRNModal({
                 setPdfFile(null);
                 setPhotoFiles([]);
                 setExistingPhotos([]);
+                setFormErrors({});
+                setIsSubmitted(false);
                 setMaterialEntries([{
                     material: '',
                     materialName: '',
@@ -507,22 +522,50 @@ export default function GRNModal({
     // Form Submission
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        setIsSubmitted(true);
 
-        // Validate items
-        const invalidItems = materialEntries.filter(m => !m.material || m.quantity <= 0);
-        if (invalidItems.length > 0) {
-            alert("Please ensure all items have a selected material and a valid quantity greater than 0.");
-            return;
+        const errors: Record<string, string> = {};
+
+        if (!date) {
+            errors.date = "Receipt date is required";
         }
 
-        // Validate Compulsory MRP mode for FG/InHouse
+        const supplierId = typeof supplier === 'object' ? (supplier as any)?._id : supplier;
+        if (type !== 'inhouse' && type !== 'fg' && !supplierId) {
+            errors.supplier = "Supplier / Vendor is required";
+        }
+
         if ((type === 'inhouse' || type === 'fg') && isMrpRequired && !mrpPlan) {
-            alert("Please select an Open Purchase MRP Plan or switch to Direct / Optional MRP Mode.");
+            errors.mrpPlan = "Open Purchase MRP Plan is required in Compulsory Mode";
+        }
+
+        materialEntries.forEach((entry, idx) => {
+            if (!entry.material) {
+                errors[`item_${idx}_material`] = "Material item is required";
+            }
+            if (!entry.quantity || Number(entry.quantity) <= 0) {
+                errors[`item_${idx}_quantity`] = "Quantity must be > 0";
+            }
+        });
+
+        if (Object.keys(errors).length > 0) {
+            setFormErrors(errors);
+            // Smoothly focus first invalid field
+            const targetForm = e.currentTarget;
+            if (targetForm) {
+                const firstInvalid = targetForm.querySelector('[data-has-error="true"]');
+                if (firstInvalid) {
+                    firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
             return;
         }
+
+        setFormErrors({});
 
         const items = materialEntries.map(entry => ({
             material: entry.material,
+            consumable: entry.material,
             fgItem: entry.material,
             materialName: entry.materialName,
             description: entry.description,
@@ -540,7 +583,6 @@ export default function GRNModal({
         formData.append('qcRequired', String(qcRequired));
         formData.append('items', JSON.stringify(items));
 
-        const supplierId = typeof supplier === 'object' ? (supplier as any)._id : supplier;
         if (type !== 'inhouse' && type !== 'fg') {
             formData.append('supplier', supplierId);
             if (selectedPO) formData.append('purchaseOrder', selectedPO);
@@ -805,6 +847,21 @@ export default function GRNModal({
                 {/* Form Body */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3.5">
                     
+                    {/* Visual Error Summary Alert Banner */}
+                    {Object.keys(formErrors).length > 0 && (
+                        <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-xl flex items-center justify-between gap-2.5 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-2xs">
+                            <div className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                                <span className="text-xs font-bold">
+                                    Please fill in the highlighted compulsory field{Object.keys(formErrors).length > 1 ? 's' : ''} before submitting.
+                                </span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                                {Object.keys(formErrors).length} required
+                            </span>
+                        </div>
+                    )}
+
                     {/* Section 1: Receipt Header & PO Linkage */}
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700/60">
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -823,24 +880,32 @@ export default function GRNModal({
                             </div>
 
                             {/* Receipt Date */}
-                            <div>
-                                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                    Receipt Date <span className="text-red-500">*</span>
+                            <div data-has-error={!!formErrors.date}>
+                                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                                    <span>Receipt Date <span className="text-red-500">*</span></span>
+                                    {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">Required</span>}
                                 </label>
                                 <input
                                     type="date"
-                                    required
                                     value={date}
-                                    onChange={(e) => setDate(e.target.value)}
-                                    className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                    onChange={(e) => {
+                                        setDate(e.target.value);
+                                        if (e.target.value) clearError('date');
+                                    }}
+                                    className={`w-full h-9 px-2.5 bg-white dark:bg-slate-900 border rounded-xl text-xs font-medium focus:ring-2 cursor-pointer transition-all ${
+                                        formErrors.date
+                                            ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-1 ring-rose-400 focus:ring-rose-500 text-rose-900 dark:text-rose-100'
+                                            : 'border-slate-300 dark:border-slate-700 focus:ring-indigo-500 text-slate-900 dark:text-slate-100'
+                                    }`}
                                 />
                             </div>
 
                             {/* Supplier for RM, BO, Consumable */}
                             {type !== 'inhouse' && type !== 'fg' && (
-                                <div className="sm:col-span-2 lg:col-span-1">
-                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                        Supplier / Vendor <span className="text-red-500">*</span>
+                                <div className="sm:col-span-2 lg:col-span-1" data-has-error={!!formErrors.supplier}>
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                                        <span>Supplier / Vendor <span className="text-red-500">*</span></span>
+                                        {formErrors.supplier && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">Required</span>}
                                     </label>
                                     <SearchableSelect
                                         options={safeVendors.map(vendor => ({
@@ -848,11 +913,13 @@ export default function GRNModal({
                                             label: `${vendor.name || 'Unnamed'} ${vendor.code ? `(${vendor.code})` : ''}`
                                         }))}
                                         value={typeof supplier === 'object' ? (supplier as any)._id : supplier || ''}
+                                        hasError={!!formErrors.supplier}
                                         onChange={(val: any) => {
                                             setSupplier(val);
                                             setSelectedPO('');
                                             setPoReference('');
                                             setPoLinkedNotice(null);
+                                            if (val) clearError('supplier');
                                         }}
                                         placeholder="Select Vendor..."
                                         dropdownPosition="auto"
@@ -890,6 +957,7 @@ export default function GRNModal({
                                                 type="button"
                                                 onClick={() => {
                                                     setIsMrpRequired(false);
+                                                    clearError('mrpPlan');
                                                 }}
                                                 className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${!isMrpRequired ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
                                             >
@@ -908,19 +976,29 @@ export default function GRNModal({
                                     </div>
 
                                     {/* Open Purchase MRP Plan Dropdown */}
-                                    <div className="sm:col-span-2 lg:col-span-2">
+                                    <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors.mrpPlan}>
                                         <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1 flex items-center justify-between">
                                             <span>
                                                 {isMrpRequired ? "Open Purchase MRP Plan" : "Link MRP Plan (Optional)"}{" "}
                                                 {isMrpRequired && <span className="text-red-500">*</span>}
                                             </span>
-                                            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">({openMrpPlans.length} Open)</span>
+                                            {formErrors.mrpPlan ? (
+                                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">Required in Compulsory Mode</span>
+                                            ) : (
+                                                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">({openMrpPlans.length} Open)</span>
+                                            )}
                                         </label>
                                         <select
-                                            required={isMrpRequired}
                                             value={mrpPlan}
-                                            onChange={(e) => handleSelectMRPPlan(e.target.value)}
-                                            className="w-full h-9 px-2.5 bg-purple-50/70 dark:bg-purple-950/50 border border-purple-300 dark:border-purple-800 rounded-xl text-xs font-bold text-purple-950 dark:text-purple-200 focus:ring-2 focus:ring-purple-500 cursor-pointer truncate"
+                                            onChange={(e) => {
+                                                handleSelectMRPPlan(e.target.value);
+                                                if (e.target.value) clearError('mrpPlan');
+                                            }}
+                                            className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold focus:ring-2 cursor-pointer truncate transition-all ${
+                                                formErrors.mrpPlan
+                                                    ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/40 text-rose-950 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                    : 'bg-purple-50/70 dark:bg-purple-950/50 border-purple-300 dark:border-purple-800 text-purple-950 dark:text-purple-200 focus:ring-purple-500'
+                                            }`}
                                         >
                                             <option value="">
                                                 {isMrpRequired ? "-- Select Open Purchase MRP Plan * --" : "-- Direct Inward / No MRP Link (Optional) --"}
@@ -1209,37 +1287,62 @@ export default function GRNModal({
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                     {materialEntries.map((entry, index) => {
                                         const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
+                                        const hasMaterialError = !!formErrors[`item_${index}_material`];
+                                        const hasQuantityError = !!formErrors[`item_${index}_quantity`];
+
                                         return (
                                             <tr key={index} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors">
                                                 <td className="py-2 px-3 text-center text-slate-400 font-bold">
                                                     {index + 1}
                                                 </td>
-                                                <td className="py-2 px-3">
+                                                <td className="py-2 px-3" data-has-error={hasMaterialError}>
                                                     <SearchableSelect
                                                         options={materialOptions}
                                                         value={entry.material}
-                                                        onChange={(val: any) => handleMaterialChange(index, 'material', val)}
+                                                        hasError={hasMaterialError}
+                                                        onChange={(val: any) => {
+                                                            handleMaterialChange(index, 'material', val);
+                                                            if (val) clearError(`item_${index}_material`);
+                                                        }}
                                                         placeholder={`Search ${theme.itemLabel}...`}
                                                         dropdownPosition="auto"
                                                     />
-                                                    {entry.description && (
+                                                    {hasMaterialError && (
+                                                        <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold mt-0.5 flex items-center gap-1">
+                                                            <span>⚠️</span>
+                                                            <span>{formErrors[`item_${index}_material`]}</span>
+                                                        </div>
+                                                    )}
+                                                    {entry.description && !hasMaterialError && (
                                                         <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1 flex items-center gap-1" title={entry.description}>
                                                             <span>📝</span>
                                                             <span className="truncate">{entry.description}</span>
                                                         </div>
                                                     )}
                                                 </td>
-                                                <td className="py-2 px-3">
+                                                <td className="py-2 px-3" data-has-error={hasQuantityError}>
                                                     <input
                                                         type="number"
                                                         min="0.001"
                                                         step="any"
-                                                        required
                                                         value={entry.quantity || ''}
-                                                        onChange={(e) => handleMaterialChange(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value) || 0;
+                                                            handleMaterialChange(index, 'quantity', val);
+                                                            if (val > 0) clearError(`item_${index}_quantity`);
+                                                        }}
                                                         placeholder="0"
-                                                        className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-center text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                        className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                            hasQuantityError
+                                                                ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                                : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500'
+                                                        }`}
                                                     />
+                                                    {hasQuantityError && (
+                                                        <div className="text-[9px] text-rose-600 dark:text-rose-400 font-bold mt-0.5 text-center">
+                                                            {formErrors[`item_${index}_quantity`]}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-2 px-3 text-center">
                                                     <span className="inline-block px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700">
@@ -1283,8 +1386,11 @@ export default function GRNModal({
                         <div className="block md:hidden p-3 space-y-3 bg-slate-50/70 dark:bg-slate-800/40">
                             {materialEntries.map((entry, index) => {
                                 const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
+                                const hasMaterialError = !!formErrors[`item_${index}_material`];
+                                const hasQuantityError = !!formErrors[`item_${index}_quantity`];
+
                                 return (
-                                    <div key={index} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs space-y-2.5">
+                                    <div key={index} className={`bg-white dark:bg-slate-900 p-3 rounded-xl border shadow-2xs space-y-2.5 transition-all ${hasMaterialError || hasQuantityError ? 'border-rose-300 dark:border-rose-800 bg-rose-50/20' : 'border-slate-200 dark:border-slate-700'}`}>
                                         
                                         {/* Card Header: Index & Trash */}
                                         <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
@@ -1303,18 +1409,23 @@ export default function GRNModal({
                                         </div>
 
                                         {/* Material Selection with Description */}
-                                        <div>
-                                            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                                                {theme.itemLabel} <span className="text-red-500">*</span>
+                                        <div data-has-error={hasMaterialError}>
+                                            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center justify-between">
+                                                <span>{theme.itemLabel} <span className="text-red-500">*</span></span>
+                                                {hasMaterialError && <span className="text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${index}_material`]}</span>}
                                             </label>
                                             <SearchableSelect
                                                 options={materialOptions}
                                                 value={entry.material}
-                                                onChange={(val: any) => handleMaterialChange(index, 'material', val)}
+                                                hasError={hasMaterialError}
+                                                onChange={(val: any) => {
+                                                    handleMaterialChange(index, 'material', val);
+                                                    if (val) clearError(`item_${index}_material`);
+                                                }}
                                                 placeholder={`Select ${theme.itemLabel}...`}
                                                 dropdownPosition="auto"
                                             />
-                                            {entry.description && (
+                                            {entry.description && !hasMaterialError && (
                                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1">
                                                     📝 {entry.description}
                                                 </div>
@@ -1323,19 +1434,27 @@ export default function GRNModal({
 
                                         {/* Qty, Unit & Rate Grid */}
                                         <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
-                                                    Qty ({entry.unit || 'PCS'}) <span className="text-red-500">*</span>
+                                            <div data-has-error={hasQuantityError}>
+                                                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center justify-between">
+                                                    <span>Qty ({entry.unit || 'PCS'}) <span className="text-red-500">*</span></span>
+                                                    {hasQuantityError && <span className="text-rose-600 font-bold">Req</span>}
                                                 </label>
                                                 <input
                                                     type="number"
                                                     min="0.001"
                                                     step="any"
-                                                    required
                                                     value={entry.quantity || ''}
-                                                    onChange={(e) => handleMaterialChange(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value) || 0;
+                                                        handleMaterialChange(index, 'quantity', val);
+                                                        if (val > 0) clearError(`item_${index}_quantity`);
+                                                    }}
                                                     placeholder="Qty"
-                                                    className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-center text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                    className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                        hasQuantityError
+                                                            ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500'
+                                                    }`}
                                                 />
                                             </div>
                                             <div>

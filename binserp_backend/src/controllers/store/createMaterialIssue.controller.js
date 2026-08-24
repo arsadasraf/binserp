@@ -22,18 +22,18 @@ const getCompanyLoginId = (req) => {
 };
 
 // Helper function to update FGItem stock (InHouse)
-const updateFGItemStock = async (req, componentId, quantity) => {
+const updateFGItemStock = async (req, componentId, quantityToDeduct) => {
   try {
-    const companyId = getCompanyId(req); // Derive companyId from req
+    const companyId = getCompanyId(req);
     const FGItem = req.getModel("FGItem", fgItemSchema);
     const compDoc = await FGItem.findById(componentId);
     if (!compDoc) {
-      console.warn(`[updateFGItemStock] Component not found with ID: ${componentId}`);
+      console.warn(`[updateFGItemStock] FG Item not found with ID: ${componentId}`);
       return false;
     }
 
     const previousStock = compDoc.quantity || 0;
-    const newStock = Math.max(0, previousStock - quantity);
+    const newStock = Math.max(0, previousStock - Math.abs(quantityToDeduct));
 
     console.log(`[updateFGItemStock] Component: ${compDoc.name}, Previous Stock: ${previousStock}, New Stock: ${newStock}`);
 
@@ -208,7 +208,7 @@ export const createMaterialIssue = async (req, res) => {
           const previousStock = compDoc ? (compDoc.quantity || 0) : 0;
           const newStock = Math.max(0, previousStock - item.quantity);
 
-          await updateFGItemStock(req, item.component, -item.quantity);
+          await updateFGItemStock(req, item.component, item.quantity);
           
           try {
             await FGInventoryMonthly.findOneAndUpdate(
@@ -238,26 +238,30 @@ export const createMaterialIssue = async (req, res) => {
             performedBy: req.user?.id || req.user?._id,
           });
         } else {
+          const targetMatId = isConsumable ? (item.consumable || item.material) : item.material;
+          const issueItemType = isConsumable ? "Consumable" : (type === 'bo' || type === 'bought-out' ? "BoughtOut" : "RawMaterial");
+
           await updateInventoryStock(
             req,
-            item.material, // Correct: Use ID
+            targetMatId,
             -item.quantity, // Negative to decrement
             item.unit || "PCS",
             undefined,
             {
-              transactionCategory: "MATERIAL_ISSUE_SHOPFLOOR_OUTWARD",
+              itemType: issueItemType,
+              transactionCategory: isConsumable ? "MATERIAL_ISSUE_CONSUMABLE_OUTWARD" : "MATERIAL_ISSUE_SHOPFLOOR_OUTWARD",
               referenceDocType: "MaterialIssue",
               referenceDocId: materialIssue._id,
               referenceDocNumber: issueNumber,
               recipientOrSource: department || "Shop Floor",
-              purpose: item.purpose || "Shop Floor Production Issue",
+              purpose: item.purpose || (isConsumable ? "Shop Floor Consumable Issue" : "Shop Floor Production Issue"),
               performedBy: req.user?.id || req.user?._id,
             }
           );
           
           try {
             await RMInventoryMonthly.findOneAndUpdate(
-              { company: companyId, material: item.material, month: currentMonthStr },
+              { company: companyId, material: targetMatId, month: currentMonthStr },
               { $inc: { totalOutwardQuantity: item.quantity } },
               { new: true, upsert: true }
             );

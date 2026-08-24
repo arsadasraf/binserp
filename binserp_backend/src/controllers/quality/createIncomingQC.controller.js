@@ -88,8 +88,8 @@ export const createIncomingQC = asyncHandler(async (req, res) => {
                         await Component.findByIdAndUpdate(compId, { $inc: { quantity: acceptedQuantity } });
                     }
                 } else {
-                    // BO -> Inventory Stock (Handle Pending & Accepted)
-                    const matId = req.body.materialId || grn.items[itemIndex].material;
+                    const matId = req.body.materialId || grn.items[itemIndex].consumable || grn.items[itemIndex].material;
+                    const itemTypeOption = grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial');
                     await updateInventoryStock(
                         req,
                         matId,
@@ -97,6 +97,7 @@ export const createIncomingQC = asyncHandler(async (req, res) => {
                         grn.items[itemIndex].unit || "PCS",
                         grn.items[itemIndex].locationId,
                         {
+                            itemType: itemTypeOption,
                             isQCRelease: true,
                             inspectedQuantity: inspectedQuantity || 0
                         }

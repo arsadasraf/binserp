@@ -50,6 +50,10 @@ export const getAllMaterialIssues = async (req, res) => {
     const materialIssues = await MaterialIssue.find({ company: companyId })
       .populate("issuedBy", "name userId email")
       .populate("issuedTo", "name userId email department")
+      .populate("items.material", "name code itemType category")
+      .populate("items.consumable", "name code unit")
+      .populate("items.fgItem", "name code")
+      .populate("items.component", "name code")
       .sort({ createdAt: -1 });
 
     res.status(200).json({ materialIssues, count: materialIssues.length });

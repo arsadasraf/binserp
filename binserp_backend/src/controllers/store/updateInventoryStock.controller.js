@@ -87,10 +87,15 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       : null;
 
     if (validId) {
-      material = await RawMaterial.findOne({ _id: validId, company: companyId }).populate('categoryId');
-      if (material) {
-        itemMasterType = 'RawMaterial';
-      } else {
+      if (options.itemType === 'Consumable') {
+        material = await ConsumableItem.findOne({ _id: validId, company: companyId }).populate('categoryId');
+        if (material) itemMasterType = 'Consumable';
+      }
+      if (!material) {
+        material = await RawMaterial.findOne({ _id: validId, company: companyId }).populate('categoryId');
+        if (material) itemMasterType = 'RawMaterial';
+      }
+      if (!material) {
         material = await BoughtOut.findOne({ _id: validId, company: companyId }).populate('categoryId');
         if (material) itemMasterType = 'BoughtOut';
       }
@@ -114,8 +119,14 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
 
     // Fallback: If not found by ID, search by code or name
     if (!material && materialId && typeof materialId === 'string') {
-      material = await RawMaterial.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
-      if (material) itemMasterType = 'RawMaterial';
+      if (options.itemType === 'Consumable') {
+        material = await ConsumableItem.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
+        if (material) itemMasterType = 'Consumable';
+      }
+      if (!material) {
+        material = await RawMaterial.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
+        if (material) itemMasterType = 'RawMaterial';
+      }
       if (!material) {
         material = await BoughtOut.findOne({ company: companyId, $or: [{ code: materialId }, { name: materialId }] }).populate('categoryId');
         if (material) itemMasterType = 'BoughtOut';
@@ -163,12 +174,13 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     const resolvedUnit = unit || material.unit || "PCS";
     const resolvedLocId = locationId || material.locationId?._id || material.locationId;
 
-    // Find inventory item - Try by actual materialId first, then code
+    // Find inventory item - Try by actual materialId first, then code, then name
     let inventory = await Inventory.findOne({
       company: companyId,
       $or: [
         { materialId: actualMatId },
-        { materialCode: materialCode }
+        { materialCode: materialCode },
+        { materialName: materialName, itemType: itemMasterType }
       ]
     });
 
@@ -237,7 +249,7 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
         } else if (itemMasterType === 'BoughtOut') {
           await BoughtOut.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
         } else if (itemMasterType === 'Consumable') {
-          await ConsumableItem.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
+          await ConsumableItem.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta, currentStock: stockDelta } });
         } else if (itemMasterType === 'RmBoItem') {
           await Material.findByIdAndUpdate(actualMatId, { $inc: { quantity: stockDelta } });
         } else if (itemMasterType === 'FinishedGoods') {

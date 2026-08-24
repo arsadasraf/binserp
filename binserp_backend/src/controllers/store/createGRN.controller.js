@@ -68,7 +68,7 @@ export const createGRN = async (req, res) => {
     // Normalize type
     const normalizedType = (type || 'rm').toLowerCase();
     const isFG = normalizedType === 'inhouse' || normalizedType === 'fg';
-    const isConsumable = normalizedType === 'consumable';
+    const isConsumable = normalizedType === 'consumable' || normalizedType === 'consumables' || normalizedType === 'consumable-item';
     const isBO = normalizedType === 'bo' || normalizedType === 'bought-out';
     const isRM = normalizedType === 'rm' || normalizedType === 'raw-material';
 
@@ -408,10 +408,11 @@ export const createGRN = async (req, res) => {
         else if (isRM) itemTypeOption = "RawMaterial";
 
         for (const item of itemsArray) {
-          if (item.material) {
+          const targetMatId = item.consumable || item.material;
+          if (targetMatId) {
             await updateInventoryStock(
               req,
-              item.material,
+              targetMatId,
               parseFloat(item.quantity),
               item.unit,
               item.locationId,
@@ -431,7 +432,7 @@ export const createGRN = async (req, res) => {
 
             try {
               await RMInventoryMonthly.findOneAndUpdate(
-                { company: companyId, material: item.material, month: currentMonthStr },
+                { company: companyId, material: targetMatId, month: currentMonthStr },
                 { $inc: { totalInwardQuantity: parseFloat(item.quantity) } },
                 { new: true, upsert: true }
               );

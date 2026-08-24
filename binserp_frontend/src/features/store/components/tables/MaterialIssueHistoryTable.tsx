@@ -1,6 +1,67 @@
 import React from 'react';
 import { FileText, ClipboardList } from 'lucide-react';
 
+export function resolveIssueType(issue: any): {
+    typeKey: 'rm' | 'bo' | 'consumable' | 'fg';
+    label: string;
+    shortLabel: string;
+    badgeClass: string;
+} {
+    let rawType = (issue?.type || '').toString().trim().toLowerCase();
+
+    // If rawType is generic, check items to disambiguate
+    if (!rawType || rawType === 'rm-bo' || rawType === 'general' || rawType === 'store') {
+        const firstItem = issue?.items?.[0];
+        const itemType = (firstItem?.itemType || firstItem?.material?.itemType || firstItem?.category || '').toString().toLowerCase();
+        const code = (firstItem?.materialCode || firstItem?.material?.code || '').toString().toUpperCase();
+
+        if (itemType.includes('bought') || itemType === 'bo' || code.startsWith('BO-')) {
+            rawType = 'bo';
+        } else if (itemType.includes('consumable') || firstItem?.consumable) {
+            rawType = 'consumable';
+        } else if (itemType.includes('fg') || itemType.includes('inhouse') || itemType.includes('component') || firstItem?.fgItem || firstItem?.component) {
+            rawType = 'fg';
+        } else {
+            rawType = 'rm';
+        }
+    }
+
+    if (rawType === 'bo' || rawType === 'bought-out' || rawType === 'bought out') {
+        return {
+            typeKey: 'bo',
+            label: 'Bought Out (BO)',
+            shortLabel: 'BO',
+            badgeClass: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+        };
+    }
+
+    if (rawType === 'consumable') {
+        return {
+            typeKey: 'consumable',
+            label: 'Consumable',
+            shortLabel: 'Consumable',
+            badgeClass: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+        };
+    }
+
+    if (rawType === 'fg' || rawType === 'inhouse' || rawType === 'finished-goods' || rawType === 'finished goods') {
+        return {
+            typeKey: 'fg',
+            label: 'Finished Goods (FG)',
+            shortLabel: 'FG',
+            badgeClass: 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+        };
+    }
+
+    // Default is Raw Material (RM)
+    return {
+        typeKey: 'rm',
+        label: 'Raw Material (RM)',
+        shortLabel: 'RM',
+        badgeClass: 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
+    };
+}
+
 interface MaterialIssueHistoryTableProps {
     issues: any[];
     onView?: (issue: any) => void;
@@ -37,114 +98,110 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 bg-white">
-                        {issues.map((issue) => (
-                            <tr
-                                key={issue._id}
-                                onClick={() => onView && onView(issue)}
-                                className="hover:bg-gray-50 transition-colors cursor-pointer active:bg-gray-100"
-                            >
-                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                    {issue.issueNumber}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
-                                        issue.type === 'consumable'
-                                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                            : issue.type === 'inhouse' || issue.type === 'fg'
-                                                ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                                                : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                    }`}>
-                                        {issue.type === 'consumable' ? 'Consumable' : issue.type === 'inhouse' || issue.type === 'fg' ? 'FG / Inhouse' : 'RM / BO'}
-                                    </span>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                    {new Date(issue.date).toLocaleDateString()}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                    {issue.department}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                    {issue.issuedTo?.name || 'Unknown'}
-                                </td>
-                                <td className="px-6 py-4 text-sm text-gray-600">
-                                    <div className="max-w-xs truncate">
-                                        {issue.items?.length > 0 ? (
-                                            <>
-                                                <span className="font-medium">{issue.items[0].materialName}</span>
-                                                <span className="text-gray-400 text-xs ml-1">({issue.items[0].quantity} {issue.items[0].unit})</span>
-                                                {issue.items.length > 1 && <span className="text-blue-600 text-xs ml-1">+{issue.items.length - 1} more</span>}
-                                            </>
-                                        ) : '-'}
-                                    </div>
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                    {issue.issuedBy?.name || 'System'}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap">
-                                    <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${issue.status === 'Issued' ? 'bg-green-100 text-green-800 border border-green-200' :
-                                        issue.status === 'Returned' ? 'bg-orange-100 text-orange-800 border border-orange-200' :
-                                            'bg-gray-100 text-gray-800 border border-gray-200'
-                                        }`}>
-                                        {issue.status}
-                                    </span>
-                                </td>
-                            </tr>
-                        ))}
+                        {issues.map((issue) => {
+                            const typeInfo = resolveIssueType(issue);
+
+                            return (
+                                <tr
+                                    key={issue._id}
+                                    onClick={() => onView && onView(issue)}
+                                    className="hover:bg-gray-50 transition-colors cursor-pointer active:bg-gray-100"
+                                >
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        {issue.issueNumber}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${typeInfo.badgeClass}`}>
+                                            {typeInfo.label}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                        {new Date(issue.date).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                        {issue.department}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                        {issue.issuedTo?.name || 'Unknown'}
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-gray-600">
+                                        <div className="max-w-xs truncate">
+                                            {issue.items?.length > 0 ? (
+                                                <>
+                                                    <span className="font-medium">{issue.items[0].materialName}</span>
+                                                    <span className="text-gray-400 text-xs ml-1">({issue.items[0].quantity} {issue.items[0].unit})</span>
+                                                    {issue.items.length > 1 && <span className="text-blue-600 text-xs ml-1">+{issue.items.length - 1} more</span>}
+                                                </>
+                                            ) : '-'}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                                        {issue.issuedBy?.name || 'System'}
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${issue.status === 'Issued' ? 'bg-green-100 text-green-800 border border-green-200' :
+                                            issue.status === 'Returned' ? 'bg-orange-100 text-orange-800 border border-orange-200' :
+                                                'bg-gray-100 text-gray-800 border border-gray-200'
+                                            }`}>
+                                            {issue.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
 
             {/* Mobile Card View */}
             <div className="md:hidden flex flex-col divide-y divide-gray-100 pb-28 sm:pb-20">
-                {issues.map((issue) => (
-                    <div
-                        key={issue._id}
-                        onClick={() => onView && onView(issue)}
-                        className="p-4 flex flex-col gap-3 active:bg-gray-50 active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                        {/* Card Header */}
-                        <div className="flex justify-between items-start">
-                            <div>
-                                <span className="text-xs font-medium text-gray-500 block mb-1">Issue #{issue.issueNumber}</span>
-                                <div className="flex items-center gap-2">
-                                    <h4 className="font-bold text-gray-900">{issue.department} Department</h4>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${
-                                        issue.type === 'consumable'
-                                            ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                            : issue.type === 'inhouse' || issue.type === 'fg'
-                                                ? 'bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                                                : 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                    }`}>
-                                        {issue.type === 'consumable' ? 'Consumable' : issue.type === 'inhouse' || issue.type === 'fg' ? 'Inhouse' : 'BO'}
-                                    </span>
-                                </div>
-                            </div>
-                            <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${issue.status === 'Issued' ? 'bg-green-100 text-green-800 border border-green-200' :
-                                issue.status === 'Returned' ? 'bg-orange-100 text-orange-800 border border-orange-200' :
-                                    'bg-gray-100 text-gray-800 border border-gray-200'
-                                }`}>
-                                {issue.status}
-                            </span>
-                        </div>
+                {issues.map((issue) => {
+                    const typeInfo = resolveIssueType(issue);
 
-                        {/* Card Content Details */}
-                        <div className="text-sm space-y-2">
-                            <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(issue.date).toLocaleDateString()}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-500">Issued To:</span> <span className="font-medium">{issue.issuedTo?.name || 'Unknown'}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-500">Issued By:</span> <span className="font-bold text-blue-600 dark:text-blue-400">{issue.issuedBy?.name || issue.issuedBy?.username || issue.issuedBy || 'System'}</span></div>
-                            <div className="flex justify-between"><span className="text-gray-500">Items:</span>
-                                <div className="text-right">
-                                    {issue.items?.length > 0 ? (
-                                        <>
-                                            <span className="font-medium text-gray-900 block">{issue.items[0].materialName} ({issue.items[0].quantity} {issue.items[0].unit})</span>
-                                            {issue.items.length > 1 && <span className="text-blue-600 text-xs block">+{issue.items.length - 1} more items</span>}
-                                        </>
-                                    ) : '-'}
+                    return (
+                        <div
+                            key={issue._id}
+                            onClick={() => onView && onView(issue)}
+                            className="p-4 flex flex-col gap-3 active:bg-gray-50 active:scale-[0.98] transition-all cursor-pointer"
+                        >
+                            {/* Card Header */}
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <span className="text-xs font-medium text-gray-500 block mb-1">Issue #{issue.issueNumber}</span>
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-gray-900">{issue.department} Department</h4>
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${typeInfo.badgeClass}`}>
+                                            {typeInfo.shortLabel}
+                                        </span>
+                                    </div>
+                                </div>
+                                <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${issue.status === 'Issued' ? 'bg-green-100 text-green-800 border border-green-200' :
+                                    issue.status === 'Returned' ? 'bg-orange-100 text-orange-800 border border-orange-200' :
+                                        'bg-gray-100 text-gray-800 border border-gray-200'
+                                    }`}>
+                                    {issue.status}
+                                </span>
+                            </div>
+
+                            {/* Card Content Details */}
+                            <div className="text-sm space-y-2">
+                                <div className="flex justify-between"><span className="text-gray-500">Date:</span> <span>{new Date(issue.date).toLocaleDateString()}</span></div>
+                                <div className="flex justify-between"><span className="text-gray-500">Issued To:</span> <span className="font-medium">{issue.issuedTo?.name || 'Unknown'}</span></div>
+                                <div className="flex justify-between"><span className="text-gray-500">Issued By:</span> <span className="font-bold text-blue-600 dark:text-blue-400">{issue.issuedBy?.name || issue.issuedBy?.username || issue.issuedBy || 'System'}</span></div>
+                                <div className="flex justify-between"><span className="text-gray-500">Items:</span>
+                                    <div className="text-right">
+                                        {issue.items?.length > 0 ? (
+                                            <>
+                                                <span className="font-medium text-gray-900 block">{issue.items[0].materialName} ({issue.items[0].quantity} {issue.items[0].unit})</span>
+                                                {issue.items.length > 1 && <span className="text-blue-600 text-xs block">+{issue.items.length - 1} more items</span>}
+                                            </>
+                                        ) : '-'}
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );

@@ -9,8 +9,11 @@ export const consumableItemSchema = new mongoose.Schema(
       required: true,
     },
     name: { type: String, required: true },
+    code: { type: String },
     descriptions: { type: String },
     minimumStock: { type: Number, default: 0 },
+    quantity: { type: Number, default: 0 },
+    currentStock: { type: Number, default: 0 },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",

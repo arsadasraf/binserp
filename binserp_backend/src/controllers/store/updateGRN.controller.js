@@ -124,24 +124,18 @@ export const updateGRN = async (req, res) => {
       // Reverse old inventory quantities
       for (const oldItem of grn.items) {
         const oldQuantity = oldItem.acceptedQuantity || oldItem.receivedQuantity || oldItem.quantity;
-        const materialId = oldItem.material?._id || oldItem.material; // Safe access
+        const materialId = oldItem.consumable?._id || oldItem.consumable || oldItem.material?._id || oldItem.material; // Safe access
         if (materialId) {
           if (grn.type === 'inhouse') {
-            await updateComponentStock(req, materialId, -oldQuantity); // materialId holds component ID for inhouse in generic logic usually, check items mapping
-            // But wait, in createGRN we saved `component` field.
-            // In updateGRN logic above, we used `oldItem.material?._id`. 
-            // Does `oldItem` have `component` field populated?
-            // createGRN saves `component: componentId`.
-            // getAllGRNs populates `items.component`.
-            // So `oldItem.component` should differ from `oldItem.material`.
-            // We need to check if we should use `component` or `material` based on type.
+            await updateComponentStock(req, materialId, -oldQuantity);
           } else {
             await updateInventoryStock(
               req,
               materialId,
               -oldQuantity, // Negative to reverse
               oldItem.unit || "PCS",
-              oldItem.locationId
+              oldItem.locationId,
+              { itemType: grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial') }
             );
           }
         } else if (oldItem.component && grn.type === 'inhouse') {
@@ -163,7 +157,7 @@ export const updateGRN = async (req, res) => {
       if (Array.isArray(itemsToUpdate)) {
         for (const newItem of itemsToUpdate) {
           const newQuantity = newItem.acceptedQuantity || newItem.receivedQuantity || newItem.quantity;
-          const materialId = newItem.material?._id || newItem.material;
+          const materialId = newItem.consumable?._id || newItem.consumable || newItem.material?._id || newItem.material;
           if (materialId || newItem.component) {
             if (grn.type === 'inhouse') {
               const compId = newItem.component || materialId; // generic fallback
@@ -174,7 +168,8 @@ export const updateGRN = async (req, res) => {
                 materialId,
                 newQuantity,
                 newItem.unit || "PCS",
-                newItem.locationId
+                newItem.locationId,
+                { itemType: grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial') }
               );
             }
           }
@@ -190,7 +185,7 @@ export const updateGRN = async (req, res) => {
       if (Array.isArray(itemsToProcess)) {
         for (const item of itemsToProcess) {
           const quantity = item.acceptedQuantity || item.receivedQuantity || item.quantity;
-          const materialId = item.material?._id || item.material;
+          const materialId = item.consumable?._id || item.consumable || item.material?._id || item.material;
           if (materialId || item.component) {
             if (grn.type === 'inhouse') {
               const compId = item.component?._id || item.component || materialId;
@@ -201,7 +196,8 @@ export const updateGRN = async (req, res) => {
                 materialId,
                 quantity,
                 item.unit || "PCS",
-                item.locationId
+                item.locationId,
+                { itemType: grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial') }
               );
             }
           }
@@ -211,7 +207,7 @@ export const updateGRN = async (req, res) => {
       // GRN is being changed from Accepted/Received to another status - reverse inventory
       for (const oldItem of grn.items) {
         const oldQuantity = oldItem.acceptedQuantity || oldItem.receivedQuantity || oldItem.quantity;
-        const materialId = oldItem.material?._id || oldItem.material;
+        const materialId = oldItem.consumable?._id || oldItem.consumable || oldItem.material?._id || oldItem.material;
         if (materialId || oldItem.component) {
           if (grn.type === 'inhouse') {
             const compId = oldItem.component?._id || oldItem.component || materialId;
@@ -222,7 +218,8 @@ export const updateGRN = async (req, res) => {
               materialId,
               -oldQuantity, // Negative to reverse
               oldItem.unit || "PCS",
-              oldItem.locationId
+              oldItem.locationId,
+              { itemType: grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial') }
             );
           }
         }

@@ -59,7 +59,6 @@ export const inventorySchema = new mongoose.Schema(
     },
     itemType: {
       type: String,
-      enum: ['Raw Material', 'Bought Out'],
       default: 'Raw Material'
     },
   },

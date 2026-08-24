@@ -4,6 +4,8 @@ import {
   categorySchema,
   locationSchema,
   inventorySchema,
+  grnSchema,
+  materialIssueSchema,
 } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
@@ -205,6 +207,8 @@ export const createConsumableItem = async (req, res) => {
 export const getAllConsumableItems = async (req, res) => {
   try {
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const Inventory = req.getModel('Inventory', inventorySchema);
+    const GRN = req.getModel('GRN', grnSchema);
     req.getModel('Category', categorySchema);
     req.getModel('Location', locationSchema);
 
@@ -212,10 +216,44 @@ export const getAllConsumableItems = async (req, res) => {
     const consumableItems = await ConsumableItem.find({ company: companyId })
       .populate('categoryId')
       .populate('locationId')
-      .sort({ name: 1 });
+      .sort({ name: 1 })
+      .lean();
 
-    res.status(200).json({ consumableItems, count: consumableItems.length });
+    const updatedItems = await Promise.all(consumableItems.map(async (c) => {
+      try {
+        let inv = await Inventory.findOne({
+          company: companyId,
+          $or: [
+            { materialId: c._id },
+            { materialCode: c.code || '' },
+            { materialName: c.name }
+          ]
+        }).lean();
+
+        let currentStock = inv?.currentStock !== undefined 
+          ? inv.currentStock 
+          : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
+        let qcPendingStock = inv?.qcPendingStock || 0;
+
+        return {
+          ...c,
+          quantity: currentStock,
+          currentStock: currentStock,
+          qcPendingStock: qcPendingStock
+        };
+      } catch (itemErr) {
+        return {
+          ...c,
+          quantity: c.currentStock || c.quantity || 0,
+          currentStock: c.currentStock || c.quantity || 0,
+          qcPendingStock: 0
+        };
+      }
+    }));
+
+    res.status(200).json({ consumableItems: updatedItems, count: updatedItems.length });
   } catch (error) {
+    console.error("Error in getAllConsumableItems:", error);
     res.status(500).json({ message: error.message });
   }
 };

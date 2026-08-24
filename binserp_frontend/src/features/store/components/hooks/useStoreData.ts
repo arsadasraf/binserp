@@ -46,14 +46,15 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { data: jobWorkSuppliersData = [] } = useGetStoreDataQuery("job-work-supplier", { skip: !token });
     const { data: processesData = [] } = useGetStoreDataQuery("process", { skip: !token });
     const { data: companyInfoData } = useGetStoreDataQuery("company-info", { skip: !token });
-    const { data: materialRequestsData = [] } = useGetStoreDataQuery("material-request", { skip: !token });
-    const { data: inventoryData = [] } = useGetStoreDataQuery("inventory", { skip: !token });
+    const { data: materialRequestsData = [], refetch: refetchMaterialRequests } = useGetStoreDataQuery("material-request", { skip: !token });
+    const { data: inventoryData = [], refetch: refetchInventory } = useGetStoreDataQuery("inventory", { skip: !token });
     const { data: priceListsData = [] } = useGetStoreDataQuery("price-list", { skip: !token });
     const { data: vendorPriceListsData = [] } = useGetStoreDataQuery("vendor-price-list", { skip: !token });
     const { data: quotationsData = [] } = useGetStoreDataQuery("quotation", { skip: !token });
     const { data: salesOrdersData = [] } = useGetStoreDataQuery("order", { skip: !token });
     const { data: mrpsData = [] } = useGetStoreDataQuery("mrp", { skip: !token });
-    const { data: fgItems = [] } = useGetStoreDataQuery('fg-item', { skip: !token }); const { data: fgGrns = [] } = useGetStoreDataQuery('fg-grn', { skip: !token });
+    const { data: fgItems = [], refetch: refetchFgItems } = useGetStoreDataQuery('fg-item', { skip: !token }); 
+    const { data: fgGrns = [], refetch: refetchFgGrns } = useGetStoreDataQuery('fg-grn', { skip: !token });
     const { data: pendingProducts = [] } = useGetPpcComponentsQuery({ isInventoryItem: false }, { skip: !token });
 
     // --- Mutations ---
@@ -114,9 +115,16 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
     const { refetch } = useGetStoreDataQuery(getQueryTab(), { skip: !token });
 
     const fetchData = () => {
-        refetch();
+        refetch?.();
+        refetchMain?.();
         refetchMaterials?.();
         refetchConsumables?.();
+        refetchInventory?.();
+        refetchRawMaterials?.();
+        refetchBoughtOuts?.();
+        refetchMaterialRequests?.();
+        refetchFgItems?.();
+        refetchFgGrns?.();
     };
     const fetchMasters = () => {};
     const fetchMaterialRequests = () => {};

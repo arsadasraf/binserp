@@ -210,7 +210,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
 
     const itemName = item.materialName || item.componentName || item.name;
     const itemCode = item.materialCode || item.componentCode || item.code;
-    const stock = type === 'bo' ? item.currentStock : item.quantity;
+    const stock = item.currentStock !== undefined ? item.currentStock : (item.quantity ?? 0);
     const minStock = item.minimumStock || item.reorderLevel || 0;
     const categoryName = item.categoryId?.name || item.category?.name || item.category || '-';
     const locationName = item.locationId?.name || item.location?.name || item.location || '-';

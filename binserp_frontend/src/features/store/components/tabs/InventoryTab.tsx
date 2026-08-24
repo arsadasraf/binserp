@@ -232,19 +232,29 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         return consumables.map((c: any) => {
             const invItem = combinedInventoryList.find((d: any) => {
                 const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
-                return String(dMatId) === String(c._id) || String(d._id) === String(c._id) || d.materialCode === c.code || d.materialName === c.name;
+                const matchesId = String(dMatId) === String(c._id) || String(d._id) === String(c._id);
+                const matchesCode = c.code && d.materialCode && d.materialCode.toUpperCase() === c.code.toUpperCase();
+                const matchesName = c.name && d.materialName && d.materialName.toLowerCase().trim() === c.name.toLowerCase().trim();
+                return matchesId || matchesCode || matchesName;
             });
+
+            const currentStock = invItem 
+                ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) 
+                : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
+
+            const qcPending = invItem?.qcPendingStock || 0;
 
             return {
                 ...c,
                 _id: invItem?._id || c._id,
                 materialId: c,
                 materialName: c.name,
-                materialCode: c.code || 'N/A',
+                materialCode: c.code || invItem?.materialCode || 'N/A',
+                itemType: 'Consumable',
                 description: c.descriptions || c.description || invItem?.description || '-',
                 descriptions: c.descriptions || c.description || invItem?.description || '-',
-                currentStock: invItem ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) : (c.quantity !== undefined ? c.quantity : (c.currentStock || 0)),
-                qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
+                currentStock,
+                qcPendingStock: qcPending,
                 reorderLevel: c.minimumStock !== undefined ? c.minimumStock : (invItem?.reorderLevel || 0),
                 unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
                 category: c.categoryId,
@@ -255,14 +265,14 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     totalOutwardQuantity: invItem.monthlyData.totalOutwardQuantity || invItem.monthlyData.issued || 0,
                     received: invItem.monthlyData.received || invItem.monthlyData.totalInwardQuantity || 0,
                     issued: invItem.monthlyData.issued || invItem.monthlyData.totalOutwardQuantity || 0,
-                    closingStock: invItem.monthlyData.closingStock || invItem.currentStock || 0
+                    closingStock: invItem.monthlyData.closingStock || currentStock || 0
                 } : {
                     openingStock: 0,
                     totalInwardQuantity: 0,
                     totalOutwardQuantity: 0,
                     received: 0,
                     issued: 0,
-                    closingStock: 0
+                    closingStock: currentStock || 0
                 }
             };
         });

@@ -19,22 +19,29 @@ const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
 };
 
-// Helper function to update COMPONENT stock (InHouse)
-const updateComponentStock = async (req, componentId, quantity) => {
+// Helper function to update FGItem / Component stock (InHouse)
+const updateComponentStock = async (req, componentId, quantityDelta) => {
   try {
     const companyId = getCompanyId(req);
+    const FGItem = req.getModel("FGItem", fgItemSchema);
     const Component = req.getModel("Component", componentSchema);
-    const component = await Component.findById(componentId);
-    if (!component) {
-      console.error(`Component not found: ${componentId}`);
-      return null;
+
+    let fgDoc = await FGItem.findById(componentId);
+    if (fgDoc) {
+      const newStock = Math.max(0, (fgDoc.quantity || 0) + quantityDelta);
+      await FGItem.findByIdAndUpdate(componentId, { $set: { quantity: newStock } });
+      return true;
     }
 
-    await Component.findByIdAndUpdate(componentId, {
-      $inc: { quantity: quantity }
-    });
+    const component = await Component.findById(componentId);
+    if (component) {
+      const newStock = Math.max(0, (component.quantity || 0) + quantityDelta);
+      await Component.findByIdAndUpdate(componentId, { $set: { quantity: newStock } });
+      return true;
+    }
 
-    return true;
+    console.error(`Component / FG Item not found: ${componentId}`);
+    return null;
   } catch (error) {
     console.error("Error updating component stock:", error);
     throw error;

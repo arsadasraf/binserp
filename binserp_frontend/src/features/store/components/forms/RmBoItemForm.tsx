@@ -141,7 +141,7 @@ export default function RmBoItemForm({
                                     <input 
                                         type="number" 
                                         name="minimumStock" 
-                                        value={formData.minimumStock || ''} 
+                                        value={formData.minimumStock !== undefined && formData.minimumStock !== null && !isNaN(Number(formData.minimumStock)) ? formData.minimumStock : ''} 
                                         onChange={handleChange} 
                                         className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
                                         placeholder="0" 

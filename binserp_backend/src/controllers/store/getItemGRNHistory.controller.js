@@ -62,7 +62,10 @@ export const getItemGRNHistory = async (req, res) => {
 
     if (type === 'bo' || type === 'consumable' || type === 'rm-bo') {
       const GRN = req.getModel('GRN', grnSchema);
-      query['items.material'] = id;
+      query.$or = [
+        { 'items.material': id },
+        { 'items.consumable': id }
+      ];
       grns = await GRN.find(query)
         .populate("supplier", "name")
         .populate("customer", "name")

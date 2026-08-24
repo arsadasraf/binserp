@@ -147,8 +147,11 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             <input
                                 type="number"
                                 min="0"
-                                value={formData.minimumStock ?? ""}
-                                onChange={(e) => setFormData({ ...formData, minimumStock: parseFloat(e.target.value) })}
+                                value={formData.minimumStock !== undefined && formData.minimumStock !== null && !isNaN(Number(formData.minimumStock)) ? formData.minimumStock : ""}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setFormData({ ...formData, minimumStock: val === "" ? "" as any : (isNaN(parseFloat(val)) ? 0 : parseFloat(val)) });
+                                }}
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                                 placeholder="Enter Minimum Stock"
                             />

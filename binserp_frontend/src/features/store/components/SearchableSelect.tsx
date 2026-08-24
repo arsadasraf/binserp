@@ -19,6 +19,7 @@ interface SearchableSelectProps {
     dropdownPosition?: 'bottom' | 'top' | 'auto';
     allowCustom?: boolean;
     disabled?: boolean;
+    hasError?: boolean;
 }
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({ 
@@ -30,7 +31,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     innerClassName = "", 
     dropdownPosition = "auto", 
     allowCustom = false,
-    disabled = false
+    disabled = false,
+    hasError = false
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
@@ -189,20 +191,22 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 } flex justify-between items-center gap-2 ${
                     disabled 
                         ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' 
-                        : isOpen 
-                            ? 'border-indigo-500 ring-2 ring-indigo-500/20' 
-                            : !selectedOption && !stringValue 
-                                ? 'border-gray-300 hover:border-gray-400' 
-                                : 'border-gray-300 hover:border-indigo-300'
+                        : hasError
+                            ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-1 ring-rose-400/80 text-rose-900 dark:text-rose-200'
+                            : isOpen 
+                                ? 'border-indigo-500 ring-2 ring-indigo-500/20' 
+                                : !selectedOption && !stringValue 
+                                    ? 'border-gray-300 hover:border-gray-400' 
+                                    : 'border-gray-300 hover:border-indigo-300'
                 }`}
                 onClick={() => {
                     if (!disabled) setIsOpen(!isOpen);
                 }}
             >
-                <span className={`truncate font-medium ${!selectedOption ? 'text-gray-400' : 'text-gray-800'}`}>
+                <span className={`truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300' : !selectedOption ? 'text-gray-400' : 'text-gray-800'}`}>
                     {selectedOption ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label)) : placeholder}
                 </span>
-                <ChevronDown className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
+                <ChevronDown className={`w-3.5 h-3.5 ${hasError ? 'text-rose-500' : 'text-gray-400'} shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
             </div>
 
             {/* Portal Dropdown Menu: immune to parent container overflow, clipping, or scroll bounds */}
