@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   X, Layers, Calendar, User, FileText, CheckCircle2, Download, 
   Package, ArrowUpRight, ShoppingCart, ChevronDown, ChevronRight, 
-  Boxes, GitFork, CornerDownRight, ShieldCheck 
+  Boxes, GitFork, CornerDownRight, ShieldCheck, Send, Clock 
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -236,6 +236,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                                                 <th className="px-4 py-3.5 text-center">Gross Required</th>
                                                 <th className="px-4 py-3.5 text-center">Current Stock</th>
                                                 <th className="px-4 py-3.5 text-center">Net Shortage</th>
+                                                <th className="px-4 py-3.5 text-center">Status</th>
                                                 <th className="px-4 py-3.5 text-right">Procure Action</th>
                                             </tr>
                                         </thead>
@@ -273,6 +274,25 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                                                             ) : (
                                                                 <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                                                     In Stock
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-4 py-3.5 text-center">
+                                                            {rm.status === 'PO Raised' ? (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                                    <ShoppingCart size={11} /> PO Raised
+                                                                </span>
+                                                            ) : rm.status === 'RFQ Raised' ? (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
+                                                                    <Send size={11} /> RFQ Raised
+                                                                </span>
+                                                            ) : rm.status === 'Completed' ? (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                                    <CheckCircle2 size={11} /> Completed
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                                                    <Clock size={11} /> Pending
                                                                 </span>
                                                             )}
                                                         </td>
@@ -393,6 +413,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                                                                     <th className="px-3.5 py-2.5 text-center">Total Required</th>
                                                                     <th className="px-3.5 py-2.5 text-center">Current Stock</th>
                                                                     <th className="px-3.5 py-2.5 text-center">Shortage</th>
+                                                                    <th className="px-3.5 py-2.5 text-center">Status</th>
                                                                 </tr>
                                                             </thead>
                                                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -441,6 +462,25 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                                                                                 ) : (
                                                                                     <span className="text-emerald-600">
                                                                                         In Stock
+                                                                                    </span>
+                                                                                )}
+                                                                            </td>
+                                                                            <td className="px-3.5 py-2.5 text-center">
+                                                                                {item.status === 'PO Raised' ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200">
+                                                                                        PO Raised
+                                                                                    </span>
+                                                                                ) : item.status === 'RFQ Raised' ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200">
+                                                                                        RFQ Raised
+                                                                                    </span>
+                                                                                ) : item.status === 'Completed' ? (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                                                                        Completed
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
+                                                                                        Pending
                                                                                     </span>
                                                                                 )}
                                                                             </td>

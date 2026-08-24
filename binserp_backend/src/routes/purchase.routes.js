@@ -29,7 +29,8 @@ import {
   getAllMRPPlans,
   getMRPPlanById,
   deleteMRPPlan,
-  updateMRPPlanStatus
+  updateMRPPlanStatus,
+  updateMRPRequirementItemStatus
 } from "../controllers/purchase/index.js";
 
 const router = Router();
@@ -50,6 +51,9 @@ router.route("/mrp/plan")
 
 router.route("/mrp/plans")
   .get(getAllMRPPlans);
+
+router.route("/mrp/update-item-status")
+  .put(updateMRPRequirementItemStatus);
 
 router.route("/mrp/plan/:id")
   .get(getMRPPlanById)

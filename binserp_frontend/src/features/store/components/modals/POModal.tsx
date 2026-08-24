@@ -138,9 +138,9 @@ export default function POModal({
 
     useEffect(() => {
         if (isOpen) {
-            if (isEditing && initialData) {
-                setPoNumber(initialData.poNumber || '');
-                setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : '');
+            if (initialData) {
+                setPoNumber(initialData.poNumber || generatePONumber());
+                setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
                 setVendor(typeof initialData.vendor === 'object' ? (initialData.vendor as any)?._id : (initialData.vendor || ''));
                 setTransportType(initialData.transportType || 'Road Freight');
                 setTransportCharge(initialData.transportCharge || 0);
@@ -156,8 +156,8 @@ export default function POModal({
                         const lineTax = lineSub * (taxRate / 100);
 
                         return {
-                            itemType: item.itemType || 'rm',
-                            material: typeof item.material === 'object' ? item.material?._id : (item.material || ''),
+                            itemType: (item.itemType || 'rm').toLowerCase().includes('bo') || (item.category || '').toLowerCase().includes('bought') ? 'bo' : 'rm',
+                            material: typeof item.material === 'object' ? item.material?._id : (item.material || item.materialId || ''),
                             component: item.component || '',
                             materialName: item.materialName || item.material?.name || '',
                             description: item.description || '',

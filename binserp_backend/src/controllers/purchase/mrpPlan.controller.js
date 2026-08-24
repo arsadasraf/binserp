@@ -418,3 +418,118 @@ export const updateMRPPlanStatus = async (req, res) => {
     res.status(500).json({ message: error.message || "Failed to update MRP plan status" });
   }
 };
+
+export const updateMRPRequirementItemStatus = async (req, res) => {
+  try {
+    const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const companyId = getCompanyId(req);
+    const { items = [], status = "RFQ Raised", planId } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Items list is required" });
+    }
+
+    const updatedPlanIds = new Set();
+
+    for (const it of items) {
+      const targetPlanId = it.planId || planId;
+      const targetMrpNo = it.mrpNumber || it.sourceMRP;
+      const targetMatId = it.materialId || it.material;
+      const targetMatName = (it.materialName || "").trim().toLowerCase();
+      const targetMatCode = (it.materialCode || "").trim().toLowerCase();
+      const newStatus = it.status || status;
+
+      const planQuery = { company: companyId };
+      if (targetPlanId) {
+        planQuery._id = targetPlanId;
+      } else if (targetMrpNo) {
+        planQuery.mrpNumber = targetMrpNo;
+      }
+
+      const matchingPlans = targetPlanId || targetMrpNo 
+        ? await MRPPlan.find(planQuery)
+        : await MRPPlan.find({ company: companyId, status: { $ne: "Completed" } });
+
+      for (const plan of matchingPlans) {
+        let changed = false;
+
+        // Check rmRequirements
+        if (Array.isArray(plan.rmRequirements)) {
+          plan.rmRequirements.forEach((r) => {
+            const mId = r.material?._id || r.material;
+            const matches =
+              (targetMatId && mId && mId.toString() === targetMatId.toString()) ||
+              (targetMatCode && r.materialCode && r.materialCode.toLowerCase() === targetMatCode) ||
+              (targetMatName && r.materialName && r.materialName.toLowerCase() === targetMatName);
+            if (matches) {
+              r.status = newStatus;
+              changed = true;
+            }
+          });
+        }
+
+        // Check boRequirements
+        if (Array.isArray(plan.boRequirements)) {
+          plan.boRequirements.forEach((b) => {
+            const mId = b.material?._id || b.material;
+            const matches =
+              (targetMatId && mId && mId.toString() === targetMatId.toString()) ||
+              (targetMatCode && b.materialCode && b.materialCode.toLowerCase() === targetMatCode) ||
+              (targetMatName && b.materialName && b.materialName.toLowerCase() === targetMatName);
+            if (matches) {
+              b.status = newStatus;
+              changed = true;
+            }
+          });
+        }
+
+        // Check consumableRequirements
+        if (Array.isArray(plan.consumableRequirements)) {
+          plan.consumableRequirements.forEach((c) => {
+            const matches =
+              (targetMatCode && c.materialCode && c.materialCode.toLowerCase() === targetMatCode) ||
+              (targetMatName && c.materialName && c.materialName.toLowerCase() === targetMatName);
+            if (matches) {
+              c.status = newStatus;
+              changed = true;
+            }
+          });
+        }
+
+        // Check nestedMaterials in fgItems
+        if (Array.isArray(plan.fgItems)) {
+          plan.fgItems.forEach((fg) => {
+            if (Array.isArray(fg.nestedMaterials)) {
+              fg.nestedMaterials.forEach((n) => {
+                const matches =
+                  (targetMatCode && n.materialCode && n.materialCode.toLowerCase() === targetMatCode) ||
+                  (targetMatName && n.materialName && n.materialName.toLowerCase() === targetMatName);
+                if (matches) {
+                  n.status = newStatus;
+                  changed = true;
+                }
+              });
+            }
+          });
+        }
+
+        if (changed) {
+          if (plan.status === "Planned" || plan.status === "Draft") {
+            plan.status = "In Procurement";
+          }
+          await plan.save();
+          updatedPlanIds.add(plan._id.toString());
+        }
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Updated procurement status to '${status}' across ${updatedPlanIds.size} MRP plan(s)`,
+      updatedPlansCount: updatedPlanIds.size,
+    });
+  } catch (error) {
+    console.error("Error updating MRP requirement item status:", error);
+    res.status(500).json({ message: error.message || "Failed to update item status" });
+  }
+};
