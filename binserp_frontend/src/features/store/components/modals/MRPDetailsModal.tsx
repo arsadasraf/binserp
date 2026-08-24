@@ -15,14 +15,68 @@ interface MRPDetailsModalProps {
 
 export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChange }: MRPDetailsModalProps) {
     const [activeTab, setActiveTab] = useState<'consolidated' | 'nested'>('consolidated');
+    const [selectedCategory, setSelectedCategory] = useState<'All' | 'RM' | 'BO' | 'SubAssembly' | 'Consumable'>('All');
     const [expandedFgIndex, setExpandedFgIndex] = useState<number | null>(0);
 
     if (!isOpen || !mrpPlan) return null;
 
     const fgItems = mrpPlan.fgItems || [];
-    // Consolidated materials
-    const materials = [...(mrpPlan.rmRequirements || []), ...(mrpPlan.boRequirements || [])];
-    const totalShortages = materials.reduce((sum: number, r: any) => sum + (r.shortage || 0), 0);
+    
+    const rawAll = [
+        ...(mrpPlan.rmRequirements || []),
+        ...(mrpPlan.boRequirements || []),
+        ...(mrpPlan.subAssemblyRequirements || []),
+        ...(mrpPlan.consumableRequirements || [])
+    ];
+    
+    // If rawAll is empty, fallback to aggregating nestedMaterials across fgItems
+    const extractedFromNested: any[] = [];
+    if (rawAll.length === 0 && Array.isArray(fgItems)) {
+        const tempMap = new Map();
+        fgItems.forEach((fg: any) => {
+            (fg.nestedMaterials || []).forEach((nMat: any) => {
+                const key = (nMat.materialCode || nMat.materialName || '').toLowerCase();
+                if (!tempMap.has(key)) {
+                    tempMap.set(key, {
+                        materialName: nMat.materialName,
+                        materialCode: nMat.materialCode,
+                        category: nMat.category || (nMat.itemType === 'SubAssembly' ? 'Sub Assembly' : 'RM / BO Material'),
+                        itemType: nMat.itemType || 'RM',
+                        requiredQuantity: 0,
+                        currentStock: nMat.currentStock || 0,
+                        shortage: 0,
+                        unit: nMat.unit || 'PCS',
+                        sourceFGNames: []
+                    });
+                }
+                const existing = tempMap.get(key);
+                existing.requiredQuantity += (nMat.totalRequired || nMat.quantity || 0);
+                existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
+                const label = `${fg.fgItemName || 'FG'} (${nMat.totalRequired || nMat.quantity} ${nMat.unit || 'PCS'})`;
+                if (!existing.sourceFGNames.includes(label)) existing.sourceFGNames.push(label);
+            });
+        });
+        extractedFromNested.push(...Array.from(tempMap.values()));
+    }
+
+    const allMaterials = rawAll.length > 0 ? rawAll : extractedFromNested;
+
+    const rmList = allMaterials.filter((r: any) => !r.itemType || r.itemType === 'RM' || r.itemType === 'Raw Material');
+    const boList = allMaterials.filter((r: any) => r.itemType === 'BO' || r.itemType === 'Bought Out');
+    const subList = allMaterials.filter((r: any) => r.itemType === 'SubAssembly' || r.itemType === 'Sub Assembly');
+    const conList = allMaterials.filter((r: any) => r.itemType === 'Consumable');
+
+    const materials = selectedCategory === 'All' 
+        ? allMaterials 
+        : selectedCategory === 'RM' 
+            ? rmList 
+            : selectedCategory === 'BO' 
+                ? boList 
+                : selectedCategory === 'SubAssembly' 
+                    ? subList 
+                    : conList;
+
+    const totalShortages = allMaterials.reduce((sum: number, r: any) => sum + (r.shortage || 0), 0);
 
     const handlePrint = () => {
         window.print();
@@ -39,10 +93,15 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                 {/* Header */}
                 <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 text-white flex justify-between items-start shrink-0 border-b border-indigo-900">
                     <div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                             <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-mono font-bold">
                                 {mrpPlan.mrpNumber}
                             </span>
+                            {mrpPlan.customerPoNumber && (
+                                <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-mono font-bold">
+                                    PO #{mrpPlan.customerPoNumber}
+                                </span>
+                            )}
                             <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
                                 mrpPlan.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
                                 mrpPlan.status === 'In Production' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
@@ -54,7 +113,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                             </span>
                         </div>
                         <h2 className="text-xl font-black mt-1.5 text-white">
-                            MRP Material Plan Preview & Breakdown
+                            MRP Material Demand & Production Plan
                         </h2>
                         <p className="text-xs text-indigo-200 mt-0.5">
                             Customer: <strong>{mrpPlan.customerName || 'Internal / Direct Demand'}</strong> | Target: <strong>{mrpPlan.targetDate ? new Date(mrpPlan.targetDate).toLocaleDateString('en-GB') : 'N/A'}</strong>
@@ -71,15 +130,20 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                 </div>
 
                 {/* KPI Strip */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-xs">
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block">Entered Finished Goods</span>
                         <strong className="text-slate-900 dark:text-white font-black text-base">{fgItems.length} Products</strong>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/20 shadow-2xs">
-                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">Consolidated Materials Needed</span>
-                        <strong className="text-indigo-700 dark:text-indigo-300 font-black text-base">{materials.length} Unique Items</strong>
+                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">Consolidated Materials</span>
+                        <strong className="text-indigo-700 dark:text-indigo-300 font-black text-base">{allMaterials.length} Unique Items</strong>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-purple-200 dark:border-purple-800/50 bg-purple-50/20 shadow-2xs">
+                        <span className="text-[10px] uppercase font-bold text-purple-500 block">Sub-Assemblies / Components</span>
+                        <strong className="text-purple-700 dark:text-purple-300 font-black text-base">{subList.length} In-House</strong>
                     </div>
 
                     <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-rose-200 dark:border-rose-800/50 bg-rose-50/20 shadow-2xs">
@@ -100,7 +164,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                                 : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
                         }`}
                     >
-                        <Package size={15} /> Consolidated RM / BO Requirements ({materials.length})
+                        <Package size={15} /> Consolidated Material Demand ({allMaterials.length})
                     </button>
 
                     <button
@@ -111,7 +175,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                                 : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
                         }`}
                     >
-                        <GitFork size={15} /> Nested FG Items & Sub-Assemblies ({fgItems.length})
+                        <GitFork size={15} /> Separate Nested FG Items & Sub-Assemblies ({fgItems.length})
                     </button>
                 </div>
 
@@ -121,19 +185,40 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChan
                     {/* TAB 1: CONSOLIDATED RM / BO MATERIAL REQUIREMENTS */}
                     {activeTab === 'consolidated' && (
                         <div className="space-y-4">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                                 <div>
                                     <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                                         <Package className="text-indigo-600" size={18} />
-                                        Consolidated Material Purchase Requirements
+                                        Consolidated Material Demand & Shortage Breakdown
                                     </h3>
                                     <p className="text-xs text-slate-500 mt-0.5">
-                                        Aggregated gross requirements across all entered FG products with real-time in-house stock & shortages
+                                        Aggregated gross requirements across all entered FG products with real-time stock & deficit calculation
                                     </p>
                                 </div>
-                                <span className="text-xs font-mono font-bold text-slate-400">
-                                    {materials.length} Items Total
-                                </span>
+
+                                {/* Category Filters */}
+                                <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                                    {[
+                                        { key: 'All', label: `All (${allMaterials.length})` },
+                                        { key: 'RM', label: `Raw Materials (${rmList.length})` },
+                                        { key: 'BO', label: `Bought Outs (${boList.length})` },
+                                        { key: 'SubAssembly', label: `Sub-Assemblies (${subList.length})` },
+                                        { key: 'Consumable', label: `Consumables (${conList.length})` },
+                                    ].map((tab) => (
+                                        <button
+                                            key={tab.key}
+                                            type="button"
+                                            onClick={() => setSelectedCategory(tab.key as any)}
+                                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                                                selectedCategory === tab.key
+                                                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             {materials.length === 0 ? (

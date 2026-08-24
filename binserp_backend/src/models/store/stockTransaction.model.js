@@ -47,6 +47,7 @@ export const stockTransactionSchema = new mongoose.Schema(
         "RETURNABLE_DC_JOB_WORK_OUTWARD",
         "SALES_DC_OUTWARD",
         "INVOICE_OUTWARD",
+        "WIP_CONSUMPTION_OUTWARD",
         "STOCK_ADJUSTMENT",
       ],
       required: true,

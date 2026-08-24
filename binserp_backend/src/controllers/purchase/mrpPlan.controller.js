@@ -37,9 +37,10 @@ export const createMRPPlan = async (req, res) => {
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const mrpNumber = customMrpNumber || `MRP-${dateStr}-${randomSuffix}`;
 
-    // Maps to aggregate RM, BO and Consumables across all FG items
+    // Maps to aggregate RM, BO, SubAssemblies and Consumables across all FG items
     const rmMap = new Map();
     const boMap = new Map();
+    const subAssemblyMap = new Map();
     const consumableMap = new Map();
 
     // Cache inventory, RM/BO items, BOMs and FG items for fast hierarchy explosion
@@ -50,28 +51,99 @@ export const createMRPPlan = async (req, res) => {
 
     const enrichedFgItems = [];
 
-    // Helper to find BOM for a product
-    const findBOM = (pName, pCode, bId) => {
+    // Helper to find BOM for a product (from BOM collection OR FGItem embedded BOM)
+    const findBOM = (pName, pCode, bId, fgId) => {
+      // 1. Direct BOM ID match
       if (bId) {
-        const found = allBOMs.find((b) => b._id.toString() === bId.toString());
-        if (found) return found;
+        const found = allBOMs.find((b) => b._id && b._id.toString() === bId.toString());
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+
+        const foundByNum = allBOMs.find((b) => b.bomNumber && b.bomNumber.toString().toLowerCase() === bId.toString().toLowerCase());
+        if (foundByNum && Array.isArray(foundByNum.items) && foundByNum.items.length > 0) return foundByNum;
       }
+
+      // 2. Direct FG Item ID match with embedded BOM
+      if (fgId) {
+        const foundFG = allFGItems.find((f) => f._id && f._id.toString() === fgId.toString());
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+            })),
+          };
+        }
+      }
+
+      // 3. Match by Product Name
       if (pName) {
         const cleanPName = pName.trim().toLowerCase();
-        const found = allBOMs.find((b) => b.productName && b.productName.trim().toLowerCase() === cleanPName);
-        if (found) return found;
+        const found = allBOMs.find(
+          (b) => b.productName && b.productName.trim().toLowerCase() === cleanPName
+        );
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+
+        const foundFG = allFGItems.find(
+          (f) => f.name && f.name.trim().toLowerCase() === cleanPName
+        );
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+            })),
+          };
+        }
       }
+
+      // 4. Match by Product Code
       if (pCode) {
         const cleanPCode = pCode.trim().toLowerCase();
-        const found = allBOMs.find((b) => b.productCode && b.productCode.trim().toLowerCase() === cleanPCode);
-        if (found) return found;
+        const found = allBOMs.find(
+          (b) => b.productCode && b.productCode.trim().toLowerCase() === cleanPCode
+        );
+        if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+
+        const foundFG = allFGItems.find(
+          (f) => f.code && f.code.trim().toLowerCase() === cleanPCode
+        );
+        if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+          return {
+            _id: foundFG._id,
+            bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+            productName: foundFG.name,
+            productCode: foundFG.code,
+            items: foundFG.bom.map((b) => ({
+              materialName: b.itemName || b.name || "Material",
+              materialCode: b.itemCode || b.code || "",
+              quantity: Number(b.quantity) || 1,
+              unit: b.unit || "PCS",
+              itemType: b.itemType || "Material",
+            })),
+          };
+        }
       }
+
       return null;
     };
 
     // Recursive BOM explosion function
-    const explodeItemTree = (itemName, itemCode, multiplierQty, parentName, level, nestedList) => {
-      const subBOM = findBOM(itemName, itemCode);
+    const explodeItemTree = (itemName, itemCode, multiplierQty, parentName, level, nestedList, fgId, bId) => {
+      const subBOM = findBOM(itemName, itemCode, bId, fgId);
       if (subBOM && Array.isArray(subBOM.items) && subBOM.items.length > 0 && level <= 5) {
         for (const subItem of subBOM.items) {
           const sName = (subItem.materialName || "").trim();
@@ -99,12 +171,30 @@ export const createMRPPlan = async (req, res) => {
           // Check if this subItem itself is a sub-assembly (has a BOM or is in FGItems)
           const nestedSubBOM = findBOM(sName, sCode);
           const isSubAssembly = Boolean(nestedSubBOM);
+          const catName = (rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
+          const rawItemType = (rmBo?.itemType || "").toLowerCase();
+          const isBO = rawItemType === 'bought out' || rawItemType === 'bo' || catName.includes('bought') || catName.includes('hardware') || catName.includes('fastener');
+          const isConsumable = rawItemType === 'consumable' || catName.includes('consumable');
+
+          let resolvedItemType = "RM";
+          let categoryLabel = rmBo?.categoryId?.name || "Raw Material";
+
+          if (isSubAssembly) {
+            resolvedItemType = "SubAssembly";
+            categoryLabel = "Sub Assembly";
+          } else if (isBO) {
+            resolvedItemType = "BO";
+            categoryLabel = rmBo?.categoryId?.name || "Bought Out";
+          } else if (isConsumable) {
+            resolvedItemType = "Consumable";
+            categoryLabel = rmBo?.categoryId?.name || "Consumable";
+          }
 
           nestedList.push({
             materialName: sName,
             materialCode: sCode,
-            itemType: isSubAssembly ? "SubAssembly" : (rmBo?.categoryId?.name ? "Material" : "Component"),
-            category: rmBo?.categoryId?.name || (isSubAssembly ? "Sub Assembly" : "RM / BO"),
+            itemType: resolvedItemType,
+            category: categoryLabel,
             quantityPerFG: perQty,
             totalRequired: grossQty,
             currentStock: currentStock,
@@ -114,15 +204,20 @@ export const createMRPPlan = async (req, res) => {
             level: level,
           });
 
-          // Consolidate into global rmMap (if it's a leaf material/component)
+          // Consolidate into specific maps
           const itemKey = (sCode || sName).toLowerCase();
-          if (!rmMap.has(itemKey)) {
-            rmMap.set(itemKey, {
+          let targetMap = rmMap;
+          if (isSubAssembly) targetMap = subAssemblyMap;
+          else if (isBO) targetMap = boMap;
+          else if (isConsumable) targetMap = consumableMap;
+
+          if (!targetMap.has(itemKey)) {
+            targetMap.set(itemKey, {
               material: rmBo?._id,
               materialName: sName,
               materialCode: sCode,
-              category: rmBo?.categoryId?.name || (isSubAssembly ? "Sub Assembly" : "RM / BO Material"),
-              itemType: isSubAssembly ? "SubAssembly" : "RM/BO",
+              category: categoryLabel,
+              itemType: resolvedItemType,
               requiredQuantity: 0,
               currentStock: currentStock,
               shortage: 0,
@@ -132,7 +227,7 @@ export const createMRPPlan = async (req, res) => {
               status: "Pending",
             });
           }
-          const existing = rmMap.get(itemKey);
+          const existing = targetMap.get(itemKey);
           existing.requiredQuantity += grossQty;
           existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
           const fgLabel = `${parentName} (${grossQty} ${unit})`;
@@ -142,7 +237,7 @@ export const createMRPPlan = async (req, res) => {
 
           // If it has sub-components, recurse into next level
           if (isSubAssembly) {
-            explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList);
+            explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, undefined, undefined);
           }
         }
       }
@@ -156,11 +251,11 @@ export const createMRPPlan = async (req, res) => {
       const fgTargetDate = fg.targetDate ? new Date(fg.targetDate) : undefined;
       const fgId = fg.fgItem || fg._id;
 
-      const bomDoc = findBOM(fgName, fgCode, fg.bomId);
+      const bomDoc = findBOM(fgName, fgCode, fg.bomId, fgId);
       const nestedMaterials = [];
 
       // Explode nested tree
-      explodeItemTree(fgName, fgCode, fgQty, fgName, 1, nestedMaterials);
+      explodeItemTree(fgName, fgCode, fgQty, fgName, 1, nestedMaterials, fgId, fg.bomId);
 
       enrichedFgItems.push({
         fgItem: fgId,
@@ -171,14 +266,15 @@ export const createMRPPlan = async (req, res) => {
         unit: fg.unit || "PCS",
         targetDate: fgTargetDate,
         bomId: bomDoc?._id,
-        bomNumber: bomDoc?.bomNumber || "BOM-Auto",
+        bomNumber: bomDoc?.bomNumber || (nestedMaterials.length > 0 ? "BOM-Active" : "BOM-Auto"),
         nestedMaterials: nestedMaterials,
       });
     }
 
     const rmRequirements = Array.from(rmMap.values());
-    const boRequirements = [];
-    const consumableRequirements = [];
+    const boRequirements = Array.from(boMap.values());
+    const subAssemblyRequirements = Array.from(subAssemblyMap.values());
+    const consumableRequirements = Array.from(consumableMap.values());
 
     const newPlan = await MRPPlan.create({
       company: companyId,
@@ -192,6 +288,7 @@ export const createMRPPlan = async (req, res) => {
       fgItems: enrichedFgItems,
       rmRequirements,
       boRequirements,
+      subAssemblyRequirements,
       consumableRequirements,
       createdBy: req.user?.id || req.user?._id,
       createdByName: req.user?.name || req.user?.username || "Planner",

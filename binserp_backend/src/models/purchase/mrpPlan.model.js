@@ -125,6 +125,22 @@ export const mrpPlanSchema = new mongoose.Schema(
         status: { type: String, default: "Pending" },
       },
     ],
+    // Calculated In-House Sub-Assemblies & Components
+    subAssemblyRequirements: [
+      {
+        materialName: { type: String, required: true },
+        materialCode: { type: String, default: "" },
+        category: { type: String, default: "Sub Assembly" },
+        itemType: { type: String, default: "SubAssembly" },
+        requiredQuantity: { type: Number, default: 0 },
+        currentStock: { type: Number, default: 0 },
+        shortage: { type: Number, default: 0 },
+        unit: { type: String, default: "PCS" },
+        sourceFGName: { type: String, default: "" },
+        sourceFGNames: [{ type: String }],
+        status: { type: String, default: "Pending" },
+      },
+    ],
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -29,9 +29,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
     // Masters Data
     const [fgItemList, setFgItemList] = useState<any[]>([]);
     const [bomsList, setBomsList] = useState<any[]>([]);
+    const [incomingPOs, setIncomingPOs] = useState<any[]>([]);
 
     // Form Data
     const [mrpNumber, setMrpNumber] = useState('');
+    const [selectedPOId, setSelectedPOId] = useState('');
+    const [customerPoNumber, setCustomerPoNumber] = useState('');
     const [customerName, setCustomerName] = useState('');
     const [targetDate, setTargetDate] = useState('');
     const [remarks, setRemarks] = useState('');
@@ -47,6 +50,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
             const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
             const randomSuffix = Math.floor(1000 + Math.random() * 9000);
             setMrpNumber(`MRP-${dateStr}-${randomSuffix}`);
+            setSelectedPOId('');
+            setCustomerPoNumber('');
+            setCustomerName('');
+            setRemarks('');
             
             // Default target date: 7 days in future
             const future = new Date();
@@ -65,9 +72,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
     const loadDropdownMasters = async () => {
         setLoading(true);
         try {
-            const [fgRes, bomRes] = await Promise.allSettled([
+            const [fgRes, bomRes, poRes] = await Promise.allSettled([
                 apiGet('/api/store/fg-item', token),
-                apiGet('/api/store/bom', token)
+                apiGet('/api/store/bom', token),
+                apiGet('/api/store/incoming-po', token)
             ]);
 
             if (fgRes.status === 'fulfilled' && fgRes.value) {
@@ -76,10 +84,66 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
             if (bomRes.status === 'fulfilled' && bomRes.value) {
                 setBomsList(bomRes.value.boms || bomRes.value.data || []);
             }
+            if (poRes.status === 'fulfilled' && poRes.value) {
+                const pos = Array.isArray(poRes.value) ? poRes.value : (poRes.value.incomingPOs || poRes.value.pos || poRes.value.data || []);
+                setIncomingPOs(pos);
+            }
         } catch (err) {
             console.error('Failed to load masters for MRP modal:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleSelectCustomerPO = (poId: string) => {
+        setSelectedPOId(poId);
+        if (!poId) {
+            setCustomerPoNumber('');
+            return;
+        }
+
+        const po = incomingPOs.find(p => p._id === poId);
+        if (!po) return;
+
+        setCustomerPoNumber(po.poNumber || '');
+        const cName = po.customerName || (typeof po.customer === 'object' ? po.customer?.name : po.customer) || '';
+        if (cName) setCustomerName(cName);
+        if (po.deliveryDate || po.targetDate || po.date) {
+            const dateVal = new Date(po.deliveryDate || po.targetDate || po.date).toISOString().split('T')[0];
+            setTargetDate(dateVal);
+        }
+
+        if (Array.isArray(po.items) && po.items.length > 0) {
+            const mappedRows: FGRow[] = po.items.map((item: any) => {
+                const pName = item.productName || item.name || item.itemName || '';
+                const pCode = item.productCode || item.code || '';
+                const fgObj = fgItemList.find(f => 
+                    (f._id === item.fgItem || f._id === (item.fgItem?._id || item.fgItem)) ||
+                    (pName && f.name?.toLowerCase() === pName.toLowerCase()) ||
+                    (pCode && f.code?.toLowerCase() === pCode.toLowerCase())
+                );
+                const matchedBom = bomsList.find(b => 
+                    (fgObj && (b.productName?.toLowerCase() === fgObj.name?.toLowerCase() || b.productCode === fgObj.code)) ||
+                    (pName && b.productName?.toLowerCase() === pName.toLowerCase()) ||
+                    (pCode && b.productCode === pCode)
+                );
+
+                const qty = (item.quantity || 1) - (item.dispatchedQuantity || item.billedQuantity || 0);
+
+                return {
+                    fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
+                    fgItemName: fgObj?.name || pName || 'Finished Good',
+                    fgItemCode: fgObj?.code || pCode || '',
+                    description: item.description || fgObj?.description || fgObj?.descriptions || '',
+                    quantity: qty > 0 ? qty : (item.quantity || 1),
+                    unit: item.unit || fgObj?.unit || 'PCS',
+                    targetDate: targetDate || (po.deliveryDate ? new Date(po.deliveryDate).toISOString().split('T')[0] : ''),
+                    bomId: matchedBom?._id,
+                    bomNumber: matchedBom?.bomNumber
+                };
+            });
+
+            setFgRows(mappedRows);
         }
     };
 
@@ -108,6 +172,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
         const matchedBom = bomsList.find(b => 
             (selected && (b.productName?.toLowerCase() === selected.name?.toLowerCase() || b.productCode === selected.code))
         );
+        const hasEmbeddedBom = selected && Array.isArray(selected.bom) && selected.bom.length > 0;
+        const bomNum = matchedBom?.bomNumber || (hasEmbeddedBom ? `BOM-${selected.code || selected.name}` : undefined);
+        const bomId = matchedBom?._id || (hasEmbeddedBom ? selected._id : undefined);
 
         const updated = [...fgRows];
         updated[index] = {
@@ -117,8 +184,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
             fgItemCode: selected?.code || '',
             description: selected?.description || selected?.descriptions || updated[index].description || '',
             unit: selected?.unit || 'PCS',
-            bomId: matchedBom?._id,
-            bomNumber: matchedBom?.bomNumber
+            bomId: bomId,
+            bomNumber: bomNum
         };
         setFgRows(updated);
     };
@@ -149,6 +216,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
         try {
             const payload = {
                 mrpNumber,
+                customerPo: selectedPOId || undefined,
+                customerPoNumber: customerPoNumber || undefined,
                 customerName,
                 targetDate,
                 remarks,
@@ -180,6 +249,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
 
     if (!isOpen) return null;
 
+    const openCustomerPOs = incomingPOs.filter((po: any) => po.status !== 'Completed' && po.status !== 'Cancelled');
+
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-5 lg:p-6 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-6xl xl:max-w-7xl max-h-[94vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -192,7 +263,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
                         </div>
                         <div>
                             <h2 className="text-lg sm:text-xl font-black">Create MRP Demand Plan</h2>
-                            <p className="text-xs text-indigo-200 mt-0.5">Input FG requirements with target dates & explode BOM into RM / BO materials</p>
+                            <p className="text-xs text-indigo-200 mt-0.5">Input FG requirements or load from Customer PO & explode nested multi-level BOM</p>
                         </div>
                     </div>
                     <button
@@ -206,6 +277,41 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
                 {/* Form Content */}
                 <form onSubmit={handleSubmit} className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
                     
+                    {/* Customer PO Quick Load Bar */}
+                    <div className="bg-indigo-50/80 dark:bg-indigo-950/40 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-sm">
+                                <Sparkles size={16} />
+                            </div>
+                            <div>
+                                <h3 className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                                    <span>Direct Entry from Customer Purchase Order</span>
+                                    <span className="bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-[10px] font-extrabold px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-700">
+                                        {openCustomerPOs.length} Open POs
+                                    </span>
+                                </h3>
+                                <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80 mt-0.5">
+                                    Selecting an open Customer PO automatically loads customer details and all ordered Finished Goods items.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="w-full sm:w-80">
+                            <select
+                                value={selectedPOId}
+                                onChange={(e) => handleSelectCustomerPO(e.target.value)}
+                                className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-indigo-950 dark:text-indigo-200 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-xs truncate"
+                            >
+                                <option value="">-- Direct Manual Entry (No PO Link) --</option>
+                                {openCustomerPOs.map((po: any) => (
+                                    <option key={po._id} value={po._id}>
+                                        PO #{po.poNumber} — {po.customerName || po.customer?.name || 'Customer'} ({po.items?.length || 0} items)
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+
                     {/* Header Metadata Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
                         {/* Auto-generated MRP Number */}

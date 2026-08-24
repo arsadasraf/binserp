@@ -1,4 +1,4 @@
-import { fgGRNSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { fgGRNSchema, fgItemSchema, fgInventoryMonthlySchema, rmBoItemSchema, bomSchema } from "../../models/store/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { uploadOnS3, signPhotos } from "../../utils/s3.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
@@ -134,6 +134,8 @@ export const createFGGRN = async (req, res) => {
 
           const plan = await MRPPlan.findOne(query);
           if (plan && Array.isArray(plan.fgItems)) {
+            const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+
             for (const grnItem of itemsArray) {
               const matchedFg = plan.fgItems.find(
                 (f) =>
@@ -142,6 +144,42 @@ export const createFGGRN = async (req, res) => {
               );
               if (matchedFg) {
                 matchedFg.receivedQuantity = (matchedFg.receivedQuantity || 0) + grnItem.quantity;
+
+                // Automated WIP Consumption: Deduct issued child BOM materials proportionally
+                if (Array.isArray(matchedFg.nestedMaterials) && matchedFg.nestedMaterials.length > 0) {
+                  for (const nMat of matchedFg.nestedMaterials) {
+                    const perQty = Number(nMat.quantityPerFG) || 1;
+                    const consumedQty = perQty * grnItem.quantity;
+
+                    const rmDoc = await RmBoItem.findOne({
+                      company: companyId,
+                      $or: [
+                        { code: nMat.materialCode },
+                        { name: nMat.materialName }
+                      ]
+                    });
+
+                    if (rmDoc) {
+                      await recordStockTransaction(req, {
+                        itemType: "RmBo",
+                        item: rmDoc._id,
+                        itemName: nMat.materialName,
+                        unit: nMat.unit || "PCS",
+                        movementType: "OUTWARD",
+                        transactionCategory: "WIP_CONSUMPTION_OUTWARD",
+                        quantity: consumedQty,
+                        previousStock: 0,
+                        newStock: 0,
+                        referenceDocType: "FGGRN",
+                        referenceDocId: newGRN._id,
+                        referenceDocNumber: grnNumber,
+                        recipientOrSource: `WIP -> FG Inward (${grnItem.itemName})`,
+                        purpose: `Auto BOM WIP Consumption for FG ${grnItem.itemName} (MRP #${plan.mrpNumber})`,
+                        performedBy: req.user?.id || req.user?._id,
+                      });
+                    }
+                  }
+                }
               }
             }
 
