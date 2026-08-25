@@ -11,7 +11,8 @@ import {
   Factory, 
   FileText, 
   FileSpreadsheet,
-  AlertTriangle
+  AlertTriangle,
+  AlertCircle
 } from 'lucide-react';
 import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem } from "@/src/features/store/types/store.types";
 import { apiPost, apiPut } from '@/src/lib/api';
@@ -57,6 +58,16 @@ export default function JobWorkForm({
 }: JobWorkFormProps) {
     const [loading, setLoading] = useState(false);
     const [successData, setSuccessData] = useState<any>(null);
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    const clearError = (key: string) => {
+        setFormErrors(prev => {
+            if (!prev[key]) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    };
 
     const [formData, setFormData] = useState<JobWorkFormData>({
         challanNumber: '',
@@ -299,18 +310,24 @@ export default function JobWorkForm({
     const handleDcTypeChange = (type: 'store-conversion' | 'store-to-wip' | 'wip-to-wip') => {
         const updatedItems = formData.items.map(item => {
             let defaultSentType = item.itemType;
-            if (type === 'store-conversion') {
-                if (defaultSentType === 'fg') defaultSentType = 'rm';
-            } else if (type === 'store-to-wip') {
-                if (defaultSentType === 'fg') defaultSentType = 'rm';
+            if (type === 'store-conversion' || type === 'store-to-wip') {
+                defaultSentType = 'rm';
             } else if (type === 'wip-to-wip') {
                 defaultSentType = 'fg';
             }
 
-            const updatedRetItems = (item.returningItems || []).map(r => ({
-                ...r,
-                receivedItemType: type === 'store-conversion' ? (r.receivedItemType || 'fg') : 'fg'
-            }));
+            const updatedRetItems = (item.returningItems || []).map(r => {
+                let retType = r.receivedItemType || 'fg';
+                if (type === 'store-conversion') {
+                    if (retType === 'bo') retType = 'fg'; // Remove BO from conversion return
+                } else {
+                    retType = 'fg';
+                }
+                return {
+                    ...r,
+                    receivedItemType: retType
+                };
+            });
 
             return {
                 ...item,
@@ -474,51 +491,74 @@ export default function JobWorkForm({
         setFormData({ ...formData, items: newItems });
     };
 
-    // Form Submission with Strict Stock Validation
+    // Form Submission with Strict Stock Validation & Real-Time Error Mapping
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!token) return;
 
+        const errors: Record<string, string> = {};
+
         // Validation 1: Supplier selection
         if (!formData.vendor) {
-            onError('Please select a Subcontractor / Vendor');
-            return;
+            errors.vendor = 'Subcontractor / Vendor is required';
         }
 
-        // Validation 2: MRP Number requirement for WIP flows
+        // Validation 2: Challan Date
+        if (!formData.date) {
+            errors.date = 'Challan date is required';
+        }
+
+        // Validation 3: MRP Number requirement for WIP flows
         if ((formData.jobWorkType === 'store-to-wip' || formData.jobWorkType === 'wip-to-wip') && !formData.mrpNumber?.trim()) {
-            onError('MRP Number is required for Store to WIP and WIP to WIP Job-Work Challans');
-            return;
+            errors.mrpNumber = 'MRP Plan is required for Store to WIP and WIP to WIP';
         }
 
-        // Validation 3: Material existence, quantity sent, and available stock balance
+        // Validation 4: Outward item existence, quantity sent, stock balance, and returning item rows
         for (let i = 0; i < formData.items.length; i++) {
             const item = formData.items[i];
             if (!item.item && !item.itemName) {
-                onError(`Please select or enter Sent Material for Line #${i + 1}`);
-                return;
+                errors[`item_${i}_item`] = 'Outward material is required';
             }
-            if (!item.quantitySent || item.quantitySent <= 0) {
-                onError(`Please enter a valid Quantity Sent for Line #${i + 1}`);
-                return;
-            }
-
-            // Stock Availability Check for Store Conversion and Store-to-WIP
-            if (formData.jobWorkType !== 'wip-to-wip' && item.item) {
+            if (!item.quantitySent || Number(item.quantitySent) <= 0) {
+                errors[`item_${i}_quantitySent`] = 'Quantity sent must be > 0';
+            } else if (formData.jobWorkType !== 'wip-to-wip' && item.item) {
                 const availStock = getItemStock(item.item, item.itemType);
                 const reqQty = Number(item.quantitySent) || 0;
 
                 if (availStock <= 0) {
-                    onError(`Cannot create Returnable DC: "${item.itemName || 'Selected item'}" is OUT OF STOCK (Available: 0 ${item.unit || 'PCS'}).`);
-                    return;
-                }
-
-                if (reqQty > availStock) {
-                    onError(`Cannot create Returnable DC: "${item.itemName || 'Selected item'}" has insufficient stock. Available: ${availStock} ${item.unit || 'PCS'}, Requested: ${reqQty} ${item.unit || 'PCS'}.`);
-                    return;
+                    errors[`item_${i}_quantitySent`] = `Out of stock (Avail: 0)`;
+                } else if (reqQty > availStock) {
+                    errors[`item_${i}_quantitySent`] = `Exceeds stock (Avail: ${availStock})`;
                 }
             }
+
+            if (Array.isArray(item.returningItems)) {
+                item.returningItems.forEach((ret, r) => {
+                    if (!ret.receivedItem && !ret.receivedItemName) {
+                        errors[`item_${i}_ret_${r}_item`] = 'Converted return item is required';
+                    }
+                    if (!ret.quantityToBeReceived || Number(ret.quantityToBeReceived) <= 0) {
+                        errors[`item_${i}_ret_${r}_quantity`] = 'Return qty must be > 0';
+                    }
+                });
+            }
         }
+
+        if (Object.keys(errors).length > 0) {
+            setFormErrors(errors);
+            const targetForm = e.currentTarget as HTMLElement;
+            if (targetForm) {
+                setTimeout(() => {
+                    const firstInvalid = targetForm.querySelector('[data-has-error="true"]');
+                    if (firstInvalid) {
+                        firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 50);
+            }
+            return;
+        }
+
+        setFormErrors({});
 
         try {
             setLoading(true);
@@ -642,6 +682,21 @@ export default function JobWorkForm({
                 {/* Form Body */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
                     
+                    {/* Visual Error Summary Alert Banner */}
+                    {Object.keys(formErrors).length > 0 && (
+                        <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-xl flex items-center justify-between gap-2.5 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-2xs">
+                            <div className="flex items-center gap-2">
+                                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                                <span className="text-xs font-bold">
+                                    Please fill in the highlighted compulsory field{Object.keys(formErrors).length > 1 ? 's' : ''} before creating Challan.
+                                </span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                                {Object.keys(formErrors).length} required
+                            </span>
+                        </div>
+                    )}
+
                     {/* Small & Thin Segmented Returnable DC Type Bar */}
                     <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 gap-1">
                         <button
@@ -653,8 +708,8 @@ export default function JobWorkForm({
                                     : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span>🏭 Store Conversion</span>
-                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM/BO ➔ Store)</span>
+                            <span>🏭 RM Conversion</span>
+                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM ➔ Store RM/FG)</span>
                         </button>
 
                         <button
@@ -667,7 +722,7 @@ export default function JobWorkForm({
                             }`}
                         >
                             <span>🔄 Store to WIP</span>
-                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM/BO ➔ MRP WIP)</span>
+                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM ➔ MRP WIP)</span>
                         </button>
 
                         <button
@@ -688,22 +743,30 @@ export default function JobWorkForm({
                     <div className="bg-slate-50 dark:bg-slate-800/40 p-3.5 sm:p-4 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-3">
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             {/* Vendor Selection */}
-                            <div className="lg:col-span-2">
-                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                                    Subcontractor / Vendor <span className="text-red-500">*</span>
+                            <div className="lg:col-span-2" data-has-error={!!formErrors.vendor}>
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                                    <span>Subcontractor / Vendor <span className="text-red-500">*</span></span>
+                                    {formErrors.vendor && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.vendor}</span>}
                                 </label>
                                 <SearchableSelect
                                     options={supplierOptions}
                                     value={typeof formData.vendor === 'object' && formData.vendor !== null ? ((formData.vendor as any)._id || '') : (formData.vendor || '')}
-                                    onChange={(val) => setFormData({ ...formData, vendor: val })}
+                                    hasError={!!formErrors.vendor}
+                                    onChange={(val) => {
+                                        setFormData({ ...formData, vendor: val });
+                                        if (val) clearError('vendor');
+                                    }}
                                     placeholder="Search Job-Work Vendor..."
                                 />
                             </div>
 
                             {/* MRP Plan Selector */}
-                            <div className="lg:col-span-2">
-                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                                    MRP Plan # {(formData.jobWorkType === 'store-to-wip' || formData.jobWorkType === 'wip-to-wip') && <span className="text-red-500">*</span>}
+                            <div className="lg:col-span-2" data-has-error={!!formErrors.mrpNumber}>
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                                    <span>
+                                        MRP Plan # {(formData.jobWorkType === 'store-to-wip' || formData.jobWorkType === 'wip-to-wip') && <span className="text-red-500">*</span>}
+                                    </span>
+                                    {formErrors.mrpNumber && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.mrpNumber}</span>}
                                 </label>
                                 {mrpOptions.length > 0 ? (
                                     <select
@@ -716,8 +779,13 @@ export default function JobWorkForm({
                                                 mrpNumber: selectedNum, 
                                                 mrpPlan: found?.id || '' 
                                             });
+                                            if (selectedNum) clearError('mrpNumber');
                                         }}
-                                        className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none text-slate-800 dark:text-slate-200"
+                                        className={`w-full h-9 px-3 border rounded-xl text-xs font-bold focus:ring-2 outline-none transition-all ${
+                                            formErrors.mrpNumber
+                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-indigo-500/20'
+                                        }`}
                                     >
                                         <option value="">{formData.jobWorkType === 'store-conversion' ? '-- Optional MRP Plan --' : '-- Select MRP Plan --'}</option>
                                         {mrpOptions.map((opt, i) => (
@@ -729,22 +797,37 @@ export default function JobWorkForm({
                                         type="text"
                                         placeholder="e.g. MRP-2026-001"
                                         value={formData.mrpNumber || ''}
-                                        onChange={(e) => setFormData({ ...formData, mrpNumber: e.target.value })}
-                                        className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                        onChange={(e) => {
+                                            setFormData({ ...formData, mrpNumber: e.target.value });
+                                            if (e.target.value) clearError('mrpNumber');
+                                        }}
+                                        className={`w-full h-9 px-3 border rounded-xl text-xs font-bold focus:ring-2 outline-none transition-all ${
+                                            formErrors.mrpNumber
+                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-indigo-500/20'
+                                        }`}
                                     />
                                 )}
                             </div>
 
                             {/* Challan Date */}
-                            <div>
-                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                                    Challan Date <span className="text-red-500">*</span>
+                            <div data-has-error={!!formErrors.date}>
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                                    <span>Challan Date <span className="text-red-500">*</span></span>
+                                    {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.date}</span>}
                                 </label>
                                 <input
                                     type="date"
                                     value={formData.date ? formData.date.split('T')[0] : ''}
-                                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                    className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                    onChange={(e) => {
+                                        setFormData({ ...formData, date: e.target.value });
+                                        if (e.target.value) clearError('date');
+                                    }}
+                                    className={`w-full h-9 px-3 border rounded-xl text-xs font-medium focus:ring-2 outline-none cursor-pointer transition-all ${
+                                        formErrors.date
+                                            ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-indigo-500/20'
+                                    }`}
                                 />
                             </div>
 
@@ -851,34 +934,23 @@ export default function JobWorkForm({
                                         {/* Sent Item Inputs Grid */}
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200/80 dark:border-slate-700/60">
                                             
-                                            {/* Outward Material Type (RM, BO or FG) */}
+                                            {/* Outward Material Type (RM or WIP FG) */}
                                             <div className="sm:col-span-2 lg:col-span-3">
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                     Material Type
                                                 </label>
                                                 <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
-                                                    {!isWipToWip && (
-                                                        <>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleSentItemChange(itemIdx, 'itemType', 'rm')}
-                                                                className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${sentItem.itemType === 'rm' ? 'bg-blue-600 text-white font-bold' : 'text-slate-500'}`}
-                                                            >
-                                                                🔵 RM
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleSentItemChange(itemIdx, 'itemType', 'bo')}
-                                                                className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${sentItem.itemType === 'bo' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-500'}`}
-                                                            >
-                                                                🟢 BO
-                                                            </button>
-                                                        </>
-                                                    )}
-                                                    {isWipToWip && (
+                                                    {!isWipToWip ? (
                                                         <button
                                                             type="button"
-                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default"
+                                                            className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center"
+                                                        >
+                                                            🔵 RM (Raw Material)
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center"
                                                         >
                                                             🟣 WIP FG
                                                         </button>
@@ -887,9 +959,14 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Outward Item Selector + Live Stock Badge */}
-                                            <div className="sm:col-span-2 lg:col-span-4">
-                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                    Item Name <span className="text-red-500">*</span>
+                                            <div className="sm:col-span-2 lg:col-span-4" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
+                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                    <span>Item Name <span className="text-red-500">*</span></span>
+                                                    {formErrors[`item_${itemIdx}_item`] && (
+                                                        <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                            {formErrors[`item_${itemIdx}_item`]}
+                                                        </span>
+                                                    )}
                                                 </label>
                                                 <SearchableSelect
                                                     options={
@@ -898,7 +975,11 @@ export default function JobWorkForm({
                                                         fgOptions
                                                     }
                                                     value={sentItem.item || ''}
-                                                    onChange={(val) => handleSentItemChange(itemIdx, 'item', val)}
+                                                    hasError={!!formErrors[`item_${itemIdx}_item`]}
+                                                    onChange={(val) => {
+                                                        handleSentItemChange(itemIdx, 'item', val);
+                                                        if (val) clearError(`item_${itemIdx}_item`);
+                                                    }}
                                                     placeholder="Select Item..."
                                                 />
 
@@ -923,18 +1004,31 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Quantity Sent */}
-                                            <div className="sm:col-span-1 lg:col-span-2">
-                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                    Qty Sent <span className="text-red-500">*</span>
+                                            <div className="sm:col-span-1 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_quantitySent`]}>
+                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                    <span>Qty Sent <span className="text-red-500">*</span></span>
+                                                    {formErrors[`item_${itemIdx}_quantitySent`] && (
+                                                        <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold truncate">
+                                                            {formErrors[`item_${itemIdx}_quantitySent`]}
+                                                        </span>
+                                                    )}
                                                 </label>
                                                 <input
                                                     type="number"
                                                     min="0.01"
                                                     step="any"
                                                     value={sentItem.quantitySent || ''}
-                                                    onChange={(e) => handleSentItemChange(itemIdx, 'quantitySent', Number(e.target.value))}
-                                                    className={`w-full h-9 px-2.5 bg-white dark:bg-slate-900 border rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500/20 outline-none ${
-                                                        isShortage && !isWipToWip ? 'border-red-400 text-red-600 focus:border-red-500' : 'border-slate-200 dark:border-slate-700'
+                                                    onChange={(e) => {
+                                                        const val = Number(e.target.value);
+                                                        handleSentItemChange(itemIdx, 'quantitySent', val);
+                                                        if (val > 0) clearError(`item_${itemIdx}_quantitySent`);
+                                                    }}
+                                                    className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                        formErrors[`item_${itemIdx}_quantitySent`]
+                                                            ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                            : isShortage && !isWipToWip 
+                                                                ? 'border-red-400 text-red-600 focus:border-red-500 bg-white dark:bg-slate-900' 
+                                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20'
                                                     }`}
                                                 />
                                             </div>
@@ -1004,21 +1098,14 @@ export default function JobWorkForm({
                                                                             onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'rm')}
                                                                             className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${retItem.receivedItemType === 'rm' ? 'bg-blue-600 text-white font-bold' : 'text-slate-500'}`}
                                                                         >
-                                                                            RM
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'bo')}
-                                                                            className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${retItem.receivedItemType === 'bo' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-500'}`}
-                                                                        >
-                                                                            BO
+                                                                            🔵 RM
                                                                         </button>
                                                                         <button
                                                                             type="button"
                                                                             onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'fg')}
                                                                             className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${retItem.receivedItemType === 'fg' ? 'bg-purple-600 text-white font-bold' : 'text-slate-500'}`}
                                                                         >
-                                                                            FG
+                                                                            🟣 FG
                                                                         </button>
                                                                     </>
                                                                 ) : (
@@ -1033,9 +1120,14 @@ export default function JobWorkForm({
                                                         </div>
 
                                                         {/* Return Item Selector */}
-                                                        <div className="sm:col-span-5">
-                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                Converted Returning Item
+                                                        <div className="sm:col-span-5" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
+                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                <span>Converted Returning Item <span className="text-red-500">*</span></span>
+                                                                {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
+                                                                    <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                        {formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
+                                                                    </span>
+                                                                )}
                                                             </label>
                                                             <SearchableSelect
                                                                 options={
@@ -1044,23 +1136,40 @@ export default function JobWorkForm({
                                                                     fgOptions
                                                                 }
                                                                 value={retItem.receivedItem || ''}
-                                                                onChange={(val) => handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val)}
+                                                                hasError={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
+                                                                onChange={(val) => {
+                                                                    handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val);
+                                                                    if (val) clearError(`item_${itemIdx}_ret_${retIdx}_item`);
+                                                                }}
                                                                 placeholder="Select Converted Item..."
                                                             />
                                                         </div>
 
                                                         {/* Quantity To Receive */}
-                                                        <div className="sm:col-span-2">
-                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                Return Qty
+                                                        <div className="sm:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
+                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                <span>Return Qty <span className="text-red-500">*</span></span>
+                                                                {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
+                                                                    <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                        Req
+                                                                    </span>
+                                                                )}
                                                             </label>
                                                             <input
                                                                 type="number"
                                                                 min="0.01"
                                                                 step="any"
                                                                 value={retItem.quantityToBeReceived || ''}
-                                                                onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', Number(e.target.value))}
-                                                                className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                onChange={(e) => {
+                                                                    const val = Number(e.target.value);
+                                                                    handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
+                                                                    if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
+                                                                }}
+                                                                className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                                    formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]
+                                                                        ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20'
+                                                                }`}
                                                             />
                                                         </div>
 
