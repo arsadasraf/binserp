@@ -18,6 +18,9 @@ export const getJobWorkQC = asyncHandler(async (req, res) => {
   if (req.query.status) {
     query.overallStatus = req.query.status;
   }
+  if (req.query.jobWorkType) {
+    query.jobWorkType = req.query.jobWorkType;
+  }
   if (req.query.vendorId) {
     query.vendor = req.query.vendorId;
   }

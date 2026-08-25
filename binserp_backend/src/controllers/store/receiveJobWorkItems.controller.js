@@ -125,15 +125,28 @@ export const receiveJobWorkItems = async (req, res) => {
                 "PCS",
                 undefined,
                 {
-                  transactionCategory: "JOB_WORK_RETURN_INWARD",
+                  transactionCategory: "RM_CONVERSION_INWARD",
                   referenceDocType: "GRN",
                   referenceDocId: jobWork._id,
                   referenceDocNumber: generatedGrnNumber,
                   recipientOrSource: vendorName,
-                  purpose: `Job Work Store Return Direct Inward (Challan #${jobWork.challanNumber})`,
+                  purpose: `RM Conversion Direct Inward from ${vendorName} (Challan #${jobWork.challanNumber})`,
                   performedBy: req.user?.id || req.user?._id,
                 }
               );
+
+              const currentDate = new Date();
+              const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+              const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+              try {
+                await RMInventoryMonthly.findOneAndUpdate(
+                  { company: companyId, material: targetItemDoc, month: currentMonthStr },
+                  { $inc: { totalInwardQuantity: directAcceptedQty } },
+                  { new: true, upsert: true }
+                );
+              } catch (mErr) {
+                console.error("Error updating RM monthly inward quantity on JW GRN:", mErr);
+              }
             }
           } else {
             // FG Item Direct Inward

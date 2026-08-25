@@ -12,7 +12,15 @@ export const QualityMasterSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ["Incoming", "Process", "Final"],
+        enum: [
+            "Incoming", 
+            "Process", 
+            "Final", 
+            "JobWork-RM-Conversion", 
+            "JobWork-Store-To-WIP", 
+            "JobWork-WIP-To-WIP", 
+            "JobWork"
+        ],
         required: true
     },
     description: String,
@@ -26,4 +34,4 @@ export const QualityMasterSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "User"
     }
-}, { timestamps: true });
+}, { timestamps: true });

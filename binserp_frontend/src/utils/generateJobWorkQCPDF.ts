@@ -27,6 +27,7 @@ export interface JWQCReportData {
   itemName: string;
   itemCode?: string;
   itemType?: string;
+  jobWorkType?: string;
   processType: string;
   quantitySent?: number;
   receivedQuantity: number;
@@ -145,9 +146,12 @@ export const generateJobWorkQCPDF = (data: JWQCReportData) => {
     doc.text(data.grnNumber || "-", rightX + 30, startY + 9.5);
 
     doc.setFont("helvetica", "bold");
-    doc.text("Process Type:", rightX, startY + 14);
+    doc.text("Process / Bucket:", rightX, startY + 14);
     doc.setFont("helvetica", "normal");
-    doc.text(data.processType || "Job Work Processing", rightX + 30, startY + 14);
+    const dcBucketLabel = data.jobWorkType === "store-conversion" ? "RM CONVERSION" :
+      data.jobWorkType === "store-to-wip" ? "STORE TO WIP" :
+      data.jobWorkType === "wip-to-wip" ? "WIP TO WIP" : (data.processType || "JOB WORK");
+    doc.text(dcBucketLabel, rightX + 30, startY + 14);
 
     doc.setFont("helvetica", "bold");
     doc.text("Item Type / Class:", rightX, startY + 18.5);

@@ -318,12 +318,12 @@ export const createJobWorkChallan = async (req, res) => {
           item.unit || "PCS",
           undefined,
           {
-            transactionCategory: "RETURNABLE_DC_JOB_WORK_OUTWARD",
+            transactionCategory: jobWorkType === "store-conversion" ? "RM_CONVERSION_OUTWARD" : "RETURNABLE_DC_JOB_WORK_OUTWARD",
             referenceDocType: "JobWorkChallan",
             referenceDocId: jobWork._id,
             referenceDocNumber: challanNumber,
             recipientOrSource: vendorName,
-            purpose: item.processType || `Subcontractor Outward Dispatch (${jobWorkType})`,
+            purpose: jobWorkType === "store-conversion" ? `RM Conversion Outward Dispatch to ${vendorName} (Challan #${challanNumber})` : (item.processType || `Subcontractor Outward Dispatch (${jobWorkType})`),
             performedBy: req.user?.id || req.user?._id,
           }
         );

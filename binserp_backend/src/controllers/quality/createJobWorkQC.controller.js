@@ -68,47 +68,14 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
   // Generate unique certificate number
   const certNumber = `JW-SCN/${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-  const jwQCRecord = await JobWorkQC.create({
-    company: companyId,
-    jobWorkChallanId,
-    challanNumber,
-    grnNumber,
-    vendorDcNumber,
-    vendorInvoiceDate,
-    vendor,
-    vendorName: vendorName || "Subcontractor Vendor",
-    itemId,
-    itemName: itemName || "Job Work Item",
-    itemCode,
-    itemType: (itemType || "fg").toLowerCase(),
-    processType: processType || "Conversion / Machining",
-    unit: unit || "PCS",
-    quantitySent: Number(quantitySent) || 0,
-    receivedQuantity: recQtyNum,
-    inspectedQuantity: Number(inspectedQuantity) || recQtyNum,
-    acceptedQuantity: acceptedQtyNum,
-    rejectedQuantity: rejectedQtyNum,
-    reworkQuantity: reworkQtyNum,
-    scrapQuantity: scrapQtyNum,
-    inspectionResults: Array.isArray(inspectionResults) ? inspectionResults : [],
-    overallStatus: overallStatus || (rejectedQtyNum > 0 ? (acceptedQtyNum > 0 ? "Conditional" : "Rejected") : (reworkQtyNum > 0 ? "Rework" : "Accepted")),
-    certificateNumber: certNumber,
-    rejectionReason,
-    defectCategory,
-    dispositionAction: dispositionAction || (rejectedQtyNum > 0 ? "Vendor Rework / Debit Note" : "Store Inward"),
-    inspector: req.user?._id || req.user?.id,
-    remarks
-  });
-
-  // ================= 1. RECONCILE JOB WORK CHALLAN =================
-  let resolvedJobWorkType = jobWorkType;
+  let resolvedJobWorkType = jobWorkType || "store-conversion";
   let resolvedRouteCardRef = null;
 
   if (jobWorkChallanId) {
     try {
       const jwDoc = await JobWorkChallan.findById(jobWorkChallanId);
       if (jwDoc) {
-        resolvedJobWorkType = jwDoc.jobWorkType || jobWorkType;
+        resolvedJobWorkType = jwDoc.jobWorkType || resolvedJobWorkType;
         resolvedRouteCardRef = jwDoc.routeCardRef;
 
         if (Array.isArray(jwDoc.receiveHistory)) {
@@ -137,6 +104,39 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
       console.warn("[createJobWorkQC] Error reconciling JobWorkChallan:", e);
     }
   }
+
+  const jwQCRecord = await JobWorkQC.create({
+    company: companyId,
+    jobWorkChallanId,
+    challanNumber,
+    grnNumber,
+    vendorDcNumber,
+    vendorInvoiceDate,
+    vendor,
+    vendorName: vendorName || "Subcontractor Vendor",
+    itemId,
+    itemName: itemName || "Job Work Item",
+    itemCode,
+    itemType: (itemType || "fg").toLowerCase(),
+    processType: processType || "Conversion / Machining",
+    jobWorkType: resolvedJobWorkType,
+    unit: unit || "PCS",
+    quantitySent: Number(quantitySent) || 0,
+    receivedQuantity: recQtyNum,
+    inspectedQuantity: Number(inspectedQuantity) || recQtyNum,
+    acceptedQuantity: acceptedQtyNum,
+    rejectedQuantity: rejectedQtyNum,
+    reworkQuantity: reworkQtyNum,
+    scrapQuantity: scrapQtyNum,
+    inspectionResults: Array.isArray(inspectionResults) ? inspectionResults : [],
+    overallStatus: overallStatus || (rejectedQtyNum > 0 ? (acceptedQtyNum > 0 ? "Conditional" : "Rejected") : (reworkQtyNum > 0 ? "Rework" : "Accepted")),
+    certificateNumber: certNumber,
+    rejectionReason,
+    defectCategory,
+    dispositionAction: dispositionAction || (rejectedQtyNum > 0 ? "Vendor Rework / Debit Note" : "Store Inward"),
+    inspector: req.user?._id || req.user?.id,
+    remarks
+  });
 
   // ================= 2. SYNCHRONIZE RESPECTIVE STORE / WIP STOCK =================
   if (acceptedQtyNum > 0 && itemId) {
@@ -195,15 +195,28 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
             unit || "PCS",
             undefined,
             {
-              transactionCategory: "JOBWORK_QC_RELEASE_INWARD",
+              transactionCategory: "RM_CONVERSION_INWARD",
               referenceDocType: "JobWorkChallan",
               referenceDocId: jobWorkChallanId,
               referenceDocNumber: challanNumber,
               recipientOrSource: vendorName || "Subcontractor Vendor",
-              purpose: remarks || `Job Work QC Release to RM Store (${processType})`,
+              purpose: remarks || `RM Conversion QC Approved Inward from ${vendorName} (Challan #${challanNumber})`,
               performedBy: req.user?._id || req.user?.id
             }
           );
+
+          const currentDate = new Date();
+          const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+          const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+          try {
+            await RMInventoryMonthly.findOneAndUpdate(
+              { company: companyId, material: itemId, month: currentMonthStr },
+              { $inc: { totalInwardQuantity: acceptedQtyNum } },
+              { new: true, upsert: true }
+            );
+          } catch (mErr) {
+            console.error("Error updating RM monthly inward quantity on JW QC:", mErr);
+          }
         }
       } else if (isWipWorkflow) {
         // Store-to-WIP or WIP-to-WIP

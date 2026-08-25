@@ -22,13 +22,17 @@ import {
   Plus,
   RefreshCw,
   LayoutGrid,
-  ListFilter
+  ListFilter,
+  Factory,
+  Package,
+  Sliders,
+  ShieldCheck
 } from "lucide-react";
 import { generateJobWorkQCPDF, JWQCParameterResult } from "@/src/utils/generateJobWorkQCPDF";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
-interface PendingJWLot {
+export interface PendingJWLot {
   sourceType: string;
   jobWorkChallanId: string;
   receiveHistoryId?: string;
@@ -46,13 +50,14 @@ interface PendingJWLot {
   itemName: string;
   itemType?: string;
   processType: string;
+  jobWorkType?: string;
   quantitySent?: number;
   receivedQuantity: number;
   totalReceivedQuantity: number;
   unit: string;
 }
 
-interface JWQCRecord {
+export interface JWQCRecord {
   _id: string;
   certificateNumber: string;
   challanNumber: string;
@@ -64,6 +69,7 @@ interface JWQCRecord {
   itemCode?: string;
   itemType?: string;
   processType: string;
+  jobWorkType?: string;
   quantitySent?: number;
   receivedQuantity: number;
   inspectedQuantity: number;
@@ -82,10 +88,34 @@ interface JWQCRecord {
   remarks?: string;
 }
 
+const DEFAULT_BUCKET_TESTS: Record<string, JWQCParameterResult[]> = {
+  "store-conversion": [
+    { parameterName: "Visual & Surface Defects", specification: "Free of cracks, seams & pits", tolerance: "No visual defects", actualObserved: "Clean finish", status: "Pass", instrumentUsed: "Visual / Magnifier" },
+    { parameterName: "Material Grade & Chemical Spec", specification: "As per Raw Material Standard", tolerance: "Mill TC Conforms", actualObserved: "Conforms to Grade", status: "Pass", instrumentUsed: "Spectro / Lab Report" },
+    { parameterName: "Cross-Section / Thickness", specification: "Standard conversion dimension", tolerance: "±0.05 mm", actualObserved: "Within tolerance", status: "Pass", instrumentUsed: "Digital Micrometer" },
+    { parameterName: "Hardness Verification", specification: "Specified RM hardness", tolerance: "±2 HRC", actualObserved: "Conforms", status: "Pass", instrumentUsed: "Hardness Tester" }
+  ],
+  "store-to-wip": [
+    { parameterName: "Machining Dimensions (Critical)", specification: "As per component drawing", tolerance: "±0.03 mm", actualObserved: "Within tolerance", status: "Pass", instrumentUsed: "Digital Bore / Height Gauge" },
+    { parameterName: "Concentricity & Runout", specification: "Shaft / Bore concentricity", tolerance: "≤ 0.02 mm", actualObserved: "0.01 mm", status: "Pass", instrumentUsed: "Dial Indicator (DTI)" },
+    { parameterName: "Threading / Pitch Fitment", specification: "Thread gauge inspection", tolerance: "6H / 6g Fit", actualObserved: "Free fit", status: "Pass", instrumentUsed: "Thread Plug / Ring Gauge" },
+    { parameterName: "Burrs, Chamfer & Deburring", specification: "Edge break & burr-free", tolerance: "Burr Free", actualObserved: "Deburred", status: "Pass", instrumentUsed: "Tactile & Visual" }
+  ],
+  "wip-to-wip": [
+    { parameterName: "Coating / Plating Thickness", specification: "Specified plating thickness", tolerance: "10 to 15 µm", actualObserved: "12 µm Uniform", status: "Pass", instrumentUsed: "Thickness Gauge" },
+    { parameterName: "Plating Adhesion & Peel Test", specification: "Cross-hatch tape test", tolerance: "Class 4B/5B", actualObserved: "No peeling / blisters", status: "Pass", instrumentUsed: "Cross-Hatch Cutter" },
+    { parameterName: "Surface Hardness After Treatment", specification: "Heat treatment hardness", tolerance: "58 - 62 HRC", actualObserved: "60 HRC", status: "Pass", instrumentUsed: "Micro-Vickers / Rockwell" },
+    { parameterName: "Visual Color & Uniformity", specification: "Uniform surface shade", tolerance: "No patchiness", actualObserved: "Uniform finish", status: "Pass", instrumentUsed: "Visual Daylight" }
+  ]
+};
+
 export default function JobWorkQC() {
   const [activeSubTab, setActiveSubTab] = useState<"pending" | "history">("pending");
+  const [activeBucket, setActiveBucket] = useState<"all" | "store-conversion" | "store-to-wip" | "wip-to-wip">("all");
+
   const [pendingLots, setPendingLots] = useState<PendingJWLot[]>([]);
   const [historyRecords, setHistoryRecords] = useState<JWQCRecord[]>([]);
+  const [qualityMasters, setQualityMasters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [companyInfo, setCompanyInfo] = useState<any>(null);
 
@@ -101,6 +131,7 @@ export default function JobWorkQC() {
   const [showModal, setShowModal] = useState(false);
   const [selectedLot, setSelectedLot] = useState<PendingJWLot | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
   // Modal Inspection Form
   const [formData, setFormData] = useState({
@@ -114,12 +145,7 @@ export default function JobWorkQC() {
     remarks: ""
   });
 
-  const [paramResults, setParamResults] = useState<JWQCParameterResult[]>([
-    { parameterName: "Visual & Surface Finish", specification: "Free of burrs, peeling & blisters", tolerance: "No visual defects", actualObserved: "Good surface finish", status: "Pass", instrumentUsed: "Visual / Magnifier" },
-    { parameterName: "Critical Process Dimensions", specification: "As per approved drawing", tolerance: "±0.05 mm", actualObserved: "Within tolerance", status: "Pass", instrumentUsed: "Vernier / Micrometer" },
-    { parameterName: "Coating / Plating Thickness", specification: "Specified micron thickness", tolerance: "±2 µm", actualObserved: "Uniform coating", status: "Pass", instrumentUsed: "Thickness Gauge" },
-    { parameterName: "Hardness / Heat Treatment", specification: "Specified hardness standard", tolerance: "±2 HRC", actualObserved: "Conforms", status: "Pass", instrumentUsed: "Hardness Tester" }
-  ]);
+  const [paramResults, setParamResults] = useState<JWQCParameterResult[]>([]);
 
   // Fetch Company Info for PDF
   useEffect(() => {
@@ -138,6 +164,21 @@ export default function JobWorkQC() {
     };
     fetchCompanyInfo();
   }, []);
+
+  // Fetch Quality Masters
+  const fetchQualityMasters = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await axios.get(`${API_BASE_URL}/api/quality/master`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data?.success) {
+        setQualityMasters(res.data.data || []);
+      }
+    } catch (e) {
+      console.warn("Could not fetch quality master templates:", e);
+    }
+  };
 
   // Fetch Pending Lots & QC History
   const fetchAllData = async () => {
@@ -164,9 +205,10 @@ export default function JobWorkQC() {
 
   useEffect(() => {
     fetchAllData();
+    fetchQualityMasters();
   }, []);
 
-  // Compute Unique Vendors for Dropdown
+  // Unique Vendors for Dropdown
   const uniqueVendors = useMemo(() => {
     const vendors = new Set<string>();
     pendingLots.forEach(p => p.vendorName && vendors.add(p.vendorName));
@@ -174,18 +216,54 @@ export default function JobWorkQC() {
     return Array.from(vendors);
   }, [pendingLots, historyRecords]);
 
-  // KPI Calculations
-  const totalPendingUnits = useMemo(() => {
-    return pendingLots.reduce((acc, p) => acc + (Number(p.receivedQuantity) || 0), 0);
+  // Bucket Count Metrics
+  const bucketCounts = useMemo(() => {
+    const isRM = (type?: string) => type === "store-conversion" || type === "inventory-conversion" || !type;
+    const isWIP = (type?: string) => type === "store-to-wip";
+    const isWIPtoWIP = (type?: string) => type === "wip-to-wip";
+
+    const pRM = pendingLots.filter(l => isRM(l.jobWorkType));
+    const pWIP = pendingLots.filter(l => isWIP(l.jobWorkType));
+    const pWIPtoWIP = pendingLots.filter(l => isWIPtoWIP(l.jobWorkType));
+
+    return {
+      all: { count: pendingLots.length, units: pendingLots.reduce((s, l) => s + (Number(l.receivedQuantity) || 0), 0) },
+      "store-conversion": { count: pRM.length, units: pRM.reduce((s, l) => s + (Number(l.receivedQuantity) || 0), 0) },
+      "store-to-wip": { count: pWIP.length, units: pWIP.reduce((s, l) => s + (Number(l.receivedQuantity) || 0), 0) },
+      "wip-to-wip": { count: pWIPtoWIP.length, units: pWIPtoWIP.reduce((s, l) => s + (Number(l.receivedQuantity) || 0), 0) }
+    };
   }, [pendingLots]);
 
+  // Overall KPI Metrics for currently selected bucket
+  const bucketFilteredPending = useMemo(() => {
+    if (activeBucket === "all") return pendingLots;
+    return pendingLots.filter(l => {
+      const type = l.jobWorkType || "store-conversion";
+      if (activeBucket === "store-conversion") return type === "store-conversion" || type === "inventory-conversion";
+      return type === activeBucket;
+    });
+  }, [pendingLots, activeBucket]);
+
+  const bucketFilteredHistory = useMemo(() => {
+    if (activeBucket === "all") return historyRecords;
+    return historyRecords.filter(h => {
+      const type = h.jobWorkType || "store-conversion";
+      if (activeBucket === "store-conversion") return type === "store-conversion" || type === "inventory-conversion";
+      return type === activeBucket;
+    });
+  }, [historyRecords, activeBucket]);
+
+  const totalPendingUnits = useMemo(() => {
+    return bucketFilteredPending.reduce((acc, p) => acc + (Number(p.receivedQuantity) || 0), 0);
+  }, [bucketFilteredPending]);
+
   const totalClearedUnits = useMemo(() => {
-    return historyRecords.reduce((acc, h) => acc + (Number(h.acceptedQuantity) || 0), 0);
-  }, [historyRecords]);
+    return bucketFilteredHistory.reduce((acc, h) => acc + (Number(h.acceptedQuantity) || 0), 0);
+  }, [bucketFilteredHistory]);
 
   const totalRejectedUnits = useMemo(() => {
-    return historyRecords.reduce((acc, h) => acc + (Number(h.rejectedQuantity) || 0), 0);
-  }, [historyRecords]);
+    return bucketFilteredHistory.reduce((acc, h) => acc + (Number(h.rejectedQuantity) || 0), 0);
+  }, [bucketFilteredHistory]);
 
   const passRate = useMemo(() => {
     const total = totalClearedUnits + totalRejectedUnits;
@@ -193,9 +271,10 @@ export default function JobWorkQC() {
     return Math.round((totalClearedUnits / total) * 100);
   }, [totalClearedUnits, totalRejectedUnits]);
 
-  // Open Inspect Modal
+  // Open Inspect Modal with Bucket & Master-Tailored Parameters
   const handleOpenInspect = (lot: PendingJWLot) => {
     setSelectedLot(lot);
+    setSelectedTemplateId("");
     const recQty = Number(lot.receivedQuantity) || 0;
     setFormData({
       acceptedQuantity: recQty,
@@ -207,12 +286,53 @@ export default function JobWorkQC() {
       dispositionAction: "Store Inward",
       remarks: ""
     });
-    setParamResults([
-      { parameterName: "Visual & Surface Finish", specification: "Free of burrs, peeling & blisters", tolerance: "No visual defects", actualObserved: "Good surface finish", status: "Pass", instrumentUsed: "Visual / Magnifier" },
-      { parameterName: `Critical Dimensions (${lot.processType})`, specification: "As per approved drawing", tolerance: "±0.05 mm", actualObserved: "Within tolerance", status: "Pass", instrumentUsed: "Vernier / Micrometer" },
-      { parameterName: "Coating / Hardness Check", specification: "Process specification", tolerance: "Standard", actualObserved: "Conforms", status: "Pass", instrumentUsed: "Inspection Gauge" }
-    ]);
+
+    const lotType = lot.jobWorkType || "store-conversion";
+    const masterTypeKey = lotType === "store-to-wip" ? "JobWork-Store-To-WIP" :
+      lotType === "wip-to-wip" ? "JobWork-WIP-To-WIP" : "JobWork-RM-Conversion";
+
+    // Check if there is a matching Quality Master defined
+    const matchedMaster = qualityMasters.find(m => m.type === masterTypeKey || m.type === "JobWork");
+    if (matchedMaster && Array.isArray(matchedMaster.parameters) && matchedMaster.parameters.length > 0) {
+      setSelectedTemplateId(matchedMaster._id);
+      setParamResults(matchedMaster.parameters.map((p: any) => ({
+        parameterName: p.name,
+        specification: p.method || "Inspection Standard",
+        tolerance: p.tolerance || "Standard",
+        actualObserved: "Conforms",
+        status: "Pass",
+        instrumentUsed: p.method || "Inspection Gauge"
+      })));
+    } else {
+      // Fallback to tailored default preset
+      const defaultTests = DEFAULT_BUCKET_TESTS[lotType] || DEFAULT_BUCKET_TESTS["store-conversion"];
+      setParamResults(defaultTests.map(t => ({ ...t })));
+    }
+
     setShowModal(true);
+  };
+
+  // Handle Quality Master Template Switch in Modal
+  const handleSelectTemplate = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    if (!templateId) {
+      const lotType = selectedLot?.jobWorkType || "store-conversion";
+      const defaultTests = DEFAULT_BUCKET_TESTS[lotType] || DEFAULT_BUCKET_TESTS["store-conversion"];
+      setParamResults(defaultTests.map(t => ({ ...t })));
+      return;
+    }
+
+    const template = qualityMasters.find(m => m._id === templateId);
+    if (template && Array.isArray(template.parameters)) {
+      setParamResults(template.parameters.map((p: any) => ({
+        parameterName: p.name,
+        specification: p.method || template.name,
+        tolerance: p.tolerance || "Standard",
+        actualObserved: "Conforms",
+        status: "Pass",
+        instrumentUsed: p.method || "Gauge"
+      })));
+    }
   };
 
   // Submit QC Inspection
@@ -243,9 +363,9 @@ export default function JobWorkQC() {
         itemId: selectedLot.itemId,
         returningItemId: selectedLot.returningItemId,
         itemName: selectedLot.itemName,
-        itemType: selectedLot.itemType || "fg",
+        itemType: selectedLot.itemType || "rm",
         processType: selectedLot.processType,
-        jobWorkType: (selectedLot as any).jobWorkType || "store-conversion",
+        jobWorkType: selectedLot.jobWorkType || "store-conversion",
         unit: selectedLot.unit || "PCS",
         quantitySent: selectedLot.quantitySent,
         receivedQuantity: recQty,
@@ -277,6 +397,7 @@ export default function JobWorkQC() {
         vendorName: savedRecord.vendorName,
         itemName: savedRecord.itemName,
         itemType: savedRecord.itemType,
+        jobWorkType: savedRecord.jobWorkType,
         processType: savedRecord.processType,
         quantitySent: savedRecord.quantitySent,
         receivedQuantity: recQty,
@@ -301,15 +422,15 @@ export default function JobWorkQC() {
       setActiveSubTab("history");
     } catch (e) {
       console.error("Error submitting Job Work QC:", e);
-      alert("Failed to submit Job Work QC inspection. Please check console.");
+      alert("Failed to submit Job Work QC inspection.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Filter Logic
+  // Filter Logic with Search & Filters
   const filteredPending = useMemo(() => {
-    return pendingLots.filter((lot) => {
+    return bucketFilteredPending.filter((lot) => {
       const q = searchQuery.toLowerCase();
       const matchSearch =
         !q ||
@@ -323,10 +444,10 @@ export default function JobWorkQC() {
 
       return matchSearch && matchVendor;
     });
-  }, [pendingLots, searchQuery, selectedVendor]);
+  }, [bucketFilteredPending, searchQuery, selectedVendor]);
 
   const filteredHistory = useMemo(() => {
-    return historyRecords.filter((rec) => {
+    return bucketFilteredHistory.filter((rec) => {
       const q = searchQuery.toLowerCase();
       const matchSearch =
         !q ||
@@ -369,11 +490,106 @@ export default function JobWorkQC() {
 
       return matchSearch && matchVendor && matchStatus && matchDate;
     });
-  }, [historyRecords, searchQuery, selectedVendor, statusFilter, dateFilter, selectedMonth]);
+  }, [bucketFilteredHistory, searchQuery, selectedVendor, statusFilter, dateFilter, selectedMonth]);
+
+  const getBucketBadge = (jobWorkType?: string) => {
+    if (jobWorkType === "store-to-wip") {
+      return (
+        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+          🔄 Store to WIP
+        </span>
+      );
+    }
+    if (jobWorkType === "wip-to-wip") {
+      return (
+        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+          📦 WIP to WIP
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-100 dark:bg-cyan-950/60 text-cyan-800 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
+        🏭 RM Conversion
+      </span>
+    );
+  };
 
   return (
     <div className="space-y-6">
-      {/* 1. TOP KPI SUMMARY TILES */}
+      {/* 1. THREE RETURNABLE DC BUCKET NAVIGATION SELECTOR */}
+      <div className="bg-white dark:bg-slate-900 p-2 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <button
+              onClick={() => setActiveBucket("all")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                activeBucket === "all"
+                  ? "bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 shadow-xs"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+            >
+              <Layers size={14} />
+              <span>All Returnable DCs</span>
+              <span className="px-1.5 py-0.5 bg-slate-800 dark:bg-slate-200 text-slate-200 dark:text-slate-800 rounded-md text-[10px]">
+                {bucketCounts.all.count}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveBucket("store-conversion")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                activeBucket === "store-conversion"
+                  ? "bg-cyan-600 text-white shadow-xs"
+                  : "text-cyan-700 dark:text-cyan-300 hover:bg-cyan-50 dark:hover:bg-cyan-950/40"
+              }`}
+            >
+              <Factory size={14} />
+              <span>🏭 RM Conversion (RM ➔ RM)</span>
+              <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${activeBucket === "store-conversion" ? "bg-cyan-800 text-cyan-100" : "bg-cyan-100 dark:bg-cyan-900 text-cyan-800 dark:text-cyan-200"}`}>
+                {bucketCounts["store-conversion"].count}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveBucket("store-to-wip")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                activeBucket === "store-to-wip"
+                  ? "bg-amber-600 text-white shadow-xs"
+                  : "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+              }`}
+            >
+              <RotateCcw size={14} />
+              <span>🔄 Store to WIP (MRP WIP)</span>
+              <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${activeBucket === "store-to-wip" ? "bg-amber-800 text-amber-100" : "bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200"}`}>
+                {bucketCounts["store-to-wip"].count}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveBucket("wip-to-wip")}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                activeBucket === "wip-to-wip"
+                  ? "bg-indigo-600 text-white shadow-xs"
+                  : "text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+              }`}
+            >
+              <Package size={14} />
+              <span>📦 WIP to WIP (Treatment)</span>
+              <span className={`px-1.5 py-0.5 rounded-md text-[10px] ${activeBucket === "wip-to-wip" ? "bg-indigo-800 text-indigo-100" : "bg-indigo-100 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200"}`}>
+                {bucketCounts["wip-to-wip"].count}
+              </span>
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <span className="text-[11px] font-bold text-slate-500">
+              Active Bucket: <strong className="text-slate-800 dark:text-slate-200">{activeBucket === "all" ? "All Returnable DCs" : activeBucket.toUpperCase()}</strong>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. TOP KPI SUMMARY TILES */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between">
@@ -384,7 +600,7 @@ export default function JobWorkQC() {
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white">
-              {pendingLots.length}
+              {bucketFilteredPending.length}
             </span>
             <span className="text-xs font-semibold text-slate-400">({totalPendingUnits} units)</span>
           </div>
@@ -436,7 +652,7 @@ export default function JobWorkQC() {
         </div>
       </div>
 
-      {/* 2. SUB-TABS & VIEW SWITCHER */}
+      {/* 3. SUB-TABS & VIEW SWITCHER */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
           <button
@@ -450,7 +666,7 @@ export default function JobWorkQC() {
             <RotateCcw size={15} />
             <span>Pending Return Lots</span>
             <span className="ml-1 px-1.5 py-0.2 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 rounded-full text-[10px]">
-              {pendingLots.length}
+              {bucketFilteredPending.length}
             </span>
           </button>
 
@@ -465,7 +681,7 @@ export default function JobWorkQC() {
             <CheckSquare size={15} />
             <span>JW QC Clearance History</span>
             <span className="ml-1 px-1.5 py-0.2 bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 rounded-full text-[10px]">
-              {historyRecords.length}
+              {bucketFilteredHistory.length}
             </span>
           </button>
         </div>
@@ -503,186 +719,160 @@ export default function JobWorkQC() {
         </div>
       </div>
 
-      {/* 3. FILTER BAR */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {/* Search Box */}
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
-            <input
-              type="text"
-              placeholder="Search Challan, Vendor, Item, Process..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-            />
-          </div>
-
-          {/* Subcontractor / Vendor Filter */}
-          <div className="relative">
-            <select
-              value={selectedVendor}
-              onChange={(e) => setSelectedVendor(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium focus:outline-none"
-            >
-              <option value="all">All Subcontractors / Vendors</option>
-              {uniqueVendors.map((v) => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* QC Status Filter (for History) */}
-          {activeSubTab === "history" && (
-            <div className="relative">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium focus:outline-none"
-              >
-                <option value="all">All QC Statuses</option>
-                <option value="accepted">100% Cleared / Pass</option>
-                <option value="rejected">Has Rejections / Debit</option>
-                <option value="rework">Sent for Vendor Rework</option>
-              </select>
-            </div>
-          )}
-
-          {/* Date Presets (for History) */}
-          {activeSubTab === "history" && (
-            <div className="relative">
-              <select
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-medium focus:outline-none"
-              >
-                <option value="all">All Dates</option>
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <option value="7days">Last 7 Days</option>
-                <option value="thisMonth">This Month</option>
-                <option value="monthWise">Specific Month...</option>
-              </select>
-            </div>
-          )}
+      {/* 4. FILTER CONTROLS */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-2.5 text-slate-400 w-4 h-4" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search Challan, Vendor, Item..."
+            className="w-full pl-9 pr-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500/20 outline-none"
+          />
         </div>
 
-        {/* Specific Month Picker */}
-        {activeSubTab === "history" && dateFilter === "monthWise" && (
-          <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <span className="text-xs font-bold text-slate-500">Pick Month:</span>
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold"
-            />
+        <div>
+          <select
+            value={selectedVendor}
+            onChange={(e) => setSelectedVendor(e.target.value)}
+            className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500/20 outline-none"
+          >
+            <option value="all">All Subcontractors / Vendors</option>
+            {uniqueVendors.map((v, i) => (
+              <option key={i} value={v}>{v}</option>
+            ))}
+          </select>
+        </div>
+
+        {activeSubTab === "history" && (
+          <div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500/20 outline-none"
+            >
+              <option value="all">All Dispositions</option>
+              <option value="accepted">Accepted / Passed</option>
+              <option value="rejected">Rejected / Debit Note</option>
+              <option value="rework">Rework / Conditional</option>
+            </select>
+          </div>
+        )}
+
+        {activeSubTab === "history" && (
+          <div>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-teal-500/20 outline-none"
+            >
+              <option value="all">All Dates</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="thisMonth">This Month</option>
+            </select>
           </div>
         )}
       </div>
 
-      {/* 4. MAIN CONTENT AREA */}
-      {loading ? (
-        <div className="p-12 text-center text-slate-400 font-semibold animate-pulse">
-          Loading Job Work Return QC records...
-        </div>
-      ) : activeSubTab === "pending" ? (
-        // ================= PENDING RETURN LOTS =================
+      {/* 5. CONTENT: PENDING LOTS */}
+      {activeSubTab === "pending" && (
         filteredPending.length === 0 ? (
-          <div className="p-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-center space-y-3">
-            <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 rounded-2xl mx-auto flex items-center justify-center">
-              <CheckCircle2 size={24} />
-            </div>
-            <h3 className="font-bold text-slate-800 dark:text-slate-200">No Pending Job Work Return Lots</h3>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              All subcontractor returned materials have been inspected and cleared to stock.
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center">
+            <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3 opacity-80" />
+            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">
+              No Pending Job Work Return Lots in {activeBucket === "all" ? "Any Bucket" : activeBucket.toUpperCase()}
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              When Returnable DCs are received with QC Required in WIP &gt; Job Work, they appear here for quality inspection.
             </p>
           </div>
         ) : viewMode === "cards" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPending.map((lot, idx) => (
               <div
                 key={`${lot.jobWorkChallanId}_${idx}`}
-                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs hover:border-teal-500/40 transition-all flex flex-col justify-between"
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 sm:p-5 shadow-xs hover:border-teal-300 dark:hover:border-teal-700 transition-all flex flex-col justify-between"
               >
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex justify-between items-start gap-2 mb-2">
                     <div>
-                      <span className="px-2 py-0.5 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold text-[10px] rounded-md uppercase tracking-wider">
-                        JW Inward Lot
-                      </span>
-                      <h4 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white mt-1 line-clamp-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-teal-600 dark:text-teal-400">
+                          {lot.challanNumber}
+                        </span>
+                        {getBucketBadge(lot.jobWorkType)}
+                      </div>
+                      <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
                         {lot.itemName}
                       </h4>
                     </div>
-                    <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-black text-xs rounded-lg">
-                      {lot.receivedQuantity} {lot.unit}
+
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                      Pending QC
                     </span>
                   </div>
 
-                  <div className="space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-                    <div className="flex items-center justify-between">
-                      <span>Subcontractor:</span>
-                      <span className="font-semibold text-slate-700 dark:text-slate-200">{lot.vendorName}</span>
+                  <div className="space-y-1.5 text-xs text-slate-500 my-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                    <div className="flex justify-between">
+                      <span>Vendor:</span>
+                      <strong className="text-slate-700 dark:text-slate-300 truncate max-w-[60%]">{lot.vendorName}</strong>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Outward DC No:</span>
-                      <span className="font-mono font-bold text-teal-600">{lot.challanNumber}</span>
+                    <div className="flex justify-between">
+                      <span>Process:</span>
+                      <strong className="text-slate-700 dark:text-slate-300">{lot.processType}</strong>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Inward Receipt:</span>
-                      <span className="font-mono text-slate-600 dark:text-slate-300">{lot.grnNumber}</span>
+                    <div className="flex justify-between">
+                      <span>Receipt (JWGRN):</span>
+                      <strong className="text-slate-700 dark:text-slate-300 font-mono text-[11px]">{lot.grnNumber}</strong>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span>Process Type:</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                        {lot.processType}
-                      </span>
+                    <div className="flex justify-between">
+                      <span>Received Qty:</span>
+                      <strong className="text-teal-600 text-sm font-black">{lot.receivedQuantity} {lot.unit}</strong>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                  <span className="text-[11px] text-slate-400">
-                    {new Date(lot.date).toLocaleDateString("en-IN")}
-                  </span>
-                  <button
-                    onClick={() => handleOpenInspect(lot)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
-                  >
-                    <span>Inspect Lot</span>
-                    <ArrowRight size={13} />
-                  </button>
-                </div>
+                <button
+                  onClick={() => handleOpenInspect(lot)}
+                  className="w-full py-2 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <CheckSquare size={14} />
+                  <span>Inspect & Release Lot</span>
+                </button>
               </div>
             ))}
           </div>
         ) : (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="p-3.5">Outward DC No</th>
+                    <th className="p-3.5">Bucket Type</th>
+                    <th className="p-3.5">Challan #</th>
                     <th className="p-3.5">Subcontractor</th>
                     <th className="p-3.5">Item Name</th>
                     <th className="p-3.5">Process</th>
-                    <th className="p-3.5 text-center">Qty to Inspect</th>
+                    <th className="p-3.5 text-center">Received Qty</th>
                     <th className="p-3.5 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredPending.map((lot, idx) => (
                     <tr key={`${lot.jobWorkChallanId}_${idx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                      <td className="p-3.5">{getBucketBadge(lot.jobWorkType)}</td>
                       <td className="p-3.5 font-mono font-bold text-teal-600">{lot.challanNumber}</td>
                       <td className="p-3.5 font-medium">{lot.vendorName}</td>
                       <td className="p-3.5 font-bold text-slate-900 dark:text-white">{lot.itemName}</td>
                       <td className="p-3.5 font-semibold text-slate-600">{lot.processType}</td>
-                      <td className="p-3.5 text-center font-bold">{lot.receivedQuantity} {lot.unit}</td>
+                      <td className="p-3.5 text-center font-bold text-teal-600">{lot.receivedQuantity} {lot.unit}</td>
                       <td className="p-3.5 text-right">
                         <button
                           onClick={() => handleOpenInspect(lot)}
-                          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold text-xs"
+                          className="px-3 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold text-xs"
                         >
                           Inspect
                         </button>
@@ -694,124 +884,29 @@ export default function JobWorkQC() {
             </div>
           </div>
         )
-      ) : (
-        // ================= HISTORY VIEW =================
+      )}
+
+      {/* 6. CONTENT: HISTORY RECORDS */}
+      {activeSubTab === "history" && (
         filteredHistory.length === 0 ? (
-          <div className="p-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 text-center space-y-3">
-            <h3 className="font-bold text-slate-800 dark:text-slate-200">No Job Work QC History Found</h3>
-            <p className="text-xs text-slate-400">Try adjusting your filters or inspection search terms.</p>
-          </div>
-        ) : viewMode === "cards" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {filteredHistory.map((rec) => {
-              const isPass = rec.overallStatus === "Accepted";
-              const isFail = rec.overallStatus === "Rejected";
-
-              return (
-                <div
-                  key={rec._id}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs flex flex-col justify-between"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span
-                          className={`px-2 py-0.5 font-bold text-[10px] rounded-md uppercase tracking-wider ${
-                            isPass
-                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-                              : isFail
-                              ? "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
-                              : "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                          }`}
-                        >
-                          {rec.overallStatus}
-                        </span>
-                        <h4 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white mt-1 line-clamp-1">
-                          {rec.itemName}
-                        </h4>
-                      </div>
-                      <span className="font-mono text-[11px] font-bold text-teal-600 bg-teal-50 dark:bg-teal-950 px-2 py-0.5 rounded">
-                        {rec.certificateNumber || "JW-SCN"}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
-                      <div className="flex items-center justify-between">
-                        <span>Vendor:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">{rec.vendorName}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Challan No:</span>
-                        <span className="font-mono font-semibold">{rec.challanNumber}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Process:</span>
-                        <span className="font-semibold text-slate-700 dark:text-slate-200">{rec.processType}</span>
-                      </div>
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
-                        <span>Accepted: <b className="text-emerald-600">{rec.acceptedQuantity}</b></span>
-                        <span>Rejected: <b className="text-red-500">{rec.rejectedQuantity}</b></span>
-                        <span>Rework: <b className="text-amber-500">{rec.reworkQuantity || 0}</b></span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-[11px] text-slate-400">
-                      {new Date(rec.createdAt).toLocaleDateString("en-IN")}
-                    </span>
-                    <button
-                      onClick={() =>
-                        generateJobWorkQCPDF({
-                          certificateNumber: rec.certificateNumber,
-                          inspectionDate: rec.createdAt,
-                          challanNumber: rec.challanNumber,
-                          grnNumber: rec.grnNumber,
-                          vendorDcNumber: rec.vendorDcNumber,
-                          vendorName: rec.vendorName,
-                          vendorCode: rec.vendor?.code,
-                          vendorGst: rec.vendor?.gstin,
-                          itemName: rec.itemName,
-                          itemType: rec.itemType,
-                          processType: rec.processType,
-                          quantitySent: rec.quantitySent,
-                          receivedQuantity: rec.receivedQuantity,
-                          inspectedQuantity: rec.inspectedQuantity,
-                          acceptedQuantity: rec.acceptedQuantity,
-                          rejectedQuantity: rec.rejectedQuantity,
-                          reworkQuantity: rec.reworkQuantity,
-                          scrapQuantity: rec.scrapQuantity,
-                          unit: rec.unit,
-                          inspectionResults: rec.inspectionResults,
-                          overallStatus: rec.overallStatus,
-                          rejectionReason: rec.rejectionReason,
-                          defectCategory: rec.defectCategory,
-                          dispositionAction: rec.dispositionAction,
-                          remarks: rec.remarks,
-                          companyInfo
-                        })
-                      }
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all"
-                    >
-                      <Download size={13} />
-                      <span>JW-SCN PDF</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-12 text-center">
+            <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3 opacity-60" />
+            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">No Clearance History in this Bucket</h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Completed quality inspection notes and certificates will appear here.
+            </p>
           </div>
         ) : (
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                   <tr>
+                    <th className="p-3.5">Bucket Type</th>
                     <th className="p-3.5">Cert No</th>
                     <th className="p-3.5">Challan No</th>
                     <th className="p-3.5">Subcontractor</th>
                     <th className="p-3.5">Item Name</th>
-                    <th className="p-3.5">Process</th>
                     <th className="p-3.5 text-center">Accepted</th>
                     <th className="p-3.5 text-center">Rejected</th>
                     <th className="p-3.5 text-center">Status</th>
@@ -821,15 +916,19 @@ export default function JobWorkQC() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredHistory.map((rec) => (
                     <tr key={rec._id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                      <td className="p-3.5">{getBucketBadge(rec.jobWorkType)}</td>
                       <td className="p-3.5 font-mono font-bold text-teal-600">{rec.certificateNumber}</td>
                       <td className="p-3.5 font-mono">{rec.challanNumber}</td>
                       <td className="p-3.5 font-medium">{rec.vendorName}</td>
                       <td className="p-3.5 font-bold text-slate-900 dark:text-white">{rec.itemName}</td>
-                      <td className="p-3.5 font-semibold text-slate-600">{rec.processType}</td>
                       <td className="p-3.5 text-center font-bold text-emerald-600">{rec.acceptedQuantity}</td>
                       <td className="p-3.5 text-center font-bold text-red-500">{rec.rejectedQuantity}</td>
                       <td className="p-3.5 text-center">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 dark:bg-slate-800">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          rec.overallStatus === "Accepted" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" :
+                          rec.overallStatus === "Rejected" ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300" :
+                          "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                        }`}>
                           {rec.overallStatus}
                         </span>
                       </td>
@@ -845,6 +944,7 @@ export default function JobWorkQC() {
                               vendorName: rec.vendorName,
                               itemName: rec.itemName,
                               itemType: rec.itemType,
+                              jobWorkType: rec.jobWorkType,
                               processType: rec.processType,
                               quantitySent: rec.quantitySent,
                               receivedQuantity: rec.receivedQuantity,
@@ -858,7 +958,8 @@ export default function JobWorkQC() {
                               companyInfo
                             })
                           }
-                          className="p-1.5 text-slate-500 hover:text-teal-600"
+                          className="p-1.5 text-slate-500 hover:text-teal-600 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                          title="Download JW-SCN Certificate PDF"
                         >
                           <Download size={15} />
                         </button>
@@ -872,33 +973,60 @@ export default function JobWorkQC() {
         )
       )}
 
-      {/* 5. INSPECTION & DISPOSITION MODAL */}
+      {/* 7. INSPECTION & DISPOSITION MODAL */}
       {showModal && selectedLot && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-200 overflow-hidden">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/60 dark:bg-slate-800/40">
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-800/40">
               <div>
-                <span className="px-2 py-0.5 bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 font-bold text-[10px] rounded uppercase">
-                  Subcontractor Inward QC
-                </span>
+                <div className="flex items-center gap-2">
+                  {getBucketBadge(selectedLot.jobWorkType)}
+                  <span className="text-[11px] font-mono font-bold text-slate-400">
+                    GRN: {selectedLot.grnNumber}
+                  </span>
+                </div>
                 <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1">
                   Inspect: {selectedLot.itemName}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Vendor: <b>{selectedLot.vendorName}</b> | DC: <b>{selectedLot.challanNumber}</b> | Process: <b>{selectedLot.processType}</b>
+                  Vendor: <b>{selectedLot.vendorName}</b> • Challan: <b>{selectedLot.challanNumber}</b>
                 </p>
               </div>
               <button
                 onClick={() => setShowModal(false)}
-                className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-full"
+                className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-white"
               >
                 ✕
               </button>
             </div>
 
             {/* Modal Body */}
-            <form onSubmit={handleSubmitQC} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs sm:text-sm">
+            <form onSubmit={handleSubmitQC} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs sm:text-sm">
+              
+              {/* Quality Standard Template Selector */}
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Sliders size={13} className="text-teal-600" />
+                    Quality Master Template
+                  </label>
+                  <span className="text-[10px] text-slate-400">Derived from Quality Master</span>
+                </div>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => handleSelectTemplate(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-teal-500/20 outline-none"
+                >
+                  <option value="">-- Tailored Bucket Preset Defaults --</option>
+                  {qualityMasters.map((m) => (
+                    <option key={m._id} value={m._id}>
+                      {m.name} ({m.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Quantity Stepper Breakdown */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700">
                 <div>
@@ -975,7 +1103,7 @@ export default function JobWorkQC() {
                 <div className="p-3 bg-red-50/60 dark:bg-red-950/30 rounded-2xl border border-red-200 dark:border-red-800 space-y-2.5">
                   <div className="flex items-center gap-1.5 text-red-600 font-bold text-xs">
                     <AlertTriangle size={14} />
-                    <span>Rejection Analysis & Vendor Debit Instruction</span>
+                    <span>Rejection Analysis & Vendor Action</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
@@ -983,13 +1111,14 @@ export default function JobWorkQC() {
                       <select
                         value={formData.defectCategory}
                         onChange={(e) => setFormData({ ...formData, defectCategory: e.target.value })}
-                        className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 rounded-xl text-xs"
+                        className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 rounded-xl text-xs font-semibold"
                       >
                         <option value="Dimensional Deviation">Dimensional Out of Tolerance</option>
                         <option value="Plating / Coating Blister">Plating Peeling / Blister</option>
                         <option value="Under-thickness">Coating Under-thickness</option>
                         <option value="Burrs & Dents">Burrs, Dents & Surface Scratches</option>
                         <option value="Heat Treatment Crack">Hardness / Quenching Crack</option>
+                        <option value="Material Grade Mismatch">Material Grade / Chemical Mismatch</option>
                         <option value="Over-machined">Over-machined (Total Scrap)</option>
                       </select>
                     </div>
@@ -998,7 +1127,7 @@ export default function JobWorkQC() {
                       <select
                         value={formData.dispositionAction}
                         onChange={(e) => setFormData({ ...formData, dispositionAction: e.target.value })}
-                        className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 rounded-xl text-xs"
+                        className="w-full mt-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-red-300 dark:border-red-800 rounded-xl text-xs font-semibold"
                       >
                         <option value="Vendor Debit Note">Debit Note on Vendor</option>
                         <option value="Vendor Free Rework">Return to Vendor for Free Rework</option>
@@ -1010,17 +1139,18 @@ export default function JobWorkQC() {
                 </div>
               )}
 
-              {/* Process Test Checklist Table */}
+              {/* Bucket Tailored Test Parameters Checklist Table */}
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Process Quality Test Parameters Checklist
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>Tailored QC Inspection Checklist ({paramResults.length} parameters)</span>
+                  <span className="text-[10px] font-normal text-slate-400">Tuned for {selectedLot.jobWorkType || "RM Conversion"}</span>
                 </label>
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold text-slate-500">
                       <tr>
-                        <th className="p-2.5">Parameter</th>
-                        <th className="p-2.5">Observed Value</th>
+                        <th className="p-2.5">Parameter Name</th>
+                        <th className="p-2.5">Observed Result</th>
                         <th className="p-2.5 text-center">Status</th>
                       </tr>
                     </thead>
@@ -1028,7 +1158,10 @@ export default function JobWorkQC() {
                       {paramResults.map((param, idx) => (
                         <tr key={idx}>
                           <td className="p-2.5 font-bold text-slate-800 dark:text-slate-200">
-                            {param.parameterName}
+                            <div>{param.parameterName}</div>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {param.specification} ({param.tolerance})
+                            </span>
                           </td>
                           <td className="p-2.5">
                             <input
@@ -1039,7 +1172,7 @@ export default function JobWorkQC() {
                                 newParams[idx].actualObserved = e.target.value;
                                 setParamResults(newParams);
                               }}
-                              className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                              className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-medium"
                             />
                           </td>
                           <td className="p-2.5 text-center">
@@ -1074,7 +1207,7 @@ export default function JobWorkQC() {
                   rows={2}
                   value={formData.remarks}
                   onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                  placeholder="e.g. Dimensions verified with digital micrometer; coating thickness conforms to standard..."
+                  placeholder="e.g. Verified dimensions and specifications; stock approved for inward release..."
                   className="w-full mt-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs"
                 />
               </div>

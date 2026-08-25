@@ -48,6 +48,12 @@ export const JobWorkQCSchema = new mongoose.Schema({
     type: String,
     default: "Job Work Processing"
   },
+  jobWorkType: {
+    type: String,
+    enum: ["store-conversion", "store-to-wip", "wip-to-wip", "route-card", "inventory-conversion"],
+    default: "store-conversion",
+    index: true
+  },
   unit: {
     type: String,
     default: "PCS"

@@ -97,7 +97,7 @@ export default function JobWorkForm({
                     {
                         receivedItem: '',
                         receivedItemName: '',
-                        receivedItemType: 'fg',
+                        receivedItemType: 'rm',
                         quantityToBeReceived: 1,
                         receivingUnit: 'PCS'
                     }
@@ -295,7 +295,7 @@ export default function JobWorkForm({
                             {
                                 receivedItem: '',
                                 receivedItemName: '',
-                                receivedItemType: 'fg',
+                                receivedItemType: 'rm',
                                 quantityToBeReceived: 1,
                                 receivingUnit: 'PCS'
                             }
@@ -317,9 +317,9 @@ export default function JobWorkForm({
             }
 
             const updatedRetItems = (item.returningItems || []).map(r => {
-                let retType = r.receivedItemType || 'fg';
+                let retType = r.receivedItemType || 'rm';
                 if (type === 'store-conversion') {
-                    if (retType === 'bo') retType = 'fg'; // Remove BO from conversion return
+                    retType = 'rm'; // Strictly RM Conversion
                 } else {
                     retType = 'fg';
                 }
@@ -430,7 +430,8 @@ export default function JobWorkForm({
 
     // Add / Remove Sent Material Lines
     const addSentItemRow = () => {
-        const defaultType = formData.jobWorkType === 'wip-to-wip' ? 'fg' : 'rm';
+        const defaultSentType = formData.jobWorkType === 'wip-to-wip' ? 'fg' : 'rm';
+        const defaultRetType = formData.jobWorkType === 'store-conversion' ? 'rm' : 'fg';
         setFormData({
             ...formData,
             items: [
@@ -438,7 +439,7 @@ export default function JobWorkForm({
                 {
                     item: '',
                     itemName: '',
-                    itemType: defaultType,
+                    itemType: defaultSentType,
                     quantitySent: 1,
                     unit: 'PCS',
                     processType: 'Machining',
@@ -448,7 +449,7 @@ export default function JobWorkForm({
                         {
                             receivedItem: '',
                             receivedItemName: '',
-                            receivedItemType: 'fg',
+                            receivedItemType: defaultRetType,
                             quantityToBeReceived: 1,
                             receivingUnit: 'PCS'
                         }
@@ -468,12 +469,13 @@ export default function JobWorkForm({
     const addReturningItemSubRow = (itemIdx: number) => {
         const newItems = [...formData.items];
         const currentSent = { ...newItems[itemIdx] };
+        const defaultRetType = formData.jobWorkType === 'store-conversion' ? 'rm' : 'fg';
         currentSent.returningItems = [
             ...currentSent.returningItems,
             {
                 receivedItem: '',
                 receivedItemName: '',
-                receivedItemType: 'fg',
+                receivedItemType: defaultRetType,
                 quantityToBeReceived: 1,
                 receivingUnit: currentSent.unit || 'PCS'
             }
@@ -715,7 +717,7 @@ export default function JobWorkForm({
                             }`}
                         >
                             <span>🏭 RM Conversion</span>
-                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM ➔ Store RM/FG)</span>
+                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM ➔ RM Conversion)</span>
                         </button>
 
                         <button
@@ -1098,22 +1100,12 @@ export default function JobWorkForm({
                                                             </label>
                                                             <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
                                                                 {isStoreConversion ? (
-                                                                    <>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'rm')}
-                                                                            className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${retItem.receivedItemType === 'rm' ? 'bg-blue-600 text-white font-bold' : 'text-slate-500'}`}
-                                                                        >
-                                                                            🔵 RM
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleReturningItemChange(itemIdx, retIdx, 'receivedItemType', 'fg')}
-                                                                            className={`flex-1 py-1 rounded-md transition-all cursor-pointer ${retItem.receivedItemType === 'fg' ? 'bg-purple-600 text-white font-bold' : 'text-slate-500'}`}
-                                                                        >
-                                                                            🟣 FG
-                                                                        </button>
-                                                                    </>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center"
+                                                                    >
+                                                                        🔵 RM (Raw Material)
+                                                                    </button>
                                                                 ) : (
                                                                     <button
                                                                         type="button"
