@@ -69,9 +69,10 @@ export const storeService = binsApi.injectEndpoints({
       invalidatesTags: (_result, _error, { tab }) => {
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
-        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn") {
+        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
           if (!tags.includes("StoreGrn")) tags.push("StoreGrn");
+          if (!tags.includes("StoreDc")) tags.push("StoreDc");
         }
         return tags;
       },
@@ -91,9 +92,10 @@ export const storeService = binsApi.injectEndpoints({
       invalidatesTags: (_result, _error, { tab }) => {
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
-        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn") {
+        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
           if (!tags.includes("StoreGrn")) tags.push("StoreGrn");
+          if (!tags.includes("StoreDc")) tags.push("StoreDc");
         }
         return tags;
       },
@@ -108,7 +110,11 @@ export const storeService = binsApi.injectEndpoints({
       },
       invalidatesTags: (_result, _error, { tab }) => {
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
-        return endpoint ? [endpoint.tag as any] : [];
+        const tags = endpoint ? [endpoint.tag as any] : [];
+        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc") {
+          if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+        }
+        return tags;
       },
     }),
     createStoreDispatch: builder.mutation<any, { orderId: string; body: any }>({

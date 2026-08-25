@@ -49,7 +49,18 @@ export const getAllCustomers = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const customers = await Customer.find({ company: companyId }).sort({ name: 1 });
-    res.status(200).json({ customers, count: customers.length });
+
+    const enriched = customers.map(c => {
+      const cObj = c.toObject ? c.toObject() : { ...c };
+      return {
+        ...cObj,
+        status: cObj.status || (cObj.isActive === false ? 'Inactive' : 'Active'),
+        isActive: cObj.isActive !== false && cObj.status !== 'Inactive' && cObj.status !== 'Deactivated',
+        hasTransactions: Boolean(cObj.hasTransactions)
+      };
+    });
+
+    res.status(200).json({ customers: enriched, count: enriched.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

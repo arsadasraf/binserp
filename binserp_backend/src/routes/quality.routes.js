@@ -11,8 +11,14 @@ import {
     updateIncomingQC,
     createProcessQC,
     getProcessQC,
-    getQualityStats,
-    getPendingProcessQCJobs
+    getPendingProcessQCJobs,
+    createFGQC,
+    getFGQC,
+    getPendingFGQCJobs,
+    createJobWorkQC,
+    getJobWorkQC,
+    getPendingJobWorkQC,
+    getQualityStats
 } from "../controllers/quality/index.js";
 
 const router = Router();
@@ -24,7 +30,7 @@ router.use(resolveTenant);
 // Dashboard Stats
 router.get("/stats", getQualityStats);
 
-// Master (Standards)
+// 1. Master (Standards & Parameters)
 router.route("/master")
     .get(getQualityMasters)
     .post(createQualityMaster);
@@ -33,7 +39,7 @@ router.route("/master/:id")
     .put(updateQualityMaster)
     .delete(deleteQualityMaster);
 
-// Incoming QC
+// 2. Incoming Material QC
 router.route("/incoming")
     .get(getIncomingQC)
     .post(createIncomingQC);
@@ -41,10 +47,22 @@ router.route("/incoming")
 router.route("/incoming/:id")
     .put(updateIncomingQC);
 
-// Process QC
-router.get("/process/pending", getPendingProcessQCJobs); // New
+// 3. Process QC (Routing Steps)
+router.get("/process/pending", getPendingProcessQCJobs);
 router.route("/process")
     .get(getProcessQC)
     .post(createProcessQC);
+
+// 4. Job Work Return QC (Subcontractor Inward)
+router.get("/jobwork/pending", getPendingJobWorkQC);
+router.route("/jobwork")
+    .get(getJobWorkQC)
+    .post(createJobWorkQC);
+
+// 5. Finished Goods (FG) QC & PDI
+router.get("/fg/pending", getPendingFGQCJobs);
+router.route("/fg")
+    .get(getFGQC)
+    .post(createFGQC);
 
 export default router;

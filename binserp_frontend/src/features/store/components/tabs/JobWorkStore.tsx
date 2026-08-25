@@ -586,10 +586,20 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                                         <Eye size={14} /> Preview
                                     </button>
                                     {challan.status !== 'Partial' && challan.status !== 'Closed' && (
-                                        <>
-                                            <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors">Edit</button>
-                                            <button onClick={() => handleDelete(challan._id)} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
-                                        </>
+                                        (() => {
+                                            const createdAtTime = (challan as any).createdAt ? new Date((challan as any).createdAt).getTime() : 0;
+                                            const isWithinTwoHours = createdAtTime ? (Date.now() - createdAtTime) <= (2 * 60 * 60 * 1000) : true;
+
+                                            if (isWithinTwoHours) {
+                                                return (
+                                                    <>
+                                                        <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors">Edit</button>
+                                                        <button onClick={() => handleDelete(challan._id)} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
+                                                    </>
+                                                );
+                                            }
+                                            return null;
+                                        })()
                                     )}
                                     <button onClick={() => exportChallanToPDF(challan)} className="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1" title="Download PDF"><FileText size={15}/></button>
                                     <button onClick={() => exportChallanToExcel(challan)} className="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors flex items-center gap-1" title="Download Excel"><FileSpreadsheet size={15}/></button>

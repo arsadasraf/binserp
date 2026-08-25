@@ -30,6 +30,15 @@ export const consumableItemSchema = new mongoose.Schema(
         '{PATH} exceeds the limit of 2'
       ]
     },
+    status: {
+      type: String,
+      enum: ['Active', 'Inactive', 'Deactivated'],
+      default: 'Active',
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

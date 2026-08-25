@@ -59,6 +59,17 @@ export default function DCModal({
     const [discount, setDiscount] = useState(0);
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    const clearError = (key: string) => {
+        setFormErrors(prev => {
+            if (!prev[key]) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    };
+
     const [items, setItems] = useState<DCItemEntry[]>([{
         itemType: 'fg',
         fgItem: "",
@@ -298,49 +309,50 @@ export default function DCModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
+        const errors: Record<string, string> = {};
+
+        if (!customer) {
+            errors.customer = 'Customer is required';
+        }
+
+        if (!date) {
+            errors.date = 'Challan date is required';
+        }
+
         // Strict Validation for FG item selection and Inventory Stock
-        for (const item of items) {
+        items.forEach((item, index) => {
             const fgId = item.fgItem || item.material || item.component;
             if (!fgId) {
-                Swal.fire({
-                    icon: 'warning',
-                    title: 'FG Item Required',
-                    text: 'Please select a Finished Goods (FG) item for all lines in the Delivery Challan.',
-                    confirmButtonColor: '#3b82f6'
-                });
+                errors[`item_${index}_fg`] = 'Finished Good (FG) item is required';
                 return;
             }
 
             const fg = (availableFGItems || []).find((f: any) => (f._id || f.id) === fgId);
             const stock = fg ? Number(fg.quantity || 0) : 0;
             if (!fg || stock <= 0) {
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Zero Inventory Stock',
-                    text: `Cannot create Delivery Challan. Item '${item.materialName || fg?.name || 'Selected Item'}' has 0 available inventory stock.`,
-                    confirmButtonColor: '#d33'
-                });
-                return;
+                errors[`item_${index}_quantity`] = `Out of stock (Avail: 0)`;
+            } else if (Number(item.quantity) > stock) {
+                errors[`item_${index}_quantity`] = `Exceeds stock (Avail: ${stock})`;
+            } else if (Number(item.quantity) <= 0) {
+                errors[`item_${index}_quantity`] = 'Dispatch qty must be > 0';
             }
-            if (Number(item.quantity) > stock) {
-                Swal.fire({
-                    icon: 'error',
-                    title: 'Insufficient Inventory Stock',
-                    text: `Dispatch quantity (${item.quantity} PCS) exceeds available FG inventory stock (${stock} PCS) for '${item.materialName || fg.name}'.`,
-                    confirmButtonColor: '#d33'
-                });
-                return;
+        });
+
+        if (Object.keys(errors).length > 0) {
+            setFormErrors(errors);
+            const targetForm = e.currentTarget as HTMLElement;
+            if (targetForm) {
+                setTimeout(() => {
+                    const firstInvalid = targetForm.querySelector('[data-has-error="true"]');
+                    if (firstInvalid) {
+                        firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }, 50);
             }
-            if (Number(item.quantity) <= 0) {
-                Swal.fire({
-                    icon: 'warning',
-                    title: 'Invalid Quantity',
-                    text: `Please enter a valid dispatch quantity greater than 0 for '${item.materialName || 'item'}'.`,
-                    confirmButtonColor: '#3b82f6'
-                });
-                return;
-            }
+            return;
         }
+
+        setFormErrors({});
 
         const payloadItems = items.map(entry => {
             const itemPayload: any = {
@@ -442,6 +454,21 @@ export default function DCModal({
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     <form id="dc-form" onSubmit={handleSubmit} className="space-y-6">
                         
+                        {/* Visual Error Summary Alert Banner */}
+                        {Object.keys(formErrors).length > 0 && (
+                            <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-xl flex items-center justify-between gap-2.5 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-2xs">
+                                <div className="flex items-center gap-2">
+                                    <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                                    <span className="text-xs font-bold">
+                                        Please fill in the highlighted compulsory field{Object.keys(formErrors).length > 1 ? 's' : ''} before creating Delivery Challan.
+                                    </span>
+                                </div>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                                    {Object.keys(formErrors).length} required
+                                </span>
+                            </div>
+                        )}
+
                         {/* Header Details Card */}
                         <div className="bg-slate-50/70 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-4">
                             <div className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
@@ -460,23 +487,39 @@ export default function DCModal({
                                     />
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Date *</label>
+                                <div className="space-y-1" data-has-error={!!formErrors.date}>
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                                        <span>Date <span className="text-red-500">*</span></span>
+                                        {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.date}</span>}
+                                    </label>
                                     <input
                                         type="date"
-                                        required
                                         value={date}
-                                        onChange={(e) => setDate(e.target.value)}
-                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white"
+                                        onChange={(e) => {
+                                            setDate(e.target.value);
+                                            if (e.target.value) clearError('date');
+                                        }}
+                                        className={`w-full px-3 py-2 border rounded-xl text-xs outline-none transition-all ${
+                                            formErrors.date
+                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white'
+                                        }`}
                                     />
                                 </div>
 
-                                <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Customer *</label>
+                                <div className="space-y-1" data-has-error={!!formErrors.customer}>
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                                        <span>Customer <span className="text-red-500">*</span></span>
+                                        {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
+                                    </label>
                                     <SearchableSelect
                                         options={customers.map((c) => ({ value: c._id || (c as any).id, label: c.name || (c as any).customerName || '' }))}
                                         value={customer || ""}
-                                        onChange={(val: any) => handleCustomerChange(val)}
+                                        hasError={!!formErrors.customer}
+                                        onChange={(val: any) => {
+                                            handleCustomerChange(val);
+                                            if (val) clearError('customer');
+                                        }}
                                         placeholder="Select Customer"
                                     />
                                 </div>
@@ -603,16 +646,27 @@ export default function DCModal({
 
                                         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                                             {/* Finished Goods Item Selector */}
-                                            <div className="md:col-span-4 space-y-2">
-                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                                                    <Package size={13} className="text-blue-600" />
-                                                    <span>Finished Good (FG) Item *</span>
+                                            <div className="md:col-span-4 space-y-2" data-has-error={!!formErrors[`item_${index}_fg`]}>
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                                                    <span className="flex items-center gap-1.5">
+                                                        <Package size={13} className="text-blue-600" />
+                                                        <span>Finished Good (FG) Item <span className="text-red-500">*</span></span>
+                                                    </span>
+                                                    {formErrors[`item_${index}_fg`] && (
+                                                        <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold lowercase">
+                                                            {formErrors[`item_${index}_fg`]}
+                                                        </span>
+                                                    )}
                                                 </label>
 
                                                 <SearchableSelect
                                                     options={fgOptions}
                                                     value={entry.fgItem || entry.component || ''}
-                                                    onChange={(val: any) => handleFGSelection(index, val)}
+                                                    hasError={!!formErrors[`item_${index}_fg`]}
+                                                    onChange={(val: any) => {
+                                                        handleFGSelection(index, val);
+                                                        if (val) clearError(`item_${index}_fg`);
+                                                    }}
                                                     placeholder="Select Finished Good"
                                                 />
                                                 {(() => {
@@ -628,7 +682,7 @@ export default function DCModal({
                                                     return (
                                                         <div className="mt-1">
                                                             {stock <= 0 ? (
-                                                                <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
+                                                                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
                                                                     <AlertTriangle size={12} className="text-rose-600" /> Out of Stock (0 {fg.unit || 'PCS'}) — Dispatch Blocked
                                                                 </span>
                                                             ) : isOverStock ? (
@@ -665,15 +719,30 @@ export default function DCModal({
 
                                             {/* Qty & Unit */}
                                             <div className="md:col-span-2 flex gap-2">
-                                                <div className="flex-1">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Qty</label>
+                                                <div className="flex-1" data-has-error={!!formErrors[`item_${index}_quantity`]}>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1 flex items-center justify-between">
+                                                        <span>Qty <span className="text-red-500">*</span></span>
+                                                        {formErrors[`item_${index}_quantity`] && (
+                                                            <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                Req
+                                                            </span>
+                                                        )}
+                                                    </label>
                                                     <input
                                                         type="number"
                                                         min="0.01"
                                                         step="0.01"
                                                         value={entry.quantity || ''}
-                                                        onChange={e => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white font-medium"
+                                                        onChange={e => {
+                                                            const val = parseFloat(e.target.value) || 0;
+                                                            updateItem(index, 'quantity', val);
+                                                            if (val > 0) clearError(`item_${index}_quantity`);
+                                                        }}
+                                                        className={`w-full px-3 py-2 border rounded-xl text-sm font-medium outline-none transition-all ${
+                                                            formErrors[`item_${index}_quantity`]
+                                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white'
+                                                        }`}
                                                     />
                                                 </div>
                                                 <div className="w-16">

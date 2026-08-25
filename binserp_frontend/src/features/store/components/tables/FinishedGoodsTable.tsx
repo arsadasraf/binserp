@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useState } from 'react';
+import React from 'react';
 import DataTable, { ColumnDef } from '@/src/components/ui/DataTable';
-import { Edit2, Trash2, Download, FileSpreadsheet, Plus, Eye } from 'lucide-react';
+import { Edit2, Trash2, Plus, Eye, Layers, ShieldCheck, Power, CheckCircle2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import StoreMasterExcelActions from '../StoreMasterExcelActions';
-
 
 interface FinishedGoodsTableProps {
   data: any[];
@@ -13,77 +12,67 @@ interface FinishedGoodsTableProps {
   onDelete: (id: string) => void;
   onView?: (item: any) => void;
   onAdd?: () => void;
+  onToggleStatus?: (item: any) => void;
 }
 
-export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onAdd }: FinishedGoodsTableProps) {
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-
+export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onAdd, onToggleStatus }: FinishedGoodsTableProps) {
   const exportToExcel = () => {
     const exportData = (data || []).map((item, idx) => ({
       'S.No': idx + 1,
-      'FG Name': item.name || item.productName || '-',
-      'FG Code': item.code || item.productCode || '-',
-      'Type': item.type || item.category || '-',
-      'Unit': item.unit || 'NOS',
-      'Location': item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : '') || '-',
+      'Product Name': item.name || '-',
+      'Item Code': item.code || '-',
+      'Type': item.type || '-',
+      'Unit': item.unit || 'Nos',
+      'Min Stock': item.minimumStock || item.reorderLevel || 0,
+      'Storage Location': item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : '') || '-',
       'Revision No': item.revisionNumber || '-',
-      'BOM Components Count': Array.isArray(item.bom) ? item.bom.length : 0,
+      'BOM Items Count': Array.isArray(item.bom) ? item.bom.length : 0,
       'Description': item.description || '-'
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Finished Goods Master');
-    XLSX.writeFile(wb, `Finished_Goods_Master_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, 'Finished_Goods');
+    XLSX.writeFile(wb, `Finished_Goods_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const columns: ColumnDef<any>[] = [
     {
       id: 'name',
-      label: 'Item Name',
-      render: (item) => (
-        <div className="flex items-center gap-2.5">
-          {item.photos && item.photos.length > 0 ? (
-            <img
-              src={item.photos[0]}
-              alt={item.name}
-              className="w-8 h-8 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-xs font-black text-indigo-600 dark:text-indigo-400 shrink-0">
-              {(item.name || 'FG').slice(0, 2).toUpperCase()}
+      label: 'Product Name',
+      render: (item) => {
+        const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+        return (
+          <div className={`flex items-center gap-2.5 ${isInactive ? 'opacity-60' : ''}`}>
+            {item.photos && item.photos.length > 0 ? (
+              <img
+                src={item.photos[0]}
+                alt={item.name}
+                className="w-8 h-8 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-xs font-black text-purple-600 dark:text-purple-400 shrink-0">
+                {((item.name || 'FG').slice(0, 2)).toUpperCase()}
+              </div>
+            )}
+            <div>
+              <span className="font-bold text-slate-900 dark:text-white block">
+                {item.name || '-'}
+              </span>
+              {item.code && <span className="text-[10px] text-slate-400 font-mono">{item.code}</span>}
             </div>
-          )}
-          <span className="font-bold text-slate-900 dark:text-white">{item.name || '-'}</span>
-        </div>
-      )
-    },
-    {
-      id: 'description',
-      label: 'Description',
-      render: (item) => (
-        <span className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 max-w-[280px] block" title={item.description || ''}>
-          {item.description || '-'}
-        </span>
-      )
+          </div>
+        );
+      }
     },
     {
       id: 'type',
-      label: 'Type',
-      render: (item) => {
-        const type = item.type || item.category || 'Component';
-        const colorClass =
-          type === 'Assembly'
-            ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800'
-            : type === 'Sub Assembly'
-            ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800'
-            : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800';
-        return (
-          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${colorClass}`}>
-            {type}
-          </span>
-        );
-      }
+      label: 'Classification',
+      render: (item) => (
+        <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800">
+          {item.type || 'Component'}
+        </span>
+      )
     },
     {
       id: 'unit',
@@ -95,67 +84,76 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
       )
     },
     {
-      id: 'location',
-      label: 'Location',
-      render: (item) => (
-        <span className="text-xs text-slate-600 dark:text-slate-400">
-          {item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : '') || '-'}
-        </span>
-      )
-    },
-    {
-      id: 'revisionNumber',
-      label: 'Revision',
-      render: (item) => (
-        <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-300">
-          {item.revisionNumber || '-'}
-        </span>
-      )
-    },
-    {
-      id: 'bom',
-      label: 'BOM Structure',
+      id: 'status',
+      label: 'Status',
       render: (item) => {
-        const count = Array.isArray(item.bom) ? item.bom.length : 0;
-        return count > 0 ? (
-          <span className="px-2 py-0.5 rounded-md text-xs font-bold font-mono bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-            {count} {count === 1 ? 'Item' : 'Items'}
+        const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+        return (
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 border ${
+            isInactive
+              ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+              : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${isInactive ? 'bg-rose-500' : 'bg-purple-500'}`} />
+            {isInactive ? 'Deactivated' : 'Active'}
           </span>
-        ) : (
-          <span className="text-xs text-slate-400">-</span>
         );
       }
     },
     {
       id: 'actions',
       label: 'Actions',
-      render: (item) => (
-        <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-          {onView && (
+      render: (item) => {
+        const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+        const hasStockOrTransactions = (Number(item.quantity || item.currentStock || 0) > 0 || Number(item.allocatedQuantity || 0) > 0 || Boolean(item.hasTransactions));
+
+        return (
+          <div className="flex justify-end items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+            {onView && (
+              <button
+                onClick={() => onView(item)}
+                className="p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/50 rounded-lg transition-colors cursor-pointer"
+                title="View Complete Profile & PDF"
+              >
+                <Eye size={15} />
+              </button>
+            )}
             <button
-              onClick={() => onView(item)}
-              className="p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/50 rounded-lg transition-colors"
-              title="View Complete Profile & PDF"
+              onClick={() => onEdit(item)}
+              className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors cursor-pointer"
+              title="Edit"
             >
-              <Eye size={16} />
+              <Edit2 size={15} />
             </button>
-          )}
-          <button
-            onClick={() => onEdit(item)}
-            className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 rounded-lg transition-colors"
-            title="Edit"
-          >
-            <Edit2 size={16} />
-          </button>
-          <button
-            onClick={() => onDelete(item._id)}
-            className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors"
-            title="Delete"
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-      )
+
+            {/* Smart Deactivate / Status Toggle Button when transactions/stock exist or when deactivated */}
+            {(hasStockOrTransactions || isInactive || onToggleStatus) && onToggleStatus && (
+              <button
+                onClick={() => onToggleStatus(item)}
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  isInactive
+                    ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
+                    : 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50'
+                }`}
+                title={isInactive ? "Reactivate FG Item" : "Deactivate FG Item (Has Stock / Transactions)"}
+              >
+                {isInactive ? <CheckCircle2 size={15} /> : <Power size={15} />}
+              </button>
+            )}
+
+            {/* Hard Delete Button: only shown if NO active transactions/stock and item is active */}
+            {!hasStockOrTransactions && !isInactive && (
+              <button
+                onClick={() => onDelete(item._id)}
+                className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer"
+                title="Delete FG Item"
+              >
+                <Trash2 size={15} />
+              </button>
+            )}
+          </div>
+        );
+      }
     }
   ];
 

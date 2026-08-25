@@ -274,7 +274,32 @@ export const getAllRawMaterials = async (req, res) => {
       }
     }
 
-    res.status(200).json({ rawMaterials, rmBoItems: rawMaterials, count: rawMaterials.length });
+    const Inventory = req.getModel('Inventory', inventorySchema);
+    const inventories = await Inventory.find({ company: companyId });
+    const invMap = new Map();
+    inventories.forEach(inv => {
+      if (inv.materialId) invMap.set(String(inv.materialId), inv);
+      if (inv.materialCode) invMap.set(String(inv.materialCode), inv);
+    });
+
+    const enriched = rawMaterials.map(rm => {
+      const rmObj = rm.toObject ? rm.toObject() : { ...rm };
+      const inv = invMap.get(String(rmObj._id)) || invMap.get(String(rmObj.code));
+      const stock = inv ? Number(inv.currentStock || 0) : Number(rmObj.quantity || 0);
+      const qcStock = inv ? Number(inv.qcPendingStock || 0) : 0;
+      const hasTransactions = stock > 0 || qcStock > 0 || Boolean(rmObj.hasTransactions);
+      return {
+        ...rmObj,
+        quantity: stock,
+        currentStock: stock,
+        qcPendingStock: qcStock,
+        hasTransactions,
+        status: rmObj.status || (rmObj.isActive === false ? 'Inactive' : 'Active'),
+        isActive: rmObj.isActive !== false && rmObj.status !== 'Inactive' && rmObj.status !== 'Deactivated'
+      };
+    });
+
+    res.status(200).json({ rawMaterials: enriched, rmBoItems: enriched, count: enriched.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -440,6 +465,13 @@ export const deleteRawMaterial = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+
+    const inv = await Inventory.findOne({ materialId: id, company: companyId });
+    if (inv && (inv.currentStock > 0 || inv.qcPendingStock > 0)) {
+      return res.status(400).json({ 
+        message: `Cannot delete "${inv.materialName}": It has active store stock of ${inv.currentStock} ${inv.unit}. Please issue or transfer the stock first.` 
+      });
+    }
 
     await RawMaterial.findOneAndDelete({ _id: id, company: companyId });
     await RmBoItem.findOneAndDelete({ _id: id, company: companyId });

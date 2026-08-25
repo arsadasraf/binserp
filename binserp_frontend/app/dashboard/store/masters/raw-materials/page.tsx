@@ -32,14 +32,36 @@ export default function RawMaterialsPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = async (item: any) => {
+    const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newActive = isCurrentlyInactive;
+    try {
+      await updateRecord({
+        tab: "raw-material",
+        id: item._id,
+        body: { status: newStatus, isActive: newActive }
+      }).unwrap();
+    } catch (err: any) {
+      console.error("Failed to update status", err);
+      alert(`Failed to update status: ${err?.data?.message || err?.message || 'Error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this Raw Material?")) {
+    const target = rawMaterials.find((m: any) => m._id === id);
+    if (confirm(`Are you sure you want to delete "${target?.name || 'this Raw Material'}"?`)) {
       try {
         await deleteRecord({ tab: "raw-material", id }).unwrap();
       } catch (error: any) {
-        console.error("Failed to delete Raw Material", error);
         const errMsg = error?.data?.message || error?.message || "Failed to delete item";
-        alert(`Error deleting Raw Material: ${errMsg}`);
+        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction"))) {
+          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+            handleToggleStatus(target);
+          }
+        } else {
+          alert(`Error deleting Raw Material: ${errMsg}`);
+        }
       }
     }
   };
@@ -101,6 +123,7 @@ export default function RawMaterialsPage() {
           data={rawMaterials} 
           onEdit={handleEdit} 
           onDelete={handleDelete}
+          onToggleStatus={handleToggleStatus}
           onView={(item) => setPreviewItem(item)}
           masterTab="raw-material"
           itemTypeLabel="Raw Material"

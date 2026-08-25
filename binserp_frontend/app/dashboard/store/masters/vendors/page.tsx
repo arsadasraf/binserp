@@ -45,12 +45,36 @@ export default function VendorsPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = async (item: any) => {
+    const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newActive = isCurrentlyInactive;
+    try {
+      await updateRecord({
+        tab: "vendor",
+        id: item._id,
+        body: { status: newStatus, isActive: newActive }
+      }).unwrap();
+    } catch (err: any) {
+      console.error("Failed to update vendor status", err);
+      alert(`Failed to update vendor status: ${err?.data?.message || err?.message || 'Error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this vendor?")) {
+    const target = vendors.find((m: any) => m._id === id);
+    if (confirm(`Are you sure you want to delete "${target?.name || 'this vendor'}"?`)) {
       try {
         await deleteRecord({ tab: "vendor", id }).unwrap();
-      } catch (error) {
-        console.error("Failed to delete vendor", error);
+      } catch (error: any) {
+        const errMsg = error?.data?.message || error?.message || "Failed to delete vendor";
+        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction") || errMsg.toLowerCase().includes("po") || errMsg.toLowerCase().includes("grn"))) {
+          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this vendor instead?`)) {
+            handleToggleStatus(target);
+          }
+        } else {
+          alert(`Error deleting vendor: ${errMsg}`);
+        }
       }
     }
   };
@@ -88,6 +112,7 @@ export default function VendorsPage() {
           data={vendors}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onToggleStatus={handleToggleStatus}
           onView={(vendor) => setPreviewItem(vendor)}
           onAdd={() => {
             setEditingItem(null);

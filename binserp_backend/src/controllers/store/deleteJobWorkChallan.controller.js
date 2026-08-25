@@ -1,47 +1,14 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
-import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
-import { storePrefixSchema } from "../../models/store/index.js";
-import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
-import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
-import fs from 'fs';
-import path from 'path';
+import { 
+  jobWorkSchema, vendorSchema, rmBoItemSchema, 
+  rmInventoryMonthlySchema, fgItemSchema 
+} from "../../models/store/index.js";
+import { updateInventoryStock } from './updateInventoryStock.controller.js';
+import { componentSchema, jobSchema } from "../../models/ppc/index.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
-
-const getCompanyLoginId = (req) => {
-  return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
-};
-
-// Helper function to update COMPONENT stock (InHouse)
-const updateComponentStock = async (req, componentId, quantity) => {
-  try {
-    const companyId = getCompanyId(req); // Derive companyId from req
-    const Component = req.getModel("Component", componentSchema);
-    const component = await Component.findById(componentId);
-    if (!component) {
-      console.error(`Component not found: ${componentId}`);
-      return null;
-    }
-
-    // Update quantity
-    await Component.findByIdAndUpdate(componentId, {
-      $inc: { quantity: quantity }
-    });
-
-    return true;
-  } catch (error) {
-    console.error("Error updating component stock:", error);
-    throw error;
-  }
-};
-
-
-
-// ========== GRN (Goods Receipt Note) ==========
-
 
 export const deleteJobWorkChallan = async (req, res) => {
   try {
@@ -50,18 +17,90 @@ export const deleteJobWorkChallan = async (req, res) => {
     const { id } = req.params;
 
     const existingChallan = await JobWorkChallan.findOne({ _id: id, company: companyId });
-    if (!existingChallan) return res.status(404).json({ message: "Job Work Challan not found" });
+    if (!existingChallan) {
+      return res.status(404).json({ message: "Job Work Challan not found" });
+    }
 
-    // Block delete if already partially or fully received
-    if (existingChallan.status === "Partial" || existingChallan.status === "Closed") {
+    // 1. Block delete if already partially or fully received
+    if (existingChallan.status === "Partial" || existingChallan.status === "Closed" || (Array.isArray(existingChallan.receiveHistory) && existingChallan.receiveHistory.length > 0)) {
       return res.status(400).json({ message: "Cannot delete a challan that has received items" });
     }
 
+    // 2. Enforce 2-hour deletion window
+    const createdAt = new Date(existingChallan.createdAt);
+    const diffInHours = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+    if (diffInHours > 2) {
+      return res.status(400).json({ 
+        message: "Job Work Challan cannot be deleted after 2 hours from creation to preserve audit integrity." 
+      });
+    }
+
+    // 3. Revert outward stock for all sent items
+    const currentDate = new Date();
+    const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
+    const vendorDoc = await req.getModel("Vendor", vendorSchema).findById(existingChallan.vendor);
+    const vendorName = vendorDoc ? vendorDoc.name : "Subcontractor Vendor";
+
+    for (const item of (existingChallan.items || [])) {
+      if (existingChallan.jobWorkType !== "route-card" && existingChallan.jobWorkType !== "wip-to-wip" && (item.itemType === "bo" || item.itemType === "rm") && item.item) {
+        try {
+          // Revert stock (+quantitySent)
+          await updateInventoryStock(
+            req,
+            item.item,
+            Number(item.quantitySent), // Positive to restore stock
+            item.unit || "PCS",
+            undefined,
+            {
+              transactionCategory: "RETURNABLE_DC_DELETE_REVERSAL",
+              referenceDocType: "JobWorkChallan",
+              referenceDocId: existingChallan._id,
+              referenceDocNumber: existingChallan.challanNumber,
+              recipientOrSource: vendorName,
+              purpose: `Reverted Returnable DC Deletion (${existingChallan.challanNumber})`,
+              performedBy: req.user?.id || req.user?._id,
+            }
+          );
+
+          // Decrement monthly outward metrics
+          await RMInventoryMonthly.findOneAndUpdate(
+            { company: companyId, material: item.item, month: currentMonthStr },
+            { $inc: { totalOutwardQuantity: -Number(item.quantitySent) } }
+          );
+        } catch (stockErr) {
+          console.error("[deleteJobWorkChallan] Error reverting stock:", stockErr);
+        }
+      }
+    }
+
+    // 4. Reset PPC Job route card operation if linked
+    if (existingChallan.jobWorkType === "route-card" && existingChallan.routeCardRef?.job) {
+      try {
+        const Job = req.getModel("Job", jobSchema);
+        const jobDoc = await Job.findById(existingChallan.routeCardRef.job);
+        if (jobDoc && Array.isArray(jobDoc.processHistory)) {
+          const op = jobDoc.processHistory.find(
+            (p) => p.sequence === existingChallan.routeCardRef.operationSequence || p.isJobWork
+          );
+          if (op) {
+            op.status = "Pending";
+            op.isJobWork = false;
+            op.assignedVendor = undefined;
+            await jobDoc.save();
+          }
+        }
+      } catch (jobErr) {
+        console.error("[deleteJobWorkChallan] Error resetting PPC Job:", jobErr);
+      }
+    }
+
+    // 5. Delete document
     await JobWorkChallan.findOneAndDelete({ _id: id, company: companyId });
-    res.status(200).json({ message: "Job Work Challan deleted successfully" });
+
+    res.status(200).json({ message: "Job Work Challan deleted and stock restored successfully" });
   } catch (error) {
+    console.error("Delete JobWork Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
-
-// Job-Work Supplier

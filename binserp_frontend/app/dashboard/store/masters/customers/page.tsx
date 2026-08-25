@@ -45,12 +45,36 @@ export default function CustomersPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = async (item: any) => {
+    const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newActive = isCurrentlyInactive;
+    try {
+      await updateRecord({
+        tab: "customer",
+        id: item._id,
+        body: { status: newStatus, isActive: newActive }
+      }).unwrap();
+    } catch (err: any) {
+      console.error("Failed to update customer status", err);
+      alert(`Failed to update customer status: ${err?.data?.message || err?.message || 'Error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this customer?")) {
+    const target = customers.find((m: any) => m._id === id);
+    if (confirm(`Are you sure you want to delete "${target?.name || 'this customer'}"?`)) {
       try {
         await deleteRecord({ tab: "customer", id }).unwrap();
-      } catch (error) {
-        console.error("Failed to delete customer", error);
+      } catch (error: any) {
+        const errMsg = error?.data?.message || error?.message || "Failed to delete customer";
+        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction") || errMsg.toLowerCase().includes("order") || errMsg.toLowerCase().includes("dc") || errMsg.toLowerCase().includes("invoice"))) {
+          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this customer instead?`)) {
+            handleToggleStatus(target);
+          }
+        } else {
+          alert(`Error deleting customer: ${errMsg}`);
+        }
       }
     }
   };
@@ -93,6 +117,7 @@ export default function CustomersPage() {
           data={customers} 
           onEdit={handleEdit} 
           onDelete={handleDelete}
+          onToggleStatus={handleToggleStatus}
           onView={(customer) => setPreviewItem(customer)}
         />
       </div>

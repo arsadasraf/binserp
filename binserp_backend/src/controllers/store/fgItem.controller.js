@@ -157,9 +157,16 @@ export const getAllFGItems = async (req, res) => {
         const itemMonthly = monthlyMap.get(item._id.toString());
         const breakdown = reservedMap.get(item._id.toString()) || [];
         const totalReservedFromBreakdown = breakdown.reduce((acc, curr) => acc + curr.reservedQuantity, 0);
+        const stock = Number(item.quantity || 0);
+        const hasTransactions = stock > 0 || totalReservedFromBreakdown > 0 || Boolean(item.hasTransactions);
 
         return {
             ...item,
+            quantity: stock,
+            currentStock: stock,
+            hasTransactions,
+            status: item.status || (item.isActive === false ? 'Inactive' : 'Active'),
+            isActive: item.isActive !== false && item.status !== 'Inactive' && item.status !== 'Deactivated',
             allocatedQuantity: totalReservedFromBreakdown || item.allocatedQuantity || 0,
             reservedBreakdown: breakdown,
             monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }

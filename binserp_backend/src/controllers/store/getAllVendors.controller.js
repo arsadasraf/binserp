@@ -50,7 +50,18 @@ export const getAllVendors = async (req, res) => {
     const companyId = getCompanyId(req);
     const vendors = await Vendor.find({ company: companyId })
       .sort({ name: 1 });
-    res.status(200).json({ vendors, count: vendors.length });
+
+    const enriched = vendors.map(v => {
+      const vObj = v.toObject ? v.toObject() : { ...v };
+      return {
+        ...vObj,
+        status: vObj.status || (vObj.isActive === false ? 'Inactive' : 'Active'),
+        isActive: vObj.isActive !== false && vObj.status !== 'Inactive' && vObj.status !== 'Deactivated',
+        hasTransactions: Boolean(vObj.hasTransactions)
+      };
+    });
+
+    res.status(200).json({ vendors: enriched, count: enriched.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

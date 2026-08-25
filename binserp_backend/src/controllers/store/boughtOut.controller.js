@@ -273,7 +273,32 @@ export const getAllBoughtOuts = async (req, res) => {
       }
     }
 
-    res.status(200).json({ boughtOuts, rmBoItems: boughtOuts, count: boughtOuts.length });
+    const Inventory = req.getModel('Inventory', inventorySchema);
+    const inventories = await Inventory.find({ company: companyId });
+    const invMap = new Map();
+    inventories.forEach(inv => {
+      if (inv.materialId) invMap.set(String(inv.materialId), inv);
+      if (inv.materialCode) invMap.set(String(inv.materialCode), inv);
+    });
+
+    const enriched = boughtOuts.map(bo => {
+      const boObj = bo.toObject ? bo.toObject() : { ...bo };
+      const inv = invMap.get(String(boObj._id)) || invMap.get(String(boObj.code));
+      const stock = inv ? Number(inv.currentStock || 0) : Number(boObj.quantity || 0);
+      const qcStock = inv ? Number(inv.qcPendingStock || 0) : 0;
+      const hasTransactions = stock > 0 || qcStock > 0 || Boolean(boObj.hasTransactions);
+      return {
+        ...boObj,
+        quantity: stock,
+        currentStock: stock,
+        qcPendingStock: qcStock,
+        hasTransactions,
+        status: boObj.status || (boObj.isActive === false ? 'Inactive' : 'Active'),
+        isActive: boObj.isActive !== false && boObj.status !== 'Inactive' && boObj.status !== 'Deactivated'
+      };
+    });
+
+    res.status(200).json({ boughtOuts: enriched, rmBoItems: enriched, count: enriched.length });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -439,6 +464,13 @@ export const deleteBoughtOut = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+
+    const inv = await Inventory.findOne({ materialId: id, company: companyId });
+    if (inv && (inv.currentStock > 0 || inv.qcPendingStock > 0)) {
+      return res.status(400).json({ 
+        message: `Cannot delete "${inv.materialName}": It has active store stock of ${inv.currentStock} ${inv.unit}. Please issue or transfer the stock first.` 
+      });
+    }
 
     await BoughtOut.findOneAndDelete({ _id: id, company: companyId });
     await RmBoItem.findOneAndDelete({ _id: id, company: companyId });

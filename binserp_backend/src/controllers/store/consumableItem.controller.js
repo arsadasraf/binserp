@@ -234,19 +234,26 @@ export const getAllConsumableItems = async (req, res) => {
           ? inv.currentStock 
           : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
         let qcPendingStock = inv?.qcPendingStock || 0;
+        const hasTransactions = currentStock > 0 || qcPendingStock > 0 || Boolean(c.hasTransactions);
 
         return {
           ...c,
           quantity: currentStock,
           currentStock: currentStock,
-          qcPendingStock: qcPendingStock
+          qcPendingStock: qcPendingStock,
+          hasTransactions,
+          status: c.status || (c.isActive === false ? 'Inactive' : 'Active'),
+          isActive: c.isActive !== false && c.status !== 'Inactive' && c.status !== 'Deactivated'
         };
       } catch (itemErr) {
         return {
           ...c,
           quantity: c.currentStock || c.quantity || 0,
           currentStock: c.currentStock || c.quantity || 0,
-          qcPendingStock: 0
+          qcPendingStock: 0,
+          hasTransactions: (c.currentStock || c.quantity || 0) > 0,
+          status: c.status || (c.isActive === false ? 'Inactive' : 'Active'),
+          isActive: c.isActive !== false && c.status !== 'Inactive' && c.status !== 'Deactivated'
         };
       }
     }));
@@ -418,11 +425,24 @@ export const updateConsumableItem = async (req, res) => {
 export const deleteConsumableItem = async (req, res) => {
   try {
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const Inventory = req.getModel('Inventory', inventorySchema);
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
+    const inv = await Inventory.findOne({ 
+      company: companyId,
+      $or: [{ materialId: id }, { _id: id }]
+    });
+    if (inv && (inv.currentStock > 0 || inv.qcPendingStock > 0)) {
+      return res.status(400).json({ 
+        message: `Cannot delete "${inv.materialName}": It has active store stock of ${inv.currentStock} ${inv.unit}. Please issue or transfer the stock first.` 
+      });
+    }
+
     const consumableItem = await ConsumableItem.findOneAndDelete({ _id: id, company: companyId });
     if (!consumableItem) return res.status(404).json({ message: "Consumable Item not found" });
+
+    await Inventory.findOneAndDelete({ materialId: id, company: companyId });
 
     res.status(200).json({ message: "Consumable Item deleted successfully" });
   } catch (error) {

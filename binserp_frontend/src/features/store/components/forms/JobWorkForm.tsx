@@ -562,11 +562,17 @@ export default function JobWorkForm({
 
         try {
             setLoading(true);
+            const payload = {
+                ...formData,
+                mrpPlan: formData.mrpPlan ? formData.mrpPlan : undefined,
+                mrpNumber: formData.mrpNumber ? formData.mrpNumber : undefined,
+            };
+
             let res;
             if (initialData && (initialData as any)._id) {
-                res = await apiPut(`/api/store/jobwork/update/${(initialData as any)._id}`, formData, token);
+                res = await apiPut(`/api/store/jobwork/update/${(initialData as any)._id}`, payload, token);
             } else {
-                res = await apiPost('/api/store/jobwork/create', formData, token);
+                res = await apiPost('/api/store/jobwork/create', payload, token);
             }
 
             setSuccessData(res.jobWork || res);

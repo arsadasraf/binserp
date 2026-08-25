@@ -168,13 +168,14 @@ export const jobWorkSchema = new mongoose.Schema(
         vendorInvoiceDate: Date,
         vehicleNo: String,
         itemId: mongoose.Schema.Types.ObjectId,
+        returningItemId: mongoose.Schema.Types.ObjectId,
         itemName: String,
         quantity: Number,
         qcRequired: { type: Boolean, default: true },
         qcStatus: {
           type: String,
-          enum: ["Pending", "Passed", "Rejected", "Partial"],
-          default: "Passed"
+          enum: ["Pending", "Passed", "Rejected", "Partial", "Skipped"],
+          default: "Pending"
         },
         acceptedQuantity: Number,
         rejectedQuantity: Number,
@@ -188,6 +189,10 @@ export const jobWorkSchema = new mongoose.Schema(
             fileType: String
           }
         ],
+        photos: {
+          type: [String],
+          default: []
+        },
         remarks: String,
         receivedBy: {
           type: mongoose.Schema.Types.ObjectId,

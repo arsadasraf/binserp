@@ -69,6 +69,16 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
 
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [previewTab, setPreviewTab] = useState<"overview" | "dispatch">("overview");
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const clearError = (key: string) => {
+    setFormErrors(prev => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
 
   const { data: historyData } = useGetIncomingPODispatchHistoryQuery(initialData?._id, {
     skip: !initialData?._id || !isPreview
@@ -384,18 +394,46 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const errors: Record<string, string> = {};
+
     if (!formData.customer) {
-      alert("Please select a customer.");
-      return;
+      errors.customer = "Customer is required";
     }
     if (!formData.poNumber.trim()) {
-      alert("Please enter a PO Number.");
+      errors.poNumber = "PO Number is required";
+    }
+    if (!formData.date) {
+      errors.date = "Date is required";
+    }
+
+    formData.items.forEach((item, index) => {
+      const hasProduct = item.itemType === "Master" ? Boolean(item.fgItem) : Boolean(item.productName.trim());
+      if (!hasProduct) {
+        errors[`item_${index}_product`] = "Product is required";
+      }
+      if (Number(item.quantity) <= 0) {
+        errors[`item_${index}_quantity`] = "Qty must be > 0";
+      }
+      if (Number(item.rate) < 0) {
+        errors[`item_${index}_rate`] = "Rate cannot be negative";
+      }
+    });
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      const targetForm = e.currentTarget as HTMLElement;
+      if (targetForm) {
+        setTimeout(() => {
+          const firstInvalid = targetForm.querySelector('[data-has-error="true"]');
+          if (firstInvalid) {
+            firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 50);
+      }
       return;
     }
-    if (formData.items.some(item => !item.productName.trim() || item.quantity <= 0 || item.rate < 0)) {
-      alert("Please ensure all items have a name, quantity > 0, and rate >= 0.");
-      return;
-    }
+
+    setFormErrors({});
 
     const cleanedItems = formData.items.map(item => {
       const itemCopy: any = { ...item };
@@ -782,40 +820,83 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
           /* Editable Form View */
           <div className="overflow-y-auto flex-1 p-6">
             <form id="incoming-po-form" onSubmit={handleSubmit} className="space-y-6">
+              
+              {/* Visual Error Summary Alert Banner */}
+              {Object.keys(formErrors).length > 0 && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-xl flex items-center justify-between gap-2.5 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                    <span className="text-xs font-bold">
+                      Please fill in the highlighted compulsory field{Object.keys(formErrors).length > 1 ? 's' : ''} before saving Customer PO.
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                    {Object.keys(formErrors).length} required
+                  </span>
+                </div>
+              )}
+
               {/* Header Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Customer *</label>
+                <div className="space-y-1.5" data-has-error={!!formErrors.customer}>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                    <span>Customer <span className="text-red-500">*</span></span>
+                    {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
+                  </label>
                   <div className="relative">
                     <SearchableSelect
                       options={customerOptions}
                       value={formData.customer}
-                      onChange={(val: string) => setFormData(prev => ({ ...prev, customer: val }))}
+                      hasError={!!formErrors.customer}
+                      onChange={(val: string) => {
+                        setFormData(prev => ({ ...prev, customer: val }));
+                        if (val) clearError('customer');
+                      }}
                       placeholder="Select Customer"
                     />
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">PO Number *</label>
+                <div className="space-y-1.5" data-has-error={!!formErrors.poNumber}>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                    <span>PO Number <span className="text-red-500">*</span></span>
+                    {formErrors.poNumber && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.poNumber}</span>}
+                  </label>
                   <input
                     type="text"
                     name="poNumber"
                     value={formData.poNumber}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                    onChange={(e) => {
+                      handleChange(e);
+                      if (e.target.value) clearError('poNumber');
+                    }}
+                    className={`w-full px-3 py-2 border rounded-xl text-sm outline-none transition-all ${
+                      formErrors.poNumber
+                        ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                        : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white'
+                    }`}
                     placeholder="e.g. PO-2023-001"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Date *</label>
+                <div className="space-y-1.5" data-has-error={!!formErrors.date}>
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                    <span>Date <span className="text-red-500">*</span></span>
+                    {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.date}</span>}
+                  </label>
                   <input
                     type="date"
                     name="date"
                     value={formData.date}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                    onChange={(e) => {
+                      handleChange(e);
+                      if (e.target.value) clearError('date');
+                    }}
+                    className={`w-full px-3 py-2 border rounded-xl text-sm outline-none transition-all ${
+                      formErrors.date
+                        ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                        : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white'
+                    }`}
                   />
                 </div>
 
@@ -932,7 +1013,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                       
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                         {/* Item Type & Selection */}
-                        <div className="md:col-span-3 space-y-3">
+                        <div className="md:col-span-3 space-y-3" data-has-error={!!formErrors[`item_${index}_product`]}>
                           <div className="flex gap-2 p-1 bg-gray-200/50 dark:bg-gray-700/50 rounded-lg">
                             <button
                               type="button"
@@ -951,20 +1032,45 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                           </div>
                           
                           {item.itemType === "Master" ? (
-                            <SearchableSelect
-                              options={fgItemOptions}
-                              value={item.fgItem}
-                              onChange={(val: string) => handleItemChange(index, "fgItem", val)}
-                              placeholder="Select FG Item"
-                            />
+                            <div>
+                              <SearchableSelect
+                                options={fgItemOptions}
+                                value={item.fgItem}
+                                hasError={!!formErrors[`item_${index}_product`]}
+                                onChange={(val: string) => {
+                                  handleItemChange(index, "fgItem", val);
+                                  if (val) clearError(`item_${index}_product`);
+                                }}
+                                placeholder="Select FG Item"
+                              />
+                              {formErrors[`item_${index}_product`] && (
+                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold block mt-1">
+                                  {formErrors[`item_${index}_product`]}
+                                </span>
+                              )}
+                            </div>
                           ) : (
-                            <input
-                              type="text"
-                              value={item.productName}
-                              onChange={(e) => handleItemChange(index, "productName", e.target.value)}
-                              placeholder="Product Name"
-                              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
-                            />
+                            <div>
+                              <input
+                                type="text"
+                                value={item.productName}
+                                onChange={(e) => {
+                                  handleItemChange(index, "productName", e.target.value);
+                                  if (e.target.value.trim()) clearError(`item_${index}_product`);
+                                }}
+                                placeholder="Product Name"
+                                className={`w-full px-3 py-2 border rounded-lg text-sm outline-none transition-all ${
+                                  formErrors[`item_${index}_product`]
+                                    ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white'
+                                }`}
+                              />
+                              {formErrors[`item_${index}_product`] && (
+                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold block mt-1">
+                                  {formErrors[`item_${index}_product`]}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -990,15 +1096,29 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
 
                         {/* Quantity & Unit */}
                         <div className="md:col-span-2 flex gap-2">
-                          <div className="flex-1">
-                            <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Qty</label>
+                          <div className="flex-1" data-has-error={!!formErrors[`item_${index}_quantity`]}>
+                            <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1 flex items-center justify-between">
+                              <span>Qty <span className="text-red-500">*</span></span>
+                              {formErrors[`item_${index}_quantity`] && (
+                                <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
+                                  Req
+                                </span>
+                              )}
+                            </label>
                             <input
                               type="number"
                               min="0.01"
                               step="0.01"
                               value={item.quantity || ""}
-                              onChange={(e) => handleItemChange(index, "quantity", e.target.value)}
-                              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                              onChange={(e) => {
+                                handleItemChange(index, "quantity", e.target.value);
+                                if (Number(e.target.value) > 0) clearError(`item_${index}_quantity`);
+                              }}
+                              className={`w-full px-3 py-2 border rounded-lg text-sm outline-none transition-all ${
+                                formErrors[`item_${index}_quantity`]
+                                  ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white'
+                              }`}
                             />
                           </div>
                           <div className="w-16">
@@ -1014,15 +1134,29 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
 
                         {/* Financials (Rate, Tax, Amount) */}
                         <div className="md:col-span-4 flex gap-2">
-                           <div className="flex-1">
-                            <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1">Rate</label>
+                           <div className="flex-1" data-has-error={!!formErrors[`item_${index}_rate`]}>
+                            <label className="text-[10px] uppercase font-semibold text-gray-500 block mb-1 flex items-center justify-between">
+                              <span>Rate <span className="text-red-500">*</span></span>
+                              {formErrors[`item_${index}_rate`] && (
+                                <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
+                                  Invalid
+                                </span>
+                              )}
+                            </label>
                             <input
                               type="number"
                               min="0"
                               step="0.01"
                               value={item.rate === 0 ? "" : item.rate}
-                              onChange={(e) => handleItemChange(index, "rate", e.target.value)}
-                              className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all dark:text-white"
+                              onChange={(e) => {
+                                handleItemChange(index, "rate", e.target.value);
+                                if (Number(e.target.value) >= 0) clearError(`item_${index}_rate`);
+                              }}
+                              className={`w-full px-3 py-2 border rounded-lg text-sm outline-none transition-all ${
+                                formErrors[`item_${index}_rate`]
+                                  ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                  : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 dark:text-white'
+                              }`}
                             />
                           </div>
                           <div className="w-16">

@@ -17,7 +17,7 @@ export { boughtOutSchema } from './boughtOut.model.js';
 export { rmBoItemSchema } from './rmBoItem.model.js';
 export { consumableItemSchema } from './consumableItem.model.js';
 export { fgItemSchema } from './fgItem.model.js';
-export { fgGRNSchema } from './fgGRN.model.js';
+export { fgGRNSchema, fgGRNSchema as fgGrnSchema } from './fgGRN.model.js';
 export { rmInventoryMonthlySchema } from './rmInventoryMonthly.model.js';
 export { fgInventoryMonthlySchema } from './fgInventoryMonthly.model.js';
 

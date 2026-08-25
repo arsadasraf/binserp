@@ -32,14 +32,36 @@ export default function BoughtOutPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = async (item: any) => {
+    const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newActive = isCurrentlyInactive;
+    try {
+      await updateRecord({
+        tab: "bought-out",
+        id: item._id,
+        body: { status: newStatus, isActive: newActive }
+      }).unwrap();
+    } catch (err: any) {
+      console.error("Failed to update status", err);
+      alert(`Failed to update status: ${err?.data?.message || err?.message || 'Error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this Bought Out item?")) {
+    const target = boughtOutItems.find((m: any) => m._id === id);
+    if (confirm(`Are you sure you want to delete "${target?.name || 'this Bought Out item'}"?`)) {
       try {
         await deleteRecord({ tab: "bought-out", id }).unwrap();
       } catch (error: any) {
-        console.error("Failed to delete Bought Out item", error);
         const errMsg = error?.data?.message || error?.message || "Failed to delete item";
-        alert(`Error deleting Bought Out Item: ${errMsg}`);
+        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction"))) {
+          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+            handleToggleStatus(target);
+          }
+        } else {
+          alert(`Error deleting Bought Out Item: ${errMsg}`);
+        }
       }
     }
   };
@@ -101,6 +123,7 @@ export default function BoughtOutPage() {
           data={boughtOutItems} 
           onEdit={handleEdit} 
           onDelete={handleDelete}
+          onToggleStatus={handleToggleStatus}
           onView={(item) => setPreviewItem(item)}
           masterTab="bought-out"
           itemTypeLabel="Bought Out"

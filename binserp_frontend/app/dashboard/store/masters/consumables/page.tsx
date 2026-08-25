@@ -29,14 +29,36 @@ export default function ConsumablesPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = async (item: any) => {
+    const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newActive = isCurrentlyInactive;
+    try {
+      await updateRecord({
+        tab: "consumable-item",
+        id: item._id,
+        body: { status: newStatus, isActive: newActive }
+      }).unwrap();
+    } catch (err: any) {
+      console.error("Failed to update status", err);
+      alert(`Failed to update status: ${err?.data?.message || err?.message || 'Error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this consumable item?")) {
+    const target = consumables.find((m: any) => m._id === id);
+    if (confirm(`Are you sure you want to delete "${target?.name || 'this consumable item'}"?`)) {
       try {
         await deleteRecord({ tab: "consumable-item", id }).unwrap();
       } catch (error: any) {
-        console.error("Failed to delete consumable item", error);
         const errMsg = error?.data?.message || error?.message || "Failed to delete item";
-        alert(`Error deleting Consumable Item: ${errMsg}`);
+        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction"))) {
+          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+            handleToggleStatus(target);
+          }
+        } else {
+          alert(`Error deleting Consumable Item: ${errMsg}`);
+        }
       }
     }
   };
@@ -95,6 +117,7 @@ export default function ConsumablesPage() {
           data={consumables} 
           onEdit={handleEdit} 
           onDelete={handleDelete}
+          onToggleStatus={handleToggleStatus}
           onView={(item) => setPreviewItem(item)}
         />
       </div>

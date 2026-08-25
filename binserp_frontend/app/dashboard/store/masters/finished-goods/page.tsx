@@ -34,14 +34,36 @@ export default function FinishedGoodsPage() {
     setIsModalOpen(true);
   };
 
+  const handleToggleStatus = async (item: any) => {
+    const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newActive = isCurrentlyInactive;
+    try {
+      await updateRecord({
+        tab: "fg-item",
+        id: item._id,
+        body: { status: newStatus, isActive: newActive }
+      }).unwrap();
+    } catch (err: any) {
+      console.error("Failed to update status", err);
+      alert(`Failed to update status: ${err?.data?.message || err?.message || 'Error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this FG item?")) {
+    const target = finishedGoods.find((m: any) => m._id === id);
+    if (confirm(`Are you sure you want to delete "${target?.name || 'this FG item'}"?`)) {
       try {
         await deleteRecord({ tab: "fg-item", id }).unwrap();
       } catch (error: any) {
-        console.error("Failed to delete FG item", error);
         const errMsg = error?.data?.message || error?.message || "Failed to delete FG Item";
-        alert(`Error deleting FG Item: ${errMsg}`);
+        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction") || errMsg.toLowerCase().includes("fulfill"))) {
+          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+            handleToggleStatus(target);
+          }
+        } else {
+          alert(`Error deleting FG Item: ${errMsg}`);
+        }
       }
     }
   };
@@ -109,7 +131,8 @@ export default function FinishedGoodsPage() {
           }} 
           data={finishedGoods} 
           onEdit={handleEdit} 
-          onDelete={handleDelete} 
+          onDelete={handleDelete}
+          onToggleStatus={handleToggleStatus}
           onView={(item) => setPreviewItem(item)}
         />
       </div>
