@@ -102,10 +102,10 @@ export default function CRMOverview() {
                 })}
             </div>
 
-            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-96 flex flex-col">
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm h-96 flex flex-col min-w-0">
                 <h3 className="text-lg font-bold text-gray-800 mb-6">Sales Funnel Analysis</h3>
-                <div className="flex-1 w-full min-h-0">
-                    <ResponsiveContainer width="100%" height="100%">
+                <div className="flex-1 w-full min-h-0 min-w-0">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                         <BarChart
                             layout="vertical"
                             data={[

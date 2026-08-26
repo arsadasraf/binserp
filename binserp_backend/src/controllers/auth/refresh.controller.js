@@ -7,11 +7,27 @@ import { SaasAdmin } from "../../models/saasadmin/index.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { generateTokens, setTokenCookies } from "../../utils/token.js";
 
+const clearAuthCookies = (res) => {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  };
+  res.clearCookie("accessToken", cookieOptions);
+  res.clearCookie("refreshToken", cookieOptions);
+  res.clearCookie("saasAdminToken", cookieOptions);
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
+  res.clearCookie("saasAdminToken");
+};
+
 export const refreshTokens = async (req, res, next) => {
   try {
     const refreshToken = req.cookies.refreshToken;
 
     if (!refreshToken) {
+      clearAuthCookies(res);
       throw new ApiError(401, "No refresh token provided");
     }
 
@@ -19,6 +35,7 @@ export const refreshTokens = async (req, res, next) => {
     try {
       decoded = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET || process.env.JWT_SECRET);
     } catch (err) {
+      clearAuthCookies(res);
       throw new ApiError(401, "Invalid or expired refresh token");
     }
 
@@ -32,10 +49,16 @@ export const refreshTokens = async (req, res, next) => {
     } else if (type === "company") {
       userInstance = await Company.findById(id);
     } else if (type === "user" || type === "employee") {
-      if (!companyId) throw new ApiError(400, "Company ID missing in token payload");
+      if (!companyId) {
+        clearAuthCookies(res);
+        throw new ApiError(400, "Company ID missing in token payload");
+      }
       
       const company = await Company.findOne({ companyId });
-      if (!company) throw new ApiError(404, "Company not found");
+      if (!company) {
+        clearAuthCookies(res);
+        throw new ApiError(404, "Company not found");
+      }
       
       if (type === "user") {
         userModel = getTenantModel(company.dbName, "User", userSchema);
@@ -45,17 +68,20 @@ export const refreshTokens = async (req, res, next) => {
         userInstance = await userModel.findById(id);
       }
     } else {
+      clearAuthCookies(res);
       throw new ApiError(400, "Unknown token type");
     }
 
     if (!userInstance) {
+      clearAuthCookies(res);
       throw new ApiError(404, "User not found");
     }
 
     // Verify the token matches the one in DB
     if (userInstance.refreshToken !== refreshToken) {
-      // Possible token reuse or revoked session.
-      throw new ApiError(401, "Refresh token mismatch or session revoked.");
+      clearAuthCookies(res);
+      // Possible token reuse or revoked session from another device login.
+      throw new ApiError(401, "Session expired. You logged in from another device.");
     }
 
     // Generate new access token

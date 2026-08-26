@@ -45,6 +45,18 @@ export const SYSTEM_PERMISSIONS = [
     ]
   },
   {
+    module: "Quality",
+    label: "Quality Control",
+    tabs: [
+      { id: "overview", label: "Overview", description: "Quality KPIs, Inspection Analytics & Rejection Rates", route: "/dashboard/quality/overview" },
+      { id: "incoming", label: "Incoming QC", description: "RM & BO Purchase GRN Quality Inspections & SCN Reports", route: "/dashboard/quality/incoming" },
+      { id: "process", label: "Process QC", description: "In-Process Quality Checks & Production Line Inspections", route: "/dashboard/quality/process" },
+      { id: "jobwork-qc", label: "Job Work QC", description: "Subcontractor Inward Quality Inspection & Approvals", route: "/dashboard/quality/jobwork-qc" },
+      { id: "fg-qc", label: "FG QC & PDI", description: "Finished Goods PDI & Final Product Quality Certifications", route: "/dashboard/quality/fg-qc" },
+      { id: "master", label: "Quality Masters", description: "Inspection Parameters, Instruments & Tolerance Standards", route: "/dashboard/quality/master" }
+    ]
+  },
+  {
     module: "Admin",
     label: "Admin & User Management",
     tabs: [
@@ -72,13 +84,6 @@ export const SYSTEM_PERMISSIONS = [
     label: "Maintenance",
     tabs: [
       { id: "overview", label: "Maintenance Overview", description: "Equipment Status & Preventive Schedules", route: "/dashboard/maintenance" }
-    ]
-  },
-  {
-    module: "Quality",
-    label: "Quality Control",
-    tabs: [
-      { id: "overview", label: "Quality Overview", description: "Inspection Sheets & Quality Audits", route: "/dashboard/quality" }
     ]
   },
   {

@@ -230,14 +230,12 @@ export default function WipInventoryTab({
                     'Main Store Stock': item.mainStoreStock || 0,
                     'Store Outward (WIP Inward)': (item.totalIssuedQty || 0) + (item.totalJobWorkSentQty || 0),
                     'FG GRN Consumed': item.totalReturnedQty || 0,
-                    'Shopfloor WIP': item.shopfloorWipQty || 0
+                    'Shopfloor WIP': item.shopfloorWipQty || 0,
+                    'Job Work Stock': item.jobWorkWipQty || 0,
+                    'Net Total WIP': item.pendingWipQty || 0,
+                    'Status': item.status || (item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero'),
+                    'Last Movement Date': item.lastMovementDate ? new Date(item.lastMovementDate).toLocaleDateString() : '-'
                 };
-                if (wipType === 'rm') {
-                    rowObj['Job Work WIP'] = item.jobWorkWipQty || 0;
-                }
-                rowObj['Net Total WIP'] = item.pendingWipQty || 0;
-                rowObj['Status'] = item.status || (item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero');
-                rowObj['Last Movement Date'] = item.lastMovementDate ? new Date(item.lastMovementDate).toLocaleDateString() : '-';
                 return rowObj;
             });
             const ws = XLSX.utils.json_to_sheet(rows);
@@ -594,7 +592,7 @@ export default function WipInventoryTab({
                                         <th className="px-4 py-3.5 text-center">Store Outward (WIP Inward)</th>
                                         <th className="px-4 py-3.5 text-center">FG GRN Consumed</th>
                                         <th className="px-4 py-3.5 text-center">Shopfloor WIP</th>
-                                        {wipType === 'rm' && <th className="px-4 py-3.5 text-center">Job Work WIP</th>}
+                                        <th className="px-4 py-3.5 text-center">Job Work Stock</th>
                                         <th className="px-4 py-3.5 text-center">Net Total WIP</th>
                                         <th className="px-4 py-3.5 text-center">Status</th>
                                         <th className="px-4 py-3.5 text-right">Action</th>
@@ -635,11 +633,9 @@ export default function WipInventoryTab({
                                                     {item.shopfloorWipQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                 </td>
 
-                                                {wipType === 'rm' && (
-                                                    <td className="px-4 py-3.5 text-center font-bold text-purple-600 dark:text-purple-400 font-mono">
-                                                        {item.jobWorkWipQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
-                                                    </td>
-                                                )}
+                                                <td className="px-4 py-3.5 text-center font-bold text-purple-600 dark:text-purple-400 font-mono">
+                                                    {item.jobWorkWipQty || 0} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                </td>
 
                                                 <td className="px-4 py-3.5 text-center">
                                                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-black font-mono ${
@@ -703,7 +699,7 @@ export default function WipInventoryTab({
                                         </span>
                                     </div>
 
-                                    <div className="grid grid-cols-4 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 block">Store Stock</span>
                                             <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{item.mainStoreStock}</span>
@@ -717,6 +713,10 @@ export default function WipInventoryTab({
                                             <span className="font-bold text-emerald-600 font-mono">{item.totalReturnedQty}</span>
                                         </div>
                                         <div>
+                                            <span className="text-[10px] font-bold text-purple-600 block">Job Work</span>
+                                            <span className="font-bold text-purple-600 font-mono">{item.jobWorkWipQty || 0}</span>
+                                        </div>
+                                        <div className="col-span-2 sm:col-span-1">
                                             <span className="text-[10px] font-bold text-indigo-600 block">Net WIP</span>
                                             <span className="font-black text-indigo-600 font-mono">{item.pendingWipQty}</span>
                                         </div>

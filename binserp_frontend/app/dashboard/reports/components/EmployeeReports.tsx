@@ -81,11 +81,11 @@ export default function EmployeeReports() {
                 {/* Attendance Pie Chart */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-1"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-1 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Today's Attendance</h3>
-                    <div className="h-[250px] w-full flex justify-center items-center">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[250px] w-full flex justify-center items-center min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <PieChart>
                                 <Pie
                                     data={attendanceData}
@@ -111,11 +111,11 @@ export default function EmployeeReports() {
                 {/* Productivity Trend */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-2"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-2 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Productivity Trend (By Dept)</h3>
-                    <div className="h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[300px] w-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <LineChart data={productivityTrend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                                 <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
@@ -135,11 +135,11 @@ export default function EmployeeReports() {
                 {/* Skill Gap Radar Chart */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Skill Capability Map</h3>
-                    <div className="h-[250px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[250px] w-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <RadarChart cx="50%" cy="50%" outerRadius="80%" data={skillDistribution}>
                                 <PolarGrid />
                                 <PolarAngleAxis dataKey="subject" tick={{ fill: '#6b7280', fontSize: 10 }} />

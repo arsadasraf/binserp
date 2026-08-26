@@ -21,7 +21,7 @@ export default function StoreTabs() {
   const allTabs = [
     { id: "inventory", key: "inventory", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-bo-stock", isActive: isHomeActive },
     { id: "wip", key: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store/wip/requests", isActive: isWipActive },
-    { id: "sales", key: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/po", isActive: isSalesActive },
+    { id: "sales", key: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
     { id: "purchase", key: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store/purchase/po", isActive: isPurchaseActive },
     { id: "masters", key: "masters", label: "Masters", icon: Settings, href: "/dashboard/store/masters/vendors", isActive: isMastersActive },
   ];

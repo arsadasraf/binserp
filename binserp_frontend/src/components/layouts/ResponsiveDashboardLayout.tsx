@@ -187,8 +187,16 @@ function LayoutContent({ children }: { children: ReactNode }) {
 
   // Handle User Info & Nav Resolution
   useEffect(() => {
+    const token = localStorage.getItem("token");
     const userType = localStorage.getItem("userType");
     const userInfoStr = localStorage.getItem("userInfo");
+
+    // Strictly redirect to login if no active authentication exists
+    if (!token && !userType) {
+      router.replace("/login?logout=true");
+      return;
+    }
+
     let department: string | null = null;
     let resolvedName = "BinsAnalytics";
     let resolvedSubtitle = "Dashboard";
@@ -265,6 +273,19 @@ function LayoutContent({ children }: { children: ReactNode }) {
     setIsCheckingAuth(false);
   }, [pathname, router]);
 
+  // Intercept Browser Back/Forward BFCache Restoration Post-Logout
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      const token = localStorage.getItem("token");
+      const userType = localStorage.getItem("userType");
+      if (!token && !userType) {
+        window.location.replace("/login?logout=true");
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, []);
+
   // Polling AI Python Health Status
   useEffect(() => {
     const checkHealth = async () => {
@@ -292,7 +313,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
 
   const handleLogout = async () => {
     await clearSession();
-    window.location.href = "/login?logout=true";
+    window.location.replace("/login?logout=true");
   };
 
   // Mobile Bottom Navigation Items

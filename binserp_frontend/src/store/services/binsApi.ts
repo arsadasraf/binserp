@@ -59,6 +59,7 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
 
       const errorData: any = result.error.data;
       const isDeactivated = errorData?.message?.toLowerCase().includes("deactivated");
+      const isAnotherDevice = errorData?.message?.toLowerCase().includes("another device");
       
       if (isDeactivated) {
         // Hard logout for deactivated accounts
@@ -72,7 +73,7 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
             confirmButtonText: 'Go to Login',
             allowOutsideClick: false,
           });
-          window.location.href = '/login';
+          window.location.href = '/login?logout=1';
         }
         return result;
       }
@@ -108,15 +109,27 @@ const customBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryEr
         clearSession();
         
         if (typeof window !== "undefined") {
+          let alertTitle = 'Session Expired';
+          let alertText = 'Your session has expired. Please log in again.';
+          if (isAnotherDevice) {
+            alertTitle = 'Logged in from another device';
+            alertText = 'You have been logged out because your account was logged into from another device.';
+          }
+
           await Swal.fire({
             icon: 'error',
-            title: 'Session Expired',
-            text: 'Your session has expired. Please log in again.',
+            title: alertTitle,
+            text: alertText,
             confirmButtonColor: '#4f46e5',
             confirmButtonText: 'Go to Login',
             allowOutsideClick: false,
+            background: '#ffffff',
+            customClass: {
+              title: 'text-xl font-bold text-gray-900',
+              popup: 'rounded-2xl shadow-2xl border border-gray-100',
+            }
           });
-          window.location.href = '/login';
+          window.location.href = '/login?logout=1';
         }
       }
     }

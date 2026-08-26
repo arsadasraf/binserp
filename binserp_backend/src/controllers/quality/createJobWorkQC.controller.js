@@ -219,17 +219,18 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
           }
         }
       } else if (isWipWorkflow) {
-        // Store-to-WIP or WIP-to-WIP
-        if (resolvedType === "component" || resolvedType === "inhouse") {
-          try {
-            await Component.findByIdAndUpdate(itemId, { $inc: { quantity: acceptedQtyNum } });
-          } catch (e) { }
-        }
+        // Store-to-WIP or WIP-to-WIP: Always goes to WIP FG Inventory (Component), never Main FG Store
+        try {
+          const compUpdated = await Component.findByIdAndUpdate(itemId, { $inc: { quantity: acceptedQtyNum } });
+          if (!compUpdated) {
+            await FGItem.findByIdAndUpdate(itemId, { $inc: { quantity: acceptedQtyNum } });
+          }
+        } catch (e) { }
 
         await recordStockTransaction(req, {
           itemType: "Component",
           item: itemId,
-          itemName: itemName || "WIP Component",
+          itemName: itemName || "WIP FG Component",
           unit: unit || "Nos",
           movementType: "INWARD",
           transactionCategory: "JOBWORK_QC_WIP_RELEASE",
@@ -239,8 +240,8 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
           referenceDocType: "JobWorkChallan",
           referenceDocId: jobWorkChallanId,
           referenceDocNumber: challanNumber,
-          recipientOrSource: `WIP Store (${vendorName})`,
-          purpose: remarks || `Job Work QC Release to WIP (${processType})`,
+          recipientOrSource: `WIP FG Store (${vendorName})`,
+          purpose: remarks || `Job Work QC Release to WIP FG (${processType})`,
           performedBy: req.user?._id || req.user?.id
         });
       } else if (isRouteCard && resolvedRouteCardRef?.job) {

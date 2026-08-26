@@ -15,7 +15,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem } from "@/src/features/store/types/store.types";
-import { apiPost, apiPut } from '@/src/lib/api';
+import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
 import SearchableSelect from '../SearchableSelect';
 
@@ -106,11 +106,45 @@ export default function JobWorkForm({
         ]
     });
 
+    const [wipFgItems, setWipFgItems] = useState<any[]>([]);
+
+    // Fetch live Shopfloor WIP FG Inventory (excludes Job Work and Main FG Store)
+    useEffect(() => {
+        if (isOpen && token) {
+            apiGet('/api/store/wip/inventory?type=fg', token)
+                .then((res: any) => {
+                    if (res?.wipItems && Array.isArray(res.wipItems)) {
+                        setWipFgItems(res.wipItems);
+                    }
+                })
+                .catch((err: any) => console.warn("Failed to fetch WIP FG inventory in JobWorkForm:", err));
+        }
+    }, [isOpen, token]);
+
     // Helper to get available stock from inventoryList or master items
     const getItemStock = useCallback((itemId: string, itemType: string): number => {
         if (!itemId) return 0;
 
-        // 1. Check inventoryList
+        // 1. For Finished Goods (FG / WIP Components), query strictly from Shopfloor WIP stock
+        if (itemType === 'fg') {
+            if (wipFgItems && wipFgItems.length > 0) {
+                const wip = wipFgItems.find((f: any) => 
+                    String(f.materialId) === String(itemId) || 
+                    String(f.id) === String(itemId) || 
+                    String(f._id) === String(itemId)
+                );
+                if (wip) {
+                    return Number(wip.shopfloorWipQty) || 0;
+                }
+            }
+            const comp = (inHouseItems || []).find((f: any) => String(f._id) === String(itemId));
+            if (comp && comp.isInventoryItem === false) {
+                return Number(comp.quantity) || 0;
+            }
+            return 0;
+        }
+
+        // 2. Check inventoryList for RM / BO
         if (inventoryList && inventoryList.length > 0) {
             const inv = inventoryList.find((i: any) => {
                 const mId = typeof i.materialId === 'object' && i.materialId ? i.materialId._id : i.materialId;
@@ -122,7 +156,7 @@ export default function JobWorkForm({
             }
         }
 
-        // 2. Fallback to master collections
+        // 3. Fallback to master collections for RM / BO
         if (itemType === 'rm') {
             const rm = (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => String(m._id) === String(itemId));
             if (rm) {
@@ -135,15 +169,9 @@ export default function JobWorkForm({
                 if (bo.quantity !== undefined) return Number(bo.quantity) || 0;
                 if (bo.currentStock !== undefined) return Number(bo.currentStock) || 0;
             }
-        } else if (itemType === 'fg') {
-            const fg = (inHouseItems || []).find((f: any) => String(f._id) === String(itemId));
-            if (fg) {
-                if (fg.quantity !== undefined) return Number(fg.quantity) || 0;
-                if (fg.currentStock !== undefined) return Number(fg.currentStock) || 0;
-            }
         }
         return 0;
-    }, [inventoryList, rawMaterials, boughtOuts, materials, inHouseItems]);
+    }, [inventoryList, rawMaterials, boughtOuts, materials, inHouseItems, wipFgItems]);
 
     // Populate suppliers combining jobWorkSuppliers and regular vendors
     const supplierOptions = useMemo(() => {
@@ -186,30 +214,72 @@ export default function JobWorkForm({
         });
     }, [boughtOuts, materials, getItemStock]);
 
-    // Item options for In-House / Finished Goods (FG) with live stock display
+    // Item options for In-House / Finished Goods (FG) with live Shopfloor WIP stock display (strictly excluding Job Work and Main Store FG stock)
     const fgOptions = useMemo(() => {
-        return (inHouseItems || []).map((i: any) => {
-            const stock = getItemStock(i._id, 'fg');
+        const sourceList = wipFgItems.length > 0 ? wipFgItems : (inHouseItems || []);
+        return sourceList.map((i: any) => {
+            const stock = i.shopfloorWipQty !== undefined ? (Number(i.shopfloorWipQty) || 0) : getItemStock(i._id || i.materialId, 'fg');
             const unit = i.unit || 'PCS';
+            const nameStr = i.materialName || i.name || i.componentName || 'Finished Good / Component';
+            const codeStr = i.materialCode || i.componentCode || i.code ? ` [${i.materialCode || i.componentCode || i.code}]` : '';
             return {
-                value: i._id,
-                label: `${i.name || i.componentName || 'Finished Good / Component'} • Stock: ${stock} ${unit}`
+                value: i.materialId || i.id || i._id,
+                label: `${nameStr}${codeStr} • Shopfloor WIP: ${stock} ${unit}`
             };
         });
-    }, [inHouseItems, getItemStock]);
+    }, [wipFgItems, inHouseItems, getItemStock]);
 
-    // MRP Plans options list
+    const [fetchedMrpPlans, setFetchedMrpPlans] = useState<any[]>([]);
+
+    // Fetch Open MRP Plans with keyword support
+    useEffect(() => {
+        if (isOpen && token) {
+            apiGet('/api/purchase/mrp', token)
+                .then((res: any) => {
+                    const plans = res?.mrps || res?.data || (Array.isArray(res) ? res : []);
+                    if (plans.length > 0) {
+                        setFetchedMrpPlans(plans);
+                    } else {
+                        // Fallback to WIP MRP buckets
+                        apiGet('/api/store/wip/inventory?type=mrp-buckets', token)
+                            .then((wipRes: any) => {
+                                if (wipRes?.mrpBuckets) setFetchedMrpPlans(wipRes.mrpBuckets);
+                            })
+                            .catch((err: any) => console.warn("Failed to fetch MRP buckets:", err));
+                    }
+                })
+                .catch(() => {
+                    apiGet('/api/store/wip/inventory?type=mrp-buckets', token)
+                        .then((wipRes: any) => {
+                            if (wipRes?.mrpBuckets) setFetchedMrpPlans(wipRes.mrpBuckets);
+                        })
+                        .catch((err: any) => console.warn("Failed to fetch MRP buckets:", err));
+                });
+        }
+    }, [isOpen, token]);
+
+    // Searchable Open MRP Plans options list
     const mrpOptions = useMemo(() => {
-        return (mrpPlans || []).map((m: any) => {
-            const num = m.mrpNumber || m.planNumber || m.code || `MRP-${m._id?.slice(-6)}`;
-            const cust = m.customerName || m.customer?.name || m.remarks || '';
-            return {
-                value: num,
-                id: m._id,
-                label: `${num} ${cust ? `(${cust})` : ''}`
-            };
-        });
-    }, [mrpPlans]);
+        const sourceList = (mrpPlans && mrpPlans.length > 0) ? mrpPlans : fetchedMrpPlans;
+        return sourceList
+            .filter((m: any) => {
+                const status = (m.status || '').toLowerCase();
+                return status !== 'completed' && status !== 'cancelled' && status !== 'closed';
+            })
+            .map((m: any) => {
+                const num = m.mrpNumber || m.planNumber || m.code || (m._id ? `MRP-${m._id?.slice(-6)}` : 'MRP');
+                const cust = m.customerName || m.customer?.name || m.remarks || '';
+                const fgName = m.productName || m.finishedGood || m.fgItemName || '';
+                const status = m.status || 'In Production';
+                return {
+                    value: num,
+                    id: m._id || m.id,
+                    code: num,
+                    label: `${num} ${cust ? `• ${cust}` : ''} ${fgName ? `• FG: ${fgName}` : ''} (${status})`,
+                    description: cust ? `Customer: ${cust}` : undefined
+                };
+            });
+    }, [mrpPlans, fetchedMrpPlans]);
 
     // Pre-fill form
     useEffect(() => {
@@ -364,9 +434,14 @@ export default function JobWorkForm({
                     current.unit = found.unit || (found as any).categoryId?.unit || 'PCS';
                 }
             } else if (type === 'fg') {
-                const found = (inHouseItems || []).find((i: any) => i._id === selectedId);
+                const sourceList = [...wipFgItems, ...(inHouseItems || [])];
+                const found = sourceList.find((i: any) => 
+                    String(i.materialId) === String(selectedId) || 
+                    String(i.id) === String(selectedId) || 
+                    String(i._id) === String(selectedId)
+                );
                 if (found) {
-                    current.itemName = found.name || found.componentName;
+                    current.itemName = found.materialName || found.name || found.componentName || 'Finished Good / Component';
                     current.unit = found.unit || 'PCS';
                 }
             }
@@ -409,9 +484,14 @@ export default function JobWorkForm({
                     currentRet.receivingUnit = found.unit || (found as any).categoryId?.unit || 'PCS';
                 }
             } else if (type === 'fg') {
-                const found = (inHouseItems || []).find((i: any) => i._id === selectedId);
+                const sourceList = [...wipFgItems, ...(inHouseItems || [])];
+                const found = sourceList.find((i: any) => 
+                    String(i.materialId) === String(selectedId) || 
+                    String(i.id) === String(selectedId) || 
+                    String(i._id) === String(selectedId)
+                );
                 if (found) {
-                    currentRet.receivedItemName = found.name || found.componentName;
+                    currentRet.receivedItemName = found.materialName || found.name || found.componentName || 'Finished Good / Component';
                     currentRet.receivingUnit = found.unit || 'PCS';
                 }
             }
@@ -523,7 +603,7 @@ export default function JobWorkForm({
             }
             if (!item.quantitySent || Number(item.quantitySent) <= 0) {
                 errors[`item_${i}_quantitySent`] = 'Quantity sent must be > 0';
-            } else if (formData.jobWorkType !== 'wip-to-wip' && item.item) {
+            } else if (item.item) {
                 const availStock = getItemStock(item.item, item.itemType);
                 const reqQty = Number(item.quantitySent) || 0;
 
@@ -771,51 +851,33 @@ export default function JobWorkForm({
                             {/* MRP Plan Selector */}
                             <div className="lg:col-span-2" data-has-error={!!formErrors.mrpNumber}>
                                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
-                                    <span>
-                                        MRP Plan # {(formData.jobWorkType === 'store-to-wip' || formData.jobWorkType === 'wip-to-wip') && <span className="text-red-500">*</span>}
+                                    <span className="flex items-center gap-1">
+                                        <span>MRP Plan #</span>
+                                        {(formData.jobWorkType === 'store-to-wip' || formData.jobWorkType === 'wip-to-wip') && (
+                                            <span className="text-red-500">*</span>
+                                        )}
+                                        <span className="text-[10px] font-normal text-slate-400">
+                                            {formData.jobWorkType === 'store-conversion' ? '(Optional)' : '(Required)'}
+                                        </span>
                                     </span>
                                     {formErrors.mrpNumber && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.mrpNumber}</span>}
                                 </label>
-                                {mrpOptions.length > 0 ? (
-                                    <select
-                                        value={formData.mrpNumber || ''}
-                                        onChange={(e) => {
-                                            const selectedNum = e.target.value;
-                                            const found = mrpOptions.find(m => m.value === selectedNum);
-                                            setFormData({ 
-                                                ...formData, 
-                                                mrpNumber: selectedNum, 
-                                                mrpPlan: found?.id || '' 
-                                            });
-                                            if (selectedNum) clearError('mrpNumber');
-                                        }}
-                                        className={`w-full h-9 px-3 border rounded-xl text-xs font-bold focus:ring-2 outline-none transition-all ${
-                                            formErrors.mrpNumber
-                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
-                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-indigo-500/20'
-                                        }`}
-                                    >
-                                        <option value="">{formData.jobWorkType === 'store-conversion' ? '-- Optional MRP Plan --' : '-- Select MRP Plan --'}</option>
-                                        {mrpOptions.map((opt, i) => (
-                                            <option key={i} value={opt.value}>{opt.label}</option>
-                                        ))}
-                                    </select>
-                                ) : (
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. MRP-2026-001"
-                                        value={formData.mrpNumber || ''}
-                                        onChange={(e) => {
-                                            setFormData({ ...formData, mrpNumber: e.target.value });
-                                            if (e.target.value) clearError('mrpNumber');
-                                        }}
-                                        className={`w-full h-9 px-3 border rounded-xl text-xs font-bold focus:ring-2 outline-none transition-all ${
-                                            formErrors.mrpNumber
-                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
-                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-indigo-500/20'
-                                        }`}
-                                    />
-                                )}
+                                <SearchableSelect
+                                    options={mrpOptions}
+                                    value={formData.mrpNumber || ''}
+                                    placeholder={formData.jobWorkType === 'store-conversion' ? "Search open MRP #, customer, FG..." : "Search and select open MRP plan..."}
+                                    allowCustom={true}
+                                    hasError={!!formErrors.mrpNumber}
+                                    onChange={(val) => {
+                                        const found = mrpOptions.find(m => m.value === val);
+                                        setFormData({ 
+                                            ...formData, 
+                                            mrpNumber: val, 
+                                            mrpPlan: found?.id || '' 
+                                        });
+                                        if (val) clearError('mrpNumber');
+                                    }}
+                                />
                             </div>
 
                             {/* Challan Date */}

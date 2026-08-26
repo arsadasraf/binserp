@@ -130,7 +130,7 @@ export const createJobWorkChallan = async (req, res) => {
         itemName = item.itemName || "Sent Item";
       }
 
-      // Stock Check for Store Conversion & Store-to-WIP
+      // Stock Check for Store Conversion & Store-to-WIP (Main Store RM/BO)
       if (jobWorkType !== "wip-to-wip" && jobWorkType !== "route-card") {
         if ((itemType === "rm" || itemType === "bo") && validItemId) {
           const invDoc = await Inventory.findOne({
@@ -154,15 +154,109 @@ export const createJobWorkChallan = async (req, res) => {
           const reqQty = Number(quantitySent) || 0;
           if (availStock <= 0) {
             return res.status(400).json({
-              message: `Cannot dispatch "${itemName}": Item is OUT OF STOCK (Available: 0 ${unit || 'PCS'}). Returnable DC cannot be created.`
+              message: `Cannot dispatch "${itemName}": Item is OUT OF STOCK in Main Store (Available: 0 ${unit || 'PCS'}). Returnable DC cannot be created.`
             });
           }
 
           if (reqQty > availStock) {
             return res.status(400).json({
-              message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available stock (${availStock} ${unit || 'PCS'}). Returnable DC cannot be created.`
+              message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available Main Store stock (${availStock} ${unit || 'PCS'}). Returnable DC cannot be created.`
             });
           }
+        }
+      } else if (jobWorkType === "wip-to-wip") {
+        // Stock Check for WIP-to-WIP (Shopfloor Component Stock strictly, never Main FG Store)
+        const Component = req.getModel("Component", componentSchema);
+        const MaterialIssue = req.getModel("MaterialIssue", materialIssueSchema);
+        const JobWork = req.getModel("JobWorkChallan", jobWorkSchema);
+        let availWipStock = 0;
+
+        // 1. Check Component collection
+        if (validItemId || itemName) {
+          const searchConditions = [];
+          if (mongoose.Types.ObjectId.isValid(validItemId)) {
+            searchConditions.push({ _id: validItemId });
+          }
+          if (itemName && itemName.trim()) {
+            searchConditions.push({ componentName: new RegExp(`^${itemName.trim()}$`, "i") });
+            searchConditions.push({ name: new RegExp(`^${itemName.trim()}$`, "i") });
+          }
+
+          if (searchConditions.length > 0) {
+            const compDoc = await Component.findOne({
+              company: companyId,
+              $or: searchConditions
+            });
+            if (compDoc) {
+              availWipStock = Math.max(availWipStock, Number(compDoc.quantity || 0));
+            }
+          }
+        }
+
+        // 2. Also check Store Material Issues issued to shopfloor
+        try {
+          const nameRegex = itemName && itemName.trim() ? new RegExp(`^${itemName.trim()}$`, "i") : null;
+          const issues = await MaterialIssue.find({
+            company: companyId,
+            items: {
+              $elemMatch: {
+                $or: [
+                  ...(validItemId ? [{ material: validItemId }, { fgItem: validItemId }, { component: validItemId }] : []),
+                  ...(nameRegex ? [{ materialName: nameRegex }] : [])
+                ]
+              }
+            }
+          });
+
+          let totalIssuedToShopfloor = 0;
+          issues.forEach(iss => {
+            (iss.items || []).forEach(it => {
+              const matchesId = validItemId && (String(it.material) === String(validItemId) || String(it.fgItem) === String(validItemId) || String(it.component) === String(validItemId));
+              const matchesName = nameRegex && it.materialName && nameRegex.test(it.materialName);
+              if (matchesId || matchesName) {
+                totalIssuedToShopfloor += Number(it.quantity || 0);
+              }
+            });
+          });
+
+          if (totalIssuedToShopfloor > 0) {
+            const existingJobWorks = await JobWork.find({
+              company: companyId,
+              jobWorkType: "wip-to-wip",
+              status: { $ne: "Cancelled" }
+            });
+
+            let totalDispatched = 0;
+            let totalReturned = 0;
+            existingJobWorks.forEach(jw => {
+              (jw.items || []).forEach(it => {
+                const itMatchesId = validItemId && String(it.item) === String(validItemId);
+                const itMatchesName = nameRegex && it.itemName && nameRegex.test(it.itemName);
+                if (itMatchesId || itMatchesName) {
+                  totalDispatched += Number(it.quantitySent || 0);
+                  totalReturned += Number(it.quantityReceived || 0);
+                }
+              });
+            });
+
+            const perpetualShopfloorStock = Math.max(0, totalIssuedToShopfloor - totalDispatched + totalReturned);
+            availWipStock = Math.max(availWipStock, perpetualShopfloorStock);
+          }
+        } catch (calcErr) {
+          console.warn("WIP stock calculation error in createJobWorkChallan:", calcErr);
+        }
+
+        const reqQty = Number(quantitySent) || 0;
+        if (availWipStock <= 0) {
+          return res.status(400).json({
+            message: `Cannot dispatch "${itemName}": Item is OUT OF STOCK in Shopfloor WIP (Available: 0 ${unit || 'PCS'}). Returnable DC cannot be created.`
+          });
+        }
+
+        if (reqQty > availWipStock) {
+          return res.status(400).json({
+            message: `Cannot dispatch "${itemName}": Requested quantity (${reqQty}) exceeds available Shopfloor WIP stock (${availWipStock} ${unit || 'PCS'}). Returnable DC cannot be created.`
+          });
         }
       }
 
@@ -308,9 +402,11 @@ export const createJobWorkChallan = async (req, res) => {
       }
     }
 
+    const Component = req.getModel("Component", componentSchema);
+
     for (const item of processedItems) {
       if (jobWorkType !== "route-card" && jobWorkType !== "wip-to-wip" && (item.itemType === "bo" || item.itemType === "rm") && item.item) {
-        // Decrease current stock & log returnable DC transaction
+        // Decrease current stock & log returnable DC transaction from Main Store RM/BO
         await updateInventoryStock(
           req,
           item.item, // material ID
@@ -337,6 +433,15 @@ export const createJobWorkChallan = async (req, res) => {
           );
         } catch (monthlyErr) {
           console.error("Error updating RM monthly outward quantity for Job Work:", monthlyErr);
+        }
+      } else if (jobWorkType === "wip-to-wip" && item.item) {
+        // Decrease WIP FG Component stock
+        try {
+          await Component.findByIdAndUpdate(item.item, {
+            $inc: { quantity: -Number(item.quantitySent) }
+          });
+        } catch (compErr) {
+          console.error("Error updating Component stock for WIP-to-WIP challan:", compErr);
         }
       }
     }

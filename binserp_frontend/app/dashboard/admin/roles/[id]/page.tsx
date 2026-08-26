@@ -98,6 +98,20 @@ const MODULE_DEFINITIONS: ModuleSchema[] = [
     ]
   },
   {
+    name: "Quality",
+    label: "Quality Control",
+    icon: CheckCircle2,
+    color: "from-teal-600 to-emerald-600",
+    tabs: [
+      { id: "overview", label: "Overview", description: "Quality KPIs, Inspection Analytics & Rejection Rates", route: "/dashboard/quality/overview" },
+      { id: "incoming", label: "Incoming QC", description: "RM & BO Purchase GRN Quality Inspections & SCN Reports", route: "/dashboard/quality/incoming" },
+      { id: "process", label: "Process QC", description: "In-Process Quality Checks & Production Line Inspections", route: "/dashboard/quality/process" },
+      { id: "jobwork-qc", label: "Job Work QC", description: "Subcontractor Inward Quality Inspection & Approvals", route: "/dashboard/quality/jobwork-qc" },
+      { id: "fg-qc", label: "FG QC & PDI", description: "Finished Goods PDI & Final Product Quality Certifications", route: "/dashboard/quality/fg-qc" },
+      { id: "master", label: "Quality Masters", description: "Inspection Parameters, Instruments & Tolerance Standards", route: "/dashboard/quality/master" }
+    ]
+  },
+  {
     name: "Admin",
     label: "Admin & User Management",
     icon: Lock,
@@ -128,13 +142,6 @@ const MODULE_DEFINITIONS: ModuleSchema[] = [
     icon: Wrench,
     color: "from-slate-600 to-gray-700",
     tabs: [{ id: "overview", label: "Maintenance Overview", description: "Equipment Status & Preventive Schedules", route: "/dashboard/maintenance" }]
-  },
-  {
-    name: "Quality",
-    label: "Quality Control",
-    icon: CheckCircle2,
-    color: "from-teal-600 to-emerald-600",
-    tabs: [{ id: "overview", label: "Quality Overview", description: "Inspection Sheets & Quality Audits", route: "/dashboard/quality" }]
   },
   {
     name: "Reports",
@@ -174,6 +181,14 @@ function normalizeTabId(moduleName: string, rawTab: string): string {
     if (t.includes("visitor")) return "visitor";
     if (t.includes("vehicle")) return "vehicle";
     if (t.includes("movement")) return "employee-movement";
+    return "overview";
+  }
+  if (moduleName.toLowerCase() === "quality") {
+    if (t.includes("incoming") || t.includes("inward") || t.includes("scn")) return "incoming";
+    if (t.includes("process") || t.includes("line")) return "process";
+    if (t.includes("jobwork") || t.includes("jw")) return "jobwork-qc";
+    if (t.includes("fg") || t.includes("pdi") || t.includes("finished")) return "fg-qc";
+    if (t.includes("master")) return "master";
     return "overview";
   }
   if (moduleName.toLowerCase() === "admin") {

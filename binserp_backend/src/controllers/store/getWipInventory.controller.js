@@ -352,23 +352,29 @@ export const getWipInventory = async (req, res) => {
       });
     });
 
-    // 5. Process Job Work Challans (Subcontractor Outward / Inward)
+    // 5. Process Job Work Challans (Subcontractor Outward / Inward across all 3 Types)
     challans.forEach((challan) => {
       const vendorObj = challan.vendor || { name: challan.vendorName || "Subcontractor" };
       const vendorName = vendorObj.name || "Subcontractor";
       const challanDate = challan.date || challan.createdAt;
       const docNo = challan.challanNumber;
       const mrpNumber = challan.mrpNumber || "";
+      const jwType = challan.jobWorkType || "store-conversion";
 
       (challan.items || []).forEach((sentItem) => {
         const sentName = sentItem.itemName || "Sent Material";
         const sentQty = Number(sentItem.quantitySent) || 0;
         const processType = sentItem.processType || "Job Work";
         const unit = sentItem.unit || "PCS";
+        const sentRawType = (sentItem.itemType || (jwType === "wip-to-wip" ? "fg" : "rm")).toLowerCase();
+        const sentTargetType = (sentRawType === "bo" || sentRawType === "bought out") ? "bo" : (sentRawType === "fg" || sentRawType === "inhouse" || sentRawType === "component" || jwType === "wip-to-wip") ? "fg" : "rm";
 
         const retList = Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
           ? sentItem.returningItems
           : [{
+              receivedItem: sentItem.receivedItem,
+              receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
+              receivedItemType: sentItem.receivedItemType || (jwType === "store-conversion" ? "rm" : "fg"),
               quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
               quantityReceived: Number(sentItem.quantityReceived) || 0
             }];
@@ -377,7 +383,8 @@ export const getWipInventory = async (req, res) => {
         const receivedQty = retList.reduce((acc, r) => acc + (Number(r.quantityReceived) || 0), 0);
         const netJobWorkPending = Math.max(0, expectedQty - receivedQty);
 
-        const entry = findWipEntry(null, sentName, null, 'rm');
+        // Find entry for dispatched outward material
+        const entry = findWipEntry(sentItem.item, sentName, null, sentTargetType);
         if (entry) {
           entry.totalJobWorkSentQty += sentQty;
           entry.totalJobWorkReturnedQty += receivedQty;
@@ -390,7 +397,7 @@ export const getWipInventory = async (req, res) => {
 
           const txOut = {
             date: challanDate,
-            type: "Job-Work Subcontractor Dispatch (WIP Outward)",
+            type: jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Dispatch" : (jwType === "store-to-wip" ? "Store-to-WIP Subcontractor Dispatch" : "RM Conversion Subcontractor Dispatch"),
             docNumber: docNo,
             mrpNumber: mrpNumber,
             ewayBillNo: challan.ewayBillNo || "",
@@ -410,33 +417,54 @@ export const getWipInventory = async (req, res) => {
             itemType: entry.itemType,
             categoryType: entry.categoryType
           });
+        }
 
-          if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
-            challan.receiveHistory.forEach((hist) => {
-              const txIn = {
-                date: hist.date,
-                type: "Job-Work Subcontractor Receipt (WIP Return)",
-                docNumber: docNo,
-                mrpNumber: mrpNumber,
-                ewayBillNo: challan.ewayBillNo || "",
-                sentQty: 0,
-                receivedQty: Number(hist.quantity) || 0,
-                unit: unit,
-                processType: `Return from ${vendorName}`,
-                vendorName: vendorName,
-                status: "Received"
-              };
-              entry.transactions.push(txIn);
+        // For Store-to-WIP: Returned goods are FG/Component in WIP FG Inventory
+        if (jwType === "store-to-wip" || jwType === "wip-to-wip") {
+          retList.forEach((ret) => {
+            const retName = ret.receivedItemName || sentName;
+            const retQty = Number(ret.quantityReceived) || 0;
+            const fgEntry = findWipEntry(ret.receivedItem, retName, null, "fg");
+            if (fgEntry && retQty > 0) {
+              fgEntry.shopfloorWipQty += retQty;
+              fgEntry.pendingWipQty = fgEntry.shopfloorWipQty + fgEntry.jobWorkWipQty;
+            }
+          });
+        }
 
-              allTransactionsLedger.push({
-                ...txIn,
-                materialName: entry.materialName,
-                materialCode: entry.materialCode,
-                itemType: entry.itemType,
-                categoryType: entry.categoryType
-              });
+        // Record Inward History in Ledger
+        if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
+          challan.receiveHistory.forEach((hist) => {
+            const histItemName = hist.itemName || sentName;
+            const histTargetType = (jwType === "store-conversion") ? sentTargetType : "fg";
+            const histEntry = findWipEntry(hist.returningItemId || hist.itemId, histItemName, null, histTargetType);
+
+            const txIn = {
+              date: hist.date,
+              type: jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Receipt (WIP FG)" : (jwType === "store-to-wip" ? "Store-to-WIP Return Receipt (WIP FG)" : "RM Conversion Subcontractor Receipt (Main Store)"),
+              docNumber: docNo,
+              mrpNumber: mrpNumber,
+              ewayBillNo: challan.ewayBillNo || "",
+              sentQty: 0,
+              receivedQty: Number(hist.quantity) || 0,
+              unit: unit,
+              processType: `Return from ${vendorName}`,
+              vendorName: vendorName,
+              status: hist.qcStatus || "Received"
+            };
+
+            if (histEntry) {
+              histEntry.transactions.push(txIn);
+            }
+
+            allTransactionsLedger.push({
+              ...txIn,
+              materialName: histItemName,
+              materialCode: histEntry?.materialCode || "",
+              itemType: histTargetType,
+              categoryType: histEntry?.categoryType || "FG / Component"
             });
-          }
+          });
         }
       });
     });

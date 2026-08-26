@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { useHeader } from "@/src/context/HeaderContext";
+import { usePermission } from "@/src/hooks/usePermission";
 import { 
   ClipboardCheck, Activity as ActivityIcon, Settings, 
   BarChart3, CheckSquare, Wrench 
@@ -21,12 +22,18 @@ export const QUALITY_TABS = [
 export default function QualityTabs() {
   const { showBottomNav } = useHeader();
   const pathname = usePathname();
+  const { hasTabAccess, userType } = usePermission();
+
+  const tabs = QUALITY_TABS.filter((tab) => {
+    if (userType === "saasadmin" || userType === "company") return true;
+    return hasTabAccess("Quality", tab.id);
+  });
 
   return (
     <>
       {/* Desktop View: Modern Floating Navigation Tabs */}
       <div className="hidden md:flex mb-6 items-center bg-white dark:bg-slate-900 p-1.5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 w-fit flex-wrap gap-1">
-        {QUALITY_TABS.map((tab) => {
+        {tabs.map((tab) => {
           const isActive = pathname.startsWith(tab.href) || (tab.id === "overview" && pathname === "/dashboard/quality");
           const Icon = tab.icon;
 
@@ -63,7 +70,7 @@ export default function QualityTabs() {
           showBottomNav ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0 pointer-events-none'
         }`}
       >
-        {QUALITY_TABS.map((tab) => {
+        {tabs.map((tab) => {
           const isActive = pathname.startsWith(tab.href) || (tab.id === "overview" && pathname === "/dashboard/quality");
           const Icon = tab.icon;
 

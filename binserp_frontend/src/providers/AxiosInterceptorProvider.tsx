@@ -4,9 +4,11 @@ import { useEffect } from "react";
 import axios from "axios";
 import Swal from "sweetalert2";
 import { API_BASE_URL } from "@/src/utils/config";
+import { clearSession } from "@/src/lib/session";
 
 let isRefreshing = false;
 let failedQueue: any[] = [];
+let isSessionAlertActive = false;
 
 const processQueue = (error: any, token: string | null = null) => {
   failedQueue.forEach(prom => {
@@ -65,44 +67,40 @@ export default function AxiosInterceptorProvider({ children }: { children: React
               const isDeactivated = errorData?.message?.toLowerCase().includes("deactivated");
               const isAnotherDevice = errorData?.message?.toLowerCase().includes("another device");
 
-              // We'll also call clearSession if we can import it, but let's just do standard cleanup here
-              localStorage.removeItem("token");
-              localStorage.removeItem("userType");
-              localStorage.removeItem("userInfo");
-              
-              // Clear cookies
-              const isSecure = window.location.protocol === "https:";
-              const cookieFlags = `path=/; SameSite=Lax; ${isSecure ? "Secure" : ""}`;
-              document.cookie = `accessToken=; max-age=0; ${cookieFlags}`;
-              document.cookie = `refreshToken=; max-age=0; ${cookieFlags}`;
-              document.cookie = `saasAdminToken=; max-age=0; ${cookieFlags}`;
+              // Clear client session and cookies
+              await clearSession();
 
-              let alertTitle = 'Session Expired';
-              let alertText = 'Your session has expired or is invalid. Please log in again.';
-              
-              if (isDeactivated) {
-                alertTitle = 'Account Deactivated';
-                alertText = 'Your account has been deactivated. Please contact an administrator.';
-              } else if (isAnotherDevice) {
-                alertTitle = 'Logged in from another device';
-                alertText = 'You have been logged out because your account was logged into from another device.';
-              }
+              if (!isSessionAlertActive) {
+                isSessionAlertActive = true;
 
-              await Swal.fire({
-                icon: 'error',
-                title: alertTitle,
-                text: alertText,
-                confirmButtonColor: '#4f46e5',
-                confirmButtonText: 'Go to Login',
-                allowOutsideClick: false,
-                background: '#ffffff',
-                customClass: {
-                  title: 'text-xl font-bold text-gray-900',
-                  popup: 'rounded-2xl shadow-2xl border border-gray-100',
+                let alertTitle = 'Session Expired';
+                let alertText = 'Your session has expired or is invalid. Please log in again.';
+                
+                if (isDeactivated) {
+                  alertTitle = 'Account Deactivated';
+                  alertText = 'Your account has been deactivated. Please contact an administrator.';
+                } else if (isAnotherDevice) {
+                  alertTitle = 'Logged in from another device';
+                  alertText = 'You have been logged out because your account was logged into from another device.';
                 }
-              });
 
-              window.location.href = '/login';
+                await Swal.fire({
+                  icon: 'error',
+                  title: alertTitle,
+                  text: alertText,
+                  confirmButtonColor: '#4f46e5',
+                  confirmButtonText: 'Go to Login',
+                  allowOutsideClick: false,
+                  background: '#ffffff',
+                  customClass: {
+                    title: 'text-xl font-bold text-gray-900',
+                    popup: 'rounded-2xl shadow-2xl border border-gray-100',
+                  }
+                });
+
+                isSessionAlertActive = false;
+                window.location.href = '/login?logout=1';
+              }
               return Promise.reject(refreshError);
             }
           }

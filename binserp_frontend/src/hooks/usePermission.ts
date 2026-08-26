@@ -160,6 +160,99 @@ export function usePermission() {
       return true;
     }
 
+    // 6. Quality Module Aliases
+    if (mod === "quality") {
+      if ((tab === "jobwork-qc" || tab === "jobwork") && (
+        permissionSet.has("quality:jobwork-qc") ||
+        permissionSet.has("quality:jobwork") ||
+        permissionSet.has("Quality:jobwork-qc") ||
+        permissionSet.has("Quality:jobwork")
+      )) {
+        return true;
+      }
+      if ((tab === "fg-qc" || tab === "fg") && (
+        permissionSet.has("quality:fg-qc") ||
+        permissionSet.has("quality:fg") ||
+        permissionSet.has("Quality:fg-qc") ||
+        permissionSet.has("Quality:fg")
+      )) {
+        return true;
+      }
+      if ((tab === "incoming" || tab === "inward") && (
+        permissionSet.has("quality:incoming") ||
+        permissionSet.has("quality:inward") ||
+        permissionSet.has("Quality:incoming")
+      )) {
+        return true;
+      }
+      if ((tab === "process" || tab === "in-process") && (
+        permissionSet.has("quality:process") ||
+        permissionSet.has("Quality:process")
+      )) {
+        return true;
+      }
+    }
+
+    // 7. Store Module Aliases
+    if (mod === "store") {
+      if ((tab === "wip" || tab === "requests" || tab === "job-work" || tab === "material-issue") && (
+        permissionSet.has("store:wip") ||
+        permissionSet.has("Store:wip")
+      )) {
+        return true;
+      }
+      if ((tab === "purchase" || tab === "po" || tab === "mrp") && (
+        permissionSet.has("store:purchase") ||
+        permissionSet.has("Store:purchase")
+      )) {
+        return true;
+      }
+      if ((tab === "sales" || tab === "orders" || tab === "order") && (
+        permissionSet.has("store:sales") ||
+        permissionSet.has("Store:sales")
+      )) {
+        return true;
+      }
+    }
+
+    // 8. PPC Module Aliases
+    if (mod === "ppc") {
+      if ((tab === "orders" || tab === "order") && (
+        permissionSet.has("ppc:orders") ||
+        permissionSet.has("PPC:orders")
+      )) {
+        return true;
+      }
+      if ((tab === "planning" || tab === "plan") && (
+        permissionSet.has("ppc:planning") ||
+        permissionSet.has("PPC:planning")
+      )) {
+        return true;
+      }
+      if ((tab === "tracing" || tab === "trace") && (
+        permissionSet.has("ppc:tracing") ||
+        permissionSet.has("PPC:tracing")
+      )) {
+        return true;
+      }
+    }
+
+    // 9. Admin Module Aliases
+    if (mod === "admin") {
+      if ((tab === "users" || tab === "user") && (
+        permissionSet.has("admin:users") ||
+        permissionSet.has("Admin:users")
+      )) {
+        return true;
+      }
+      if ((tab === "roles" || tab === "role") && (
+        permissionSet.has("admin:roles") ||
+        permissionSet.has("Admin:roles")
+      )) {
+        return true;
+      }
+    }
+
     // Sub-route prefix matching (e.g., policy has "inventory" -> allows "inventory/rm-bo-stock", or policy has "purchase/po" -> allows "purchase")
     for (const key of permissionSet) {
       const lowerKey = key.toLowerCase();

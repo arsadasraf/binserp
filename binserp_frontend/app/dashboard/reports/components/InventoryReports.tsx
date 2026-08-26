@@ -51,11 +51,11 @@ export default function InventoryReports() {
                 {/* Category Value Pie */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-1"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-1 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Value by Category</h3>
-                    <div className="h-[250px] w-full flex justify-center items-center">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[250px] w-full flex justify-center items-center min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <PieChart>
                                 <Pie
                                     data={categoryData}
@@ -81,11 +81,11 @@ export default function InventoryReports() {
                 {/* Value vs Quantity Trend */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-2"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-2 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Stock Value Analysis</h3>
-                    <div className="h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[300px] w-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <ComposedChart data={stockValueTrend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                                 <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
@@ -105,11 +105,11 @@ export default function InventoryReports() {
                 {/* Consumption vs Limit */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Material Consumption</h3>
-                    <div className="h-[250px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[250px] w-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <BarChart layout="vertical" data={consumptionData} margin={{ left: 20 }}>
                                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
                                 <XAxis type="number" stroke="#9ca3af" fontSize={10} />

@@ -62,11 +62,11 @@ export default function MachineReports() {
                 {/* OEE Radial Chart */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-1"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-1 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">OEE Composition</h3>
-                    <div className="h-[250px] w-full flex justify-center items-center">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[250px] w-full flex justify-center items-center min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <RadialBarChart cx="50%" cy="50%" innerRadius="10%" outerRadius="80%" barSize={20} data={oeeData}>
                                 <RadialBar
                                     background
@@ -89,11 +89,11 @@ export default function MachineReports() {
                 {/* Performance Trend */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-2"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 lg:col-span-2 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Availability Trend</h3>
-                    <div className="h-[300px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[300px] w-full min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <AreaChart data={performanceTrend} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorOee" x1="0" y1="0" x2="0" y2="1">
@@ -117,11 +117,11 @@ export default function MachineReports() {
                 {/* Machine Status Breakdown */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800"
+                    className="bg-white dark:bg-gray-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 min-w-0"
                 >
                     <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Machine Status</h3>
-                    <div className="h-[250px] w-full relative">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="h-[250px] w-full relative min-w-0">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <PieChart>
                                 <Pie
                                     data={statusData}

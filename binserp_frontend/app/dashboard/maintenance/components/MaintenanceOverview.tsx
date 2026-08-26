@@ -99,11 +99,11 @@ export default function MaintenanceOverview() {
 
             {/* Charts & Activity */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-                {/* Status Pie Chart */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col h-96 lg:col-span-1">
-                    <h3 className="text-lg font-bold text-gray-800 mb-6">Ticket Distribution</h3>
-                    <div className="flex-1 w-full min-h-0">
-                        <ResponsiveContainer width="100%" height="100%">
+                {/* Status Breakdown Chart */}
+                <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex flex-col h-96 min-w-0">
+                    <h3 className="text-lg font-bold text-gray-800 mb-2">Ticket Status Distribution</h3>
+                    <div className="flex-1 w-full min-h-0 min-w-0 flex items-center justify-center">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                             <PieChart>
                                 <Pie
                                     data={[
