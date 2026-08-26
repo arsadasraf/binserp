@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Layers, Plus, Search, Calendar, User, Eye, Trash2, Package, 
-  CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, 
+  CheckCircle2, Clock, Filter, ArrowRight, ArrowLeft, X, Building2, Printer, 
   LayoutGrid, List, Edit2, ShieldCheck, Download, ShoppingCart, 
   Sparkles, RefreshCw, FileText, AlertCircle, Send, CheckSquare, Square,
-  Check, Boxes, ChevronRight
+  Check, Boxes, ChevronRight, Factory, Play
 } from 'lucide-react';
-import Link from 'next/link';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import Swal from 'sweetalert2';
 import MRPModal from '../modals/MRPModal';
 import MRPDetailsModal from '../modals/MRPDetailsModal';
 import MRPOutwardRfqModal from '../modals/MRPOutwardRfqModal';
 import POModal from '../modals/POModal';
+import MRPProcurementWorkbench from './MRPProcurementWorkbench';
+import MRP360WipDrawer from '../modals/MRP360WipDrawer';
 
 interface MRPTabProps {
   token?: string | null;
@@ -20,41 +21,28 @@ interface MRPTabProps {
   onSuccess?: (msg: string) => void;
 }
 
-export interface SelectedMaterialItem {
-  id: string; // unique composite key: planId + materialId/code/name
-  planId?: string;
-  material?: string;
-  materialId?: string;
-  materialName: string;
-  materialCode?: string;
-  category?: string;
-  itemType: 'rm' | 'bo' | 'fg' | 'consumable' | string;
-  requiredQuantity: number;
-  currentStock: number;
-  shortage: number;
-  unit: string;
-  sourceMRP?: string;
-  customerName?: string;
-  targetDate?: string | Date;
-  description?: string;
-  status?: string;
-}
-
 export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabProps) {
   const [loading, setLoading] = useState(true);
+  const [mainView, setMainView] = useState<'plans' | 'workbench'>('plans');
   const [mrpPlans, setMrpPlans] = useState<any[]>([]);
+  const [selectedDemandPlan, setSelectedDemandPlan] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('All');
-  const [activeSubTab, setActiveSubTab] = useState<'plans' | 'rm' | 'bo' | 'fg'>('plans');
-  const [onlyShortages, setOnlyShortages] = useState(false);
-
-  // Multi-selection state
-  const [selectedItems, setSelectedItems] = useState<SelectedMaterialItem[]>([]);
+  
+  // Date & Day Filters
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'thisMonth' | 'custom'>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [dateType, setDateType] = useState<'created' | 'target'>('created');
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<any | null>(null);
+  const [selectedPlanForDetails, setSelectedPlanForDetails] = useState<any | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
+
+  // 360 WIP Drawer State
+  const [drawerPlanId, setDrawerPlanId] = useState<string | null>(null);
+  const [is360DrawerOpen, setIs360DrawerOpen] = useState(false);
 
   // RFQ & PO Modal States for MRP
   const [isRfqModalOpen, setIsRfqModalOpen] = useState(false);
@@ -79,7 +67,15 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
         apiGet('/api/store/bought-out', token).catch(() => [])
       ]);
 
-      setMrpPlans(mrpRes.mrpPlans || []);
+      const plans = mrpRes.mrpPlans || [];
+      setMrpPlans(plans);
+
+      // Keep selectedDemandPlan in sync if open
+      if (selectedDemandPlan) {
+        const found = plans.find((p: any) => p._id === selectedDemandPlan._id);
+        if (found) setSelectedDemandPlan(found);
+      }
+
       const vList = Array.isArray(venRes?.vendors) ? venRes.vendors : (Array.isArray(venRes) ? venRes : []);
       setVendors(vList);
       const rmList = Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []);
@@ -97,675 +93,471 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     fetchData();
   }, [token]);
 
+  // Action: Move MRP to Production
+  const handleMoveToProduction = async (planId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      const res = await apiPost(`/api/purchase/mrp/plan/${planId}/move-to-production`, {}, token);
+      Swal.fire({
+        icon: 'success',
+        title: 'Sent to Production!',
+        text: res.message || 'MRP Demands successfully routed to PPC Production Queue.',
+        timer: 3000
+      });
+      fetchData();
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'Failed to route to production', 'error');
+    }
+  };
+
+  // Action: Delete MRP Plan
   const handleDeletePlan = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const confirm = await Swal.fire({
+    const result = await Swal.fire({
       title: 'Delete MRP Plan?',
-      text: 'Are you sure you want to remove this MRP demand plan and all its exploded requirements?',
+      text: 'This will remove the demand calculation. Any generated POs will remain intact.',
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#3085d6',
-      confirmButtonText: 'Yes, Delete'
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, delete plan'
     });
 
-    if (!confirm.isConfirmed) return;
+    if (!result.isConfirmed) return;
 
     try {
       await apiDelete(`/api/purchase/mrp/plan/${id}`, token);
       Swal.fire({
         icon: 'success',
-        title: 'Deleted',
+        title: 'Deleted!',
         text: 'MRP Plan removed successfully',
         timer: 2000
       });
-      if (onSuccess) onSuccess('MRP Plan deleted successfully');
-      setSelectedItems(prev => prev.filter(item => !item.id.startsWith(id)));
+      if (selectedDemandPlan?._id === id) {
+        setSelectedDemandPlan(null);
+      }
       fetchData();
     } catch (err: any) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: err.message || 'Failed to delete MRP plan'
-      });
-      if (onError) onError(err.message || 'Failed to delete MRP plan');
+      Swal.fire('Error', err.message || 'Failed to delete MRP plan', 'error');
     }
   };
 
   const handleOpenDetails = (plan: any) => {
-    setSelectedPlan(plan);
+    setSelectedPlanForDetails(plan);
     setIsDetailsModalOpen(true);
   };
 
-  // Filtered MRP Plans
-  const filteredPlans = useMemo(() => {
+  // Filtered MRP Plans for Master List (Step 1)
+  const filteredMrpPlans = useMemo(() => {
+    const today = new Date();
+    const isSameDay = (d1: Date, d2: Date) => 
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate();
+
     return (Array.isArray(mrpPlans) ? mrpPlans : []).filter((plan: any) => {
-      const s = searchTerm.toLowerCase();
-      const matchSearch =
-        (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
-        (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
-        (plan.remarks && plan.remarks.toLowerCase().includes(s)) ||
-        (plan.fgItems && plan.fgItems.some((f: any) => 
-          (f.fgItemName && f.fgItemName.toLowerCase().includes(s)) ||
-          (f.description && f.description.toLowerCase().includes(s))
-        ));
+      // Date Resolution
+      const rawDate = dateType === 'target' 
+        ? (plan.targetDate || plan.deliveryDate || plan.createdAt) 
+        : (plan.createdAt || plan.planDate || plan.date || plan.targetDate);
+      const planDate = new Date(rawDate || Date.now());
 
-      const matchStatus = filterStatus === 'All' || plan.status === filterStatus;
-      return matchSearch && matchStatus;
-    });
-  }, [mrpPlans, searchTerm, filterStatus]);
-
-  // Aggregated RM List across all filtered plans
-  const aggregatedRMList = useMemo(() => {
-    const list: SelectedMaterialItem[] = [];
-    filteredPlans.forEach(plan => {
-      (plan.rmRequirements || []).forEach((mat: any, idx: number) => {
-        const itemShortage = Number(mat.shortage) || 0;
-        if (onlyShortages && itemShortage <= 0) return;
-
-        const s = searchTerm.toLowerCase();
-        const matchesSearch = !searchTerm || 
-          (mat.materialName && mat.materialName.toLowerCase().includes(s)) ||
-          (mat.materialCode && mat.materialCode.toLowerCase().includes(s)) ||
-          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
-          (plan.customerName && plan.customerName.toLowerCase().includes(s));
-
-        if (!matchesSearch) return;
-
-        list.push({
-          id: `${plan._id}-rm-${mat.material || mat.materialCode || mat.materialName}-${idx}`,
-          planId: plan._id,
-          material: mat.material?._id || mat.material,
-          materialId: mat.material?._id || mat.material,
-          materialName: mat.materialName,
-          materialCode: mat.materialCode,
-          category: mat.category || 'Raw Material',
-          itemType: 'rm',
-          requiredQuantity: Number(mat.requiredQuantity) || 0,
-          currentStock: Number(mat.currentStock) || 0,
-          shortage: itemShortage,
-          unit: mat.unit || 'PCS',
-          sourceMRP: plan.mrpNumber,
-          customerName: plan.customerName,
-          targetDate: plan.targetDate,
-          description: `MRP ${plan.mrpNumber} - ${plan.customerName || 'Internal'}`,
-          status: mat.status || 'Pending'
-        });
-      });
-    });
-    return list;
-  }, [filteredPlans, onlyShortages, searchTerm]);
-
-  // Aggregated BO List across all filtered plans
-  const aggregatedBOList = useMemo(() => {
-    const list: SelectedMaterialItem[] = [];
-    filteredPlans.forEach(plan => {
-      (plan.boRequirements || []).forEach((mat: any, idx: number) => {
-        const itemShortage = Number(mat.shortage) || 0;
-        if (onlyShortages && itemShortage <= 0) return;
-
-        const s = searchTerm.toLowerCase();
-        const matchesSearch = !searchTerm || 
-          (mat.materialName && mat.materialName.toLowerCase().includes(s)) ||
-          (mat.materialCode && mat.materialCode.toLowerCase().includes(s)) ||
-          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
-          (plan.customerName && plan.customerName.toLowerCase().includes(s));
-
-        if (!matchesSearch) return;
-
-        list.push({
-          id: `${plan._id}-bo-${mat.material || mat.materialCode || mat.materialName}-${idx}`,
-          planId: plan._id,
-          material: mat.material?._id || mat.material,
-          materialId: mat.material?._id || mat.material,
-          materialName: mat.materialName,
-          materialCode: mat.materialCode,
-          category: mat.category || 'Bought Out',
-          itemType: 'bo',
-          requiredQuantity: Number(mat.requiredQuantity) || 0,
-          currentStock: Number(mat.currentStock) || 0,
-          shortage: itemShortage,
-          unit: mat.unit || 'PCS',
-          sourceMRP: plan.mrpNumber,
-          customerName: plan.customerName,
-          targetDate: plan.targetDate,
-          description: `MRP ${plan.mrpNumber} - ${plan.customerName || 'Internal'}`,
-          status: mat.status || 'Pending'
-        });
-      });
-    });
-    return list;
-  }, [filteredPlans, onlyShortages, searchTerm]);
-
-  // Aggregated FG List across all filtered plans
-  const aggregatedFGList = useMemo(() => {
-    const list: any[] = [];
-    filteredPlans.forEach(plan => {
-      (plan.fgItems || []).forEach((fg: any, idx: number) => {
-        const s = searchTerm.toLowerCase();
-        const matchesSearch = !searchTerm || 
-          (fg.fgItemName && fg.fgItemName.toLowerCase().includes(s)) ||
-          (fg.fgItemCode && fg.fgItemCode.toLowerCase().includes(s)) ||
-          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
-          (plan.customerName && plan.customerName.toLowerCase().includes(s));
-
-        if (!matchesSearch) return;
-
-        const plannedQty = Number(fg.quantity) || 0;
-        const receivedQty = Number(fg.receivedQuantity) || 0;
-        const pendingQty = Math.max(0, plannedQty - receivedQty);
-
-        if (onlyShortages && pendingQty <= 0) return;
-
-        list.push({
-          id: `${plan._id}-fg-${fg.fgItem || fg.fgItemCode || fg.fgItemName}-${idx}`,
-          planId: plan._id,
-          fgItemId: fg.fgItem?._id || fg.fgItem,
-          fgItemName: fg.fgItemName,
-          fgItemCode: fg.fgItemCode,
-          description: fg.description,
-          plannedQuantity: plannedQty,
-          receivedQuantity: receivedQty,
-          pendingQuantity: pendingQty,
-          unit: fg.unit || 'PCS',
-          targetDate: fg.targetDate || plan.targetDate,
-          sourceMRP: plan.mrpNumber,
-          customerName: plan.customerName,
-          bomNumber: fg.bomNumber || 'BOM-Default',
-          planStatus: plan.status || 'Planned'
-        });
-      });
-    });
-    return list;
-  }, [filteredPlans, onlyShortages, searchTerm]);
-
-  // Current active dataset for selection
-  const currentTabItems = useMemo(() => {
-    if (activeSubTab === 'rm') return aggregatedRMList;
-    if (activeSubTab === 'bo') return aggregatedBOList;
-    return [];
-  }, [activeSubTab, aggregatedRMList, aggregatedBOList]);
-
-  // Check if item is selected
-  const isItemSelected = (id: string) => {
-    return selectedItems.some(it => it.id === id);
-  };
-
-  // Toggle single item selection
-  const toggleItemSelection = (item: SelectedMaterialItem) => {
-    setSelectedItems(prev => {
-      const exists = prev.some(it => it.id === item.id);
-      if (exists) {
-        return prev.filter(it => it.id !== item.id);
-      } else {
-        return [...prev, item];
+      let matchesDate = true;
+      if (dateFilter === 'today') {
+        matchesDate = isSameDay(planDate, today);
+      } else if (dateFilter === 'yesterday') {
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+        matchesDate = isSameDay(planDate, yesterday);
+      } else if (dateFilter === '7days') {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(today.getDate() - 7);
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+        matchesDate = planDate >= sevenDaysAgo && planDate <= today;
+      } else if (dateFilter === 'thisMonth') {
+        matchesDate = planDate.getMonth() === today.getMonth() && planDate.getFullYear() === today.getFullYear();
+      } else if (dateFilter === 'custom') {
+        if (startDate && endDate) {
+          const s = new Date(startDate);
+          s.setHours(0, 0, 0, 0);
+          const e = new Date(endDate);
+          e.setHours(23, 59, 59, 999);
+          matchesDate = planDate >= s && planDate <= e;
+        } else if (startDate) {
+          const s = new Date(startDate);
+          matchesDate = isSameDay(planDate, s) || planDate >= s;
+        } else if (endDate) {
+          const e = new Date(endDate);
+          matchesDate = isSameDay(planDate, e) || planDate <= e;
+        }
       }
+
+      if (!matchesDate) return false;
+
+      // Search Filter
+      const s = searchTerm.toLowerCase();
+      const matchesSearch = !searchTerm ||
+        plan.mrpNumber.toLowerCase().includes(s) ||
+        (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
+        (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s)) ||
+        (plan.fgItems || []).some((f: any) => (f.fgItemName && f.fgItemName.toLowerCase().includes(s)) || (f.fgItemCode && f.fgItemCode.toLowerCase().includes(s)));
+
+      if (!matchesSearch) return false;
+
+      // Status Filter
+      const matchesStatus = filterStatus === 'All' || plan.status === filterStatus;
+      return matchesStatus;
     });
-  };
-
-  // Select all / Deselect all in current active tab
-  const toggleSelectAllCurrentTab = () => {
-    if (currentTabItems.length === 0) return;
-    const allSelected = currentTabItems.every(it => isItemSelected(it.id));
-    if (allSelected) {
-      const currentIds = new Set(currentTabItems.map(it => it.id));
-      setSelectedItems(prev => prev.filter(it => !currentIds.has(it.id)));
-    } else {
-      const toAdd = currentTabItems.filter(it => !isItemSelected(it.id));
-      setSelectedItems(prev => [...prev, ...toAdd]);
-    }
-  };
-
-  // Clear all selections
-  const handleClearSelection = () => {
-    setSelectedItems([]);
-  };
-
-  // Open Outward RFQ Modal with selected items
-  const handleOpenRfqForSelected = (customItems?: SelectedMaterialItem[]) => {
-    const itemsToProcure = customItems || selectedItems;
-    if (itemsToProcure.length === 0) {
-      Swal.fire({
-        icon: 'info',
-        title: 'Select Materials',
-        text: 'Please select at least one RM or BO material to generate an Outward RFQ.'
-      });
-      return;
-    }
-
-    setRfqModalItems(itemsToProcure.map(it => ({
-      planId: it.planId,
-      materialId: it.materialId || it.material,
-      materialName: it.materialName,
-      materialCode: it.materialCode,
-      quantity: it.shortage > 0 ? it.shortage : it.requiredQuantity,
-      unit: it.unit || 'PCS',
-      itemType: it.itemType || 'rm',
-      category: it.category || 'RM',
-      sourceMRP: it.sourceMRP,
-      description: `Demand from MRP ${it.sourceMRP || ''} (${it.customerName || 'Internal'})`
-    })));
-    setIsRfqModalOpen(true);
-  };
-
-  // Open Outward PO Modal with selected items
-  const handleOpenPoForSelected = (customItems?: SelectedMaterialItem[]) => {
-    const itemsToProcure = customItems || selectedItems;
-    if (itemsToProcure.length === 0) {
-      Swal.fire({
-        icon: 'info',
-        title: 'Select Materials',
-        text: 'Please select at least one RM or BO material to generate an Outward PO.'
-      });
-      return;
-    }
-
-    const poItems = itemsToProcure.map(it => {
-      const qty = it.shortage > 0 ? it.shortage : it.requiredQuantity;
-      return {
-        planId: it.planId,
-        sourceMRP: it.sourceMRP,
-        itemType: (it.itemType || 'rm') as any,
-        material: it.materialId || it.material,
-        materialName: it.materialName,
-        materialCode: it.materialCode,
-        description: `Demand from MRP ${it.sourceMRP || ''} (${it.customerName || 'Internal'})`,
-        quantity: qty,
-        unit: it.unit || 'PCS',
-        rate: 0,
-        taxRate: 18,
-        taxAmount: 0,
-        amount: 0,
-        category: it.category || 'RM'
-      };
-    });
-
-    setPoInitialData({
-      items: poItems,
-      remarks: `Purchase Order raised from MRP calculation (${itemsToProcure.length} items)`
-    });
-    setIsPoModalOpen(true);
-  };
+  }, [mrpPlans, searchTerm, filterStatus, dateFilter, startDate, endDate, dateType]);
 
   // Submit PO directly
   const handlePOSubmit = async (formData: any) => {
     try {
       await apiPost('/api/purchase/po', formData, token);
-
-      // Update MRP requirement items status to "PO Raised"
-      try {
-        const updateItems = (poInitialData?.items || []).map((it: any) => ({
-          planId: it.planId,
-          mrpNumber: it.sourceMRP,
-          materialId: it.material || it.materialId,
-          materialName: it.materialName,
-          materialCode: it.materialCode,
-          status: 'PO Raised'
-        }));
-        if (updateItems.length > 0) {
-          await apiPut('/api/purchase/mrp/update-item-status', { items: updateItems, status: 'PO Raised' }, token);
-        }
-      } catch (statusErr) {
-        console.warn('Could not update MRP requirement item status after PO:', statusErr);
-      }
-
       Swal.fire({
         icon: 'success',
         title: 'Purchase Order Created!',
-        text: `PO ${formData.poNumber || ''} created successfully with ${formData.items?.length || 1} line item(s). Status updated to 'PO Raised'.`,
+        text: `PO created successfully.`,
         timer: 2500
       });
-      if (onSuccess) onSuccess('Purchase Order created successfully');
       setIsPoModalOpen(false);
       setPoInitialData(null);
-      setSelectedItems([]);
       fetchData();
     } catch (err: any) {
-      console.error('Failed to create PO from MRP:', err);
-      Swal.fire({
-        icon: 'error',
-        title: 'Error Creating PO',
-        text: err.message || 'Failed to submit Purchase Order'
-      });
-      if (onError) onError(err.message || 'Failed to submit Purchase Order');
+      Swal.fire('Error', err.message || 'Failed to submit PO', 'error');
     }
-  };
-
-  const renderStatusBadge = (status?: string, shortage?: number) => {
-    if (status === 'PO Raised') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-          <ShoppingCart size={11} /> PO Raised
-        </span>
-      );
-    }
-    if (status === 'RFQ Raised') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
-          <Send size={11} /> RFQ Raised
-        </span>
-      );
-    }
-    if (status === 'Completed') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-          <CheckCircle2 size={11} /> Completed
-        </span>
-      );
-    }
-    if (shortage && shortage > 0) {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-          <Clock size={11} /> Pending
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-        In Stock
-      </span>
-    );
   };
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-300">
+    <div className="space-y-4 animate-in fade-in duration-200">
       
-      {/* Search, Sub-tab switcher & Action Toolbar */}
-      <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
-        
-        {/* Left Side: Sub-tab switcher and search box */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3 flex-1 min-w-0">
-          
-          {/* Sub-tab Switcher: Plans | RM | BO | FG */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-            <button
-              onClick={() => setActiveSubTab('plans')}
-              className={`px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeSubTab === 'plans' 
-                  ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' 
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <FileText size={14} /> MRP Plans ({mrpPlans.length})
-            </button>
+      {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH | 360 WIP */}
+      <div className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <button
+            onClick={() => setMainView('plans')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              mainView === 'plans'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`}
+          >
+            <Layers size={14} />
+            <span>📑 MRP Demand Plans</span>
+            <span className={`px-1.5 py-0.2 rounded text-[10px] ${mainView === 'plans' ? 'bg-indigo-800 text-indigo-100' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'}`}>
+              {mrpPlans.length}
+            </span>
+          </button>
 
-            <button
-              onClick={() => setActiveSubTab('rm')}
-              className={`px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeSubTab === 'rm' 
-                  ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-sm font-bold' 
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Package size={14} /> Raw Materials (RM) ({aggregatedRMList.length})
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab('bo')}
-              className={`px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeSubTab === 'bo' 
-                  ? 'bg-white dark:bg-slate-900 text-purple-600 shadow-sm font-bold' 
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Boxes size={14} /> Bought Out (BO) ({aggregatedBOList.length})
-            </button>
-
-            <button
-              onClick={() => setActiveSubTab('fg')}
-              className={`px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                activeSubTab === 'fg' 
-                  ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-sm font-bold' 
-                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              <Layers size={14} /> Finished Goods (FG) ({aggregatedFGList.length})
-            </button>
-          </div>
-
-          {/* Search Box */}
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input
-              type="text"
-              placeholder={
-                activeSubTab === 'plans' ? "Search MRP #, Customer, or FG Item..." :
-                activeSubTab === 'rm' ? "Search Raw Material, Code, or Source MRP..." :
-                activeSubTab === 'bo' ? "Search Bought Out item, Code, or MRP..." :
-                "Search FG Item Name, Code, or Customer..."
-              }
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-            />
-          </div>
-        </div>
-
-        {/* Right Side: Filters + Actions */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
-          
-          {/* Shortage Toggle for RM, BO, FG */}
-          {activeSubTab !== 'plans' && (
-            <button
-              onClick={() => setOnlyShortages(!onlyShortages)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border cursor-pointer ${
-                onlyShortages 
-                  ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800 shadow-2xs' 
-                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 hover:bg-slate-200'
-              }`}
-              title="Filter items that have shortages"
-            >
-              <AlertCircle size={14} className={onlyShortages ? "text-rose-600" : "text-slate-400"} />
-              <span>{onlyShortages ? "Showing Shortages Only" : "Show All (Including In-Stock)"}</span>
-            </button>
-          )}
-
-          {/* Status Filter Pills for Plans */}
-          {activeSubTab === 'plans' && (
-            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-              {['All', 'Planned', 'In Production', 'Partially Completed', 'In Procurement', 'Completed'].map(status => (
-                <button
-                  key={status}
-                  onClick={() => setFilterStatus(status)}
-                  className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${
-                    filterStatus === status 
-                      ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' 
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  {status}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={fetchData}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center text-xs font-bold bg-white dark:bg-slate-900 cursor-pointer"
-              title="Refresh MRP Plans"
-            >
-              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-            </button>
-
-            {activeSubTab === 'plans' && (
-              <button
-                onClick={() => setIsCreateModalOpen(true)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-              >
-                <Plus size={15} /> Create MRP Plan
-              </button>
-            )}
-          </div>
+          <button
+            onClick={() => setMainView('workbench')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+              mainView === 'workbench'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+            }`}
+          >
+            <ShoppingCart size={14} />
+            <span>🛒 Procurement Workbench</span>
+          </button>
         </div>
       </div>
 
-      {/* FLOATING MULTI-SELECTION ACTION BAR (Appears when items are selected) */}
-      {selectedItems.length > 0 && (
-        <div className="sticky top-14 z-30 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-3.5 sm:p-4 rounded-2xl shadow-xl border border-indigo-500/30 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 animate-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-500/20 text-indigo-300 rounded-xl border border-indigo-400/30">
-              <CheckSquare size={18} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-white">
-                  {selectedItems.length} Material{selectedItems.length > 1 ? 's' : ''} Selected
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-500/30 text-indigo-300 border border-indigo-400/30">
-                  Ready for Procurement
-                </span>
-              </div>
-              <p className="text-xs text-slate-300">
-                Generate bulk Outward RFQ or Purchase Order for selected items
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleOpenRfqForSelected()}
-              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Send size={14} /> Create Outward RFQ ({selectedItems.length})
-            </button>
-
-            <button
-              onClick={() => handleOpenPoForSelected()}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <ShoppingCart size={14} /> Create Outward PO ({selectedItems.length})
-            </button>
-
-            <button
-              onClick={handleClearSelection}
-              className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
-              title="Clear Selection"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        </div>
+      {/* VIEW 2: PROCUREMENT WORKBENCH */}
+      {mainView === 'workbench' && (
+        <MRPProcurementWorkbench
+          token={token}
+          onOpenRfqModal={(items) => {
+            setRfqModalItems(items);
+            setIsRfqModalOpen(true);
+          }}
+          onOpenPoModal={(poData) => {
+            setPoInitialData(poData);
+            setIsPoModalOpen(true);
+          }}
+          onRefreshPlans={fetchData}
+        />
       )}
 
-      {/* Main Content Area */}
-      {loading ? (
-        <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-        </div>
-      ) : (
-        <>
-          {/* TAB 1: ALL MRP DEMAND PLANS */}
-          {activeSubTab === 'plans' && (
-            <>
-              {filteredPlans.length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                  <Layers className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
-                  <p className="text-xs text-slate-500 mt-1 mb-4">Create an MRP Plan to calculate material requirements for your Finished Goods.</p>
+      {/* VIEW 1: MRP DEMAND PLANS */}
+      {mainView === 'plans' && (
+        <div className="space-y-4">
+          
+          {/* ========================================================================= */}
+          {/* STEP 1: MASTER LIST OF MRP DEMAND PLANS (Click an MRP to view FG items)   */}
+          {/* ========================================================================= */}
+          {!selectedDemandPlan && (
+            <div className="space-y-4">
+              
+              {/* Controls Toolbar: Search & Action Buttons */}
+              <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+                
+                {/* Search Box */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                  <input
+                    type="text"
+                    placeholder="Search MRP #, Customer, PO Ref, Finished Goods..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                  />
+                </div>
+
+                {/* Status Filter Pills & Create Button */}
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold overflow-x-auto no-scrollbar gap-0.5">
+                    {['All', 'Planned', 'In Production', 'Partially Completed', 'Completed'].map(status => (
+                      <button
+                        key={status}
+                        onClick={() => setFilterStatus(status)}
+                        className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+                          filterStatus === status 
+                            ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs font-bold' 
+                            : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={fetchData}
+                    className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors bg-white dark:bg-slate-900 cursor-pointer"
+                    title="Refresh"
+                  >
+                    <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                  </button>
+
                   <button
                     onClick={() => setIsCreateModalOpen(true)}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm cursor-pointer"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
-                    + Create First MRP Plan
+                    <Plus size={14} /> Create MRP Plan
+                  </button>
+                </div>
+              </div>
+
+              {/* Date & Day Filter Bar */}
+              <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full lg:w-auto flex-wrap sm:flex-nowrap">
+                  
+                  {/* Date Type Selector */}
+                  <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-bold shrink-0 mr-1">
+                    <button
+                      onClick={() => setDateType('created')}
+                      className={`px-2 py-0.8 rounded-md transition-all cursor-pointer ${
+                        dateType === 'created' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
+                      }`}
+                    >
+                      Plan Date
+                    </button>
+                    <button
+                      onClick={() => setDateType('target')}
+                      className={`px-2 py-0.8 rounded-md transition-all cursor-pointer ${
+                        dateType === 'target' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
+                      }`}
+                    >
+                      Target Date
+                    </button>
+                  </div>
+
+                  {[
+                    { id: 'all', label: 'All Dates' },
+                    { id: 'today', label: 'Today' },
+                    { id: 'yesterday', label: 'Yesterday' },
+                    { id: '7days', label: 'Last 7 Days' },
+                    { id: 'thisMonth', label: 'This Month' },
+                    { id: 'custom', label: 'Custom Range' },
+                  ].map((df) => (
+                    <button
+                      key={df.id}
+                      onClick={() => setDateFilter(df.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                        dateFilter === df.id
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-bold'
+                          : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {df.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom Date Range Inputs */}
+                {dateFilter === 'custom' && (
+                  <div className="flex items-center gap-1.5 w-full lg:w-auto flex-wrap sm:flex-nowrap">
+                    <span className="text-[11px] text-slate-400 font-semibold">From:</span>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                    />
+                    <span className="text-[11px] text-slate-400 font-semibold">To:</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                    />
+                    {(startDate || endDate) && (
+                      <button 
+                        onClick={() => { setStartDate(''); setEndDate(''); }}
+                        className="p-1 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                        title="Clear Dates"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Master MRP Plans Table */}
+              {loading ? (
+                <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <RefreshCw className="animate-spin text-indigo-600 w-8 h-8" />
+                </div>
+              ) : filteredMrpPlans.length === 0 ? (
+                <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <Package className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                  <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
+                  <p className="text-xs text-slate-500 mt-1 mb-4">No demand plans match the selected filters.</p>
+                  <button
+                    onClick={() => {
+                      setDateFilter('all');
+                      setFilterStatus('All');
+                      setSearchTerm('');
+                    }}
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl cursor-pointer"
+                  >
+                    Clear Filters
                   </button>
                 </div>
               ) : (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                  
-                  {/* Desktop Table View */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                         <tr>
-                          <th className="px-4 py-3.5">MRP Number</th>
-                          <th className="px-4 py-3.5">Customer</th>
-                          <th className="px-4 py-3.5">FG Items</th>
-                          <th className="px-4 py-3.5 text-center">Due Date</th>
-                          <th className="px-4 py-3.5 text-center">RM / BO Materials</th>
-                          <th className="px-4 py-3.5 text-center">Status</th>
-                          <th className="px-4 py-3.5 text-center">Created By</th>
-                          <th className="px-4 py-3.5 text-right">Actions</th>
+                          <th className="p-3.5">MRP Number</th>
+                          <th className="p-3.5">Customer & Order Ref</th>
+                          <th className="p-3.5 text-center">Plan Date</th>
+                          <th className="p-3.5">Finished Goods (FG) Demand</th>
+                          <th className="p-3.5 text-center">Total Order vs GRN Received</th>
+                          <th className="p-3.5 text-center">Procurement Status</th>
+                          <th className="p-3.5 text-center">Plan Status</th>
+                          <th className="p-3.5 text-right">Action</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                        {filteredPlans.map((plan) => {
-                          const fgSummary = plan.fgItems?.map((f: any) => `${f.fgItemName} (${f.receivedQuantity || 0}/${f.quantity})`).join(', ') || '-';
-                          const allMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
-                          const totalMats = allMats.length;
-                          const shortages = allMats.filter((m: any) => m.shortage > 0).length;
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {filteredMrpPlans.map((plan) => {
+                          const fgItems = plan.fgItems || [];
+                          const fgCount = fgItems.length;
+                          const firstFG = fgItems[0];
+
+                          const totalTarget = fgItems.reduce((s: number, f: any) => s + (Number(f.quantity) || 0), 0);
+                          const totalReceived = fgItems.reduce((s: number, f: any) => s + (Number(f.receivedQuantity) || 0), 0);
+                          const progressPct = totalTarget > 0 ? Math.min(100, Math.round((totalReceived / totalTarget) * 100)) : 0;
+
+                          const allChildMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
+                          const shortagesCount = allChildMats.filter((m: any) => m.shortage > 0).length;
+                          const isProcurementFulfilled = shortagesCount === 0;
+
+                          const formattedDate = plan.createdAt ? new Date(plan.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : "-";
 
                           return (
-                            <tr
-                              key={plan._id || plan.mrpNumber}
-                              onClick={() => handleOpenDetails(plan)}
-                              className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                            <tr 
+                              key={plan._id}
+                              onClick={() => setSelectedDemandPlan(plan)}
+                              className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 cursor-pointer transition-colors"
                             >
-                              <td className="px-4 py-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                {plan.mrpNumber}
-                                <span className="block text-[10px] text-slate-400 font-sans font-normal">
-                                  {new Date(plan.createdAt || Date.now()).toLocaleDateString('en-GB')}
+                              {/* MRP Number */}
+                              <td className="p-3.5">
+                                <span className="font-mono text-xs font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                                  {plan.mrpNumber}
                                 </span>
                               </td>
 
-                              <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-slate-200">
-                                {plan.customerName || <span className="text-slate-400 font-normal italic">Internal Plan</span>}
+                              {/* Customer & PO */}
+                              <td className="p-3.5">
+                                <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
+                                {plan.customerPoNumber && (
+                                  <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
+                                )}
                               </td>
 
-                              <td className="px-4 py-3.5 max-w-[200px] truncate text-slate-700 dark:text-slate-300 font-medium" title={fgSummary}>
-                                {Array.isArray(plan.fgItems) && plan.fgItems.length > 0 ? (
-                                  <div>
-                                    {plan.fgItems[0]?.fgItemName} ({plan.fgItems[0]?.receivedQuantity || 0}/{plan.fgItems[0]?.quantity} {plan.fgItems[0]?.unit || 'PCS'})
-                                    {plan.fgItems.length > 1 && (
-                                      <span className="text-xs text-slate-400 font-normal ml-1">+{plan.fgItems.length - 1} more</span>
-                                    )}
-                                  </div>
-                                ) : '-'}
+                              {/* Plan Date */}
+                              <td className="p-3.5 text-center font-medium text-slate-600 dark:text-slate-400">
+                                {formattedDate}
                               </td>
 
-                              <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 text-xs">
-                                {plan.targetDate ? new Date(plan.targetDate).toLocaleDateString('en-GB') : 'N/A'}
-                              </td>
-
-                              <td className="px-4 py-3.5 text-center font-bold">
-                                <span className="bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-2.5 py-1 rounded-lg text-xs font-mono">
-                                  {totalMats} Items {shortages > 0 && <span className="text-rose-600 font-extrabold ml-1">({shortages} Short)</span>}
-                                </span>
-                              </td>
-
-                              <td className="px-4 py-3.5 text-center">
-                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                                  plan.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
-                                  plan.status === 'In Production' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' :
-                                  plan.status === 'Partially Completed' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300' :
-                                  plan.status === 'In Procurement' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' :
-                                  'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                }`}>
-                                  {plan.status || 'Planned'}
-                                </span>
-                              </td>
-
-                              <td className="px-4 py-3.5 text-center text-xs text-slate-500 font-medium">
-                                {plan.createdByName || plan.createdBy?.name || 'User'}
-                              </td>
-
-                              <td className="px-4 py-3.5 text-right">
-                                <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    onClick={() => handleOpenDetails(plan)}
-                                    className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950 rounded-lg transition-colors cursor-pointer"
-                                    title="View MRP Details"
-                                  >
-                                    <Eye size={16} />
-                                  </button>
-                                  <button
-                                    onClick={(e) => handleDeletePlan(plan._id, e)}
-                                    className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950 rounded-lg transition-colors cursor-pointer"
-                                    title="Delete MRP Plan"
-                                  >
-                                    <Trash2 size={16} />
-                                  </button>
+                              {/* FG Demand Summary */}
+                              <td className="p-3.5">
+                                <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                  {firstFG?.fgItemName || "Finished Good"}
+                                  {fgCount > 1 && <span className="text-slate-400 font-normal ml-1">+{fgCount - 1} more</span>}
                                 </div>
+                                <span className="text-[10px] text-slate-400 block font-mono">
+                                  {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
+                                </span>
+                              </td>
+
+                              {/* Target vs Received Progress */}
+                              <td className="p-3.5 text-center min-w-[160px]">
+                                <div className="flex justify-between items-center text-[10px] font-bold mb-1">
+                                  <span className="text-teal-600">{totalReceived} / {totalTarget} Units</span>
+                                  <span className="text-slate-400">{progressPct}%</span>
+                                </div>
+                                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                  <div 
+                                    className={`h-full rounded-full transition-all ${
+                                      progressPct >= 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-teal-500 to-indigo-500'
+                                    }`} 
+                                    style={{ width: `${progressPct}%` }} 
+                                  />
+                                </div>
+                              </td>
+
+                              {/* Procurement Status */}
+                              <td className="p-3.5 text-center">
+                                {isProcurementFulfilled ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                    <CheckCircle2 size={11} /> Fulfilled
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
+                                    <Clock size={11} /> {shortagesCount} Shortages
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Plan Status */}
+                              <td className="p-3.5 text-center">
+                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                  plan.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                  plan.status === 'In Production' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' :
+                                  plan.status === 'Partially Completed' ? 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' :
+                                  'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                }`}>
+                                  {plan.status}
+                                </span>
+                              </td>
+
+                              {/* Action: Open FG Explorer */}
+                              <td className="p-3.5 text-right">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedDemandPlan(plan);
+                                  }}
+                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1 ml-auto cursor-pointer"
+                                >
+                                  <span>View FG Items</span>
+                                  <ChevronRight size={13} />
+                                </button>
                               </td>
                             </tr>
                           );
@@ -773,452 +565,180 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                       </tbody>
                     </table>
                   </div>
+                </div>
+              )}
 
-                  {/* Mobile Card View */}
-                  <div className="block md:hidden p-3 space-y-3 pb-28 bg-slate-50/50 dark:bg-slate-900/40">
-                    {filteredPlans.map((plan) => {
-                      const allMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
-                      const totalMats = allMats.length;
-                      const shortages = allMats.filter((m: any) => m.shortage > 0).length;
+            </div>
+          )}
 
-                      return (
-                        <div
-                          key={plan._id || plan.mrpNumber}
-                          className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3"
-                        >
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">{plan.mrpNumber}</span>
-                              <h4 className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">
-                                {plan.customerName || 'Internal MRP Plan'}
-                              </h4>
-                            </div>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              plan.status === 'Completed' ? 'bg-emerald-100 text-emerald-800' :
-                              plan.status === 'In Procurement' ? 'bg-purple-100 text-purple-800' :
-                              'bg-amber-100 text-amber-800'
-                            }`}>
-                              {plan.status || 'Planned'}
-                            </span>
-                          </div>
+          {/* ========================================================================= */}
+          {/* STEP 2: SELECTED MRP DEMAND PLAN — FINISHED GOODS (FG) ITEMS EXPLORER      */}
+          {/* ========================================================================= */}
+          {selectedDemandPlan && (
+            <div className="space-y-4">
+              
+              {/* Header Bar with Back Button & Plan Info */}
+              <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setSelectedDemandPlan(null)}
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1 text-xs font-bold cursor-pointer"
+                  >
+                    <ArrowLeft size={14} />
+                    <span>All MRP Plans</span>
+                  </button>
 
-                          <div className="bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl text-xs space-y-1 border border-slate-100 dark:border-slate-800">
-                            <div className="flex justify-between">
-                              <span className="text-slate-500">FG Products:</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{plan.fgItems?.length || 0} Items</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-500">Materials Needed:</span>
-                              <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                {totalMats} Items {shortages > 0 && `(${shortages} Short)`}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-slate-500">Target Date:</span>
-                              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                                {plan.targetDate ? new Date(plan.targetDate).toLocaleDateString('en-GB') : 'N/A'}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 pt-1">
-                            <button
-                              onClick={() => handleOpenDetails(plan)}
-                              className="flex-1 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center gap-1 border border-indigo-200 dark:border-indigo-800 cursor-pointer"
-                            >
-                              <Eye size={13} /> View Plan
-                            </button>
-                            <button
-                              onClick={(e) => handleDeletePlan(plan._id, e)}
-                              className="py-1.5 px-2.5 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800 cursor-pointer"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-mono font-black">
+                        {selectedDemandPlan.mrpNumber}
+                      </span>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                        {selectedDemandPlan.customerName}
+                      </span>
+                      {selectedDemandPlan.customerPoNumber && (
+                        <span className="text-[10px] text-slate-400 font-mono">PO: {selectedDemandPlan.customerPoNumber}</span>
+                      )}
+                    </div>
                   </div>
-
                 </div>
-              )}
-            </>
-          )}
 
-          {/* TAB 2: DEDICATED RAW MATERIALS (RM) TAB */}
-          {activeSubTab === 'rm' && (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-              {aggregatedRMList.length === 0 ? (
-                <div className="p-16 text-center text-slate-400 text-xs">
-                  No Raw Material (RM) requirements found across active MRP plans matching the current filters.
+                {/* Plan Header Actions */}
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto justify-end">
+                  <button
+                    onClick={() => {
+                      setDrawerPlanId(selectedDemandPlan._id);
+                      setIs360DrawerOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-bold text-xs rounded-xl border border-teal-200 dark:border-teal-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Boxes size={13} />
+                    <span>360° WIP</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleOpenDetails(selectedDemandPlan)}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Eye size={13} />
+                    <span>Details & GRN</span>
+                  </button>
+
+                  <button
+                    onClick={(e) => handleDeletePlan(selectedDemandPlan._id, e)}
+                    className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950 rounded-lg transition-colors cursor-pointer"
+                    title="Delete Plan"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
-              ) : (
+              </div>
+
+              {/* FG Items Table */}
+              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                       <tr>
-                        <th className="px-3.5 py-3.5 w-10 text-center">
-                          <button
-                            type="button"
-                            onClick={toggleSelectAllCurrentTab}
-                            className="text-slate-500 hover:text-indigo-600 transition-colors cursor-pointer"
-                            title="Select All RM in view"
-                          >
-                            {aggregatedRMList.length > 0 && aggregatedRMList.every(it => isItemSelected(it.id)) ? (
-                              <CheckSquare size={16} className="text-indigo-600" />
-                            ) : (
-                              <Square size={16} />
-                            )}
-                          </button>
-                        </th>
-                        <th className="px-4 py-3.5">Raw Material Name</th>
-                        <th className="px-4 py-3.5">Source MRP / Customer</th>
-                        <th className="px-4 py-3.5 text-center">Gross Required</th>
-                        <th className="px-4 py-3.5 text-center">In-Stock</th>
-                        <th className="px-4 py-3.5 text-center">Net Shortage</th>
-                        <th className="px-4 py-3.5 text-center">Procure Status</th>
-                        <th className="px-4 py-3.5 text-right">Quick Procure</th>
+                        <th className="p-3.5">Finished Good (FG) Item</th>
+                        <th className="p-3.5 text-center">BOM Number</th>
+                        <th className="p-3.5 text-center">Target Quantity</th>
+                        <th className="p-3.5 text-center">FG GRN Received</th>
+                        <th className="p-3.5 text-center">Balance Remaining</th>
+                        <th className="p-3.5 text-center">Completion Progress</th>
+                        <th className="p-3.5 text-center">Procurement Status</th>
+                        <th className="p-3.5 text-right">Action</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {aggregatedRMList.map((mat) => {
-                        const isSelected = isItemSelected(mat.id);
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {(selectedDemandPlan.fgItems || []).map((fg: any, fgIdx: number) => {
+                        const fgQty = Number(fg.quantity) || 1;
+                        const recQty = Number(fg.receivedQuantity) || 0;
+                        const balQty = Math.max(0, fgQty - recQty);
+                        const pct = Math.min(100, Math.round((recQty / fgQty) * 100));
+
+                        const allChildMats = [...(selectedDemandPlan.rmRequirements || []), ...(selectedDemandPlan.boRequirements || [])];
+                        const hasShortages = allChildMats.some((m: any) => m.shortage > 0);
+                        const isProcurementFulfilled = !hasShortages;
+
                         return (
-                          <tr 
-                            key={mat.id} 
-                            onClick={() => toggleItemSelection(mat)}
-                            className={`transition-colors cursor-pointer ${
-                              isSelected 
-                                ? 'bg-cyan-50/60 dark:bg-cyan-950/40' 
-                                : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/50'
-                            }`}
-                          >
-                            <td className="px-3.5 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={() => toggleItemSelection(mat)}
-                                className="text-slate-400 hover:text-cyan-600 transition-colors cursor-pointer"
-                              >
-                                {isSelected ? (
-                                  <CheckSquare size={16} className="text-cyan-600" />
-                                ) : (
-                                  <Square size={16} />
-                                )}
-                              </button>
+                          <tr key={fgIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                            {/* FG Name & Code */}
+                            <td className="p-3.5">
+                              <strong className="text-slate-900 dark:text-white block text-sm">{fg.fgItemName}</strong>
+                              {fg.fgItemCode && <span className="font-mono text-[10px] text-slate-400">{fg.fgItemCode}</span>}
                             </td>
 
-                            <td className="px-4 py-3.5">
-                              <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                <span>{mat.materialName}</span>
-                                <span className="px-2 py-0.5 rounded bg-cyan-100 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 text-[10px] font-bold">
-                                  RM
-                                </span>
-                              </div>
-                              {mat.materialCode && (
-                                <span className="block text-[11px] text-slate-400 font-mono font-normal">
-                                  {mat.materialCode}
-                                </span>
-                              )}
-                            </td>
-
-                            <td className="px-4 py-3.5">
-                              <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block text-xs">
-                                {mat.sourceMRP}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {mat.customerName || 'Internal Plan'}
+                            {/* BOM Number */}
+                            <td className="p-3.5 text-center font-mono text-[10px] text-slate-500">
+                              <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                {fg.bomNumber || "BOM-Active"}
                               </span>
                             </td>
 
-                            <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200 text-xs">
-                              {mat.requiredQuantity} {mat.unit || 'PCS'}
+                            {/* Target Qty */}
+                            <td className="p-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
+                              {fgQty} {fg.unit || 'PCS'}
                             </td>
 
-                            <td className="px-4 py-3.5 text-center font-semibold text-slate-600 dark:text-slate-400 text-xs">
-                              {mat.currentStock} {mat.unit || 'PCS'}
+                            {/* Received Qty */}
+                            <td className="p-3.5 text-center font-bold text-teal-600">
+                              {recQty} {fg.unit || 'PCS'}
                             </td>
 
-                            <td className="px-4 py-3.5 text-center font-extrabold font-mono text-xs">
-                              {mat.shortage > 0 ? (
-                                <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                  -{mat.shortage} {mat.unit || 'PCS'} Short
-                                </span>
+                            {/* Balance Qty */}
+                            <td className="p-3.5 text-center">
+                              {balQty > 0 ? (
+                                <span className="font-bold text-amber-600">{balQty} {fg.unit || 'PCS'}</span>
                               ) : (
-                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  In Stock
-                                </span>
+                                <span className="font-bold text-emerald-600">0 (Fulfilled)</span>
                               )}
                             </td>
 
-                            <td className="px-4 py-3.5 text-center">
-                              {renderStatusBadge(mat.status, mat.shortage)}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenRfqForSelected([mat])}
-                                  className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer"
-                                  title="Create Outward RFQ for this item"
-                                >
-                                  <Send size={12} /> RFQ
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenPoForSelected([mat])}
-                                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer"
-                                  title="Create Outward PO for this item"
-                                >
-                                  <ShoppingCart size={12} /> PO
-                                </button>
+                            {/* Progress Bar */}
+                            <td className="p-3.5 text-center min-w-[140px]">
+                              <div className="flex justify-between items-center text-[10px] font-bold mb-1">
+                                <span className="text-teal-600">{pct}% Done</span>
+                                <span className="text-slate-400">{recQty}/{fgQty}</span>
                               </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 3: DEDICATED BOUGHT OUT (BO) TAB */}
-          {activeSubTab === 'bo' && (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-              {aggregatedBOList.length === 0 ? (
-                <div className="p-16 text-center text-slate-400 text-xs">
-                  No Bought Out (BO) requirements found across active MRP plans matching the current filters.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="px-3.5 py-3.5 w-10 text-center">
-                          <button
-                            type="button"
-                            onClick={toggleSelectAllCurrentTab}
-                            className="text-slate-500 hover:text-purple-600 transition-colors cursor-pointer"
-                            title="Select All BO in view"
-                          >
-                            {aggregatedBOList.length > 0 && aggregatedBOList.every(it => isItemSelected(it.id)) ? (
-                              <CheckSquare size={16} className="text-purple-600" />
-                            ) : (
-                              <Square size={16} />
-                            )}
-                          </button>
-                        </th>
-                        <th className="px-4 py-3.5">Bought Out Item Name</th>
-                        <th className="px-4 py-3.5">Source MRP / Customer</th>
-                        <th className="px-4 py-3.5 text-center">Gross Required</th>
-                        <th className="px-4 py-3.5 text-center">In-Stock</th>
-                        <th className="px-4 py-3.5 text-center">Net Shortage</th>
-                        <th className="px-4 py-3.5 text-center">Procure Status</th>
-                        <th className="px-4 py-3.5 text-right">Quick Procure</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {aggregatedBOList.map((mat) => {
-                        const isSelected = isItemSelected(mat.id);
-                        return (
-                          <tr 
-                            key={mat.id} 
-                            onClick={() => toggleItemSelection(mat)}
-                            className={`transition-colors cursor-pointer ${
-                              isSelected 
-                                ? 'bg-purple-50/60 dark:bg-purple-950/40' 
-                                : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/50'
-                            }`}
-                          >
-                            <td className="px-3.5 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={() => toggleItemSelection(mat)}
-                                className="text-slate-400 hover:text-purple-600 transition-colors cursor-pointer"
-                              >
-                                {isSelected ? (
-                                  <CheckSquare size={16} className="text-purple-600" />
-                                ) : (
-                                  <Square size={16} />
-                                )}
-                              </button>
-                            </td>
-
-                            <td className="px-4 py-3.5">
-                              <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                <span>{mat.materialName}</span>
-                                <span className="px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
-                                  BO
-                                </span>
-                              </div>
-                              {mat.materialCode && (
-                                <span className="block text-[11px] text-slate-400 font-mono font-normal">
-                                  {mat.materialCode}
-                                </span>
-                              )}
-                            </td>
-
-                            <td className="px-4 py-3.5">
-                              <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block text-xs">
-                                {mat.sourceMRP}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {mat.customerName || 'Internal Plan'}
-                              </span>
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200 text-xs">
-                              {mat.requiredQuantity} {mat.unit || 'PCS'}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center font-semibold text-slate-600 dark:text-slate-400 text-xs">
-                              {mat.currentStock} {mat.unit || 'PCS'}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center font-extrabold font-mono text-xs">
-                              {mat.shortage > 0 ? (
-                                <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                  -{mat.shortage} {mat.unit || 'PCS'} Short
-                                </span>
-                              ) : (
-                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  In Stock
-                                </span>
-                              )}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center">
-                              {renderStatusBadge(mat.status, mat.shortage)}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenRfqForSelected([mat])}
-                                  className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer"
-                                  title="Create Outward RFQ for this item"
-                                >
-                                  <Send size={12} /> RFQ
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenPoForSelected([mat])}
-                                  className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[11px] transition-colors inline-flex items-center gap-1 shadow-2xs cursor-pointer"
-                                  title="Create Outward PO for this item"
-                                >
-                                  <ShoppingCart size={12} /> PO
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 4: DEDICATED FINISHED GOODS (FG) TAB */}
-          {activeSubTab === 'fg' && (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-              {aggregatedFGList.length === 0 ? (
-                <div className="p-16 text-center text-slate-400 text-xs">
-                  No Finished Goods (FG) demands found across active MRP plans matching the current filters.
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
-                    <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="px-4 py-3.5">Finished Good (FG) Product</th>
-                        <th className="px-4 py-3.5">Source MRP / Customer</th>
-                        <th className="px-4 py-3.5 text-center">BOM Ref</th>
-                        <th className="px-4 py-3.5 text-center">Planned Qty</th>
-                        <th className="px-4 py-3.5 text-center">Produced / Recv</th>
-                        <th className="px-4 py-3.5 text-center">Pending Qty</th>
-                        <th className="px-4 py-3.5 text-center">Target Due Date</th>
-                        <th className="px-4 py-3.5 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {aggregatedFGList.map((fg) => {
-                        const progressPct = fg.plannedQuantity > 0 
-                          ? Math.min(100, Math.round((fg.receivedQuantity / fg.plannedQuantity) * 100)) 
-                          : 0;
-
-                        return (
-                          <tr key={fg.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="px-4 py-3.5">
-                              <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                <span>{fg.fgItemName}</span>
-                                <span className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                                  FG
-                                </span>
-                              </div>
-                              {fg.fgItemCode && (
-                                <span className="block text-[11px] text-slate-400 font-mono font-normal">
-                                  {fg.fgItemCode}
-                                </span>
-                              )}
-                            </td>
-
-                            <td className="px-4 py-3.5">
-                              <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block text-xs">
-                                {fg.sourceMRP}
-                              </span>
-                              <span className="text-[11px] text-slate-500">
-                                {fg.customerName || 'Internal Plan'}
-                              </span>
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center font-mono text-xs font-semibold text-slate-600 dark:text-slate-400">
-                              {fg.bomNumber}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200 text-xs">
-                              {fg.plannedQuantity} {fg.unit || 'PCS'}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center font-semibold text-slate-600 dark:text-slate-400 text-xs">
-                              {fg.receivedQuantity} {fg.unit || 'PCS'}
-                              <div className="w-16 mx-auto bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1">
+                              <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                                 <div 
-                                  className="bg-emerald-500 h-full rounded-full transition-all" 
-                                  style={{ width: `${progressPct}%` }}
-                                ></div>
+                                  className={`h-full rounded-full transition-all ${
+                                    pct >= 100 ? 'bg-emerald-500' : 'bg-gradient-to-r from-teal-500 to-indigo-500'
+                                  }`} 
+                                  style={{ width: `${pct}%` }} 
+                                />
                               </div>
                             </td>
 
-                            <td className="px-4 py-3.5 text-center font-extrabold font-mono text-xs">
-                              {fg.pendingQuantity > 0 ? (
-                                <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                  {fg.pendingQuantity} {fg.unit || 'PCS'} Left
+                            {/* Procurement Status */}
+                            <td className="p-3.5 text-center">
+                              {isProcurementFulfilled ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                  <CheckCircle2 size={11} /> Fulfilled
                                 </span>
                               ) : (
-                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  Fulfilled
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
+                                  <Clock size={11} /> Shortages Pending
                                 </span>
                               )}
                             </td>
 
-                            <td className="px-4 py-3.5 text-center text-xs font-medium text-slate-600 dark:text-slate-400">
-                              {fg.targetDate ? new Date(fg.targetDate).toLocaleDateString('en-GB') : 'N/A'}
-                            </td>
-
-                            <td className="px-4 py-3.5 text-center">
-                              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                                fg.planStatus === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
-                                fg.planStatus === 'In Production' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' :
-                                fg.planStatus === 'In Procurement' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' :
-                                'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                              }`}>
-                                {fg.planStatus}
-                              </span>
+                            {/* Action: Move to Production */}
+                            <td className="p-3.5 text-right">
+                              {selectedDemandPlan.status !== 'In Production' && pct < 100 && (
+                                <button
+                                  onClick={(e) => handleMoveToProduction(selectedDemandPlan._id, e)}
+                                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 transition-all ml-auto ${
+                                    isProcurementFulfilled 
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs cursor-pointer'
+                                      : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer'
+                                  }`}
+                                  title="Move to Production"
+                                >
+                                  <Play size={11} /> Move to Prod
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
@@ -1226,11 +746,25 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                     </tbody>
                   </table>
                 </div>
-              )}
+              </div>
+
             </div>
           )}
 
-        </>
+        </div>
+      )}
+
+      {/* 360 WIP Drawer */}
+      {drawerPlanId && (
+        <MRP360WipDrawer
+          isOpen={is360DrawerOpen}
+          onClose={() => {
+            setIs360DrawerOpen(false);
+            setDrawerPlanId(null);
+          }}
+          mrpPlanId={drawerPlanId}
+          token={token}
+        />
       )}
 
       {/* MRP Create Modal */}
@@ -1244,11 +778,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       )}
 
       {/* MRP Details Modal */}
-      {isDetailsModalOpen && selectedPlan && (
+      {isDetailsModalOpen && selectedPlanForDetails && (
         <MRPDetailsModal
           isOpen={isDetailsModalOpen}
           onClose={() => setIsDetailsModalOpen(false)}
-          mrpPlan={selectedPlan}
+          mrpPlan={selectedPlanForDetails}
         />
       )}
 
@@ -1261,7 +795,6 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           initialItems={rfqModalItems}
           onSuccess={() => {
             fetchData();
-            setSelectedItems([]);
           }}
         />
       )}

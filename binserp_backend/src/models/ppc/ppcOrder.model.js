@@ -23,6 +23,16 @@ export const ppcOrderSchema = new mongoose.Schema(
       ref: "Customer",
     },
     customerName: String,
+    mrpNumber: String,
+    mrpPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MRPPlan",
+    },
+    sourceType: {
+      type: String,
+      enum: ["SALES_SHORTFALL", "MRP_DEMAND", "MANUAL"],
+      default: "MANUAL",
+    },
     photos: [String], // Added for Order Photos
     date: {
       type: Date,
@@ -45,6 +55,10 @@ export const ppcOrderSchema = new mongoose.Schema(
         },
         productName: String,
         productCode: String,
+        itemType: {
+          type: String,
+          default: "Component",
+        },
         description: String,
         unit: String,
         price: {

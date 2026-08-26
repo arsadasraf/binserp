@@ -30,203 +30,205 @@ export const getWipInventory = async (req, res) => {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
     const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
     const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+    const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
     const FGItem = req.getModel("FGItem", fgItemSchema);
     const Component = req.getModel("Component", componentSchema);
+    const Category = req.getModel("Category", categorySchema);
 
     // Register referenced models
     req.getModel("Vendor", vendorSchema);
     req.getModel("JobWorkSupplier", jobWorkSupplierSchema);
 
     const companyId = getCompanyId(req);
-    const requestedType = (req.query.type || "rm").toLowerCase(); // 'rm', 'bo', 'fg', 'mrp-buckets'
+    const requestedType = (req.query.type || "rm").toLowerCase(); // 'rm', 'bo', 'fg', 'mrp-buckets', 'ledger'
 
-    // Load master lists to accurately classify RM vs BO vs FG
-    const [rawMaterialsList, boughtOutsList, fgItemsList, componentsList] = await Promise.all([
-      RawMaterial.find({ company: companyId }).select("_id name code"),
-      BoughtOut.find({ company: companyId }).select("_id name code"),
-      FGItem.find({ company: companyId }).select("_id name code"),
-      Component.find({ company: companyId }).select("_id name componentName code")
+    // 1. Load All Master Items across all categories
+    const [rawMaterialsList, boughtOutsList, rmBoList, fgItemsList, componentsList, categoriesList] = await Promise.all([
+      RawMaterial.find({ company: companyId }).populate("categoryId", "name").lean(),
+      BoughtOut.find({ company: companyId }).populate("categoryId", "name").lean(),
+      RmBoItem.find({ company: companyId }).populate("categoryId", "name").lean(),
+      FGItem.find({ company: companyId }).lean(),
+      Component.find({ company: companyId }).lean(),
+      Category.find({ company: companyId }).lean()
     ]);
 
-    const rmIdSet = new Set(rawMaterialsList.map(r => r._id.toString()));
-    const boIdSet = new Set(boughtOutsList.map(b => b._id.toString()));
-    const fgIdSet = new Set([...fgItemsList.map(f => f._id.toString()), ...componentsList.map(c => c._id.toString())]);
+    const categoryMap = new Map(categoriesList.map(c => [c._id.toString(), c.name]));
 
-    const determineItemCategory = (item, issueType) => {
-      const typeStr = (issueType || item.itemType || '').toLowerCase();
-      if (typeStr === 'fg' || typeStr === 'inhouse' || typeStr === 'component') return 'fg';
-      if (typeStr === 'consumable') return 'consumable';
+    // 2. Load FG GRNs, in-house receipts, BOMs, and MRP Plans
+    const [allFGGRNs, allInHouseGRNs, allBOMs, allMRPPlans, materialIssues, challans] = await Promise.all([
+      FGGRN.find({ company: companyId, status: { $in: ["Received", "Accepted"] } }).lean(),
+      GRN.find({ company: companyId, type: { $in: ["inhouse", "fg"] }, status: { $in: ["Received", "Accepted"] } }).lean(),
+      BOM.find({ company: companyId }).lean(),
+      MRPPlan.find({ company: companyId }).lean(),
+      MaterialIssue.find({ company: companyId }).populate("issuedTo", "name userId department").sort({ date: -1 }).lean(),
+      JobWorkChallan.find({ company: companyId }).populate("vendor").sort({ date: -1 }).lean()
+    ]);
 
-      const matId = (item.material?._id || item.material || item.fgItem || item.component || item._id || '').toString();
-      if (fgIdSet.has(matId)) return 'fg';
-      if (boIdSet.has(matId)) return 'bo';
-      if (rmIdSet.has(matId)) return 'rm';
+    // Build Master WIP Registry Map (Key: material ID or clean material key)
+    const masterWipMap = new Map();
+    const allTransactionsLedger = [];
 
-      const code = (item.materialCode || item.code || '').toUpperCase();
-      if (code.startsWith('BO-') || typeStr === 'bought out' || typeStr === 'bo') return 'bo';
-      if (code.startsWith('RM-') || typeStr === 'raw material' || typeStr === 'rm') return 'rm';
+    // Helper to register master item in WIP registry
+    const registerMasterItem = (item, type) => {
+      const id = item._id ? item._id.toString() : "";
+      const name = item.name || item.componentName || item.materialName || "Item";
+      const code = item.code || item.componentCode || item.materialCode || "";
+      const desc = item.description || item.specification || item.grade || "";
+      const catName = (typeof item.categoryId === 'object' && item.categoryId?.name) 
+        ? item.categoryId.name 
+        : (item.category || categoryMap.get(item.categoryId?.toString()) || (type === 'rm' ? 'Raw Material' : type === 'bo' ? 'Bought Out' : 'Finished Goods'));
+      const unit = item.unit || "PCS";
+      const storeStock = Number(item.quantity ?? item.currentStock ?? 0);
 
-      return 'rm'; // default to rm
+      const key = `${type}_${id || name.trim().toLowerCase()}`;
+      if (!masterWipMap.has(key)) {
+        masterWipMap.set(key, {
+          id: key,
+          materialId: id,
+          materialCode: code,
+          materialName: name,
+          materialDescription: desc,
+          categoryName: catName,
+          itemType: type, // 'rm', 'bo', 'fg'
+          categoryType: type === "rm" ? "Raw Material (RM)" : type === "bo" ? "Bought Out (BO)" : "Finished Goods (FG)",
+          unit: unit,
+          mainStoreStock: storeStock,
+          totalIssuedQty: 0,
+          totalJobWorkSentQty: 0,
+          totalJobWorkReturnedQty: 0,
+          totalReturnedQty: 0,
+          totalFgConsumedQty: 0,
+          shopfloorWipQty: 0,
+          jobWorkWipQty: 0,
+          pendingWipQty: 0,
+          lastMovementDate: item.updatedAt || item.createdAt || new Date(),
+          transactions: []
+        });
+      }
+      return key;
     };
 
-    // Load all FG GRNs, standard InHouse GRNs, and BOMs
-    const [allFGGRNs, allInHouseGRNs, allBOMs, allMRPPlans] = await Promise.all([
-      FGGRN.find({ company: companyId, status: { $in: ["Received", "Accepted"] } }),
-      GRN.find({ company: companyId, type: { $in: ["inhouse", "fg"] }, status: { $in: ["Received", "Accepted"] } }),
-      BOM.find({ company: companyId }),
-      MRPPlan.find({ company: companyId })
-    ]);
+    // Register all Master RM items
+    rawMaterialsList.forEach(r => registerMasterItem(r, 'rm'));
+    rmBoList.filter(m => (m.itemType || '').toLowerCase() === 'raw material' || (m.itemType || '').toLowerCase() === 'rm').forEach(r => registerMasterItem(r, 'rm'));
 
-    // Combine all FG production receipts
-    const allProductionReceipts = [
-      ...allFGGRNs.map(g => ({
-        grnNumber: g.grnNumber,
-        mrpNumber: g.mrpNumber || "",
-        date: g.date || g.createdAt,
-        items: g.items || []
-      })),
-      ...allInHouseGRNs.map(g => ({
-        grnNumber: g.grnNumber,
-        mrpNumber: g.poNumber || g.poReference || "",
-        date: g.date || g.createdAt,
-        items: (g.items || []).map(it => ({
-          itemName: it.materialName,
-          quantity: it.receivedQuantity || it.quantity,
-          unit: it.unit
-        }))
-      }))
-    ];
+    // Register all Master BO items
+    boughtOutsList.forEach(b => registerMasterItem(b, 'bo'));
+    rmBoList.filter(m => (m.itemType || '').toLowerCase() === 'bought out' || (m.itemType || '').toLowerCase() === 'bo' || (m.code || '').toUpperCase().startsWith('BO-')).forEach(b => registerMasterItem(b, 'bo'));
 
-    const wipMap = new Map();
+    // Register all Master FG & In-House Components
+    fgItemsList.forEach(f => registerMasterItem(f, 'fg'));
+    componentsList.forEach(c => registerMasterItem(c, 'fg'));
+
+    // 3. Pre-populate MRP WIP Buckets Map
     const mrpBucketMap = new Map();
+    allMRPPlans.forEach(plan => {
+      const mrpNum = plan.mrpNumber || "";
+      const mrpKey = mrpNum.trim().toLowerCase();
+      if (mrpKey && !mrpBucketMap.has(mrpKey)) {
+        mrpBucketMap.set(mrpKey, {
+          mrpNumber: mrpNum,
+          mrpPlanId: plan._id,
+          customerName: plan.customerName || plan.remarks || "General Production",
+          originalStatus: plan.status || "Planned",
+          status: plan.status || "Planned",
+          planDate: plan.date || plan.createdAt,
+          lastMovementDate: plan.date || plan.createdAt,
+          totalRmIssued: 0,
+          totalBoIssued: 0,
+          totalFgIssued: 0,
+          totalFgProduced: 0,
+          itemsInWip: new Map(),
+          transactions: []
+        });
+      }
+    });
 
-    // 1. Process Material Issues (Store issues directly into Shop Floor WIP)
-    const materialIssues = await MaterialIssue.find({ company: companyId })
-      .populate("issuedTo", "name userId department")
-      .sort({ date: -1 });
+    // Helper to find existing master item in WIP registry
+    const findWipEntry = (rawId, name, code, type) => {
+      const idStr = rawId ? rawId.toString() : "";
+      if (idStr && masterWipMap.has(`${type}_${idStr}`)) {
+        return masterWipMap.get(`${type}_${idStr}`);
+      }
+      for (const entry of masterWipMap.values()) {
+        if (entry.itemType === type) {
+          if (idStr && entry.materialId === idStr) return entry;
+          if (code && entry.materialCode && entry.materialCode.trim().toLowerCase() === code.trim().toLowerCase()) return entry;
+          if (name && entry.materialName && entry.materialName.trim().toLowerCase() === name.trim().toLowerCase()) return entry;
+        }
+      }
+      // If not found, dynamically create entry
+      const dynamicKey = registerMasterItem({ _id: idStr, name, code, unit: 'PCS' }, type);
+      return masterWipMap.get(dynamicKey);
+    };
 
+    // 4. Process Material Issues (Store Issues into WIP Inward)
     materialIssues.forEach((issue) => {
-      // EXCLUDE Consumables completely from WIP
-      if (issue.type === "consumable") return;
+      if (issue.type === "consumable") return; // Consumables excluded from WIP
 
       const issueDept = issue.department || issue.issuedTo?.department || "Shop Floor Assembly";
       const mrpNumber = issue.mrpNumber || "";
+      const issueDate = issue.date || issue.createdAt;
+      const docNo = issue.issueNumber || `ISS-${issue._id.toString().slice(-6)}`;
 
       (issue.items || []).forEach((item) => {
-        const itemCat = determineItemCategory(item, issue.type);
-        if (itemCat === "consumable") return;
+        const itemTypeStr = (issue.type || item.itemType || '').toLowerCase();
+        let targetType = 'rm';
+        if (itemTypeStr === 'bo' || itemTypeStr === 'bought out' || (item.materialCode || '').toUpperCase().startsWith('BO-')) {
+          targetType = 'bo';
+        } else if (itemTypeStr === 'fg' || itemTypeStr === 'inhouse' || itemTypeStr === 'component') {
+          targetType = 'fg';
+        }
 
         const matName = item.materialName || "Issued Material";
         const matCode = item.materialCode || "";
+        const rawId = item.material || item.consumable || item.fgItem || item.component || item._id;
         const qty = Number(item.quantity) || 0;
         const unit = item.unit || "PCS";
-        const issueDate = issue.date || issue.createdAt;
 
-        // Group key for Item-Level WIP
-        const itemKey = mrpNumber 
-          ? `issue_${itemCat}_${matName.trim().toLowerCase()}_mrp_${mrpNumber.toLowerCase()}`
-          : `issue_${itemCat}_${matName.trim().toLowerCase()}_${issueDept.trim().toLowerCase()}`;
+        const entry = findWipEntry(rawId, matName, matCode, targetType);
+        if (entry) {
+          entry.totalIssuedQty += qty;
+          entry.shopfloorWipQty += qty;
+          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
 
-        if (!wipMap.has(itemKey)) {
-          wipMap.set(itemKey, {
-            id: itemKey,
-            sentItemName: matName,
-            receivedItemName: matName,
-            materialCode: matCode,
-            itemType: itemCat,
-            categoryType: itemCat === "rm" ? "Raw Material (RM)" : itemCat === "bo" ? "Bought Out (BO)" : "Finished Goods (FG)",
-            vendorName: mrpNumber ? `MRP: ${mrpNumber} (${issueDept})` : `Department: ${issueDept}`,
-            processType: "Shop Floor Production",
+          if (new Date(issueDate) > new Date(entry.lastMovementDate)) {
+            entry.lastMovementDate = issueDate;
+          }
+
+          const tx = {
+            date: issueDate,
+            type: "Store Material Issue (WIP Inward)",
+            docNumber: docNo,
             mrpNumber: mrpNumber,
+            sentQty: qty,
+            receivedQty: 0,
             unit: unit,
-            receivingUnit: unit,
-            totalIssuedQty: 0,
-            totalJobWorkSentQty: 0,
-            totalExpectedQty: 0,
-            totalReturnedQty: 0,
-            totalFgConsumedQty: 0,
-            pendingWipQty: 0,
-            lastMovementDate: issueDate,
-            transactions: []
+            processType: `Store Issue to ${issueDept}`,
+            vendorName: issueDept,
+            status: "Issued"
+          };
+          entry.transactions.push(tx);
+
+          allTransactionsLedger.push({
+            ...tx,
+            materialName: entry.materialName,
+            materialCode: entry.materialCode,
+            itemType: entry.itemType,
+            categoryType: entry.categoryType
           });
         }
 
-        const entry = wipMap.get(itemKey);
-        entry.totalIssuedQty += qty;
-        entry.totalExpectedQty += qty;
-        entry.pendingWipQty += qty;
-
-        if (new Date(issueDate) > new Date(entry.lastMovementDate)) {
-          entry.lastMovementDate = issueDate;
-        }
-
-        entry.transactions.push({
-          date: issueDate,
-          type: "Shop Floor Material Issue (WIP Inward)",
-          docNumber: issue.issueNumber || `ISS-${issue._id.toString().slice(-6)}`,
-          mrpNumber: mrpNumber,
-          sentQty: qty,
-          receivedQty: 0,
-          unit: unit,
-          processType: "Store Issue into WIP",
-          vendorName: issueDept,
-          status: "Issued"
-        });
-
-        // 1b. Check matching FG Production Receipts (FG GRNs) linked to this MRP Number to reduce WIP!
+        // Aggregate into MRP WIP Plan
         if (mrpNumber) {
-          const matchingGrns = allProductionReceipts.filter(g => g.mrpNumber && g.mrpNumber.toLowerCase() === mrpNumber.toLowerCase());
-          matchingGrns.forEach(grn => {
-            (grn.items || []).forEach(gItem => {
-              const fgQty = Number(gItem.receivedQuantity || gItem.quantity) || 0;
-              const fgName = gItem.itemName || "";
-
-              // Find BOM to calculate consumption ratio
-              const bom = allBOMs.find(b => b.productName && b.productName.toLowerCase() === fgName.toLowerCase());
-              let consumedRatio = 1;
-              if (bom && Array.isArray(bom.items)) {
-                const bomMat = bom.items.find(bi => 
-                  (bi.materialName && bi.materialName.toLowerCase() === matName.toLowerCase()) ||
-                  (matCode && bi.materialCode && bi.materialCode.toLowerCase() === matCode.toLowerCase())
-                );
-                if (bomMat) {
-                  consumedRatio = Number(bomMat.quantity) || 1;
-                }
-              }
-
-              const consumedQty = Math.min(entry.pendingWipQty, fgQty * consumedRatio);
-              if (consumedQty > 0) {
-                entry.totalFgConsumedQty += consumedQty;
-                entry.totalReturnedQty += consumedQty;
-                entry.pendingWipQty = Math.max(0, entry.pendingWipQty - consumedQty);
-
-                entry.transactions.push({
-                  date: grn.date,
-                  type: "FG GRN Receipt (WIP Consumed)",
-                  docNumber: grn.grnNumber,
-                  mrpNumber: mrpNumber,
-                  sentQty: 0,
-                  receivedQty: consumedQty,
-                  unit: unit,
-                  processType: `Finished Good Produced: ${fgName}`,
-                  vendorName: "In-House Assembly",
-                  status: "Consumed"
-                });
-              }
-            });
-          });
-        }
-
-        // 1c. Aggregate into MRP-Level Bucket
-        if (mrpNumber) {
-          const mrpKey = mrpNumber.toLowerCase();
+          const mrpKey = mrpNumber.trim().toLowerCase();
           if (!mrpBucketMap.has(mrpKey)) {
-            const planDoc = allMRPPlans.find(p => p.mrpNumber && p.mrpNumber.toLowerCase() === mrpKey);
             mrpBucketMap.set(mrpKey, {
               mrpNumber: mrpNumber,
-              customerName: planDoc?.customerName || planDoc?.remarks || "General Production",
-              status: planDoc?.status || "In Production",
-              planDate: planDoc?.date || planDoc?.createdAt || issueDate,
+              customerName: "Production Order",
+              originalStatus: "In Production",
+              status: "In Production",
+              planDate: issueDate,
               lastMovementDate: issueDate,
               totalRmIssued: 0,
               totalBoIssued: 0,
@@ -238,17 +240,17 @@ export const getWipInventory = async (req, res) => {
           }
 
           const bucket = mrpBucketMap.get(mrpKey);
-          if (itemCat === 'rm') bucket.totalRmIssued += qty;
-          else if (itemCat === 'bo') bucket.totalBoIssued += qty;
-          else if (itemCat === 'fg') bucket.totalFgIssued += qty;
+          if (targetType === 'rm') bucket.totalRmIssued += qty;
+          else if (targetType === 'bo') bucket.totalBoIssued += qty;
+          else if (targetType === 'fg') bucket.totalFgIssued += qty;
 
-          const itemMapKey = `${matName}_${itemCat}`;
+          const itemMapKey = `${matName}_${targetType}`;
           if (!bucket.itemsInWip.has(itemMapKey)) {
             bucket.itemsInWip.set(itemMapKey, {
               materialName: matName,
               materialCode: matCode,
-              itemType: itemCat,
-              category: itemCat === 'rm' ? 'Raw Material' : itemCat === 'bo' ? 'Bought Out' : 'FG / Component',
+              itemType: targetType,
+              category: targetType === 'rm' ? 'Raw Material' : targetType === 'bo' ? 'Bought Out' : 'FG / Component',
               unit: unit,
               issuedQty: 0,
               consumedQty: 0,
@@ -262,9 +264,9 @@ export const getWipInventory = async (req, res) => {
           bucket.transactions.push({
             date: issueDate,
             type: "Material Issue into WIP",
-            docNumber: issue.issueNumber,
+            docNumber: docNo,
             materialName: matName,
-            itemType: itemCat,
+            itemType: targetType,
             qty: qty,
             unit: unit
           });
@@ -272,155 +274,220 @@ export const getWipInventory = async (req, res) => {
       });
     });
 
-    // 2. Process Job Work Dispatches & Receipts (Subcontractor Stock)
-    const challans = await JobWorkChallan.find({ company: companyId })
-      .populate("vendor")
-      .sort({ date: -1 });
-
+    // 5. Process Job Work Challans (Subcontractor Outward / Inward)
     challans.forEach((challan) => {
       const vendorObj = challan.vendor || { name: challan.vendorName || "Subcontractor" };
-      const vendorId = vendorObj._id ? String(vendorObj._id) : "unknown";
       const vendorName = vendorObj.name || "Subcontractor";
+      const challanDate = challan.date || challan.createdAt;
+      const docNo = challan.challanNumber;
+      const mrpNumber = challan.mrpNumber || "";
 
       (challan.items || []).forEach((sentItem) => {
-        const itemCat = determineItemCategory(sentItem, sentItem.itemType);
-        if (itemCat === "consumable") return;
-
         const sentName = sentItem.itemName || "Sent Material";
         const sentQty = Number(sentItem.quantitySent) || 0;
         const processType = sentItem.processType || "Job Work";
         const unit = sentItem.unit || "PCS";
-        const challanDate = challan.date || challan.createdAt;
 
-        // Process returning sub-items
         const retList = Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
           ? sentItem.returningItems
           : [{
-              receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
-              receivedItemType: sentItem.receivedItemType || itemCat,
               quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
-              quantityReceived: Number(sentItem.quantityReceived) || 0,
-              receivingUnit: sentItem.receivingUnit || unit,
-              status: sentItem.status
+              quantityReceived: Number(sentItem.quantityReceived) || 0
             }];
 
-        retList.forEach((ret) => {
-          const retName = ret.receivedItemName || sentName;
-          const key = `jw_${itemCat}_${sentName.trim().toLowerCase()}_${retName.trim().toLowerCase()}_${vendorId}`;
+        const expectedQty = retList.reduce((acc, r) => acc + (Number(r.quantityToBeReceived) || 0), 0) || sentQty;
+        const receivedQty = retList.reduce((acc, r) => acc + (Number(r.quantityReceived) || 0), 0);
+        const netJobWorkPending = Math.max(0, expectedQty - receivedQty);
 
-          const expectedQty = Number(ret.quantityToBeReceived) || sentQty;
-          const receivedQty = Number(ret.quantityReceived) || 0;
-
-          if (!wipMap.has(key)) {
-            wipMap.set(key, {
-              id: key,
-              sentItemName: sentName,
-              receivedItemName: retName,
-              itemType: itemCat,
-              categoryType: itemCat === "rm" ? "Raw Material (RM)" : itemCat === "bo" ? "Bought Out (BO)" : "Finished Goods (FG)",
-              vendor: vendorObj,
-              vendorName: challan.mrpNumber ? `${vendorName} (MRP: ${challan.mrpNumber})` : vendorName,
-              mrpNumber: challan.mrpNumber || "",
-              processType,
-              unit,
-              receivingUnit: ret.receivingUnit || unit,
-              totalIssuedQty: 0,
-              totalJobWorkSentQty: 0,
-              totalExpectedQty: 0,
-              totalReturnedQty: 0,
-              totalFgConsumedQty: 0,
-              pendingWipQty: 0,
-              lastMovementDate: challanDate,
-              transactions: []
-            });
-          }
-
-          const entry = wipMap.get(key);
+        const entry = findWipEntry(null, sentName, null, 'rm');
+        if (entry) {
           entry.totalJobWorkSentQty += sentQty;
-          entry.totalExpectedQty += expectedQty;
-          entry.totalReturnedQty += receivedQty;
-          entry.pendingWipQty = Math.max(0, (entry.totalIssuedQty + entry.totalExpectedQty) - entry.totalReturnedQty - entry.totalFgConsumedQty);
+          entry.totalJobWorkReturnedQty += receivedQty;
+          entry.jobWorkWipQty += netJobWorkPending;
+          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
 
           if (new Date(challanDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = challanDate;
           }
 
-          entry.transactions.push({
+          const txOut = {
             date: challanDate,
-            type: "Job-Work Outward Dispatch",
-            docNumber: challan.challanNumber,
-            mrpNumber: challan.mrpNumber || "",
+            type: "Job-Work Subcontractor Dispatch (WIP Outward)",
+            docNumber: docNo,
+            mrpNumber: mrpNumber,
             ewayBillNo: challan.ewayBillNo || "",
             sentQty: sentQty,
             receivedQty: 0,
             unit: unit,
-            processType,
-            vendorName,
+            processType: `Subcontractor: ${processType}`,
+            vendorName: vendorName,
             status: challan.status
+          };
+          entry.transactions.push(txOut);
+
+          allTransactionsLedger.push({
+            ...txOut,
+            materialName: entry.materialName,
+            materialCode: entry.materialCode,
+            itemType: entry.itemType,
+            categoryType: entry.categoryType
           });
 
-          if (Array.isArray(challan.receiveHistory)) {
+          if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
             challan.receiveHistory.forEach((hist) => {
-              entry.transactions.push({
+              const txIn = {
                 date: hist.date,
-                type: "Job-Work Return Receipt",
-                docNumber: challan.challanNumber,
-                mrpNumber: challan.mrpNumber || "",
+                type: "Job-Work Subcontractor Receipt (WIP Return)",
+                docNumber: docNo,
+                mrpNumber: mrpNumber,
                 ewayBillNo: challan.ewayBillNo || "",
                 sentQty: 0,
                 receivedQty: Number(hist.quantity) || 0,
-                unit: ret.receivingUnit || unit,
-                processType,
-                vendorName,
+                unit: unit,
+                processType: `Return from ${vendorName}`,
+                vendorName: vendorName,
                 status: "Received"
+              };
+              entry.transactions.push(txIn);
+
+              allTransactionsLedger.push({
+                ...txIn,
+                materialName: entry.materialName,
+                materialCode: entry.materialCode,
+                itemType: entry.itemType,
+                categoryType: entry.categoryType
               });
             });
           }
-        });
+        }
       });
     });
 
-    // Finalize MRP Buckets: calculate total FG Produced from FG GRNs
-    allProductionReceipts.forEach(grn => {
-      if (grn.mrpNumber) {
-        const mrpKey = grn.mrpNumber.toLowerCase();
-        if (mrpBucketMap.has(mrpKey)) {
-          const bucket = mrpBucketMap.get(mrpKey);
-          (grn.items || []).forEach(it => {
-            const fgProducedQty = Number(it.quantity || it.receivedQuantity) || 0;
-            bucket.totalFgProduced += fgProducedQty;
+    // 6. Process FG GRNs & Production Receipts (Multi-Tier WIP Consumption Engine)
+    const allProductionReceipts = [
+      ...allFGGRNs.map(g => ({
+        grnNumber: g.grnNumber,
+        mrpNumber: g.mrpNumber || "",
+        date: g.date || g.createdAt,
+        items: g.items || []
+      })),
+      ...allInHouseGRNs.map(g => ({
+        grnNumber: g.grnNumber,
+        mrpNumber: g.poNumber || g.poReference || "",
+        date: g.date || g.createdAt,
+        items: (g.items || []).map(it => ({
+          fgItem: it.materialId,
+          itemName: it.materialName,
+          quantity: it.receivedQuantity || it.quantity,
+          unit: it.unit
+        }))
+      }))
+    ];
 
-            // Reduce items in bucket
+    allProductionReceipts.forEach(grn => {
+      const grnDate = grn.date;
+      const mrpNum = grn.mrpNumber || "";
+
+      (grn.items || []).forEach(fgRec => {
+        const fgName = fgRec.itemName || "";
+        const fgQty = Number(fgRec.quantity || fgRec.receivedQuantity) || 0;
+
+        // Find Bill of Materials (BOM) for this Finished Good
+        const bom = allBOMs.find(b => 
+          (b.productName && b.productName.trim().toLowerCase() === fgName.trim().toLowerCase()) ||
+          (b.finishedGoods && b.finishedGoods.toString() === (fgRec.fgItem?.toString() || ''))
+        );
+
+        if (bom && Array.isArray(bom.items)) {
+          bom.items.forEach(bomMat => {
+            const rawMatName = bomMat.materialName || bomMat.name || "";
+            const rawMatCode = bomMat.materialCode || bomMat.code || "";
+            const bomRatio = Number(bomMat.quantity) || 1;
+            const consumedRequired = fgQty * bomRatio;
+
+            // Determine if ingredient is RM, BO, or Sub-Assembly Component
+            const matTypeStr = (bomMat.type || bomMat.itemType || '').toLowerCase();
+            let ingType = 'rm';
+            if (matTypeStr === 'bo' || matTypeStr === 'bought out' || (rawMatCode || '').toUpperCase().startsWith('BO-')) {
+              ingType = 'bo';
+            } else if (matTypeStr === 'component' || matTypeStr === 'subassembly' || matTypeStr === 'fg' || matTypeStr === 'inhouse') {
+              ingType = 'fg'; // WIP-to-WIP consumption!
+            }
+
+            const ingEntry = findWipEntry(bomMat.material, rawMatName, rawMatCode, ingType);
+            if (ingEntry) {
+              const consumed = Math.min(ingEntry.shopfloorWipQty, consumedRequired);
+              if (consumed > 0) {
+                ingEntry.totalFgConsumedQty += consumed;
+                ingEntry.totalReturnedQty += consumed;
+                ingEntry.shopfloorWipQty = Math.max(0, ingEntry.shopfloorWipQty - consumed);
+                ingEntry.pendingWipQty = ingEntry.shopfloorWipQty + ingEntry.jobWorkWipQty;
+
+                const tx = {
+                  date: grnDate,
+                  type: ingType === 'fg' ? "WIP-to-WIP Subassembly Consumed" : "FG GRN Receipt (WIP Consumed)",
+                  docNumber: grn.grnNumber,
+                  mrpNumber: mrpNum,
+                  sentQty: 0,
+                  receivedQty: consumed,
+                  unit: ingEntry.unit,
+                  processType: `Consumed into FG: ${fgName}`,
+                  vendorName: "In-House Assembly",
+                  status: "Consumed"
+                };
+                ingEntry.transactions.push(tx);
+
+                allTransactionsLedger.push({
+                  ...tx,
+                  materialName: ingEntry.materialName,
+                  materialCode: ingEntry.materialCode,
+                  itemType: ingEntry.itemType,
+                  categoryType: ingEntry.categoryType
+                });
+              }
+            }
+          });
+        }
+
+        // Deduct from MRP WIP Bucket
+        if (mrpNum) {
+          const mrpKey = mrpNum.trim().toLowerCase();
+          if (mrpBucketMap.has(mrpKey)) {
+            const bucket = mrpBucketMap.get(mrpKey);
+            bucket.totalFgProduced += fgQty;
+
             bucket.itemsInWip.forEach(itemRecord => {
-              const bom = allBOMs.find(b => b.productName && b.productName.toLowerCase() === (it.itemName || '').toLowerCase());
               let consumedRatio = 1;
               if (bom && Array.isArray(bom.items)) {
-                const bomMat = bom.items.find(bi => bi.materialName && bi.materialName.toLowerCase() === itemRecord.materialName.toLowerCase());
+                const bomMat = bom.items.find(bi => 
+                  (bi.materialName && bi.materialName.toLowerCase() === itemRecord.materialName.toLowerCase()) ||
+                  (bi.materialCode && bi.materialCode.toLowerCase() === itemRecord.materialCode?.toLowerCase())
+                );
                 if (bomMat) consumedRatio = Number(bomMat.quantity) || 1;
               }
-              const consumed = Math.min(itemRecord.pendingQty, fgProducedQty * consumedRatio);
+              const consumed = Math.min(itemRecord.pendingQty, fgQty * consumedRatio);
               itemRecord.consumedQty += consumed;
               itemRecord.pendingQty = Math.max(0, itemRecord.issuedQty - itemRecord.consumedQty);
             });
 
             bucket.transactions.push({
-              date: grn.date,
+              date: grnDate,
               type: "FG GRN Completed (WIP Reduced)",
               docNumber: grn.grnNumber,
-              materialName: it.itemName,
+              materialName: fgName,
               itemType: "fg",
-              qty: fgProducedQty,
-              unit: it.unit || "Nos"
+              qty: fgQty,
+              unit: fgRec.unit || "Nos"
             });
-          });
+          }
         }
-      }
+      });
     });
 
-    // Filter items based on requested type
-    let allItems = Array.from(wipMap.values()).map(item => ({
+    // 7. Format Resulting Items
+    let allItems = Array.from(masterWipMap.values()).map(item => ({
       ...item,
-      status: item.pendingWipQty <= 0 ? "Completed" : "In-Process"
+      status: item.pendingWipQty > 0 ? "In WIP" : "WIP Zero"
     }));
 
     if (requestedType === "rm") {
@@ -431,24 +498,45 @@ export const getWipInventory = async (req, res) => {
       allItems = allItems.filter(item => item.itemType === "fg");
     }
 
-    const mrpBuckets = Array.from(mrpBucketMap.values()).map(b => ({
-      ...b,
-      items: Array.from(b.itemsInWip.values()),
-      netPendingWipCount: Array.from(b.itemsInWip.values()).reduce((sum, it) => sum + (it.pendingQty || 0), 0)
-    }));
+    const mrpBuckets = Array.from(mrpBucketMap.values()).map(b => {
+      const items = Array.from(b.itemsInWip.values());
+      const netPendingWipCount = items.reduce((sum, it) => sum + (it.pendingQty || 0), 0);
+      const isCompleted = b.originalStatus === "Completed" || (items.length > 0 && netPendingWipCount <= 0);
+
+      let finalStatus = b.originalStatus || "Planned";
+      if (isCompleted) {
+        finalStatus = "Completed";
+      } else if (items.length > 0 || b.totalRmIssued > 0 || b.totalBoIssued > 0 || b.totalFgIssued > 0) {
+        finalStatus = "In Production";
+      }
+
+      return {
+        ...b,
+        items,
+        netPendingWipCount,
+        status: finalStatus
+      };
+    });
+
+    // Sort transactions ledger newest first
+    allTransactionsLedger.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const summary = {
       totalItems: allItems.length,
+      totalActiveWipItems: allItems.filter(it => it.pendingWipQty > 0).length,
       totalIssuedQty: allItems.reduce((acc, curr) => acc + (curr.totalIssuedQty || 0), 0),
       totalJobWorkSentQty: allItems.reduce((acc, curr) => acc + (curr.totalJobWorkSentQty || 0), 0),
       totalReturnedQty: allItems.reduce((acc, curr) => acc + (curr.totalReturnedQty || 0), 0),
       totalFgConsumedQty: allItems.reduce((acc, curr) => acc + (curr.totalFgConsumedQty || 0), 0),
-      netPendingWipQty: allItems.reduce((acc, curr) => acc + (curr.pendingWipQty || 0), 0)
+      netPendingWipQty: allItems.reduce((acc, curr) => acc + (curr.pendingWipQty || 0), 0),
+      shopfloorWipQty: allItems.reduce((acc, curr) => acc + (curr.shopfloorWipQty || 0), 0),
+      jobWorkWipQty: allItems.reduce((acc, curr) => acc + (curr.jobWorkWipQty || 0), 0)
     };
 
     res.status(200).json({
       wipItems: allItems,
       mrpBuckets: mrpBuckets,
+      ledger: allTransactionsLedger,
       summary
     });
   } catch (error) {

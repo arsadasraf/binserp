@@ -44,6 +44,10 @@ export const createMaterialRequest = async (req, res) => {
     const isConsumable = normalizedType === 'consumable';
     const isFG = normalizedType === 'fg' || normalizedType === 'inhouse';
 
+    if (!isConsumable && !mrpPlan && !mrpNumber) {
+      return res.status(400).json({ message: "MRP Plan is compulsory for Material Requests (except Consumables)" });
+    }
+
     const processedItems = [];
 
     for (const item of items) {

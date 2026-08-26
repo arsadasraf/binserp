@@ -164,6 +164,22 @@ export const apiPut = async (endpoint: string, data: any, token?: string | null)
   return response.json();
 };
 
+export const apiPatch = async (endpoint: string, data: any, token?: string | null) => {
+  const isFormData = data instanceof FormData;
+  const response = await apiRequest(endpoint, {
+    method: "PATCH",
+    body: isFormData ? data : JSON.stringify(data),
+    token,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: "Request failed" }));
+    throw new Error(error.message || `HTTP error! status: ${response.status}`);
+  }
+
+  return response.json();
+};
+
 export const apiDelete = async (endpoint: string, token?: string | null) => {
   const response = await apiRequest(endpoint, {
     method: "DELETE",
@@ -177,3 +193,4 @@ export const apiDelete = async (endpoint: string, token?: string | null) => {
 
   return response.json();
 };
+

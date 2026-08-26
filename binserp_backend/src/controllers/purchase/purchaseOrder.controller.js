@@ -8,6 +8,10 @@ const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
 
+import mongoose from "mongoose";
+
+const isValidObjectId = (id) => id && mongoose.Types.ObjectId.isValid(String(id));
+
 export const createPO = asyncHandler(async (req, res) => {
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
   const companyId = getCompanyId(req);
@@ -32,9 +36,9 @@ export const createPO = asyncHandler(async (req, res) => {
     company: companyId,
     poNumber,
     date: date || new Date(),
-    vendor,
+    vendor: isValidObjectId(vendor) ? vendor : vendor,
     vendorName,
-    quotation,
+    quotation: isValidObjectId(quotation) ? quotation : undefined,
     quotationNumber,
     rfqNumber,
     description: description || '',
@@ -64,8 +68,16 @@ export const createPO = asyncHandler(async (req, res) => {
       const recQty = Number(item.receivedQuantity || 0);
       const pendQty = item.pendingQuantity !== undefined ? Number(item.pendingQuantity) : Math.max(0, qty - recQty);
       const iStatus = recQty >= qty ? "Completed" : recQty > 0 ? "Partially Received" : "Pending";
+      const validMatId = isValidObjectId(item.material) ? item.material : undefined;
+      const validCompId = isValidObjectId(item.component) ? item.component : undefined;
+      const matName = item.materialName || (!validMatId && item.material ? String(item.material) : 'Item');
+
       return {
         ...item,
+        material: validMatId,
+        component: validCompId,
+        materialName: matName,
+        itemType: (item.itemType || 'rm').toLowerCase(),
         description: item.description || item.itemDescription || item.remarks || item.specifications || description || '',
         quantity: qty,
         receivedQuantity: recQty,
@@ -79,9 +91,13 @@ export const createPO = asyncHandler(async (req, res) => {
     const qty = Number(quantity || 0);
     const recQty = Number(req.body.receivedQuantity || 0);
     const pendQty = Math.max(0, qty - recQty);
-    poData.material = material;
-    poData.component = component;
-    poData.materialName = materialName;
+    const validMatId = isValidObjectId(material) ? material : undefined;
+    const validCompId = isValidObjectId(component) ? component : undefined;
+    const matName = materialName || (!validMatId && material ? String(material) : 'Item');
+
+    poData.material = validMatId;
+    poData.component = validCompId;
+    poData.materialName = matName;
     poData.quantity = qty;
     poData.receivedQuantity = recQty;
     poData.pendingQuantity = pendQty;
@@ -91,9 +107,9 @@ export const createPO = asyncHandler(async (req, res) => {
     poData.category = category;
     poData.totalAmount = amount || (qty * rate);
     poData.items = [{
-      material,
-      component,
-      materialName: materialName || "Item",
+      material: validMatId,
+      component: validCompId,
+      materialName: matName,
       description: description || '',
       quantity: qty,
       receivedQuantity: recQty,

@@ -149,17 +149,20 @@ export default function POModal({
 
                 if (initialData.items && initialData.items.length > 0) {
                     setMaterialEntries(initialData.items.map((item: any) => {
-                        const qty = Number(item.quantity) || 0;
+                        const qty = Number(item.quantity) || Number(item.shortage) || Number(item.requiredQuantity) || 1;
                         const rate = Number(item.rate) || 0;
                         const taxRate = item.taxRate != null ? Number(item.taxRate) : 18;
                         const lineSub = qty * rate;
                         const lineTax = lineSub * (taxRate / 100);
+                        const matVal = typeof item.material === 'object' 
+                            ? item.material?._id 
+                            : (item.material || item.materialId || item.materialKey || item.materialName || '');
 
                         return {
                             itemType: (item.itemType || 'rm').toLowerCase().includes('bo') || (item.category || '').toLowerCase().includes('bought') ? 'bo' : 'rm',
-                            material: typeof item.material === 'object' ? item.material?._id : (item.material || item.materialId || ''),
+                            material: matVal,
                             component: item.component || '',
-                            materialName: item.materialName || item.material?.name || '',
+                            materialName: item.materialName || item.material?.name || item.itemName || '',
                             description: item.description || '',
                             quantity: qty,
                             unit: item.unit || 'PCS',
@@ -323,19 +326,22 @@ export default function POModal({
             date,
             vendor,
             vendorName: selectedVendorObj?.name || '',
-            items: materialEntries.map(item => ({
-                itemType: item.itemType,
-                material: item.material || undefined,
-                materialName: item.materialName,
-                description: item.description,
-                quantity: Number(item.quantity),
-                unit: item.unit,
-                rate: Number(item.rate),
-                taxRate: Number(item.taxRate),
-                taxAmount: Number(item.taxAmount),
-                amount: Number(item.amount),
-                category: item.category,
-            })),
+            items: materialEntries.map(item => {
+                const isObjectId = /^[0-9a-fA-F]{24}$/.test(String(item.material || ''));
+                return {
+                    itemType: item.itemType || 'rm',
+                    material: isObjectId ? item.material : undefined,
+                    materialName: item.materialName || (!isObjectId && item.material ? String(item.material) : '') || 'Material Item',
+                    description: item.description,
+                    quantity: Number(item.quantity),
+                    unit: item.unit,
+                    rate: Number(item.rate),
+                    taxRate: Number(item.taxRate),
+                    taxAmount: Number(item.taxAmount),
+                    amount: Number(item.amount),
+                    category: item.category,
+                };
+            }),
             transportType,
             transportCharge: Number(transportCharge) || 0,
             packingType,
@@ -349,6 +355,27 @@ export default function POModal({
     };
 
     if (!isOpen) return null;
+
+    const getEntryOptions = (entry: POLineItemEntry) => {
+        let baseList = rmOptions;
+        if (entry.itemType === 'bo') baseList = boOptions;
+        else if (entry.itemType === 'consumable') baseList = consumableOptions;
+
+        const val = entry.material ? String(entry.material) : '';
+        const name = entry.materialName ? String(entry.materialName).trim() : '';
+
+        const hasMatch = baseList.some(o => o.value === val || (name && o.label.toLowerCase().includes(name.toLowerCase())));
+        if (!hasMatch && (val || name)) {
+            return [
+                {
+                    value: val || name,
+                    label: name || val || 'Selected Material'
+                },
+                ...baseList
+            ];
+        }
+        return baseList;
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -494,8 +521,8 @@ export default function POModal({
                                                         />
                                                     ) : (
                                                         <SearchableSelect
-                                                            options={optionsToUse}
-                                                            value={entry.material || ''}
+                                                            options={getEntryOptions(entry)}
+                                                            value={entry.material || entry.materialName || ''}
                                                             onChange={(val: any) => handleMaterialSelect(index, val)}
                                                             placeholder={`Select ${entry.itemType === 'rm' ? 'Raw Material' : entry.itemType === 'bo' ? 'Bought Out' : 'Consumable'}...`}
                                                         />
@@ -581,10 +608,6 @@ export default function POModal({
                         {/* Mobile View: Touch-Friendly Cards (hidden on desktop) */}
                         <div className="block lg:hidden p-3 space-y-3 bg-gray-50/70">
                             {materialEntries.map((entry, index) => {
-                                let optionsToUse = rmOptions;
-                                if (entry.itemType === 'bo') optionsToUse = boOptions;
-                                else if (entry.itemType === 'consumable') optionsToUse = consumableOptions;
-
                                 return (
                                     <div key={index} className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-2.5">
                                         <div className="flex items-center justify-between pb-1 border-b border-gray-100">
@@ -608,7 +631,7 @@ export default function POModal({
                                                 type="button"
                                                 onClick={() => handleItemTypeChange(index, 'rm')}
                                                 className={`py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
-                                                    entry.itemType === 'rm' ? 'bg-blue-600 text-white shadow-xs' : 'text-gray-600'
+                                                    entry.itemType === 'rm' ? 'bg-indigo-600 text-white shadow-xs' : 'text-gray-600'
                                                 }`}
                                             >
                                                 RM
@@ -639,8 +662,8 @@ export default function POModal({
                                                 {entry.itemType === 'rm' ? 'Raw Material' : entry.itemType === 'bo' ? 'Bought Out' : 'Consumable'}
                                             </label>
                                             <SearchableSelect
-                                                options={optionsToUse}
-                                                value={entry.material || ''}
+                                                options={getEntryOptions(entry)}
+                                                value={entry.material || entry.materialName || ''}
                                                 onChange={(val: any) => handleMaterialSelect(index, val)}
                                                 placeholder={`Select ${entry.itemType.toUpperCase()}...`}
                                             />

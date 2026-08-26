@@ -30,7 +30,15 @@ import {
   getMRPPlanById,
   deleteMRPPlan,
   updateMRPPlanStatus,
-  updateMRPRequirementItemStatus
+  updateMRPRequirementItemStatus,
+  getMRPProcurementWorkbench,
+  bulkGeneratePOFromMRP,
+  sendMRPItemsToPPC,
+  getMRPPPCIntakeBucket,
+  updateMRPItemStatus,
+  moveMRPToProduction,
+  getMRP360WipTracker,
+  getAllMRPWipOverview
 } from "../controllers/purchase/index.js";
 
 const router = Router();
@@ -44,6 +52,32 @@ router.route("/vendor-bucket")
 
 router.route("/po/active-by-vendor/:vendorId")
   .get(getVendorActivePOs);
+
+// MRP Procurement & WIP Intelligence Routes
+router.route("/mrp/procurement-workbench")
+  .get(getMRPProcurementWorkbench);
+
+router.route("/mrp/bulk-generate-po")
+  .post(bulkGeneratePOFromMRP);
+
+router.route("/mrp/send-to-ppc")
+  .post(sendMRPItemsToPPC);
+
+router.route("/mrp/ppc-intake-bucket")
+  .get(getMRPPPCIntakeBucket);
+
+router.route("/mrp/plan/:id/item-status")
+  .patch(updateMRPItemStatus)
+  .put(updateMRPItemStatus);
+
+router.route("/mrp/plan/:id/move-to-production")
+  .post(moveMRPToProduction);
+
+router.route("/mrp/wip-overview")
+  .get(getAllMRPWipOverview);
+
+router.route("/mrp/wip-360/:id")
+  .get(getMRP360WipTracker);
 
 // MRP Plan Routes (New MRP Engine)
 router.route("/mrp/plan")

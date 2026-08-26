@@ -5,4 +5,6 @@ export * from './purchaseOrder.controller.js';
 export * from './vendorPriceList.controller.js';
 export * from './salesOrderMRP.controller.js';
 export * from './mrpPlan.controller.js';
+export * from './mrpProcurement.controller.js';
+export * from './mrpWipTracker.controller.js';
 

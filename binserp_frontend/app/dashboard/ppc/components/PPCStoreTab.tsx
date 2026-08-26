@@ -29,7 +29,7 @@ import BillingModal from "../../store/components/modals/BillingModal";
 import GRNModal from "../../store/components/modals/GRNModal"; // Needed for types/handlers mostly, though GRN history excluded
 import SharedInventoryView from "../../store/components/tables/SharedInventoryView";
 import FGItemForm from "../../store/components/forms/FGItemForm";
-import MaterialRequestModal from "../../store/components/modals/MaterialRequestModal";
+import MaterialRequestModal from "@/src/features/store/components/modals/MaterialRequestModal";
 
 export default function PPCStoreTab() {
     // State for local tab management

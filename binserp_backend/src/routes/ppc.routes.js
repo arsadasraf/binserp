@@ -93,6 +93,7 @@ import {
   savePPCProduct
 } from "../controllers/ppc/index.js";
 import { moveProductionToManufacturing } from "../controllers/ppc/moveToManufacturing.controller.js";
+import { getMRPPPCIntakeBucket } from "../controllers/purchase/index.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -114,7 +115,8 @@ router.route("/ppc-order/:id/confirm").post(confirmPPCOrder);
 router.route("/ppc-order/:id/material-plan").get(getOrderMaterialPlan);
 router.route("/ppc-order/:id/jobs").get(getOrderJobs);
 
-// Removed Global MRP Routes (Shifted to Purchase)
+// MRP Demand Intake Bucket Route
+router.get("/mrp-intake", getMRPPPCIntakeBucket);
 
 // Production Orders & Manufacturing Orders
 router.get("/production-orders", getAllProductionOrders);

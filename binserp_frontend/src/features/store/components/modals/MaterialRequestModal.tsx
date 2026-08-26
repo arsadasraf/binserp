@@ -37,12 +37,12 @@ export default function MaterialRequestModal({
     salesOrders = [],
     customerPos = [],
     loading,
-    defaultType = "rm"
+    defaultType = "consumable"
 }: MaterialRequestModalProps) {
     const [mrpPlans, setMrpPlans] = useState<any[]>([]);
 
     const initialType: RequestInventoryType = (
-        defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'rm'
+        defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
     );
 
     const [formData, setFormData] = useState({
@@ -56,6 +56,7 @@ export default function MaterialRequestModal({
             material: "",
             materialName: "",
             materialCode: "",
+            materialDescription: "" as string | undefined,
             quantity: 1,
             unit: initialType === 'fg' ? "Nos" : "PCS",
             purpose: "",
@@ -75,7 +76,7 @@ export default function MaterialRequestModal({
     useEffect(() => {
         if (isOpen) {
             const currentInitial: RequestInventoryType = (
-                defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'rm'
+                defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
             );
 
             setFormData({
@@ -89,6 +90,7 @@ export default function MaterialRequestModal({
                     material: "",
                     materialName: "",
                     materialCode: "",
+                    materialDescription: "" as string | undefined,
                     quantity: 1,
                     unit: currentInitial === 'fg' ? "Nos" : "PCS",
                     purpose: "",
@@ -108,6 +110,27 @@ export default function MaterialRequestModal({
             }
         }
     }, [isOpen, defaultType]);
+
+    // Filter only ACTIVE (NOT COMPLETED) MRP Plans
+    const activeMrpPlans = useMemo(() => {
+        return (mrpPlans || []).filter((plan: any) => plan.status !== 'Completed');
+    }, [mrpPlans]);
+
+    // Keyword searchable MRP options
+    const mrpOptions = useMemo(() => {
+        return activeMrpPlans.map((plan: any) => {
+            const fgNames = (plan.fgItems || []).map((f: any) => f.fgItemName).filter(Boolean).join(', ');
+            return {
+                value: plan._id,
+                label: plan.mrpNumber,
+                description: `${plan.customerName || 'Internal Demand'}${plan.customerPoNumber ? ` • PO: ${plan.customerPoNumber}` : ''}${fgNames ? ` • FG: ${fgNames}` : ''} (${plan.status || 'Planned'})`,
+                code: plan.mrpNumber
+            };
+        });
+    }, [activeMrpPlans]);
+
+    const isMrpRequired = formData.type !== 'consumable';
+    const isMrpMissing = isMrpRequired && !formData.mrpPlan;
 
     // Effective item lists strictly separated for each category
     const effectiveRMList = useMemo(() => {
@@ -260,6 +283,7 @@ export default function MaterialRequestModal({
         ) || "PCS";
 
         const currentStock = getStock(materialId, selectedItem?.code || selectedItem?.componentCode, selectedItem?.name || selectedItem?.componentName);
+        const materialDesc = selectedItem?.description || selectedItem?.specification || selectedItem?.grade || "";
 
         const newItems = [...formData.items];
         newItems[index] = {
@@ -267,6 +291,7 @@ export default function MaterialRequestModal({
             material: materialId,
             materialName: selectedItem?.name || selectedItem?.componentName || "",
             materialCode: selectedItem?.code || selectedItem?.componentCode || "",
+            materialDescription: materialDesc,
             unit: unitVal,
             currentStock,
             consumable: formData.type === 'consumable' ? materialId : undefined,
@@ -289,6 +314,7 @@ export default function MaterialRequestModal({
                 material: "",
                 materialName: "",
                 materialCode: "",
+                materialDescription: "",
                 quantity: 1,
                 unit: formData.type === 'fg' ? "Nos" : "PCS",
                 purpose: "",
@@ -313,6 +339,7 @@ export default function MaterialRequestModal({
                 material: "",
                 materialName: "",
                 materialCode: "",
+                materialDescription: "",
                 quantity: 1,
                 unit: newType === 'fg' ? "Nos" : "PCS",
                 purpose: "",
@@ -340,8 +367,21 @@ export default function MaterialRequestModal({
                             </span>
                         </div>
                         
-                        {/* 4 Inventory Types Switcher (RM, BO, Consumables, FG) */}
+                        {/* 4 Inventory Types Switcher (Consumables First, then RM, BO, FG) */}
                         <div className="flex flex-wrap bg-gray-200/80 dark:bg-gray-750 p-1 rounded-xl gap-1 w-fit shadow-inner">
+                            {/* Consumable Button (1st Tab) */}
+                            <button
+                                type="button"
+                                onClick={() => switchType('consumable')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                    formData.type === 'consumable' 
+                                        ? 'bg-amber-500 text-white shadow-sm' 
+                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                }`}
+                            >
+                                <Package size={13} /> Consumables
+                            </button>
+
                             {/* RM Button */}
                             <button
                                 type="button"
@@ -368,19 +408,6 @@ export default function MaterialRequestModal({
                                 <ShoppingCart size={13} /> Bought Out (BO)
                             </button>
 
-                            {/* Consumable Button */}
-                            <button
-                                type="button"
-                                onClick={() => switchType('consumable')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                    formData.type === 'consumable' 
-                                        ? 'bg-amber-500 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                            >
-                                <Package size={13} /> Consumables
-                            </button>
-
                             {/* FG Button */}
                             <button
                                 type="button"
@@ -404,46 +431,39 @@ export default function MaterialRequestModal({
                 {/* Modal Body with proper scrolling and padding */}
                 <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-36">
                     
-                    {/* Linked MRP Plan & Customer PO / Demand Reference */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm">
-                        {/* MRP Plan # Dropdown */}
+                    {/* Linked MRP Plan */}
+                    <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/60 shadow-sm">
                         <div className="space-y-1.5">
-                            <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-                                <Layers size={14} className="text-indigo-600 dark:text-indigo-400" /> Link MRP Plan # <span className="text-[10px] text-slate-400 font-normal">(Auto-fills Materials)</span>
+                            <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center justify-between">
+                                <span className="flex items-center gap-1.5">
+                                    <Layers size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                    <span>MRP Plan #</span>
+                                    {isMrpRequired ? (
+                                        <span className="text-[10px] text-rose-600 dark:text-rose-400 font-extrabold bg-rose-100 dark:bg-rose-950 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900">
+                                            * Compulsory
+                                        </span>
+                                    ) : (
+                                        <span className="text-[10px] text-slate-400 font-normal">(Optional for Consumables)</span>
+                                    )}
+                                </span>
+                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">
+                                    {activeMrpPlans.length} Active MRPs
+                                </span>
                             </label>
-                            <select
+                            
+                            <SearchableSelect
+                                options={mrpOptions}
                                 value={formData.mrpPlan || ''}
-                                onChange={(e) => handleSelectMRPPlan(e.target.value)}
-                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            >
-                                <option value="">-- Direct Store Request (No MRP) --</option>
-                                {mrpPlans.map((plan) => (
-                                    <option key={plan._id} value={plan._id}>
-                                        {plan.mrpNumber} {plan.customerName ? `(${plan.customerName})` : ''} - {plan.status || 'Planned'}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Customer PO / Order Ref */}
-                        <div className="space-y-1.5">
-                            <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-                                <ShoppingCart size={14} className="text-indigo-600 dark:text-indigo-400" /> Customer PO / Order Ref <span className="text-[10px] text-slate-400 font-normal">(Optional)</span>
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="e.g. PO-8921 / Shopfloor Assembly"
-                                value={formData.soNumber || ''}
-                                onChange={(e) => {
-                                    const val = e.target.value;
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        salesOrder: val,
-                                        soNumber: val
-                                    }));
-                                }}
-                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                onChange={(val) => handleSelectMRPPlan(val)}
+                                placeholder={isMrpRequired ? "🔍 Search active MRP #, Customer, FG (* Required)..." : "🔍 Search MRP # (Optional)..."}
+                                hasError={isMrpMissing}
+                                className="w-full"
                             />
+                            {isMrpMissing && (
+                                <p className="text-[11px] font-semibold text-rose-500">
+                                    ⚠️ Please select an active MRP Plan to proceed with this {formData.type.toUpperCase()} request.
+                                </p>
+                            )}
                         </div>
                     </div>
 
@@ -467,31 +487,51 @@ export default function MaterialRequestModal({
                         </div>
 
                         <div className="space-y-3">
-                            {formData.items.map((item, index) => {
+                            {formData.items.map((item: any, index) => {
                                 const currentStock = getStock(item.material, item.materialCode, item.materialName);
                                 const isExceedingStock = item.material && item.quantity > currentStock;
 
-                                // Options generation strictly filtered per category
+                                // Options generation strictly filtered per category with Name and Description ONLY
                                 const currentOptions = (
                                     formData.type === 'consumable'
-                                        ? (consumables || []).map((c: any) => ({
-                                            value: c._id,
-                                            label: `${c.name || ''} ${c.code ? `(${c.code})` : ''} ${c.unit ? `[${c.unit}]` : ''}`
-                                        }))
-                                        : formData.type === 'fg'
-                                            ? effectiveFGList.map((c: any) => ({
+                                        ? (consumables || []).map((c: any) => {
+                                            const desc = c.description || c.specification || c.category || '';
+                                            return {
                                                 value: c._id,
-                                                label: `${c.name || c.componentName || ''} ${c.code ? `(${c.code})` : ''} ${c.unit ? `[${c.unit}]` : ''}`
-                                            }))
+                                                label: `${c.name || ''}${desc ? ` • ${desc}` : ''}`,
+                                                description: desc || '',
+                                                code: c.code
+                                            };
+                                        })
+                                        : formData.type === 'fg'
+                                            ? effectiveFGList.map((c: any) => {
+                                                const desc = c.description || c.specification || '';
+                                                return {
+                                                    value: c._id,
+                                                    label: `${c.name || c.componentName || ''}${desc ? ` • ${desc}` : ''}`,
+                                                    description: desc || '',
+                                                    code: c.code
+                                                };
+                                            })
                                             : formData.type === 'bo'
-                                                ? effectiveBOList.map((b: any) => ({
-                                                    value: b._id,
-                                                    label: `${b.name || ''} ${b.code ? `(${b.code})` : ''} ${b.unit ? `[${b.unit}]` : ''}`
-                                                }))
-                                                : effectiveRMList.map((r: any) => ({
-                                                    value: r._id,
-                                                    label: `${r.name || ''} ${r.code ? `(${r.code})` : ''} ${r.unit ? `[${r.unit}]` : ''}`
-                                                }))
+                                                ? effectiveBOList.map((b: any) => {
+                                                    const desc = b.description || b.specification || b.category || '';
+                                                    return {
+                                                        value: b._id,
+                                                        label: `${b.name || ''}${desc ? ` • ${desc}` : ''}`,
+                                                        description: desc || '',
+                                                        code: b.code
+                                                    };
+                                                })
+                                                : effectiveRMList.map((r: any) => {
+                                                    const desc = r.description || r.specification || r.grade || r.thickness || r.materialType || '';
+                                                    return {
+                                                        value: r._id,
+                                                        label: `${r.name || ''}${desc ? ` • ${desc}` : ''}`,
+                                                        description: desc || '',
+                                                        code: r.code
+                                                    };
+                                                })
                                 );
 
                                 return (
@@ -511,6 +551,11 @@ export default function MaterialRequestModal({
                                                 placeholder={`Select ${formData.type === 'consumable' ? 'Consumable' : formData.type === 'fg' ? 'FG Item' : formData.type === 'bo' ? 'Bought Out Item' : 'Raw Material'}...`}
                                                 dropdownPosition="bottom"
                                             />
+                                            {item.materialDescription && (
+                                                <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800">
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">Description:</span> {item.materialDescription}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Current Stock Field */}
@@ -589,8 +634,14 @@ export default function MaterialRequestModal({
                         Cancel
                     </button>
                     <button
-                        onClick={() => onSubmit(formData)}
-                        disabled={loading || formData.items.some(item => {
+                        onClick={() => {
+                            if (isMrpMissing) {
+                                alert(`MRP Plan is compulsory for ${formData.type.toUpperCase()} Material Requests. Please select an active MRP Plan.`);
+                                return;
+                            }
+                            onSubmit(formData);
+                        }}
+                        disabled={loading || isMrpMissing || formData.items.some(item => {
                             const currentStock = getStock(item.material, item.materialCode, item.materialName);
                             return (item.material && item.quantity > currentStock) || !item.quantity || item.quantity <= 0;
                         })}

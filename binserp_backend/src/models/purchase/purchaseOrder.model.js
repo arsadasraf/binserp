@@ -64,8 +64,8 @@ export const purchaseOrderSchema = new mongoose.Schema(
         },
         itemType: {
           type: String,
-          enum: ["bo", "custom"],
-          default: "bo",
+          enum: ["rm", "bo", "consumable", "raw_material", "bought_out", "component", "subassembly", "assembly", "custom"],
+          default: "rm",
         },
         materialName: { type: String, required: true },
         description: String,

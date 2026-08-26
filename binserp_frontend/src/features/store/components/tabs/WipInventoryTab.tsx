@@ -1,4 +1,7 @@
+"use client";
+
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Layers, 
   Search, 
@@ -12,49 +15,79 @@ import {
   CheckCircle2, 
   Clock, 
   ArrowUpRight, 
-  ArrowDownLeft 
+  ArrowDownLeft,
+  FileText,
+  Filter,
+  Warehouse,
+  History
 } from 'lucide-react';
 import { apiGet } from '@/src/lib/api';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 
+export type WipSubTabType = 'rm' | 'bo' | 'fg' | 'mrp' | 'ledger' | 'mrp-buckets';
+
 interface WipInventoryTabProps {
     token: string | null;
     companyInfo?: any;
+    activeSubTab?: WipSubTabType;
+    title?: string;
+    description?: string;
     onError: (msg: string) => void;
     onSuccess: (msg: string) => void;
 }
 
-export default function WipInventoryTab({ token, companyInfo, onError, onSuccess }: WipInventoryTabProps) {
-    const [wipType, setWipType] = useState<'rm' | 'bo' | 'fg' | 'mrp-buckets'>('rm');
+export default function WipInventoryTab({ 
+    token, 
+    companyInfo, 
+    activeSubTab = 'rm',
+    title,
+    description,
+    onError, 
+    onSuccess 
+}: WipInventoryTabProps) {
+    const router = useRouter();
+    const [wipType, setWipType] = useState<WipSubTabType>(activeSubTab === 'mrp-buckets' ? 'mrp' : activeSubTab);
     const [loading, setLoading] = useState(true);
     const [wipItems, setWipItems] = useState<any[]>([]);
     const [mrpBuckets, setMrpBuckets] = useState<any[]>([]);
+    const [ledgerTransactions, setLedgerTransactions] = useState<any[]>([]);
     const [summary, setSummary] = useState({
         totalItems: 0,
+        totalActiveWipItems: 0,
         totalIssuedQty: 0,
         totalJobWorkSentQty: 0,
         totalReturnedQty: 0,
         totalFgConsumedQty: 0,
-        netPendingWipQty: 0
+        netPendingWipQty: 0,
+        shopfloorWipQty: 0,
+        jobWorkWipQty: 0
     });
 
     // Filter States
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterVendor, setFilterVendor] = useState('');
+    const [filterCategory, setFilterCategory] = useState('');
     const [filterMrp, setFilterMrp] = useState('');
-    const [filterStatus, setFilterStatus] = useState<'All' | 'In-Process' | 'Completed'>('In-Process');
+    const [filterStatus, setFilterStatus] = useState<'All' | 'Active WIP Only' | 'WIP Zero' | 'Completed'>('All');
 
     // Ledger Drawer State
     const [selectedWipItem, setSelectedWipItem] = useState<any | null>(null);
     const [isLedgerOpen, setIsLedgerOpen] = useState(false);
 
+    useEffect(() => {
+        if (activeSubTab) {
+            setWipType(activeSubTab === 'mrp-buckets' ? 'mrp' : activeSubTab);
+        }
+    }, [activeSubTab]);
+
     const fetchWipInventory = async () => {
         if (!token) return;
         try {
             setLoading(true);
-            const res = await apiGet(`/api/store/wip/inventory?type=${wipType}`, token);
+            const backendType = wipType === 'mrp' ? 'mrp-buckets' : wipType;
+            const res = await apiGet(`/api/store/wip/inventory?type=${backendType}`, token);
             setWipItems(res.wipItems || []);
             setMrpBuckets(res.mrpBuckets || []);
+            setLedgerTransactions(res.ledger || []);
             if (res.summary) setSummary(res.summary);
         } catch (err: any) {
             console.error("Failed to fetch WIP inventory:", err);
@@ -68,11 +101,11 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
         fetchWipInventory();
     }, [token, wipType]);
 
-    // Unique Destination / Department list for filter dropdown
-    const vendorsList = useMemo(() => {
+    // Unique Categories list for filter dropdown
+    const categoriesList = useMemo(() => {
         const set = new Map();
         wipItems.forEach(item => {
-            if (item.vendorName) set.set(item.vendorName, item.vendorName);
+            if (item.categoryName) set.set(item.categoryName, item.categoryName);
         });
         return Array.from(set.values());
     }, [wipItems]);
@@ -80,35 +113,35 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
     // Unique MRP Numbers list for filter dropdown
     const mrpList = useMemo(() => {
         const set = new Map();
-        wipItems.forEach(item => {
-            if (item.mrpNumber) set.set(item.mrpNumber, item.mrpNumber);
-        });
         mrpBuckets.forEach(bucket => {
             if (bucket.mrpNumber) set.set(bucket.mrpNumber, bucket.mrpNumber);
         });
         return Array.from(set.values());
-    }, [wipItems, mrpBuckets]);
+    }, [mrpBuckets]);
 
     // Filtered Items for standard RM/BO/FG WIP tabs
     const filteredItems = useMemo(() => {
         return wipItems.filter(item => {
             const matchSearch =
-                (item.sentItemName && item.sentItemName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.receivedItemName && item.receivedItemName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (item.materialName && item.materialName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (item.materialCode && item.materialCode.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.vendorName && item.vendorName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.mrpNumber && item.mrpNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.processType && item.processType.toLowerCase().includes(searchTerm.toLowerCase()));
+                (item.materialDescription && item.materialDescription.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (item.categoryName && item.categoryName.toLowerCase().includes(searchTerm.toLowerCase()));
 
-            const matchVendor = !filterVendor || item.vendorName === filterVendor;
-            const matchMrp = !filterMrp || (filterMrp === 'none' ? !item.mrpNumber : item.mrpNumber === filterMrp);
-            const matchStatus = filterStatus === 'All' || item.status === filterStatus;
+            const matchCategory = !filterCategory || item.categoryName === filterCategory;
+            
+            let matchStatus = true;
+            if (filterStatus === 'Active WIP Only') {
+                matchStatus = item.pendingWipQty > 0;
+            } else if (filterStatus === 'WIP Zero') {
+                matchStatus = item.pendingWipQty <= 0;
+            }
 
-            return matchSearch && matchVendor && matchMrp && matchStatus;
+            return matchSearch && matchCategory && matchStatus;
         });
-    }, [wipItems, searchTerm, filterVendor, filterMrp, filterStatus]);
+    }, [wipItems, searchTerm, filterCategory, filterStatus]);
 
-    // Filtered MRP Buckets for MRP Buckets tab
+    // Filtered MRP Buckets for MRP WIP Inventory tab
     const filteredMrpBuckets = useMemo(() => {
         return mrpBuckets.filter(bucket => {
             const matchSearch =
@@ -117,11 +150,27 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                 (bucket.items && bucket.items.some((it: any) => it.materialName?.toLowerCase().includes(searchTerm.toLowerCase())));
 
             const matchMrp = !filterMrp || bucket.mrpNumber === filterMrp;
-            const matchStatus = filterStatus === 'All' || (filterStatus === 'Completed' ? bucket.netPendingWipCount <= 0 : bucket.netPendingWipCount > 0);
+            const matchStatus = filterStatus === 'All' || 
+                (filterStatus === 'Completed' ? bucket.status === 'Completed' : bucket.status !== 'Completed');
 
             return matchSearch && matchMrp && matchStatus;
         });
     }, [mrpBuckets, searchTerm, filterMrp, filterStatus]);
+
+    // Filtered Ledger Transactions
+    const filteredLedger = useMemo(() => {
+        return ledgerTransactions.filter(tx => {
+            const matchSearch =
+                (tx.materialName && tx.materialName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (tx.docNumber && tx.docNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (tx.mrpNumber && tx.mrpNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (tx.type && tx.type.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (tx.processType && tx.processType.toLowerCase().includes(searchTerm.toLowerCase()));
+
+            const matchMrp = !filterMrp || tx.mrpNumber === filterMrp;
+            return matchSearch && matchMrp;
+        });
+    }, [ledgerTransactions, searchTerm, filterMrp]);
 
     const openLedger = (item: any) => {
         setSelectedWipItem(item);
@@ -131,80 +180,50 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
     return (
         <div className="space-y-6 animate-in fade-in duration-300">
             
-            {/* Top Sub-Tab Switcher: 4 Categories (RM, BO, FG, MRP Buckets) */}
-            <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2">
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl gap-1 overflow-x-auto no-scrollbar flex-1 sm:flex-none">
-                    {/* RM WIP Button */}
-                    <button
-                        onClick={() => { setWipType('rm'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
-                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                            wipType === 'rm'
-                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-200 dark:shadow-none'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Layers size={15} /> Raw Materials (RM) WIP
-                    </button>
+            {/* Header Title Section if provided */}
+            {(title || description) && (
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                    <div>
+                        <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                            {wipType === 'rm' && <Layers className="text-blue-600" size={22} />}
+                            {wipType === 'bo' && <ShoppingCart className="text-emerald-600" size={22} />}
+                            {wipType === 'fg' && <Boxes className="text-purple-600" size={22} />}
+                            {wipType === 'mrp' && <Package className="text-indigo-600" size={22} />}
+                            {wipType === 'ledger' && <History className="text-slate-600" size={22} />}
+                            {title}
+                        </h1>
+                        {description && <p className="text-xs text-slate-500 mt-1">{description}</p>}
+                    </div>
 
-                    {/* BO WIP Button */}
                     <button
-                        onClick={() => { setWipType('bo'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
-                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                            wipType === 'bo'
-                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-200 dark:shadow-none'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
+                        onClick={fetchWipInventory}
+                        disabled={loading}
+                        className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
-                        <ShoppingCart size={15} /> Bought Out (BO) WIP
-                    </button>
-
-                    {/* FG WIP Button */}
-                    <button
-                        onClick={() => { setWipType('fg'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
-                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                            wipType === 'fg'
-                                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-200 dark:shadow-none'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Boxes size={15} /> FG / Component WIP
-                    </button>
-
-                    {/* MRP Production Buckets Button */}
-                    <button
-                        onClick={() => { setWipType('mrp-buckets'); setSearchTerm(''); setFilterVendor(''); setFilterMrp(''); }}
-                        className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-                            wipType === 'mrp-buckets'
-                                ? 'bg-gradient-to-r from-slate-900 to-indigo-950 text-white shadow-md shadow-slate-300 dark:shadow-none'
-                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Package size={15} /> MRP Production Buckets
+                        <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+                        <span>Refresh Data</span>
                     </button>
                 </div>
-
-                <div className="text-xs text-slate-500 font-medium px-4 py-1 flex items-center gap-2 shrink-0">
-                    <ShieldCheck size={16} className="text-emerald-500" />
-                    <span>Store issue credits WIP • FG GRN reduces WIP</span>
-                </div>
-            </div>
+            )}
 
             {/* Summary Banner Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
                     <span className="text-[11px] font-bold uppercase text-slate-400 block tracking-wider">
-                        {wipType === 'mrp-buckets' ? 'Active MRP Buckets' : 'WIP Tracked Items'}
+                        {wipType === 'mrp' ? 'Total MRP WIP Plans' : wipType === 'ledger' ? 'Total Movement Docs' : 'Master Catalog Items'}
                     </span>
                     <div className="mt-1 flex items-baseline gap-2">
                         <span className="text-2xl font-black text-slate-900 dark:text-white">
-                            {wipType === 'mrp-buckets' ? mrpBuckets.length : summary.totalItems}
+                            {wipType === 'mrp' ? mrpBuckets.length : wipType === 'ledger' ? ledgerTransactions.length : summary.totalItems}
                         </span>
-                        <span className="text-xs text-slate-400 font-semibold">{wipType === 'mrp-buckets' ? 'Plans' : 'Items'}</span>
+                        <span className="text-xs text-slate-400 font-semibold">
+                            {wipType === 'mrp' ? 'Plans' : wipType === 'ledger' ? 'Docs' : 'Items'}
+                        </span>
                     </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-amber-500 block tracking-wider">Total Store Outward</span>
+                    <span className="text-[11px] font-bold uppercase text-amber-500 block tracking-wider">Store Outward (WIP Inward)</span>
                     <div className="mt-1 flex items-baseline gap-2">
                         <span className="text-2xl font-black text-amber-600 dark:text-amber-400">
                             {summary.totalIssuedQty + summary.totalJobWorkSentQty}
@@ -214,293 +233,380 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-emerald-500 block tracking-wider">FG GRN Consumed / Returned</span>
+                    <span className="text-[11px] font-bold uppercase text-emerald-500 block tracking-wider">FG GRN Consumed (WIP Outward)</span>
                     <div className="mt-1 flex items-baseline gap-2">
                         <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
                             {summary.totalReturnedQty}
                         </span>
-                        <span className="text-xs text-slate-400 font-semibold">Units Completed</span>
+                        <span className="text-xs text-slate-400 font-semibold">Units Consumed</span>
                     </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/20 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">Net Active Shopfloor WIP</span>
+                    <span className="text-[11px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">Net Active Total WIP</span>
                     <div className="mt-1 flex items-baseline gap-2">
                         <span className="text-2xl font-black text-indigo-700 dark:text-indigo-300 font-mono">
                             {summary.netPendingWipQty}
                         </span>
-                        <span className="text-xs text-indigo-500 font-semibold">Pending Units</span>
+                        <span className="text-xs text-indigo-600/70 font-semibold">Units in WIP</span>
                     </div>
                 </div>
             </div>
 
             {/* Filter Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+            <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+                <div className="flex-1 flex flex-wrap gap-2.5 items-center">
                     {/* Search Input */}
                     <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                         <input
                             type="text"
-                            placeholder="Search by item name, material code, MRP #, customer..."
+                            placeholder={wipType === 'mrp' ? "Search MRP #, customer, FG name..." : "Search material name, code, desc..."}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-9 pr-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-white font-medium"
                         />
                     </div>
 
-                    {/* MRP Plan # Filter */}
-                    <select
-                        value={filterMrp}
-                        onChange={(e) => setFilterMrp(e.target.value)}
-                        className="w-full sm:w-auto px-3.5 py-2 text-xs font-bold border border-indigo-200 dark:border-indigo-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 max-w-[220px] truncate cursor-pointer"
-                    >
-                        <option value="">All MRP Plans</option>
-                        <option value="none">Direct Store Issues (No MRP)</option>
-                        {mrpList.map(mrp => (
-                            <option key={mrp} value={mrp}>MRP: {mrp}</option>
-                        ))}
-                    </select>
+                    {/* Category Filter for RM/BO/FG */}
+                    {wipType !== 'mrp' && wipType !== 'ledger' && categoriesList.length > 0 && (
+                        <select
+                            value={filterCategory}
+                            onChange={(e) => setFilterCategory(e.target.value)}
+                            className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold focus:outline-none"
+                        >
+                            <option value="">All Categories</option>
+                            {categoriesList.map((cat: any) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                        </select>
+                    )}
 
-                    {/* Status Filter Tabs */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                        <button
-                            onClick={() => setFilterStatus('In-Process')}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === 'In-Process' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs font-bold' : 'text-slate-500'}`}
+                    {/* MRP Plan Filter */}
+                    {(wipType === 'mrp' || wipType === 'ledger') && mrpList.length > 0 && (
+                        <select
+                            value={filterMrp}
+                            onChange={(e) => setFilterMrp(e.target.value)}
+                            className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold focus:outline-none"
                         >
-                            In-Process
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus('Completed')}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === 'Completed' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs font-bold' : 'text-slate-500'}`}
-                        >
-                            Completed
-                        </button>
-                        <button
-                            onClick={() => setFilterStatus('All')}
-                            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === 'All' ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs font-bold' : 'text-slate-500'}`}
-                        >
-                            All Status
-                        </button>
-                    </div>
+                            <option value="">All MRP Plans</option>
+                            {mrpList.map((mrp: any) => (
+                                <option key={mrp} value={mrp}>{mrp}</option>
+                            ))}
+                        </select>
+                    )}
+
+                    {/* Status Filter */}
+                    {wipType !== 'ledger' && (
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-1">
+                            {(wipType === 'mrp' 
+                                ? (['All', 'In Production', 'Completed'] as const) 
+                                : (['All', 'Active WIP Only', 'WIP Zero'] as const)
+                            ).map((st) => (
+                                <button
+                                    key={st}
+                                    onClick={() => setFilterStatus(st as any)}
+                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
+                                        filterStatus === st 
+                                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' 
+                                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
+                                    }`}
+                                >
+                                    {st}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
-                {/* Refresh Button */}
-                <button
-                    onClick={fetchWipInventory}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 text-xs font-bold cursor-pointer shrink-0"
-                    title="Refresh WIP Inventory"
-                >
-                    <RefreshCw size={15} className={loading ? "animate-spin" : ""} /> Refresh
-                </button>
+                <div className="text-xs text-slate-400 font-medium flex items-center justify-end gap-2 shrink-0">
+                    <ShieldCheck size={15} className="text-emerald-500" />
+                    <span>Store Issue credits WIP • FG GRN reduces WIP</span>
+                </div>
             </div>
 
-            {/* Main WIP Inventory Content */}
+            {/* Main Content Area */}
             {loading ? (
                 <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                 </div>
-            ) : wipType === 'mrp-buckets' ? (
-                /* MRP Production Buckets View */
+            ) : wipType === 'mrp' ? (
+                /* MRP WIP Inventory View */
                 filteredMrpBuckets.length === 0 ? (
                     <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                         <Package className="mx-auto h-12 w-12 text-slate-300 mb-3" />
                         <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                            No Active MRP Production Buckets
+                            No MRP WIP Inventory Records Found
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1">Materials issued against an MRP Number will aggregate into a dedicated production bucket here.</p>
+                        <p className="text-xs text-slate-500 mt-1">Materials issued against an MRP Number will aggregate into their dedicated MRP WIP inventory here.</p>
                     </div>
                 ) : (
                     <div className="space-y-4">
-                        {filteredMrpBuckets.map((bucket) => (
-                            <div 
-                                key={bucket.mrpNumber} 
-                                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-5 space-y-4 hover:border-indigo-300 transition-colors"
-                            >
-                                {/* Bucket Header */}
-                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-100 dark:border-indigo-900">
-                                            <Package size={20} />
+                        {filteredMrpBuckets.map((bucket) => {
+                            const isCompleted = bucket.status === 'Completed' || (bucket.items && bucket.items.length > 0 && bucket.netPendingWipCount <= 0);
+
+                            return (
+                                <div 
+                                    key={bucket.mrpNumber} 
+                                    className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-5 space-y-4 hover:border-indigo-300 transition-colors"
+                                >
+                                    {/* Bucket Header */}
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-100 dark:border-indigo-900">
+                                                <Package size={20} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="text-sm font-black text-slate-900 dark:text-white font-mono">
+                                                        MRP: {bucket.mrpNumber}
+                                                    </h3>
+                                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                                        isCompleted
+                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
+                                                            : bucket.status === 'Planned'
+                                                                ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                                                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900'
+                                                    }`}>
+                                                        {isCompleted ? '✓ Completed' : (bucket.status || 'In Production')}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-0.5">
+                                                    Customer / Reference: <span className="font-semibold text-slate-700 dark:text-slate-300">{bucket.customerName}</span>
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Action to view MRP movements */}
+                                        <button
+                                            onClick={() => openLedger({
+                                                sentItemName: `MRP WIP Plan: ${bucket.mrpNumber}`,
+                                                vendorName: bucket.customerName,
+                                                processType: "MRP Production & WIP Lifecycle",
+                                                unit: "Units",
+                                                totalIssuedQty: bucket.totalRmIssued + bucket.totalBoIssued + bucket.totalFgIssued,
+                                                totalReturnedQty: bucket.totalFgProduced,
+                                                pendingWipQty: bucket.netPendingWipCount,
+                                                transactions: bucket.transactions
+                                            })}
+                                            className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <Eye size={14} /> View WIP Movements
+                                        </button>
+                                    </div>
+
+                                    {/* Bucket Metrics */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase text-blue-500 block">RM Issued</span>
+                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalRmIssued}</span>
                                         </div>
                                         <div>
-                                            <div className="flex items-center gap-2">
-                                                <h3 className="text-sm font-black text-slate-900 dark:text-white font-mono">
-                                                    MRP: {bucket.mrpNumber}
-                                                </h3>
-                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                    bucket.netPendingWipCount > 0
-                                                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                                                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                                }`}>
-                                                    {bucket.netPendingWipCount > 0 ? 'In Production' : 'Completed'}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 mt-0.5">
-                                                Customer / Reference: <span className="font-semibold text-slate-700 dark:text-slate-300">{bucket.customerName}</span>
-                                            </p>
+                                            <span className="text-[10px] font-bold uppercase text-emerald-500 block">BO Issued</span>
+                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalBoIssued}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase text-purple-500 block">FG / Comp Issued</span>
+                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalFgIssued}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold uppercase text-indigo-600 block">FG GRN Produced</span>
+                                            <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">{bucket.totalFgProduced}</span>
                                         </div>
                                     </div>
 
-                                    {/* Action to view MRP movements */}
-                                    <button
-                                        onClick={() => openLedger({
-                                            sentItemName: `MRP Plan Bucket: ${bucket.mrpNumber}`,
-                                            vendorName: bucket.customerName,
-                                            processType: "MRP Production Lifecycle",
-                                            unit: "Units",
-                                            totalIssuedQty: bucket.totalRmIssued + bucket.totalBoIssued + bucket.totalFgIssued,
-                                            totalReturnedQty: bucket.totalFgProduced,
-                                            pendingWipQty: bucket.netPendingWipCount,
-                                            transactions: bucket.transactions
-                                        })}
-                                        className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                                    >
-                                        <Eye size={14} /> View Bucket Movements
-                                    </button>
-                                </div>
-
-                                {/* Bucket Metrics */}
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl text-xs">
-                                    <div>
-                                        <span className="text-[10px] font-bold uppercase text-blue-500 block">RM Issued</span>
-                                        <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalRmIssued}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] font-bold uppercase text-emerald-500 block">BO Issued</span>
-                                        <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalBoIssued}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] font-bold uppercase text-purple-500 block">FG / Comp Issued</span>
-                                        <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalFgIssued}</span>
-                                    </div>
-                                    <div>
-                                        <span className="text-[10px] font-bold uppercase text-indigo-600 block">FG GRN Produced</span>
-                                        <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">{bucket.totalFgProduced}</span>
-                                    </div>
-                                </div>
-
-                                {/* Items Inside this MRP Bucket */}
-                                <div className="space-y-2">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Items in Production Bucket</h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                                        {(bucket.items || []).map((it: any, i: number) => (
-                                            <div key={i} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center text-xs">
-                                                <div className="min-w-0 pr-2">
-                                                    <span className="font-bold text-slate-900 dark:text-white block truncate">{it.materialName}</span>
-                                                    <span className="text-[10px] text-slate-400">{it.category}</span>
+                                    {/* Items Inside this MRP Bucket */}
+                                    <div className="space-y-2">
+                                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Items in MRP WIP Inventory</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                            {(bucket.items || []).map((it: any, i: number) => (
+                                                <div key={i} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center text-xs">
+                                                    <div className="min-w-0 pr-2">
+                                                        <span className="font-bold text-slate-900 dark:text-white block truncate">{it.materialName}</span>
+                                                        <span className="text-[10px] text-slate-400">{it.category}</span>
+                                                    </div>
+                                                    <div className="text-right shrink-0">
+                                                        <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
+                                                            {it.pendingQty} <span className="text-[10px] font-normal text-slate-400">{it.unit}</span>
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400">
+                                                            Issued: {it.issuedQty}
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <div className="text-right shrink-0">
-                                                    <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
-                                                        {it.pendingQty} <span className="text-[10px] font-normal text-slate-400">{it.unit}</span>
-                                                    </span>
-                                                    <span className="text-[10px] text-slate-400">
-                                                        Issued: {it.issuedQty}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        ))}
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
+                    </div>
+                )
+            ) : wipType === 'ledger' ? (
+                /* WIP Movement Ledger View */
+                filteredLedger.length === 0 ? (
+                    <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                        <History className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                        <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                            No WIP Movement Transactions Found
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1">Material issues, job work shipments, and FG GRN consumption movements will record here.</p>
+                    </div>
+                ) : (
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                                    <tr>
+                                        <th className="px-5 py-3.5">Date & Time</th>
+                                        <th className="px-5 py-3.5">Document #</th>
+                                        <th className="px-5 py-3.5">MRP Reference</th>
+                                        <th className="px-5 py-3.5">Material Details</th>
+                                        <th className="px-5 py-3.5">Movement Type</th>
+                                        <th className="px-5 py-3.5 text-center">WIP Inward (+)</th>
+                                        <th className="px-5 py-3.5 text-center">WIP Consumed (-)</th>
+                                        <th className="px-5 py-3.5 text-center">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+                                    {filteredLedger.map((tx: any, idx: number) => (
+                                        <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                                            <td className="px-5 py-3.5 text-slate-500 font-mono">
+                                                {new Date(tx.date).toLocaleDateString()} {new Date(tx.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </td>
+                                            <td className="px-5 py-3.5 font-bold font-mono text-slate-900 dark:text-white">
+                                                {tx.docNumber}
+                                            </td>
+                                            <td className="px-5 py-3.5">
+                                                {tx.mrpNumber ? (
+                                                    <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                        {tx.mrpNumber}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400 italic">Direct Store Issue</span>
+                                                )}
+                                            </td>
+                                            <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white">
+                                                {tx.materialName}
+                                                {tx.materialCode && <span className="block text-[10px] text-slate-400 font-mono">{tx.materialCode}</span>}
+                                            </td>
+                                            <td className="px-5 py-3.5 text-slate-600 dark:text-slate-400">
+                                                <span className="font-semibold block text-slate-800 dark:text-slate-200">{tx.type}</span>
+                                                <span className="text-[10px] text-slate-400">{tx.processType || tx.vendorName}</span>
+                                            </td>
+                                            <td className="px-5 py-3.5 text-center font-bold text-amber-600 dark:text-amber-400 font-mono">
+                                                {tx.sentQty > 0 ? `+${tx.sentQty} ${tx.unit}` : '-'}
+                                            </td>
+                                            <td className="px-5 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                {tx.receivedQty > 0 ? `-${tx.receivedQty} ${tx.unit}` : '-'}
+                                            </td>
+                                            <td className="px-5 py-3.5 text-center">
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                    {tx.status || 'Recorded'}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )
             ) : (
-                /* Standard RM / BO / FG Table View */
+                /* Master-Driven RM / BO / FG Table View */
                 filteredItems.length === 0 ? (
                     <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                         <Layers className="mx-auto h-12 w-12 text-slate-300 mb-3" />
                         <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                            No {wipType === 'rm' ? 'Raw Material (RM)' : wipType === 'bo' ? 'Bought Out (BO)' : 'Finished Goods (FG)'} WIP Items
+                            No {wipType === 'rm' ? 'Raw Material (RM)' : wipType === 'bo' ? 'Bought Out (BO)' : 'Finished Goods (FG)'} Catalog Items Found
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1">Material Issues & Job-Work Dispatches will automatically record here when stock is reduced from store.</p>
+                        <p className="text-xs text-slate-500 mt-1">Master catalog items will track perpetual WIP balances here.</p>
                     </div>
                 ) : (
                     <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
                         {/* Desktop Table View */}
-                        <div className="hidden md:block overflow-x-auto">
+                        <div className="hidden lg:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        <th className="px-5 py-3.5">Sent / Issued Material</th>
-                                        <th className="px-5 py-3.5">MRP Plan #</th>
-                                        <th className="px-5 py-3.5">Destination / Department</th>
-                                        <th className="px-5 py-3.5">Process / Purpose</th>
-                                        <th className="px-5 py-3.5 text-center">Store Deductions</th>
-                                        <th className="px-5 py-3.5 text-center">FG GRN Consumed</th>
-                                        <th className="px-5 py-3.5 text-center">Net Pending WIP</th>
-                                        <th className="px-5 py-3.5 text-center">Status</th>
-                                        <th className="px-5 py-3.5 text-right">Action</th>
+                                        <th className="px-4 py-3.5">Material / Code</th>
+                                        <th className="px-4 py-3.5">Category / Desc</th>
+                                        <th className="px-4 py-3.5 text-center">Main Store Stock</th>
+                                        <th className="px-4 py-3.5 text-center">Store Outward (WIP Inward)</th>
+                                        <th className="px-4 py-3.5 text-center">FG GRN Consumed</th>
+                                        <th className="px-4 py-3.5 text-center">Shopfloor WIP</th>
+                                        {wipType === 'rm' && <th className="px-4 py-3.5 text-center">Job Work WIP</th>}
+                                        <th className="px-4 py-3.5 text-center">Net Total WIP</th>
+                                        <th className="px-4 py-3.5 text-center">Status</th>
+                                        <th className="px-4 py-3.5 text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                     {filteredItems.map((item) => {
-                                        const totalOutward = (item.totalIssuedQty || 0) + (item.totalJobWorkSentQty || 0) || item.totalSentQty || 0;
-                                        const totalReturned = item.totalReturnedQty || item.totalReceivedQty || 0;
-
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                                                <td className="px-5 py-4 font-bold text-slate-900 dark:text-white">
-                                                    {item.sentItemName}
-                                                    <span className="block text-[10px] text-slate-400 font-normal uppercase mt-0.5">Category: {item.categoryType || item.itemType}</span>
-                                                </td>
-
-                                                <td className="px-5 py-4">
-                                                    {item.mrpNumber ? (
-                                                        <span className="text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 inline-block shadow-2xs">
-                                                            {item.mrpNumber}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-xs text-slate-400 italic">Direct / No MRP</span>
+                                                <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-white">
+                                                    <div>{item.materialName}</div>
+                                                    {item.materialCode && (
+                                                        <span className="text-[11px] font-mono text-slate-400 font-normal">{item.materialCode}</span>
                                                     )}
                                                 </td>
 
-                                                <td className="px-5 py-4 text-slate-700 dark:text-slate-300 font-medium">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <Factory size={14} className="text-slate-400 flex-shrink-0" />
-                                                        {item.vendorName}
-                                                    </div>
+                                                <td className="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-400">
+                                                    <span className="font-semibold text-slate-800 dark:text-slate-200">{item.categoryName}</span>
+                                                    {item.materialDescription && (
+                                                        <span className="block text-[11px] text-slate-400 truncate max-w-[200px]">{item.materialDescription}</span>
+                                                    )}
                                                 </td>
 
-                                                <td className="px-5 py-4 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                                                    {item.processType}
+                                                <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
+                                                    {item.mainStoreStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                 </td>
 
-                                                <td className="px-5 py-4 text-center font-bold text-amber-600 dark:text-amber-400">
-                                                    {totalOutward} <span className="text-xs font-normal text-slate-400">{item.unit}</span>
+                                                <td className="px-4 py-3.5 text-center font-bold text-amber-600 dark:text-amber-400 font-mono">
+                                                    {item.totalIssuedQty + item.totalJobWorkSentQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                 </td>
 
-                                                <td className="px-5 py-4 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                                                    {totalReturned} <span className="text-xs font-normal text-slate-400">{item.receivingUnit || item.unit}</span>
+                                                <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                    {item.totalReturnedQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                 </td>
 
-                                                <td className="px-5 py-4 text-center">
+                                                <td className="px-4 py-3.5 text-center font-bold text-slate-900 dark:text-white font-mono">
+                                                    {item.shopfloorWipQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                </td>
+
+                                                {wipType === 'rm' && (
+                                                    <td className="px-4 py-3.5 text-center font-bold text-purple-600 dark:text-purple-400 font-mono">
+                                                        {item.jobWorkWipQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    </td>
+                                                )}
+
+                                                <td className="px-4 py-3.5 text-center">
                                                     <span className={`inline-block px-3 py-1 rounded-full text-xs font-black font-mono ${
                                                         item.pendingWipQty > 0 
                                                             ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800' 
                                                             : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                                                     }`}>
-                                                        {item.pendingWipQty} {item.receivingUnit || item.unit}
+                                                        {item.pendingWipQty} {item.unit}
                                                     </span>
                                                 </td>
 
-                                                <td className="px-5 py-4 text-center">
-                                                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                                        item.status === 'In-Process' 
-                                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' 
-                                                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                                <td className="px-4 py-3.5 text-center">
+                                                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                                                        item.pendingWipQty > 0 
+                                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900' 
+                                                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
                                                     }`}>
-                                                        {item.status}
+                                                        {item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero'}
                                                     </span>
                                                 </td>
 
-                                                <td className="px-5 py-4 text-right">
+                                                <td className="px-4 py-3.5 text-right">
                                                     <button
                                                         onClick={() => openLedger(item)}
                                                         className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
                                                     >
-                                                        <Eye size={14} /> View Ledger
+                                                        <Eye size={14} /> Ledger
                                                     </button>
                                                 </td>
                                             </tr>
@@ -510,75 +616,57 @@ export default function WipInventoryTab({ token, companyInfo, onError, onSuccess
                             </table>
                         </div>
 
-                        {/* Mobile Card View */}
-                        <div className="md:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800 pb-28 sm:pb-20">
-                            {filteredItems.map((item) => {
-                                const totalOutward = (item.totalIssuedQty || 0) + (item.totalJobWorkSentQty || 0) || item.totalSentQty || 0;
-                                const totalReturned = item.totalReturnedQty || item.totalReceivedQty || 0;
-
-                                return (
-                                    <div
-                                        key={item.id}
-                                        className="p-4 flex flex-col gap-3 bg-white dark:bg-slate-900 active:bg-slate-50 dark:active:bg-slate-800/60 transition-colors"
-                                    >
-                                        <div className="flex justify-between items-start gap-2">
-                                            <div className="min-w-0">
-                                                <h4 className="font-bold text-slate-900 dark:text-white text-sm truncate">
-                                                    {item.sentItemName}
-                                                </h4>
-                                                <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                                    {item.mrpNumber && (
-                                                        <span className="font-mono text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                                                            MRP: {item.mrpNumber}
-                                                        </span>
-                                                    )}
-                                                    <div className="flex items-center gap-1">
-                                                        <Factory size={13} className="text-slate-400 shrink-0" />
-                                                        <span className="truncate">{item.vendorName || 'Department'}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${
-                                                item.status === 'In-Process' 
-                                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' 
-                                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                            }`}>
-                                                {item.status}
-                                            </span>
-                                        </div>
-
-                                        <div className="grid grid-cols-3 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center">
-                                            <div>
-                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Outward</span>
-                                                <span className="text-xs font-black text-amber-600 dark:text-amber-400">
-                                                    {totalOutward} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Consumed</span>
-                                                <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                                                    {totalReturned} <span className="text-[10px] font-normal text-slate-400">{item.receivingUnit || item.unit}</span>
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Pending WIP</span>
-                                                <span className="text-xs font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                                                    {item.pendingWipQty} <span className="text-[10px] font-normal text-slate-400">{item.receivingUnit || item.unit}</span>
-                                                </span>
+                        {/* Responsive Mobile / Tablet Card View */}
+                        <div className="lg:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800 pb-20">
+                            {filteredItems.map((item) => (
+                                <div key={item.id} className="p-4 flex flex-col gap-3 bg-white dark:bg-slate-900">
+                                    <div className="flex justify-between items-start gap-2">
+                                        <div>
+                                            <h4 className="font-bold text-slate-900 dark:text-white text-sm">
+                                                {item.materialName}
+                                            </h4>
+                                            <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
+                                                {item.materialCode && <span className="font-mono">{item.materialCode}</span>}
+                                                <span>•</span>
+                                                <span>{item.categoryName}</span>
                                             </div>
                                         </div>
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                            item.pendingWipQty > 0 
+                                                ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' 
+                                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                                        }`}>
+                                            {item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero'}
+                                        </span>
+                                    </div>
 
-                                        <div className="flex justify-end pt-1">
-                                            <button
-                                                onClick={() => openLedger(item)}
-                                                className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                                            >
-                                                <Eye size={14} /> View WIP Ledger & Transactions
-                                            </button>
+                                    <div className="grid grid-cols-4 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 block">Store Stock</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{item.mainStoreStock}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-amber-600 block">Issued</span>
+                                            <span className="font-bold text-amber-600 font-mono">{item.totalIssuedQty + item.totalJobWorkSentQty}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-emerald-600 block">Consumed</span>
+                                            <span className="font-bold text-emerald-600 font-mono">{item.totalReturnedQty}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-indigo-600 block">Net WIP</span>
+                                            <span className="font-black text-indigo-600 font-mono">{item.pendingWipQty}</span>
                                         </div>
                                     </div>
-                                );
-                            })}
+
+                                    <button
+                                        onClick={() => openLedger(item)}
+                                        className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                    >
+                                        <Eye size={14} /> View WIP Ledger ({item.transactions.length} docs)
+                                    </button>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )

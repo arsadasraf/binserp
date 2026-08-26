@@ -1,529 +1,293 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  X, Layers, Calendar, User, FileText, CheckCircle2, Download, 
-  Package, ArrowUpRight, ShoppingCart, ChevronDown, ChevronRight, 
-  Boxes, GitFork, CornerDownRight, ShieldCheck, Send, Clock 
+  X, Layers, Calendar, User, FileText, CheckCircle2, 
+  Package, Clock, Check, Building2, Truck, ShieldCheck,
+  RefreshCw, ChevronRight, Boxes
 } from 'lucide-react';
-import Link from 'next/link';
+import { apiGet } from '@/src/lib/api';
 
 interface MRPDetailsModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    mrpPlan: any;
-    onStatusChange?: (id: string, newStatus: string) => void;
+  isOpen: boolean;
+  onClose: () => void;
+  mrpPlan: any;
+  onStatusChange?: (id: string, newStatus: string) => void;
 }
 
-export default function MRPDetailsModal({ isOpen, onClose, mrpPlan, onStatusChange }: MRPDetailsModalProps) {
-    const [activeTab, setActiveTab] = useState<'consolidated' | 'nested'>('consolidated');
-    const [selectedCategory, setSelectedCategory] = useState<'All' | 'RM' | 'BO' | 'SubAssembly' | 'Consumable'>('All');
-    const [expandedFgIndex, setExpandedFgIndex] = useState<number | null>(0);
+export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetailsModalProps) {
+  const [loadingGRN, setLoadingGRN] = useState(false);
+  const [fgGrnHistory, setFgGrnHistory] = useState<any[]>([]);
 
-    if (!isOpen || !mrpPlan) return null;
-
-    const fgItems = mrpPlan.fgItems || [];
-    
-    const rawAll = [
-        ...(mrpPlan.rmRequirements || []),
-        ...(mrpPlan.boRequirements || []),
-        ...(mrpPlan.subAssemblyRequirements || []),
-        ...(mrpPlan.consumableRequirements || [])
-    ];
-    
-    // If rawAll is empty, fallback to aggregating nestedMaterials across fgItems
-    const extractedFromNested: any[] = [];
-    if (rawAll.length === 0 && Array.isArray(fgItems)) {
-        const tempMap = new Map();
-        fgItems.forEach((fg: any) => {
-            (fg.nestedMaterials || []).forEach((nMat: any) => {
-                const key = (nMat.materialCode || nMat.materialName || '').toLowerCase();
-                if (!tempMap.has(key)) {
-                    tempMap.set(key, {
-                        materialName: nMat.materialName,
-                        materialCode: nMat.materialCode,
-                        category: nMat.category || (nMat.itemType === 'SubAssembly' ? 'Sub Assembly' : 'RM / BO Material'),
-                        itemType: nMat.itemType || 'RM',
-                        requiredQuantity: 0,
-                        currentStock: nMat.currentStock || 0,
-                        shortage: 0,
-                        unit: nMat.unit || 'PCS',
-                        sourceFGNames: []
-                    });
-                }
-                const existing = tempMap.get(key);
-                existing.requiredQuantity += (nMat.totalRequired || nMat.quantity || 0);
-                existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
-                const label = `${fg.fgItemName || 'FG'} (${nMat.totalRequired || nMat.quantity} ${nMat.unit || 'PCS'})`;
-                if (!existing.sourceFGNames.includes(label)) existing.sourceFGNames.push(label);
-            });
-        });
-        extractedFromNested.push(...Array.from(tempMap.values()));
+  useEffect(() => {
+    if (isOpen && mrpPlan) {
+      fetchFGGRNHistory();
     }
+  }, [isOpen, mrpPlan]);
 
-    const allMaterials = rawAll.length > 0 ? rawAll : extractedFromNested;
+  const fetchFGGRNHistory = async () => {
+    setLoadingGRN(true);
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await apiGet('/api/store/fg-grn', token);
+      const allGrns = res?.grns || [];
+      
+      // Filter GRNs matching this MRP number or Customer PO
+      const matching = allGrns.filter((g: any) => {
+        const gMrp = (g.mrpNumber || '').trim();
+        const gPo = (g.customerPoNumber || g.poNumber || '').trim();
+        return (gMrp && gMrp === mrpPlan.mrpNumber) || 
+               (mrpPlan.customerPoNumber && gPo && gPo === mrpPlan.customerPoNumber);
+      });
 
-    const rmList = allMaterials.filter((r: any) => !r.itemType || r.itemType === 'RM' || r.itemType === 'Raw Material');
-    const boList = allMaterials.filter((r: any) => r.itemType === 'BO' || r.itemType === 'Bought Out');
-    const subList = allMaterials.filter((r: any) => r.itemType === 'SubAssembly' || r.itemType === 'Sub Assembly');
-    const conList = allMaterials.filter((r: any) => r.itemType === 'Consumable');
+      setFgGrnHistory(matching);
+    } catch (err) {
+      console.warn("Could not fetch FG GRN history:", err);
+    } finally {
+      setLoadingGRN(false);
+    }
+  };
 
-    const materials = selectedCategory === 'All' 
-        ? allMaterials 
-        : selectedCategory === 'RM' 
-            ? rmList 
-            : selectedCategory === 'BO' 
-                ? boList 
-                : selectedCategory === 'SubAssembly' 
-                    ? subList 
-                    : conList;
+  if (!isOpen || !mrpPlan) return null;
 
-    const totalShortages = allMaterials.reduce((sum: number, r: any) => sum + (r.shortage || 0), 0);
+  const fgItems = mrpPlan.fgItems || [];
+  const totalFGTarget = fgItems.reduce((sum: number, f: any) => sum + (Number(f.quantity) || 0), 0);
+  const totalFGReceived = fgItems.reduce((sum: number, f: any) => sum + (Number(f.receivedQuantity) || 0), 0);
+  const totalFGBalance = Math.max(0, totalFGTarget - totalFGReceived);
+  const overallPercent = totalFGTarget > 0 ? Math.min(100, Math.round((totalFGReceived / totalFGTarget) * 100)) : 0;
 
-    const handlePrint = () => {
-        window.print();
-    };
+  const allChildMats = [...(mrpPlan.rmRequirements || []), ...(mrpPlan.boRequirements || [])];
+  const hasShortages = allChildMats.some((m: any) => m.shortage > 0);
+  const isProcurementFulfilled = !hasShortages;
 
-    const toggleFgAccordion = (index: number) => {
-        setExpandedFgIndex(prev => prev === index ? null : index);
-    };
-
-    return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-5 lg:p-6 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-6xl xl:max-w-7xl max-h-[94vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-                
-                {/* Header */}
-                <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-indigo-900 text-white flex justify-between items-start shrink-0 border-b border-indigo-900">
-                    <div>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 rounded-xl text-xs font-mono font-bold">
-                                {mrpPlan.mrpNumber}
-                            </span>
-                            {mrpPlan.customerPoNumber && (
-                                <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-mono font-bold">
-                                    PO #{mrpPlan.customerPoNumber}
-                                </span>
-                            )}
-                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                                mrpPlan.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                                mrpPlan.status === 'In Production' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
-                                mrpPlan.status === 'Partially Completed' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
-                                mrpPlan.status === 'In Procurement' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
-                                'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            }`}>
-                                {mrpPlan.status || 'Planned'}
-                            </span>
-                        </div>
-                        <h2 className="text-xl font-black mt-1.5 text-white">
-                            MRP Material Demand & Production Plan
-                        </h2>
-                        <p className="text-xs text-indigo-200 mt-0.5">
-                            Customer: <strong>{mrpPlan.customerName || 'Internal / Direct Demand'}</strong> | Target: <strong>{mrpPlan.targetDate ? new Date(mrpPlan.targetDate).toLocaleDateString('en-GB') : 'N/A'}</strong>
-                            {mrpPlan.remarks && <span className="ml-2">| Purpose: <strong>{mrpPlan.remarks}</strong></span>}
-                        </p>
-                    </div>
-
-                    <button
-                        onClick={onClose}
-                        className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors flex items-center justify-center"
-                    >
-                        <X size={18} />
-                    </button>
-                </div>
-
-                {/* KPI Strip */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-4 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-xs">
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xs">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Entered Finished Goods</span>
-                        <strong className="text-slate-900 dark:text-white font-black text-base">{fgItems.length} Products</strong>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-indigo-200 dark:border-indigo-800/50 bg-indigo-50/20 shadow-2xs">
-                        <span className="text-[10px] uppercase font-bold text-indigo-500 block">Consolidated Materials</span>
-                        <strong className="text-indigo-700 dark:text-indigo-300 font-black text-base">{allMaterials.length} Unique Items</strong>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-purple-200 dark:border-purple-800/50 bg-purple-50/20 shadow-2xs">
-                        <span className="text-[10px] uppercase font-bold text-purple-500 block">Sub-Assemblies / Components</span>
-                        <strong className="text-purple-700 dark:text-purple-300 font-black text-base">{subList.length} In-House</strong>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-rose-200 dark:border-rose-800/50 bg-rose-50/20 shadow-2xs">
-                        <span className="text-[10px] uppercase font-bold text-rose-500 block">Net Purchase Shortages</span>
-                        <strong className="text-rose-600 dark:text-rose-400 font-black text-base">
-                            {totalShortages > 0 ? `${totalShortages} Short` : 'All In Stock'}
-                        </strong>
-                    </div>
-                </div>
-
-                {/* Sub-tab Navigation */}
-                <div className="p-4 pb-0 flex gap-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-x-auto no-scrollbar shrink-0">
-                    <button
-                        onClick={() => setActiveTab('consolidated')}
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-t-xl text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                            activeTab === 'consolidated'
-                                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
-                                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <Package size={15} /> Consolidated Material Demand ({allMaterials.length})
-                    </button>
-
-                    <button
-                        onClick={() => setActiveTab('nested')}
-                        className={`flex items-center gap-2 px-5 py-2.5 rounded-t-xl text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
-                            activeTab === 'nested'
-                                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/40'
-                                : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <GitFork size={15} /> Separate Nested FG Items & Sub-Assemblies ({fgItems.length})
-                    </button>
-                </div>
-
-                {/* Content Area */}
-                <div className="p-6 overflow-y-auto flex-1 bg-white dark:bg-slate-900 space-y-6">
-                    
-                    {/* TAB 1: CONSOLIDATED RM / BO MATERIAL REQUIREMENTS */}
-                    {activeTab === 'consolidated' && (
-                        <div className="space-y-4">
-                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                <div>
-                                    <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                                        <Package className="text-indigo-600" size={18} />
-                                        Consolidated Material Demand & Shortage Breakdown
-                                    </h3>
-                                    <p className="text-xs text-slate-500 mt-0.5">
-                                        Aggregated gross requirements across all entered FG products with real-time stock & deficit calculation
-                                    </p>
-                                </div>
-
-                                {/* Category Filters */}
-                                <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                                    {[
-                                        { key: 'All', label: `All (${allMaterials.length})` },
-                                        { key: 'RM', label: `Raw Materials (${rmList.length})` },
-                                        { key: 'BO', label: `Bought Outs (${boList.length})` },
-                                        { key: 'SubAssembly', label: `Sub-Assemblies (${subList.length})` },
-                                        { key: 'Consumable', label: `Consumables (${conList.length})` },
-                                    ].map((tab) => (
-                                        <button
-                                            key={tab.key}
-                                            type="button"
-                                            onClick={() => setSelectedCategory(tab.key as any)}
-                                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-                                                selectedCategory === tab.key
-                                                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
-                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                                            }`}
-                                        >
-                                            {tab.label}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {materials.length === 0 ? (
-                                <div className="p-12 text-center text-xs text-slate-400 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-200">
-                                    No materials required for these Finished Goods BOMs.
-                                </div>
-                            ) : (
-                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
-                                    <table className="w-full text-xs text-left">
-                                        <thead className="bg-indigo-50/60 dark:bg-slate-800 text-indigo-950 dark:text-indigo-300 font-bold uppercase border-b border-slate-200 dark:border-slate-700">
-                                            <tr>
-                                                <th className="px-4 py-3.5">Material / Item</th>
-                                                <th className="px-4 py-3.5">Category / Type</th>
-                                                <th className="px-4 py-3.5">Required For (FG Items)</th>
-                                                <th className="px-4 py-3.5 text-center">Gross Required</th>
-                                                <th className="px-4 py-3.5 text-center">Current Stock</th>
-                                                <th className="px-4 py-3.5 text-center">Net Shortage</th>
-                                                <th className="px-4 py-3.5 text-center">Status</th>
-                                                <th className="px-4 py-3.5 text-right">Procure Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                                            {materials.map((rm: any, idx: number) => {
-                                                const sourceBreakdown = Array.isArray(rm.sourceFGNames) && rm.sourceFGNames.length > 0 
-                                                    ? rm.sourceFGNames.join(', ')
-                                                    : (rm.sourceFGName || '-');
-
-                                                return (
-                                                    <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                                                        <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-white">
-                                                            {rm.materialName}
-                                                            {rm.materialCode && <span className="block text-[10px] text-slate-400 font-mono font-normal">{rm.materialCode}</span>}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-slate-600 dark:text-slate-400 font-medium">
-                                                            <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold">
-                                                                {rm.category || 'RM / BO'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3.5 max-w-[240px] truncate text-slate-600 dark:text-slate-300 font-medium" title={sourceBreakdown}>
-                                                            {sourceBreakdown}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
-                                                            {rm.requiredQuantity} {rm.unit || 'PCS'}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-center font-semibold text-slate-600 dark:text-slate-400">
-                                                            {rm.currentStock} {rm.unit || 'PCS'}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-center font-extrabold font-mono">
-                                                            {rm.shortage > 0 ? (
-                                                                <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                                                    -{rm.shortage} {rm.unit || 'PCS'} Short
-                                                                </span>
-                                                            ) : (
-                                                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                                                    In Stock
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-center">
-                                                            {rm.status === 'PO Raised' ? (
-                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                                                                    <ShoppingCart size={11} /> PO Raised
-                                                                </span>
-                                                            ) : rm.status === 'RFQ Raised' ? (
-                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800">
-                                                                    <Send size={11} /> RFQ Raised
-                                                                </span>
-                                                            ) : rm.status === 'Completed' ? (
-                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                                                    <CheckCircle2 size={11} /> Completed
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                                                    <Clock size={11} /> Pending
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td className="px-4 py-3.5 text-right">
-                                                            <div className="flex items-center justify-end gap-1.5">
-                                                                <Link
-                                                                    href={`/dashboard/store/purchase/rfq?materialId=${rm.material || ''}&qty=${rm.shortage || rm.requiredQuantity}&name=${encodeURIComponent(rm.materialName)}`}
-                                                                    className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-bold text-[11px] transition-colors"
-                                                                >
-                                                                    Outward RFQ
-                                                                </Link>
-                                                                <Link
-                                                                    href={`/dashboard/store/purchase/po?materialId=${rm.material || ''}&qty=${rm.shortage || rm.requiredQuantity}&name=${encodeURIComponent(rm.materialName)}`}
-                                                                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[11px] transition-colors"
-                                                                >
-                                                                    Outward PO
-                                                                </Link>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {/* TAB 2: NESTED FG ITEMS, SUB-ASSEMBLIES & INDIVIDUAL COMPONENTS */}
-                    {activeTab === 'nested' && (
-                        <div className="space-y-6">
-                            <div>
-                                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                                    <GitFork className="text-indigo-600" size={18} />
-                                    Finished Goods & Multi-Level BOM Explosion
-                                </h3>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    Drill down into each entered Finished Good to view its sub-assemblies, individual components, and raw materials
-                                </p>
-                            </div>
-
-                            <div className="space-y-4">
-                                {fgItems.map((fg: any, fgIdx: number) => {
-                                    const isExpanded = expandedFgIndex === fgIdx;
-                                    const nestedList = fg.nestedMaterials || [];
-
-                                    return (
-                                        <div 
-                                            key={fgIdx}
-                                            className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs bg-white dark:bg-slate-900 transition-all"
-                                        >
-                                            {/* FG Accordion Header */}
-                                            <div 
-                                                onClick={() => toggleFgAccordion(fgIdx)}
-                                                className="p-4 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100/80 dark:hover:bg-slate-800 cursor-pointer flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-200 dark:border-slate-800"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                                                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="font-extrabold text-slate-900 dark:text-white text-sm">
-                                                                {fg.fgItemName}
-                                                            </span>
-                                                            {fg.fgItemCode && (
-                                                                <span className="font-mono text-xs text-slate-400 bg-slate-200/60 dark:bg-slate-700 px-2 py-0.5 rounded">
-                                                                    {fg.fgItemCode}
-                                                                </span>
-                                                            )}
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                                                Target: {fg.quantity} {fg.unit || 'PCS'}
-                                                            </span>
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                                                (fg.receivedQuantity || 0) >= fg.quantity
-                                                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                                                                    : (fg.receivedQuantity || 0) > 0
-                                                                        ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
-                                                                        : 'bg-slate-50 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                                                            }`}>
-                                                                Produced / Received: {fg.receivedQuantity || 0} / {fg.quantity}
-                                                            </span>
-                                                        </div>
-                                                        {fg.description && (
-                                                            <p className="text-xs text-slate-500 mt-0.5">{fg.description}</p>
-                                                        )}
-                                                    </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-4 text-xs">
-                                                    <div className="text-slate-500">
-                                                        Target: <strong className="text-slate-800 dark:text-slate-200">{fg.targetDate ? new Date(fg.targetDate).toLocaleDateString('en-GB') : 'N/A'}</strong>
-                                                    </div>
-                                                    <div className="text-slate-500">
-                                                        BOM: <strong className="text-indigo-600 dark:text-indigo-400">{fg.bomNumber || 'BOM-Auto'}</strong>
-                                                    </div>
-                                                    <div className="text-slate-500">
-                                                        Exploded: <strong className="text-slate-800 dark:text-slate-200 font-mono">{nestedList.length} items</strong>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Nested BOM Table */}
-                                            {isExpanded && (
-                                                <div className="p-4 bg-white dark:bg-slate-900 overflow-x-auto">
-                                                    {nestedList.length === 0 ? (
-                                                        <div className="p-6 text-center text-xs text-slate-400 bg-slate-50/50 dark:bg-slate-800/40 rounded-xl">
-                                                            No nested components or BOM formula found for this item.
-                                                        </div>
-                                                    ) : (
-                                                        <table className="w-full text-xs text-left">
-                                                            <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-400 font-bold uppercase border-b border-slate-200 dark:border-slate-700">
-                                                                <tr>
-                                                                    <th className="px-3.5 py-2.5">Hierarchy / Item Name</th>
-                                                                    <th className="px-3.5 py-2.5">Type / Category</th>
-                                                                    <th className="px-3.5 py-2.5 text-center">Qty / FG</th>
-                                                                    <th className="px-3.5 py-2.5 text-center">Total Required</th>
-                                                                    <th className="px-3.5 py-2.5 text-center">Current Stock</th>
-                                                                    <th className="px-3.5 py-2.5 text-center">Shortage</th>
-                                                                    <th className="px-3.5 py-2.5 text-center">Status</th>
-                                                                </tr>
-                                                            </thead>
-                                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                                {nestedList.map((item: any, nIdx: number) => {
-                                                                    const isSubAssembly = item.itemType === 'SubAssembly';
-                                                                    const indentPadding = (item.level || 1) > 1 ? 'pl-6' : 'pl-3.5';
-
-                                                                    return (
-                                                                        <tr key={nIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                                                                            <td className={`py-2.5 ${indentPadding} font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5`}>
-                                                                                {(item.level || 1) > 1 && (
-                                                                                    <CornerDownRight size={13} className="text-indigo-400 shrink-0" />
-                                                                                )}
-                                                                                <div>
-                                                                                    <span className={isSubAssembly ? "font-bold text-indigo-600 dark:text-indigo-400" : ""}>
-                                                                                        {item.materialName}
-                                                                                    </span>
-                                                                                    {item.materialCode && (
-                                                                                        <span className="block text-[10px] text-slate-400 font-mono">{item.materialCode}</span>
-                                                                                    )}
-                                                                                </div>
-                                                                            </td>
-                                                                            <td className="px-3.5 py-2.5">
-                                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                                                                    isSubAssembly 
-                                                                                        ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300' 
-                                                                                        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                                                                                }`}>
-                                                                                    {isSubAssembly ? 'Sub-Assembly' : (item.category || 'Component')}
-                                                                                </span>
-                                                                            </td>
-                                                                            <td className="px-3.5 py-2.5 text-center font-medium text-slate-600 dark:text-slate-400">
-                                                                                {item.quantityPerFG || 1} {item.unit || 'PCS'}
-                                                                            </td>
-                                                                            <td className="px-3.5 py-2.5 text-center font-bold text-slate-800 dark:text-slate-200">
-                                                                                {item.totalRequired} {item.unit || 'PCS'}
-                                                                            </td>
-                                                                            <td className="px-3.5 py-2.5 text-center font-semibold text-slate-600 dark:text-slate-400">
-                                                                                {item.currentStock} {item.unit || 'PCS'}
-                                                                            </td>
-                                                                            <td className="px-3.5 py-2.5 text-center font-extrabold font-mono">
-                                                                                {item.shortage > 0 ? (
-                                                                                    <span className="text-rose-600">
-                                                                                        -{item.shortage} {item.unit || 'PCS'} Short
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span className="text-emerald-600">
-                                                                                        In Stock
-                                                                                    </span>
-                                                                                )}
-                                                                            </td>
-                                                                            <td className="px-3.5 py-2.5 text-center">
-                                                                                {item.status === 'PO Raised' ? (
-                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200">
-                                                                                        PO Raised
-                                                                                    </span>
-                                                                                ) : item.status === 'RFQ Raised' ? (
-                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200">
-                                                                                        RFQ Raised
-                                                                                    </span>
-                                                                                ) : item.status === 'Completed' ? (
-                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
-                                                                                        Completed
-                                                                                    </span>
-                                                                                ) : (
-                                                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
-                                                                                        Pending
-                                                                                    </span>
-                                                                                )}
-                                                                            </td>
-                                                                        </tr>
-                                                                    );
-                                                                })}
-                                                            </tbody>
-                                                        </table>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Footer Actions */}
-                <div className="p-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center shrink-0">
-                    <div className="text-xs text-slate-500">
-                        Created By: <strong>{mrpPlan.createdByName || mrpPlan.createdBy?.name || 'Planner'}</strong> on {new Date(mrpPlan.createdAt).toLocaleString('en-GB')}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={handlePrint}
-                            className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl hover:bg-slate-100 transition-colors flex items-center gap-1.5 shadow-2xs"
-                        >
-                            <Download size={14} /> Print Plan
-                        </button>
-
-                        <button
-                            onClick={onClose}
-                            className="px-5 py-2 bg-slate-900 hover:bg-black text-white font-bold text-xs rounded-xl transition-all shadow-sm"
-                        >
-                            Close
-                        </button>
-                    </div>
-                </div>
-
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        
+        {/* Modal Header */}
+        <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-start shrink-0 border-b border-indigo-900">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-lg text-xs font-mono font-bold">
+                {mrpPlan.mrpNumber}
+              </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                mrpPlan.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                mrpPlan.status === 'In Production' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                mrpPlan.status === 'Partially Completed' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
+                'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              }`}>
+                {mrpPlan.status}
+              </span>
             </div>
+            <h2 className="text-lg font-black text-white mt-1.5 flex items-center gap-2">
+              <Package className="text-teal-400 w-5 h-5" />
+              MRP Demand Plan & FG Inward Progress
+            </h2>
+            <p className="text-xs text-indigo-200 mt-0.5">
+              Customer: <strong>{mrpPlan.customerName || "Internal Production"}</strong>
+              {mrpPlan.customerPoNumber && <span> • PO: <strong>{mrpPlan.customerPoNumber}</strong></span>}
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 transition-all cursor-pointer"
+          >
+            <X size={16} />
+          </button>
         </div>
-    );
+
+        {/* Modal Body */}
+        <div className="p-5 overflow-y-auto flex-1 space-y-5 text-xs sm:text-sm">
+          
+          {/* 1. Top KPI Summary Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+              <span className="text-[10px] font-extrabold uppercase text-slate-400">Target Order Qty</span>
+              <div className="text-xl font-black text-slate-900 dark:text-white mt-0.5">
+                {totalFGTarget} <span className="text-xs font-semibold text-slate-400">units</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+              <span className="text-[10px] font-extrabold uppercase text-teal-600">FG GRN Received</span>
+              <div className="text-xl font-black text-teal-600 mt-0.5">
+                {totalFGReceived} <span className="text-xs font-semibold text-slate-400">({overallPercent}%)</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+              <span className="text-[10px] font-extrabold uppercase text-amber-600">Balance Units Left</span>
+              <div className="text-xl font-black text-amber-600 mt-0.5">
+                {totalFGBalance} <span className="text-xs font-semibold text-slate-400">units</span>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60">
+              <span className="text-[10px] font-extrabold uppercase text-slate-400">Procurement State</span>
+              <div className="mt-1">
+                {isProcurementFulfilled ? (
+                  <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-bold rounded-md text-[10px] border border-emerald-200">
+                    ✅ Fulfilled
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold rounded-md text-[10px] border border-amber-200">
+                    ⏳ Shortages Pending
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Finished Goods Order Line Items */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Package size={14} className="text-indigo-600" />
+              Finished Goods (FG) Items Demand
+            </h3>
+
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="p-3">FG Item Name & Code</th>
+                    <th className="p-3 text-center">BOM Ref</th>
+                    <th className="p-3 text-center">Order Target</th>
+                    <th className="p-3 text-center">FG GRN Received</th>
+                    <th className="p-3 text-center">Balance Qty</th>
+                    <th className="p-3 text-center">Completion %</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {fgItems.map((fg: any, idx: number) => {
+                    const fgQty = Number(fg.quantity) || 1;
+                    const recQty = Number(fg.receivedQuantity) || 0;
+                    const balQty = Math.max(0, fgQty - recQty);
+                    const pct = Math.min(100, Math.round((recQty / fgQty) * 100));
+
+                    return (
+                      <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                        <td className="p-3">
+                          <strong className="text-slate-900 dark:text-white block">{fg.fgItemName}</strong>
+                          {fg.fgItemCode && <span className="font-mono text-[10px] text-slate-400">{fg.fgItemCode}</span>}
+                        </td>
+                        <td className="p-3 text-center font-mono text-[10px] text-slate-500">
+                          {fg.bomNumber || "BOM-Active"}
+                        </td>
+                        <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
+                          {fgQty} {fg.unit || 'PCS'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-teal-600">
+                          {recQty} {fg.unit || 'PCS'}
+                        </td>
+                        <td className="p-3 text-center">
+                          {balQty > 0 ? (
+                            <span className="font-bold text-amber-600">{balQty} {fg.unit || 'PCS'}</span>
+                          ) : (
+                            <span className="font-bold text-emerald-600">0 (Fulfilled)</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <div className="w-16 bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-teal-500 h-full rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="font-bold text-[10px] text-slate-600 dark:text-slate-400">{pct}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 3. FG GRN Receipts & Inward Dates History Table */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <Calendar size={14} className="text-teal-600" />
+                FG GRN Inward History & Dates ({fgGrnHistory.length} Receipts)
+              </h3>
+              {loadingGRN && <RefreshCw size={12} className="animate-spin text-teal-600" />}
+            </div>
+
+            {fgGrnHistory.length === 0 ? (
+              <div className="p-6 text-center bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-1.5 opacity-60" />
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No FG GRN Inwards Recorded Yet</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  When Finished Goods are inspected and inwarded via Store &gt; FG GRN with MRP #{mrpPlan.mrpNumber}, receipt dates will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="p-3">FG GRN Number</th>
+                      <th className="p-3">Receipt Date</th>
+                      <th className="p-3">Item Received</th>
+                      <th className="p-3 text-center">Inward Qty</th>
+                      <th className="p-3">Received By / Shift</th>
+                      <th className="p-3">Remarks / Batch</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {fgGrnHistory.map((grn: any, gIdx: number) => {
+                      const recDate = grn.date || grn.createdAt;
+                      const formattedDate = recDate ? new Date(recDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : "-";
+                      const firstItem = (grn.items || [])[0];
+
+                      return (
+                        <tr key={gIdx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                          <td className="p-3 font-mono font-bold text-teal-600 dark:text-teal-400">
+                            {grn.grnNumber || grn.fgGrnNumber || `FG-GRN-${gIdx + 1}`}
+                          </td>
+
+                          <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">
+                            {formattedDate}
+                          </td>
+
+                          <td className="p-3 font-medium text-slate-700 dark:text-slate-300">
+                            {firstItem?.materialName || firstItem?.itemName || "Finished Goods"}
+                            {(grn.items || []).length > 1 && (
+                              <span className="text-[10px] text-slate-400 ml-1">+{grn.items.length - 1} more</span>
+                            )}
+                          </td>
+
+                          <td className="p-3 text-center font-bold text-emerald-600">
+                            {(grn.items || []).reduce((s: number, i: any) => s + (Number(i.quantity || i.acceptedQuantity) || 0), 0)} PCS
+                          </td>
+
+                          <td className="p-3 text-slate-600 dark:text-slate-400">
+                            {grn.receivedBy?.name || grn.shift || "Shopfloor Assembly"}
+                          </td>
+
+                          <td className="p-3 text-slate-500 text-[11px] truncate max-w-[150px]">
+                            {grn.remarks || grn.batchNumber || "Production inward clearance"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end bg-slate-50 dark:bg-slate-900/80">
+          <button
+            onClick={onClose}
+            className="px-5 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+          >
+            Close Preview
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

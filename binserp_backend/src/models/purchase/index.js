@@ -1,4 +1,4 @@
-export { purchaseRFQSchema } from './purchaseRFQ.model.js';
+export { purchaseRFQSchema, purchaseRFQSchema as rfqSchema } from './purchaseRFQ.model.js';
 export { vendorQuotationSchema } from './vendorQuotation.model.js';
 export { purchaseBillSchema } from './purchaseBill.model.js';
 export { vendorPriceListSchema } from './vendorPriceList.model.js';
