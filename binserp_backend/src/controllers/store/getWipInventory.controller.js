@@ -11,7 +11,8 @@ import {
   fgGRNSchema, 
   grnSchema,
   bomSchema, 
-  fgItemSchema 
+  fgItemSchema,
+  inventorySchema
 } from "../../models/store/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
@@ -34,6 +35,7 @@ export const getWipInventory = async (req, res) => {
     const FGItem = req.getModel("FGItem", fgItemSchema);
     const Component = req.getModel("Component", componentSchema);
     const Category = req.getModel("Category", categorySchema);
+    const Inventory = req.getModel("Inventory", inventorySchema);
 
     // Register referenced models
     req.getModel("Vendor", vendorSchema);
@@ -42,17 +44,39 @@ export const getWipInventory = async (req, res) => {
     const companyId = getCompanyId(req);
     const requestedType = (req.query.type || "rm").toLowerCase(); // 'rm', 'bo', 'fg', 'mrp-buckets', 'ledger'
 
-    // 1. Load All Master Items across all categories
-    const [rawMaterialsList, boughtOutsList, rmBoList, fgItemsList, componentsList, categoriesList] = await Promise.all([
+    // 1. Load All Master Items across all categories and live Main Store Inventory
+    const [rawMaterialsList, boughtOutsList, rmBoList, fgItemsList, componentsList, categoriesList, inventoryList] = await Promise.all([
       RawMaterial.find({ company: companyId }).populate("categoryId", "name").lean(),
       BoughtOut.find({ company: companyId }).populate("categoryId", "name").lean(),
       RmBoItem.find({ company: companyId }).populate("categoryId", "name").lean(),
       FGItem.find({ company: companyId }).lean(),
       Component.find({ company: companyId }).lean(),
-      Category.find({ company: companyId }).lean()
+      Category.find({ company: companyId }).lean(),
+      Inventory.find({ company: companyId }).lean()
     ]);
 
     const categoryMap = new Map(categoriesList.map(c => [c._id.toString(), c.name]));
+
+    // Build Live Stock Lookup Maps from Main Store Inventory
+    const inventoryByMaterialId = new Map();
+    const inventoryByCode = new Map();
+    const inventoryByName = new Map();
+
+    (inventoryList || []).forEach(inv => {
+      const stock = Number(inv.currentStock || 0);
+      if (inv.materialId) {
+        inventoryByMaterialId.set(inv.materialId.toString(), stock);
+      }
+      if (inv._id) {
+        inventoryByMaterialId.set(inv._id.toString(), stock);
+      }
+      if (inv.materialCode) {
+        inventoryByCode.set(inv.materialCode.trim().toLowerCase(), stock);
+      }
+      if (inv.materialName) {
+        inventoryByName.set(inv.materialName.trim().toLowerCase(), stock);
+      }
+    });
 
     // 2. Load FG GRNs, in-house receipts, BOMs, and MRP Plans
     const [allFGGRNs, allInHouseGRNs, allBOMs, allMRPPlans, materialIssues, challans] = await Promise.all([
@@ -68,17 +92,52 @@ export const getWipInventory = async (req, res) => {
     const masterWipMap = new Map();
     const allTransactionsLedger = [];
 
+    // Helper to resolve live store stock
+    const getLiveStoreStock = (item, id, code, name) => {
+      if (id && inventoryByMaterialId.has(id)) {
+        return inventoryByMaterialId.get(id);
+      }
+      const cleanCode = (code || '').trim().toLowerCase();
+      if (cleanCode && inventoryByCode.has(cleanCode)) {
+        return inventoryByCode.get(cleanCode);
+      }
+      const cleanName = (name || '').trim().toLowerCase();
+      if (cleanName && inventoryByName.has(cleanName)) {
+        return inventoryByName.get(cleanName);
+      }
+      return Number(item.currentStock ?? item.quantity ?? 0);
+    };
+
     // Helper to register master item in WIP registry
     const registerMasterItem = (item, type) => {
       const id = item._id ? item._id.toString() : "";
       const name = item.name || item.componentName || item.materialName || "Item";
       const code = item.code || item.componentCode || item.materialCode || "";
-      const desc = item.description || item.specification || item.grade || "";
-      const catName = (typeof item.categoryId === 'object' && item.categoryId?.name) 
+      const desc = item.descriptions || item.description || item.specification || item.grade || item.remarks || "";
+      let catName = (typeof item.categoryId === 'object' && item.categoryId?.name) 
         ? item.categoryId.name 
-        : (item.category || categoryMap.get(item.categoryId?.toString()) || (type === 'rm' ? 'Raw Material' : type === 'bo' ? 'Bought Out' : 'Finished Goods'));
+        : (item.category?.name || categoryMap.get(item.categoryId?.toString()) || categoryMap.get(item.category?.toString()) || (typeof item.category === 'string' ? item.category : ''));
+
+      if (!catName || catName === 'Finished Goods' || catName === 'General') {
+        if (type === 'fg') {
+          const rawType = String(item.type || item.fgType || item.componentType || '').trim();
+          if (rawType.toLowerCase().includes('sub')) {
+            catName = "Sub-Assembly";
+          } else if (rawType.toLowerCase().includes('assembly')) {
+            catName = "Assembly";
+          } else if (rawType.toLowerCase().includes('component')) {
+            catName = "Component";
+          } else {
+            catName = rawType || "Component";
+          }
+        } else if (type === 'rm') {
+          catName = "Raw Material";
+        } else if (type === 'bo') {
+          catName = "Bought Out";
+        }
+      }
       const unit = item.unit || "PCS";
-      const storeStock = Number(item.quantity ?? item.currentStock ?? 0);
+      const storeStock = getLiveStoreStock(item, id, code, name);
 
       const key = `${type}_${id || name.trim().toLowerCase()}`;
       if (!masterWipMap.has(key)) {
@@ -119,6 +178,25 @@ export const getWipInventory = async (req, res) => {
     // Register all Master FG & In-House Components
     fgItemsList.forEach(f => registerMasterItem(f, 'fg'));
     componentsList.forEach(c => registerMasterItem(c, 'fg'));
+
+    // Also register items from Main Store Inventory that haven't been registered yet
+    (inventoryList || []).forEach(inv => {
+      const itemTypeStr = (inv.itemType || '').toLowerCase();
+      let type = 'rm';
+      if (itemTypeStr.includes('bought') || itemTypeStr === 'bo' || (inv.materialCode || '').toUpperCase().startsWith('BO-')) {
+        type = 'bo';
+      } else if (itemTypeStr.includes('finish') || itemTypeStr === 'fg' || itemTypeStr.includes('component')) {
+        type = 'fg';
+      }
+      registerMasterItem({
+        _id: inv.materialId || inv._id,
+        name: inv.materialName,
+        code: inv.materialCode,
+        categoryId: inv.categoryId,
+        unit: inv.unit,
+        currentStock: inv.currentStock
+      }, type);
+    });
 
     // 3. Pre-populate MRP WIP Buckets Map
     const mrpBucketMap = new Map();

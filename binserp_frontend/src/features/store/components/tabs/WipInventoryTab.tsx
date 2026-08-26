@@ -10,7 +10,6 @@ import {
   RefreshCw, 
   Boxes, 
   Package, 
-  ShieldCheck, 
   ShoppingCart, 
   CheckCircle2, 
   Clock, 
@@ -19,8 +18,10 @@ import {
   FileText,
   Filter,
   Warehouse,
-  History
+  History,
+  Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
 
@@ -177,35 +178,77 @@ export default function WipInventoryTab({
         setIsLedgerOpen(true);
     };
 
+    // Excel Export Function for All Stock Details
+    const exportToExcel = () => {
+        const wb = XLSX.utils.book_new();
+        const dateStr = new Date().toISOString().split('T')[0];
+
+        if (wipType === 'mrp') {
+            const rows = filteredMrpBuckets.map((bucket, idx) => ({
+                'S.No': idx + 1,
+                'MRP Number': bucket.mrpNumber || '-',
+                'Customer / Reference': bucket.customerName || '-',
+                'Status': bucket.status || 'Planned',
+                'RM Issued': bucket.totalRmIssued || 0,
+                'BO Issued': bucket.totalBoIssued || 0,
+                'FG / Comp Issued': bucket.totalFgIssued || 0,
+                'FG Produced': bucket.totalFgProduced || 0,
+                'Net Pending WIP Units': bucket.netPendingWipCount || 0,
+                'Items in WIP': (bucket.items || []).map((it: any) => `${it.materialName} (${it.pendingQty} ${it.unit})`).join('; ')
+            }));
+            const ws = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, 'MRP_WIP_Inventory');
+            XLSX.writeFile(wb, `MRP_WIP_Inventory_${dateStr}.xlsx`);
+        } else if (wipType === 'ledger') {
+            const rows = filteredLedger.map((tx, idx) => ({
+                'S.No': idx + 1,
+                'Date & Time': tx.date ? new Date(tx.date).toLocaleString() : '-',
+                'Document #': tx.docNumber || '-',
+                'MRP Reference': tx.mrpNumber || 'Direct Issue',
+                'Material Name': tx.materialName || '-',
+                'Material Code': tx.materialCode || '-',
+                'Movement Type': tx.type || '-',
+                'Process / Vendor': tx.processType || tx.vendorName || '-',
+                'WIP Inward (+)': tx.sentQty > 0 ? tx.sentQty : 0,
+                'WIP Consumed (-)': tx.receivedQty > 0 ? tx.receivedQty : 0,
+                'Unit': tx.unit || 'PCS',
+                'Status': tx.status || 'Recorded'
+            }));
+            const ws = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, 'WIP_Movement_Ledger');
+            XLSX.writeFile(wb, `WIP_Movement_Ledger_${dateStr}.xlsx`);
+        } else {
+            const typeLabel = wipType === 'rm' ? 'Raw_Materials' : wipType === 'bo' ? 'Bought_Out' : 'Finished_Goods';
+            const rows = filteredItems.map((item, idx) => {
+                const rowObj: Record<string, any> = {
+                    'S.No': idx + 1,
+                    'Material Name': item.materialName || '-',
+                    'Description': item.materialDescription || '-',
+                    'Material Code': item.materialCode || '-',
+                    'Category / Node': item.categoryName || '-',
+                    'Unit': item.unit || 'PCS',
+                    'Main Store Stock': item.mainStoreStock || 0,
+                    'Store Outward (WIP Inward)': (item.totalIssuedQty || 0) + (item.totalJobWorkSentQty || 0),
+                    'FG GRN Consumed': item.totalReturnedQty || 0,
+                    'Shopfloor WIP': item.shopfloorWipQty || 0
+                };
+                if (wipType === 'rm') {
+                    rowObj['Job Work WIP'] = item.jobWorkWipQty || 0;
+                }
+                rowObj['Net Total WIP'] = item.pendingWipQty || 0;
+                rowObj['Status'] = item.status || (item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero');
+                rowObj['Last Movement Date'] = item.lastMovementDate ? new Date(item.lastMovementDate).toLocaleDateString() : '-';
+                return rowObj;
+            });
+            const ws = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, `${typeLabel}_WIP`);
+            XLSX.writeFile(wb, `${typeLabel}_WIP_Inventory_${dateStr}.xlsx`);
+        }
+    };
+
     return (
-        <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Header Title Section if provided */}
-            {(title || description) && (
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
-                    <div>
-                        <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-                            {wipType === 'rm' && <Layers className="text-blue-600" size={22} />}
-                            {wipType === 'bo' && <ShoppingCart className="text-emerald-600" size={22} />}
-                            {wipType === 'fg' && <Boxes className="text-purple-600" size={22} />}
-                            {wipType === 'mrp' && <Package className="text-indigo-600" size={22} />}
-                            {wipType === 'ledger' && <History className="text-slate-600" size={22} />}
-                            {title}
-                        </h1>
-                        {description && <p className="text-xs text-slate-500 mt-1">{description}</p>}
-                    </div>
-
-                    <button
-                        onClick={fetchWipInventory}
-                        disabled={loading}
-                        className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    >
-                        <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-                        <span>Refresh Data</span>
-                    </button>
-                </div>
-            )}
-
             {/* Summary Banner Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
@@ -253,15 +296,15 @@ export default function WipInventoryTab({
                 </div>
             </div>
 
-            {/* Filter Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+            {/* Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
                 <div className="flex-1 flex flex-wrap gap-2.5 items-center">
                     {/* Search Input */}
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
                         <input
                             type="text"
-                            placeholder={wipType === 'mrp' ? "Search MRP #, customer, FG name..." : "Search material name, code, desc..."}
+                            placeholder={wipType === 'mrp' ? "Search MRP #, customer, FG name..." : "Search material name, description, category..."}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-9 pr-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-white font-medium"
@@ -317,11 +360,25 @@ export default function WipInventoryTab({
                             ))}
                         </div>
                     )}
-                </div>
 
-                <div className="text-xs text-slate-400 font-medium flex items-center justify-end gap-2 shrink-0">
-                    <ShieldCheck size={15} className="text-emerald-500" />
-                    <span>Store Issue credits WIP • FG GRN reduces WIP</span>
+                    {/* Refresh Data Button */}
+                    <button
+                        onClick={fetchWipInventory}
+                        disabled={loading}
+                        className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
+                    >
+                        <RefreshCw size={13} className={loading ? "animate-spin text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"} />
+                        <span>Refresh Data</span>
+                    </button>
+
+                    {/* Excel Export Button */}
+                    <button
+                        onClick={exportToExcel}
+                        className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 dark:text-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border border-emerald-200/60 dark:border-emerald-800"
+                    >
+                        <Download size={13} />
+                        <span>Export Excel</span>
+                    </button>
                 </div>
             </div>
 
@@ -423,7 +480,7 @@ export default function WipInventoryTab({
                                                 <div key={i} className="p-2.5 bg-white dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 flex justify-between items-center text-xs">
                                                     <div className="min-w-0 pr-2">
                                                         <span className="font-bold text-slate-900 dark:text-white block truncate">{it.materialName}</span>
-                                                        <span className="text-[10px] text-slate-400">{it.category}</span>
+                                                        <span className="text-[10px] text-slate-400 block mt-0.5">{it.category || '-'}</span>
                                                     </div>
                                                     <div className="text-right shrink-0">
                                                         <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
@@ -461,7 +518,8 @@ export default function WipInventoryTab({
                                         <th className="px-5 py-3.5">Date & Time</th>
                                         <th className="px-5 py-3.5">Document #</th>
                                         <th className="px-5 py-3.5">MRP Reference</th>
-                                        <th className="px-5 py-3.5">Material Details</th>
+                                        <th className="px-5 py-3.5">Material Name</th>
+                                        <th className="px-5 py-3.5">Process / Vendor</th>
                                         <th className="px-5 py-3.5">Movement Type</th>
                                         <th className="px-5 py-3.5 text-center">WIP Inward (+)</th>
                                         <th className="px-5 py-3.5 text-center">WIP Consumed (-)</th>
@@ -486,13 +544,14 @@ export default function WipInventoryTab({
                                                     <span className="text-slate-400 italic">Direct Store Issue</span>
                                                 )}
                                             </td>
-                                            <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white">
-                                                {tx.materialName}
-                                                {tx.materialCode && <span className="block text-[10px] text-slate-400 font-mono">{tx.materialCode}</span>}
+                                            <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white max-w-[200px]">
+                                                <div className="font-bold">{tx.materialName}</div>
+                                            </td>
+                                            <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400">
+                                                <span className="text-slate-700 dark:text-slate-300 font-medium block">{tx.processType || tx.vendorName || '-'}</span>
                                             </td>
                                             <td className="px-5 py-3.5 text-slate-600 dark:text-slate-400">
                                                 <span className="font-semibold block text-slate-800 dark:text-slate-200">{tx.type}</span>
-                                                <span className="text-[10px] text-slate-400">{tx.processType || tx.vendorName}</span>
                                             </td>
                                             <td className="px-5 py-3.5 text-center font-bold text-amber-600 dark:text-amber-400 font-mono">
                                                 {tx.sentQty > 0 ? `+${tx.sentQty} ${tx.unit}` : '-'}
@@ -529,8 +588,8 @@ export default function WipInventoryTab({
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                     <tr>
-                                        <th className="px-4 py-3.5">Material / Code</th>
-                                        <th className="px-4 py-3.5">Category / Desc</th>
+                                        <th className="px-4 py-3.5">Material & Description</th>
+                                        <th className="px-4 py-3.5">Category</th>
                                         <th className="px-4 py-3.5 text-center">Main Store Stock</th>
                                         <th className="px-4 py-3.5 text-center">Store Outward (WIP Inward)</th>
                                         <th className="px-4 py-3.5 text-center">FG GRN Consumed</th>
@@ -545,18 +604,19 @@ export default function WipInventoryTab({
                                     {filteredItems.map((item) => {
                                         return (
                                             <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                                                <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-white">
-                                                    <div>{item.materialName}</div>
-                                                    {item.materialCode && (
-                                                        <span className="text-[11px] font-mono text-slate-400 font-normal">{item.materialCode}</span>
+                                                <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-white max-w-[280px]">
+                                                    <div className="font-bold text-slate-900 dark:text-white leading-snug">{item.materialName}</div>
+                                                    {item.materialDescription && (
+                                                        <span className="block text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[260px] font-normal mt-0.5" title={item.materialDescription}>
+                                                            {item.materialDescription}
+                                                        </span>
                                                     )}
                                                 </td>
 
-                                                <td className="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-400">
-                                                    <span className="font-semibold text-slate-800 dark:text-slate-200">{item.categoryName}</span>
-                                                    {item.materialDescription && (
-                                                        <span className="block text-[11px] text-slate-400 truncate max-w-[200px]">{item.materialDescription}</span>
-                                                    )}
+                                                <td className="px-4 py-3.5 text-xs text-slate-700 dark:text-slate-300 font-semibold">
+                                                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                                        {item.categoryName || '-'}
+                                                    </span>
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
@@ -625,13 +685,16 @@ export default function WipInventoryTab({
                                             <h4 className="font-bold text-slate-900 dark:text-white text-sm">
                                                 {item.materialName}
                                             </h4>
-                                            <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-                                                {item.materialCode && <span className="font-mono">{item.materialCode}</span>}
-                                                <span>•</span>
-                                                <span>{item.categoryName}</span>
+                                            {item.materialDescription && (
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5" title={item.materialDescription}>
+                                                    {item.materialDescription}
+                                                </p>
+                                            )}
+                                            <div className="mt-1">
+                                                <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{item.categoryName || '-'}</span>
                                             </div>
                                         </div>
-                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                                             item.pendingWipQty > 0 
                                                 ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' 
                                                 : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
