@@ -103,27 +103,31 @@ export const createDC = async (req, res) => {
       await po.save();
     }
 
-    // Validate FG item inventory stock for all items
-    const FGItem = req.getModel("FGItem", fgItemSchema);
-    for (const dcItem of items) {
-      const fgId = dcItem.fgItem || dcItem.material || dcItem.component;
-      if (!fgId || !mongoose.Types.ObjectId.isValid(fgId)) {
-        return res.status(400).json({
-          message: `Cannot create Delivery Challan: Item '${dcItem.materialName || 'Unnamed'}' is not linked to a valid Finished Goods (FG) item.`
-        });
-      }
+    const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false';
 
-      const fgDoc = await FGItem.findById(fgId);
-      const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
-      if (!fgDoc || availableStock <= 0) {
-        return res.status(400).json({
-          message: `Cannot create Delivery Challan for item '${dcItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
-        });
-      }
-      if (Number(dcItem.quantity) > availableStock) {
-        return res.status(400).json({
-          message: `Requested dispatch quantity (${dcItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${dcItem.materialName || fgDoc.name}'.`
-        });
+    // Validate FG item inventory stock for all items if reducing stock
+    const FGItem = req.getModel("FGItem", fgItemSchema);
+    if (shouldReduceStock) {
+      for (const dcItem of items) {
+        const fgId = dcItem.fgItem || dcItem.material || dcItem.component;
+        if (!fgId || !mongoose.Types.ObjectId.isValid(fgId)) {
+          return res.status(400).json({
+            message: `Cannot create Delivery Challan: Item '${dcItem.materialName || 'Unnamed'}' is not linked to a valid Finished Goods (FG) item.`
+          });
+        }
+
+        const fgDoc = await FGItem.findById(fgId);
+        const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
+        if (!fgDoc || availableStock <= 0) {
+          return res.status(400).json({
+            message: `Cannot create Delivery Challan for item '${dcItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
+          });
+        }
+        if (Number(dcItem.quantity) > availableStock) {
+          return res.status(400).json({
+            message: `Requested dispatch quantity (${dcItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${dcItem.materialName || fgDoc.name}'.`
+          });
+        }
       }
     }
 
@@ -138,13 +142,15 @@ export const createDC = async (req, res) => {
       items,
       discount: req.body.discount,
       otherDetails: req.body.otherDetails,
+      reduceStock: shouldReduceStock,
+      stockDeducted: shouldReduceStock && status !== "Cancelled",
       status: status || 'Draft',
       preparedBy: req.user?.id || req.user?._id,
       createdBy: req.user?.id || req.user?._id
     });
 
-    // Auto-deduct FG item stock and log SALES_DC_OUTWARD transaction
-    if (dc.status !== "Cancelled") {
+    // Auto-deduct FG item stock and log SALES_DC_OUTWARD transaction only if shouldReduceStock is true
+    if (shouldReduceStock && dc.status !== "Cancelled") {
       const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
       const currentDate = new Date();
       const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;

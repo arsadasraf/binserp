@@ -122,9 +122,25 @@ export const createInvoice = async (req, res) => {
       }
     }
 
-    // Validate FG item inventory stock for direct invoices (not created from DC)
-    const isLinkedToDC = !!(req.body.deliveryChallan || req.body.dcNumber || req.body.isLinkedToDC || req.body.deliveryChallanId);
-    if (!isLinkedToDC && Array.isArray(req.body.items)) {
+    // Check if linked to a Delivery Challan where stock was already deducted
+    let isStockAlreadyDeducted = false;
+    const dcIdOrNum = req.body.deliveryChallan || req.body.deliveryChallanId || req.body.dcNumber;
+    if (dcIdOrNum) {
+      const DeliveryChallan = req.getModel('DeliveryChallan', deliveryChallanSchema);
+      const dcDoc = await DeliveryChallan.findOne({
+        company: companyId,
+        $or: [
+          { _id: mongoose.Types.ObjectId.isValid(dcIdOrNum) ? dcIdOrNum : null },
+          { dcNumber: dcIdOrNum }
+        ]
+      });
+      if (dcDoc && dcDoc.stockDeducted) {
+        isStockAlreadyDeducted = true;
+      }
+    }
+
+    // Validate FG item inventory stock for direct invoices (or invoices linked to non-deducting DCs)
+    if (!isStockAlreadyDeducted && Array.isArray(req.body.items)) {
       const FGItem = req.getModel("FGItem", fgItemSchema);
       for (const invItem of req.body.items) {
         const fgId = invItem.fgItem || invItem.material || invItem.component;
@@ -150,7 +166,6 @@ export const createInvoice = async (req, res) => {
     }
 
     const invoice = await Invoice.create({
-
       company: companyId,
       ...req.body,
       customerPoReference: finalPoReference,
@@ -158,8 +173,8 @@ export const createInvoice = async (req, res) => {
       createdBy: req.user?.id || req.user?._id
     });
 
-    // Stock deduction logic for direct (standalone) Invoices NOT created from a DC
-    if (!isLinkedToDC && (invoice.status === "Sent" || invoice.status === "Paid" || !invoice.status || invoice.status === "Draft")) {
+    // Strictly deduct stock from FG inventory if not already deducted by DC
+    if (!isStockAlreadyDeducted && (invoice.status === "Sent" || invoice.status === "Paid" || !invoice.status || invoice.status === "Draft")) {
       const FGItem = req.getModel("FGItem", fgItemSchema);
       const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
       const currentDate = new Date();
@@ -200,7 +215,7 @@ export const createInvoice = async (req, res) => {
                 referenceDocId: invoice._id,
                 referenceDocNumber: req.body.invoiceNumber,
                 recipientOrSource: req.body.customerName || "Customer",
-                purpose: `Direct Customer Billing (Invoice #${req.body.invoiceNumber})`,
+                purpose: `Customer Sales Billing (Invoice #${req.body.invoiceNumber})`,
                 performedBy: req.user?.id || req.user?._id,
               });
             }

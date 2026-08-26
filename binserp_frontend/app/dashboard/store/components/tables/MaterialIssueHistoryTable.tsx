@@ -58,8 +58,8 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                         {new Date(issue.date).toLocaleDateString()}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                                        {issue.department}
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                        {!issue.department || issue.department.toLowerCase() === 'store' ? 'Shop Floor' : `Shop Floor (${issue.department})`}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                         {issue.issuedTo?.name || 'Unknown'}
@@ -109,7 +109,7 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                 <div>
                                     <span className="text-xs font-medium text-gray-500 block mb-1">Issue #{issue.issueNumber}</span>
                                     <div className="flex items-center gap-2">
-                                        <h4 className="font-bold text-gray-900">{issue.department} Department</h4>
+                                        <h4 className="font-bold text-gray-900">{!issue.department || issue.department.toLowerCase() === 'store' ? 'Shop Floor' : `${issue.department} (Shop Floor)`}</h4>
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wide ${typeInfo.badgeClass}`}>
                                             {typeInfo.shortLabel}
                                         </span>

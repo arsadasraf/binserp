@@ -10,6 +10,7 @@ import { componentSchema, jobSchema, processSchema } from "../../models/ppc/inde
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import fs from 'fs';
 import path from 'path';
+import { userSchema } from "../../models/user/index.js";
 
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 
@@ -202,6 +203,24 @@ export const createMaterialIssue = async (req, res) => {
       const RMInventoryMonthly = req.getModel('RMInventoryMonthly', rmInventoryMonthlySchema);
       const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
 
+      // Resolve requested user's name from issuedTo
+      let requestedUserName = "";
+      if (issuedTo && mongoose.Types.ObjectId.isValid(issuedTo)) {
+        try {
+          const User = req.getModel('User', userSchema);
+          const userDoc = await User.findById(issuedTo);
+          if (userDoc) {
+            requestedUserName = userDoc.name || userDoc.username || "";
+          }
+        } catch (uErr) {
+          console.warn("Could not resolve requested user in createMaterialIssue:", uErr);
+        }
+      }
+
+      const issueDestination = requestedUserName 
+        ? `Shop Floor (${requestedUserName})` 
+        : (!department || department.toLowerCase() === 'store' ? "Shop Floor" : `Shop Floor (${department})`);
+
       for (const item of processedItems) {
         if (isInhouse) {
           const compDoc = await FGItem.findById(item.component);
@@ -220,6 +239,10 @@ export const createMaterialIssue = async (req, res) => {
             console.error("Error updating FG monthly outward quantity:", monthlyErr);
           }
 
+          const issuePurpose = item.purpose 
+            ? `Issue to Shop Floor - ${item.purpose}` 
+            : (mrpNumber ? `Issue to Shop Floor (Demand for MRP: ${mrpNumber})` : "Issue to Shop Floor (Assembly)");
+
           await recordStockTransaction(req, {
             itemType: "FGItem",
             item: item.component,
@@ -233,13 +256,17 @@ export const createMaterialIssue = async (req, res) => {
             referenceDocType: "MaterialIssue",
             referenceDocId: materialIssue._id,
             referenceDocNumber: issueNumber,
-            recipientOrSource: department || "Shop Floor",
-            purpose: item.purpose || "Shop Floor Assembly Issue",
+            recipientOrSource: issueDestination,
+            purpose: issuePurpose,
             performedBy: req.user?.id || req.user?._id,
           });
         } else {
           const targetMatId = isConsumable ? (item.consumable || item.material) : item.material;
           const issueItemType = isConsumable ? "Consumable" : (type === 'bo' || type === 'bought-out' ? "BoughtOut" : "RawMaterial");
+
+          const issuePurpose = item.purpose 
+            ? `Issue to Shop Floor - ${item.purpose}` 
+            : (mrpNumber ? `Issue to Shop Floor (Demand for MRP: ${mrpNumber})` : (isConsumable ? "Issue to Shop Floor (Consumables)" : "Issue to Shop Floor (Production)"));
 
           await updateInventoryStock(
             req,
@@ -253,8 +280,8 @@ export const createMaterialIssue = async (req, res) => {
               referenceDocType: "MaterialIssue",
               referenceDocId: materialIssue._id,
               referenceDocNumber: issueNumber,
-              recipientOrSource: department || "Shop Floor",
-              purpose: item.purpose || (isConsumable ? "Shop Floor Consumable Issue" : "Shop Floor Production Issue"),
+              recipientOrSource: issueDestination,
+              purpose: issuePurpose,
               performedBy: req.user?.id || req.user?._id,
             }
           );

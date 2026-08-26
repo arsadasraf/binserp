@@ -5,6 +5,7 @@ import { ApiResponse } from "../../utils/ApiResponse.js";
 import { updateInventoryStock } from "../store/index.js";
 import { grnSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema } from "../../models/ppc/index.js";
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { signPhotos } from "../../utils/s3.js";
 
 // --- Master Management (Standards) ---
@@ -24,7 +25,8 @@ export const createIncomingQC = asyncHandler(async (req, res) => {
 
     const {
         materialName, receivedQuantity, inspectedQuantity,
-        acceptedQuantity, rejectedQuantity, overallStatus
+        acceptedQuantity, rejectedQuantity, overallStatus,
+        rejectionReason, remarks
     } = req.body;
 
     if (!materialName || receivedQuantity === undefined) {
@@ -55,9 +57,12 @@ export const createIncomingQC = asyncHandler(async (req, res) => {
             const itemIndex = grn.items.findIndex(item => item._id.toString() === req.body.grnItemId);
 
             if (itemIndex > -1) {
+                const rejQty = Number(rejectedQuantity) || 0;
+                const accQty = Number(acceptedQuantity) || 0;
+
                 // Update Item Quantities
-                grn.items[itemIndex].acceptedQuantity = (grn.items[itemIndex].acceptedQuantity || 0) + (acceptedQuantity || 0);
-                grn.items[itemIndex].rejectedQuantity = (grn.items[itemIndex].rejectedQuantity || 0) + (rejectedQuantity || 0);
+                grn.items[itemIndex].acceptedQuantity = (grn.items[itemIndex].acceptedQuantity || 0) + accQty;
+                grn.items[itemIndex].rejectedQuantity = (grn.items[itemIndex].rejectedQuantity || 0) + rejQty;
 
                 // Auto-update GRN QC Status
                 const allInspected = grn.items.every(item => {
@@ -78,30 +83,58 @@ export const createIncomingQC = asyncHandler(async (req, res) => {
                 // Save GRN updates first
                 await grn.save();
 
+                const matId = req.body.materialId || grn.items[itemIndex].component || grn.items[itemIndex].consumable || grn.items[itemIndex].material;
+                const itemTypeOption = grn.type === 'inhouse' ? 'Component' : (grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial'));
+
                 // Update Stock (Only Accepted Qty)
-                // Update Stock
                 if (grn.type === 'inhouse') {
                     // Inhouse -> Component Stock (Only update accepted)
-                    if (acceptedQuantity > 0) {
-                        const compId = req.body.componentId || grn.items[itemIndex].component || grn.items[itemIndex].material;
+                    if (accQty > 0) {
+                        const compId = req.body.componentId || matId;
                         const Component = req.getModel("Component", componentSchema);
-                        await Component.findByIdAndUpdate(compId, { $inc: { quantity: acceptedQuantity } });
+                        await Component.findByIdAndUpdate(compId, { $inc: { quantity: accQty } });
                     }
                 } else {
-                    const matId = req.body.materialId || grn.items[itemIndex].consumable || grn.items[itemIndex].material;
-                    const itemTypeOption = grn.type === 'consumable' ? 'Consumable' : (grn.type === 'bo' ? 'BoughtOut' : 'RawMaterial');
-                    await updateInventoryStock(
-                        req,
-                        matId,
-                        acceptedQuantity || 0,
-                        grn.items[itemIndex].unit || "PCS",
-                        grn.items[itemIndex].locationId,
-                        {
-                            itemType: itemTypeOption,
-                            isQCRelease: true,
-                            inspectedQuantity: inspectedQuantity || 0
-                        }
-                    );
+                    if (accQty > 0) {
+                        await updateInventoryStock(
+                            req,
+                            matId,
+                            accQty,
+                            grn.items[itemIndex].unit || "PCS",
+                            grn.items[itemIndex].locationId,
+                            {
+                                itemType: itemTypeOption,
+                                isQCRelease: true,
+                                inspectedQuantity: inspectedQuantity || 0
+                            }
+                        );
+                    }
+                }
+
+                // Record Rejection Transaction in Stock Ledger if any rejected
+                if (rejQty > 0 && matId) {
+                    try {
+                        const vendorLabel = grn.supplierName || grn.supplier?.name || "Supplier";
+                        await recordStockTransaction(req, {
+                            itemType: itemTypeOption === 'BoughtOut' ? 'RmBoItem' : (itemTypeOption === 'Consumable' ? 'ConsumableItem' : (itemTypeOption === 'Component' ? 'Component' : 'RawMaterial')),
+                            item: matId,
+                            itemName: materialName,
+                            unit: grn.items[itemIndex].unit || "PCS",
+                            movementType: "OUTWARD",
+                            transactionCategory: "INCOMING_QC_REJECTED",
+                            quantity: -rejQty,
+                            previousStock: rejQty,
+                            newStock: 0,
+                            referenceDocType: "GRN",
+                            referenceDocId: grn._id,
+                            referenceDocNumber: grn.grnNumber,
+                            recipientOrSource: `Vendor Rejection (${vendorLabel})`,
+                            purpose: rejectionReason || remarks || `Incoming Quality Inspection Rejection / Scrap (GRN #${grn.grnNumber})`,
+                            performedBy: req.user?._id || req.user?.id
+                        });
+                    } catch (rejErr) {
+                        console.error("Error recording incoming QC rejection transaction:", rejErr);
+                    }
                 }
             }
         }

@@ -59,6 +59,7 @@ export default function DCModal({
     const [discount, setDiscount] = useState(0);
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
+    const [reduceStock, setReduceStock] = useState(true);
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
     const clearError = (key: string) => {
@@ -126,6 +127,7 @@ export default function DCModal({
             setDiscount(initialData.discount || 0);
             setOtherDetails(initialData.otherDetails || (initialData as any).remarks || "");
             setStatus(initialData.status || "Draft");
+            setReduceStock((initialData as any)?.reduceStock !== false);
             
             if (initialData.items && initialData.items.length > 0) {
                 setItems(initialData.items.map((item: any) => {
@@ -401,6 +403,7 @@ export default function DCModal({
             discount,
             totalAmount,
             otherDetails,
+            reduceStock,
             status,
         };
 
@@ -794,6 +797,23 @@ export default function DCModal({
                                     className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl text-sm dark:text-white resize-none"
                                     placeholder="Special delivery notes or terms..."
                                 />
+
+                                {/* Reduce Stock Toggle */}
+                                <div className="p-3 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/80 dark:border-blue-900/60 rounded-2xl flex items-center justify-between gap-3">
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100">Deduct Stock from FG Inventory</span>
+                                        <span className="text-[11px] text-slate-500 dark:text-slate-400">Turn OFF if dispatching for demonstration, sample, or non-depleting returnable DC.</span>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={reduceStock} 
+                                            onChange={(e) => setReduceStock(e.target.checked)}
+                                            className="sr-only peer" 
+                                        />
+                                        <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
                             </div>
 
                             <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-800/60 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">

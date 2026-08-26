@@ -425,10 +425,12 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
             {/* Refresh / Reset */}
             <button
               onClick={fetchTransactions}
+              disabled={loading}
               title="Refresh Data"
-              className="p-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 rounded-xl text-gray-600 dark:text-gray-300 transition-colors"
+              className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 border border-slate-200/60 dark:border-slate-700 shadow-sm"
             >
-              <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={13} className={loading ? "animate-spin text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"} />
+              <span>Refresh Data</span>
             </button>
             <button
               onClick={handleResetFilters}
@@ -601,7 +603,6 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         <td className="py-3 px-4 font-medium text-gray-900 dark:text-gray-100">
                           <div className="flex flex-col">
                             <span className="font-bold text-gray-900 dark:text-gray-100">{tx.itemName}</span>
-                            {tx.itemCode && <span className="text-[10px] text-gray-400 font-mono">{tx.itemCode}</span>}
                           </div>
                         </td>
 
@@ -663,8 +664,27 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         {/* Recipient / Source */}
                         <td className="py-3 px-4 text-gray-700 dark:text-gray-300">
                           <div className="flex flex-col">
-                            <span className="font-medium">{tx.recipientOrSource || "-"}</span>
-                            {tx.purpose && <span className="text-[10px] text-gray-400 truncate max-w-[150px]">{tx.purpose}</span>}
+                            <span className="font-semibold text-gray-900 dark:text-gray-100">
+                              {(() => {
+                                if (tx.referenceDocType === "MaterialIssue" || tx.transactionCategory?.includes("MATERIAL_ISSUE")) {
+                                  if (!tx.recipientOrSource || tx.recipientOrSource.toLowerCase() === "store") {
+                                    return <span className="text-amber-700 dark:text-amber-300">Shop Floor</span>;
+                                  }
+                                  return tx.recipientOrSource;
+                                }
+                                if (tx.referenceDocType === "JobWorkChallan" || tx.transactionCategory?.includes("JOB_WORK") || tx.transactionCategory?.includes("RM_CONVERSION")) {
+                                  return <span className="text-purple-700 dark:text-purple-300">{tx.recipientOrSource && tx.recipientOrSource !== "Store" ? tx.recipientOrSource : "Job Work Vendor"}</span>;
+                                }
+                                return tx.recipientOrSource || "-";
+                              })()}
+                            </span>
+                            {tx.purpose && (
+                              <span className="text-[10px] text-gray-400 truncate max-w-[170px]" title={tx.purpose}>
+                                {tx.referenceDocType === "MaterialIssue" && !tx.purpose.toLowerCase().includes("issue to shop floor")
+                                  ? `Issue to Shop Floor (${tx.purpose})`
+                                  : tx.purpose}
+                              </span>
+                            )}
                           </div>
                         </td>
 
@@ -712,11 +732,6 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                             {typeMeta.label}
                           </span>
                         </div>
-                        {tx.itemCode && (
-                          <span className="text-[10px] text-gray-400 font-mono block">
-                            Code: {tx.itemCode}
-                          </span>
-                        )}
                       </div>
                       <span
                         className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
@@ -749,9 +764,18 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         </span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[10px] uppercase font-bold text-gray-400">Party / Source</span>
-                        <span className="text-gray-700 dark:text-gray-300 font-medium truncate" title={tx.recipientOrSource}>
-                          {tx.recipientOrSource || "-"}
+                        <span className="text-[10px] uppercase font-bold text-gray-400">Party / Destination</span>
+                        <span className="text-gray-900 dark:text-gray-100 font-semibold truncate" title={tx.recipientOrSource}>
+                          {(() => {
+                            if (tx.referenceDocType === "MaterialIssue" || tx.transactionCategory?.includes("MATERIAL_ISSUE")) {
+                              if (!tx.recipientOrSource || tx.recipientOrSource.toLowerCase() === "store") return "Shop Floor";
+                              return tx.recipientOrSource;
+                            }
+                            if (tx.referenceDocType === "JobWorkChallan" || tx.transactionCategory?.includes("JOB_WORK") || tx.transactionCategory?.includes("RM_CONVERSION")) {
+                              return tx.recipientOrSource && tx.recipientOrSource !== "Store" ? tx.recipientOrSource : "Job Work Vendor";
+                            }
+                            return tx.recipientOrSource || "-";
+                          })()}
                         </span>
                       </div>
                     </div>

@@ -158,6 +158,7 @@ export const getWipInventory = async (req, res) => {
           totalReturnedQty: 0,
           totalFgConsumedQty: 0,
           shopfloorWipQty: 0,
+          pendingQcQty: 0,
           jobWorkWipQty: 0,
           pendingWipQty: 0,
           lastMovementDate: item.updatedAt || item.createdAt || new Date(),
@@ -389,7 +390,11 @@ export const getWipInventory = async (req, res) => {
           entry.totalJobWorkSentQty += sentQty;
           entry.totalJobWorkReturnedQty += receivedQty;
           entry.jobWorkWipQty += netJobWorkPending;
-          entry.pendingWipQty = entry.shopfloorWipQty + entry.jobWorkWipQty;
+
+          // For WIP-to-WIP: Dispatched item was taken out from Shopfloor WIP
+          if (jwType === "wip-to-wip") {
+            entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - sentQty);
+          }
 
           if (new Date(challanDate) > new Date(entry.lastMovementDate)) {
             entry.lastMovementDate = challanDate;
@@ -419,15 +424,47 @@ export const getWipInventory = async (req, res) => {
           });
         }
 
-        // For Store-to-WIP: Returned goods are FG/Component in WIP FG Inventory
+        // For Store-to-WIP & WIP-to-WIP: QC-governed return back to Shopfloor WIP
         if (jwType === "store-to-wip" || jwType === "wip-to-wip") {
           retList.forEach((ret) => {
             const retName = ret.receivedItemName || sentName;
-            const retQty = Number(ret.quantityReceived) || 0;
             const fgEntry = findWipEntry(ret.receivedItem, retName, null, "fg");
-            if (fgEntry && retQty > 0) {
-              fgEntry.shopfloorWipQty += retQty;
-              fgEntry.pendingWipQty = fgEntry.shopfloorWipQty + fgEntry.jobWorkWipQty;
+            if (!fgEntry) return;
+
+            if (Array.isArray(challan.receiveHistory) && challan.receiveHistory.length > 0) {
+              const matchingHist = challan.receiveHistory.filter(h => 
+                (ret.receivedItem && (String(h.returningItemId) === String(ret.receivedItem) || String(h.itemId) === String(ret.receivedItem))) ||
+                (h.itemName && h.itemName.toLowerCase() === retName.toLowerCase())
+              );
+
+              if (matchingHist.length > 0) {
+                matchingHist.forEach(h => {
+                  const isQcActive = h.qcRequired !== false && challan.qcRequired !== false;
+                  if (!isQcActive) {
+                    // QC skipped: directly accepted into Shopfloor WIP
+                    fgEntry.shopfloorWipQty += Number(h.quantity || 0);
+                  } else {
+                    // QC enabled:
+                    if (h.qcStatus === "Passed" || h.qcStatus === "Accepted") {
+                      const passed = Number(h.acceptedQuantity !== undefined ? h.acceptedQuantity : h.quantity) || 0;
+                      fgEntry.shopfloorWipQty += passed;
+                    } else if (h.qcStatus === "Partial" || h.qcStatus === "Conditional") {
+                      const passed = Number(h.acceptedQuantity || 0);
+                      const inQc = Math.max(0, Number(h.quantity || 0) - passed - Number(h.rejectedQuantity || 0));
+                      fgEntry.shopfloorWipQty += passed;
+                      fgEntry.pendingQcQty = (fgEntry.pendingQcQty || 0) + inQc;
+                    } else if (h.qcStatus === "Pending" || !h.qcStatus) {
+                      // Awaiting QC: held in pendingQcQty (not added to shopfloorWipQty yet)
+                      fgEntry.pendingQcQty = (fgEntry.pendingQcQty || 0) + (Number(h.quantity) || 0);
+                    }
+                    // If Rejected: excluded from shopfloorWipQty
+                  }
+                });
+              } else {
+                fgEntry.shopfloorWipQty += Number(ret.quantityReceived) || 0;
+              }
+            } else {
+              fgEntry.shopfloorWipQty += Number(ret.quantityReceived) || 0;
             }
           });
         }
@@ -439,16 +476,25 @@ export const getWipInventory = async (req, res) => {
             const histTargetType = (jwType === "store-conversion") ? sentTargetType : "fg";
             const histEntry = findWipEntry(hist.returningItemId || hist.itemId, histItemName, null, histTargetType);
 
+            const rejCount = Number(hist.rejectedQuantity || (hist.qcStatus === "Rejected" ? hist.quantity : 0)) || 0;
+            const isRejection = hist.qcStatus === "Rejected" || rejCount > 0;
+            const acceptedCount = Number(hist.acceptedQuantity !== undefined ? hist.acceptedQuantity : (hist.qcStatus === "Passed" ? hist.quantity : 0)) || 0;
+
             const txIn = {
               date: hist.date,
-              type: jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Receipt (WIP FG)" : (jwType === "store-to-wip" ? "Store-to-WIP Return Receipt (WIP FG)" : "RM Conversion Subcontractor Receipt (Main Store)"),
-              docNumber: docNo,
+              type: isRejection 
+                ? `Job Work QC Rejection (${hist.rejectionReason || "Defective"})` 
+                : (jwType === "wip-to-wip" ? "WIP-to-WIP Subcontractor Receipt (WIP FG)" : (jwType === "store-to-wip" ? "Store-to-WIP Return Receipt (WIP FG)" : "RM Conversion Subcontractor Receipt (Main Store)")),
+              docNumber: hist.grnNumber || docNo,
               mrpNumber: mrpNumber,
               ewayBillNo: challan.ewayBillNo || "",
               sentQty: 0,
-              receivedQty: Number(hist.quantity) || 0,
+              receivedQty: isRejection ? 0 : (acceptedCount || Number(hist.quantity) || 0),
+              rejectedQty: rejCount,
+              isRejection: isRejection,
+              rejectionReason: hist.rejectionReason || (isRejection ? "Quality Inspection Failed" : ""),
               unit: unit,
-              processType: `Return from ${vendorName}`,
+              processType: isRejection ? `QC Rejected: ${hist.rejectionReason || "Defective"}` : `Return from ${vendorName}`,
               vendorName: vendorName,
               status: hist.qcStatus || "Received"
             };
@@ -591,6 +637,10 @@ export const getWipInventory = async (req, res) => {
     });
 
     // 7. Format Resulting Items
+    masterWipMap.forEach(item => {
+      item.pendingWipQty = (item.shopfloorWipQty || 0) + (item.jobWorkWipQty || 0);
+    });
+
     let allItems = Array.from(masterWipMap.values()).map(item => ({
       ...item,
       status: item.pendingWipQty > 0 ? "In WIP" : "WIP Zero"

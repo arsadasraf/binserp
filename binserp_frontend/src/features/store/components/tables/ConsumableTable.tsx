@@ -38,6 +38,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'name',
       label: 'Consumable Name',
+      getValue: (item) => item.name || '-',
       render: (item) => {
         const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
         return (
@@ -57,7 +58,6 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
               <span className="font-bold text-slate-900 dark:text-white block">
                 {item.name || '-'}
               </span>
-              {item.code && <span className="text-[10px] text-slate-400 font-mono">{item.code}</span>}
             </div>
           </div>
         );
@@ -66,6 +66,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'descriptions',
       label: 'Description',
+      getValue: (item) => item.descriptions || item.description || '-',
       render: (item) => (
         <span className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 max-w-[280px] block" title={item.descriptions || item.description || ''}>
           {item.descriptions || item.description || '-'}
@@ -75,6 +76,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'category',
       label: 'Category',
+      getValue: (item) => (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || item.category || '-',
       render: (item) => {
         const catName = (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || item.category || '-';
         return (
@@ -87,6 +89,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'unit',
       label: 'Unit',
+      getValue: (item) => item.unit || item.categoryId?.unit || 'PCS',
       render: (item) => (
         <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
           {item.unit || item.categoryId?.unit || 'PCS'}
@@ -96,6 +99,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'location',
       label: 'Location',
+      getValue: (item) => item.locationId?.name || (typeof item.location === 'object' ? item.location?.name : item.location) || item.storageLocation || '-',
       render: (item) => (
         <span className="text-xs text-slate-600 dark:text-slate-400">
           {item.locationId?.name || (typeof item.location === 'object' ? item.location?.name : item.location) || item.storageLocation || '-'}
@@ -105,6 +109,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'minimumStock',
       label: 'Min Stock',
+      getValue: (item) => String(item.minimumStock ?? item.minStock ?? 0),
       render: (item) => (
         <span className="text-xs font-mono font-semibold text-slate-700 dark:text-slate-300">
           {item.minimumStock ?? item.minStock ?? 0}
@@ -114,6 +119,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'status',
       label: 'Status',
+      getValue: (item) => (item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated') ? 'Deactivated' : 'Active',
       render: (item) => {
         const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
         return (
@@ -131,6 +137,8 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'actions',
       label: 'Actions',
+      enableFilter: false,
+      enableSort: false,
       render: (item) => {
         const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
         const hasStockOrTransactions = (Number(item.quantity || item.currentStock || 0) > 0 || Number(item.qcPendingStock || 0) > 0 || Boolean(item.hasTransactions));

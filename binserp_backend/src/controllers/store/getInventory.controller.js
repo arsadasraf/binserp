@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, stockTransactionSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -156,6 +156,32 @@ export const getInventory = async (req, res) => {
       }
     }
 
+    // Fetch current month's Stock Transactions for all allowed Inward and Outward streams
+    const StockTransaction = req.getModel('StockTransaction', stockTransactionSchema);
+    const currentMonthTx = await StockTransaction.find({
+      company: companyId,
+      timestamp: { $gte: startOfMonth, $lte: endOfMonth }
+    }).lean();
+
+    const txInwardMap = new Map();
+    const txOutwardMap = new Map();
+
+    for (const tx of currentMonthTx) {
+      const qty = Number(tx.quantity || 0);
+      if (qty > 0 && tx.item) {
+        const itemKey = tx.item.toString();
+        const nameKey = tx.itemName ? tx.itemName.toLowerCase().trim() : null;
+
+        if (tx.movementType === "INWARD") {
+          txInwardMap.set(itemKey, (txInwardMap.get(itemKey) || 0) + qty);
+          if (nameKey) txInwardMap.set(nameKey, (txInwardMap.get(nameKey) || 0) + qty);
+        } else if (tx.movementType === "OUTWARD") {
+          txOutwardMap.set(itemKey, (txOutwardMap.get(itemKey) || 0) + qty);
+          if (nameKey) txOutwardMap.set(nameKey, (txOutwardMap.get(nameKey) || 0) + qty);
+        }
+      }
+    }
+
     const inventoryWithMonthly = inventory.map(inv => {
         const matIdStr = inv.materialId?._id?.toString() || inv.materialId?.toString();
         const invIdStr = inv._id?.toString();
@@ -164,10 +190,13 @@ export const getInventory = async (req, res) => {
         const itemMonthly = (matIdStr && monthlyMap.get(matIdStr)) || (invIdStr && monthlyMap.get(invIdStr));
         
         const grnInward = (matIdStr && grnInwardMap.get(matIdStr)) || (nameKey && grnInwardMap.get(nameKey)) || 0;
-        const issueOutward = (matIdStr && issueOutwardMap.get(matIdStr)) || (nameKey && issueOutwardMap.get(nameKey)) || 0;
+        const txInward = (matIdStr && txInwardMap.get(matIdStr)) || (nameKey && txInwardMap.get(nameKey)) || 0;
+        const totalInward = Math.max(itemMonthly?.totalInwardQuantity || 0, grnInward, txInward);
 
-        const totalInward = Math.max(itemMonthly?.totalInwardQuantity || 0, grnInward);
-        const totalOutward = Math.max(itemMonthly?.totalOutwardQuantity || 0, issueOutward);
+        const issueOutward = (matIdStr && issueOutwardMap.get(matIdStr)) || (nameKey && issueOutwardMap.get(nameKey)) || 0;
+        const txOutward = (matIdStr && txOutwardMap.get(matIdStr)) || (nameKey && txOutwardMap.get(nameKey)) || 0;
+        const totalOutward = Math.max(itemMonthly?.totalOutwardQuantity || 0, issueOutward, txOutward);
+
         const opening = itemMonthly?.openingStock || 0;
 
         return {

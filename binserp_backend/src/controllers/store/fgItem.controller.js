@@ -1,4 +1,4 @@
-import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema } from "../../models/store/index.js";
+import { fgItemSchema, fgInventoryMonthlySchema, categorySchema, locationSchema, customerSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSchema, storeOrderFulfillmentSchema, storePrefixSchema, stockTransactionSchema } from "../../models/store/index.js";
 import { salesOrderSchema } from "../../models/sales/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
@@ -143,8 +143,10 @@ export const getAllFGItems = async (req, res) => {
     // Fetch monthly tracking for the current month
     const currentDate = new Date();
     const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+    const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
+
     const FGInventoryMonthly = req.getModel('FGInventoryMonthly', fgInventoryMonthlySchema);
-    
     const monthlyRecords = await FGInventoryMonthly.find({ company: companyId, month: currentMonthStr }).lean();
     const monthlyMap = new Map();
     for (const rec of monthlyRecords) {
@@ -153,12 +155,48 @@ export const getAllFGItems = async (req, res) => {
         }
     }
 
+    // Fetch FG Stock Transactions for the current month
+    const StockTransaction = req.getModel('StockTransaction', stockTransactionSchema);
+    const currentMonthTx = await StockTransaction.find({
+      company: companyId,
+      timestamp: { $gte: startOfMonth, $lte: endOfMonth },
+      itemType: { $in: ["FGItem", "Component", "InHouse"] }
+    }).lean();
+
+    const txInwardMap = new Map();
+    const txOutwardMap = new Map();
+
+    for (const tx of currentMonthTx) {
+      const qty = Number(tx.quantity || 0);
+      if (qty > 0 && tx.item) {
+        const itemKey = tx.item.toString();
+        const nameKey = tx.itemName ? tx.itemName.toLowerCase().trim() : null;
+
+        if (tx.movementType === "INWARD") {
+          txInwardMap.set(itemKey, (txInwardMap.get(itemKey) || 0) + qty);
+          if (nameKey) txInwardMap.set(nameKey, (txInwardMap.get(nameKey) || 0) + qty);
+        } else if (tx.movementType === "OUTWARD") {
+          txOutwardMap.set(itemKey, (txOutwardMap.get(itemKey) || 0) + qty);
+          if (nameKey) txOutwardMap.set(nameKey, (txOutwardMap.get(nameKey) || 0) + qty);
+        }
+      }
+    }
+
     const fgItemsWithMonthly = fgItems.map(item => {
-        const itemMonthly = monthlyMap.get(item._id.toString());
-        const breakdown = reservedMap.get(item._id.toString()) || [];
+        const itemIdStr = item._id.toString();
+        const nameKey = item.name ? item.name.toLowerCase().trim() : null;
+
+        const itemMonthly = monthlyMap.get(itemIdStr);
+        const breakdown = reservedMap.get(itemIdStr) || [];
         const totalReservedFromBreakdown = breakdown.reduce((acc, curr) => acc + curr.reservedQuantity, 0);
         const stock = Number(item.quantity || 0);
         const hasTransactions = stock > 0 || totalReservedFromBreakdown > 0 || Boolean(item.hasTransactions);
+
+        const txInward = txInwardMap.get(itemIdStr) || (nameKey && txInwardMap.get(nameKey)) || 0;
+        const txOutward = txOutwardMap.get(itemIdStr) || (nameKey && txOutwardMap.get(nameKey)) || 0;
+
+        const totalInward = Math.max(itemMonthly?.totalInwardQuantity || 0, txInward);
+        const totalOutward = Math.max(itemMonthly?.totalOutwardQuantity || 0, txOutward);
 
         return {
             ...item,
@@ -169,7 +207,13 @@ export const getAllFGItems = async (req, res) => {
             isActive: item.isActive !== false && item.status !== 'Inactive' && item.status !== 'Deactivated',
             allocatedQuantity: totalReservedFromBreakdown || item.allocatedQuantity || 0,
             reservedBreakdown: breakdown,
-            monthlyData: itemMonthly || { openingStock: 0, totalInwardQuantity: 0, totalOutwardQuantity: 0 }
+            monthlyData: {
+                openingStock: itemMonthly?.openingStock || 0,
+                totalInwardQuantity: totalInward,
+                totalOutwardQuantity: totalOutward,
+                received: totalInward,
+                issued: totalOutward
+            }
         };
     });
 

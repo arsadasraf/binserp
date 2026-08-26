@@ -35,6 +35,10 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
+    const [historyDatePreset, setHistoryDatePreset] = useState<'all' | 'today' | 'this_month' | 'last_30_days' | 'custom'>('all');
+    const [historyStartDate, setHistoryStartDate] = useState('');
+    const [historyEndDate, setHistoryEndDate] = useState('');
+
     const [editingStock, setEditingStock] = useState<boolean>(false);
     const [editingStockValue, setEditingStockValue] = useState<number>(0);
     const [displayOpeningStock, setDisplayOpeningStock] = useState<number | null>(null);
@@ -117,9 +121,68 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
         }
     };
 
-    // Separate top 5 inward & outward transactions
-    const inwardTransactions = transactions.filter(t => t.movementType === 'INWARD').slice(0, 5);
-    const outwardTransactions = transactions.filter(t => t.movementType === 'OUTWARD').slice(0, 5);
+    // Filtered History (GRNs) based on Date Filter
+    const filteredHistory = React.useMemo(() => {
+        let list = [...history];
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        if (historyDatePreset === 'today') {
+            list = list.filter((g: any) => new Date(g.date || g.createdAt) >= startOfToday);
+        } else if (historyDatePreset === 'this_month') {
+            list = list.filter((g: any) => new Date(g.date || g.createdAt) >= startOfMonth);
+        } else if (historyDatePreset === 'last_30_days') {
+            list = list.filter((g: any) => new Date(g.date || g.createdAt) >= thirtyDaysAgo);
+        } else if (historyDatePreset === 'custom') {
+            if (historyStartDate) {
+                const sDate = new Date(historyStartDate);
+                sDate.setHours(0, 0, 0, 0);
+                list = list.filter((g: any) => new Date(g.date || g.createdAt) >= sDate);
+            }
+            if (historyEndDate) {
+                const eDate = new Date(historyEndDate);
+                eDate.setHours(23, 59, 59, 999);
+                list = list.filter((g: any) => new Date(g.date || g.createdAt) <= eDate);
+            }
+        }
+        return list;
+    }, [history, historyDatePreset, historyStartDate, historyEndDate]);
+
+    // Filtered Outward Transactions & QC Rejections based on Date Filter
+    const filteredOutwardTransactions = React.useMemo(() => {
+        let list = transactions.filter(t => 
+            t.movementType === 'OUTWARD' || 
+            t.transactionCategory?.includes('REJECT') || 
+            t.transactionCategory?.includes('SCRAP')
+        );
+
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        if (historyDatePreset === 'today') {
+            list = list.filter((t: any) => new Date(t.timestamp || t.createdAt) >= startOfToday);
+        } else if (historyDatePreset === 'this_month') {
+            list = list.filter((t: any) => new Date(t.timestamp || t.createdAt) >= startOfMonth);
+        } else if (historyDatePreset === 'last_30_days') {
+            list = list.filter((t: any) => new Date(t.timestamp || t.createdAt) >= thirtyDaysAgo);
+        } else if (historyDatePreset === 'custom') {
+            if (historyStartDate) {
+                const sDate = new Date(historyStartDate);
+                sDate.setHours(0, 0, 0, 0);
+                list = list.filter((t: any) => new Date(t.timestamp || t.createdAt) >= sDate);
+            }
+            if (historyEndDate) {
+                const eDate = new Date(historyEndDate);
+                eDate.setHours(23, 59, 59, 999);
+                list = list.filter((t: any) => new Date(t.timestamp || t.createdAt) <= eDate);
+            }
+        }
+        return list;
+    }, [transactions, historyDatePreset, historyStartDate, historyEndDate]);
 
     const downloadPDF = () => {
         const doc = new jsPDF();
@@ -187,7 +250,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
         doc.setTextColor(0);
         doc.text("Top 5 Recent Outward Dispatches", 14, finalY + 15);
 
-        const outwardRows = outwardTransactions.slice(0, 5).map(tx => [
+        const outwardRows = filteredOutwardTransactions.slice(0, 5).map((tx: any) => [
             new Date(tx.timestamp || tx.createdAt).toLocaleDateString(),
             tx.referenceDocNumber || 'N/A',
             tx.recipientOrSource || 'Shopfloor / Dispatch',
@@ -553,68 +616,160 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                 </div>
                             </div>
 
-                            {/* Section 1: Top 5 Inward Receipts */}
+                            {/* Date Filter Toolbar */}
+                            <div className="p-3 bg-gray-50 dark:bg-gray-800/60 rounded-2xl border border-gray-100 dark:border-gray-700 flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center gap-1.5">
+                                        <Calendar size={13} className="text-indigo-600 dark:text-indigo-400" /> Filter Inward / Outward by Date
+                                    </span>
+                                    {(historyDatePreset !== 'all' || historyStartDate || historyEndDate) && (
+                                        <button
+                                            onClick={() => {
+                                                setHistoryDatePreset('all');
+                                                setHistoryStartDate('');
+                                                setHistoryEndDate('');
+                                            }}
+                                            className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                        >
+                                            Reset Filter
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="flex flex-wrap gap-1.5 items-center">
+                                    {[
+                                        { key: 'all', label: 'All Time' },
+                                        { key: 'today', label: 'Today' },
+                                        { key: 'this_month', label: 'This Month' },
+                                        { key: 'last_30_days', label: 'Last 30 Days' },
+                                        { key: 'custom', label: 'Custom Range' },
+                                    ].map((btn) => (
+                                        <button
+                                            key={btn.key}
+                                            onClick={() => setHistoryDatePreset(btn.key as any)}
+                                            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                                historyDatePreset === btn.key
+                                                    ? 'bg-indigo-600 text-white shadow-xs'
+                                                    : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600'
+                                            }`}
+                                        >
+                                            {btn.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {historyDatePreset === 'custom' && (
+                                    <div className="flex items-center gap-2 pt-1">
+                                        <div className="flex-1 flex items-center gap-1.5 bg-white dark:bg-gray-700 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs">
+                                            <span className="text-[11px] text-gray-400 font-medium">From:</span>
+                                            <input
+                                                type="date"
+                                                value={historyStartDate}
+                                                onChange={(e) => setHistoryStartDate(e.target.value)}
+                                                className="bg-transparent focus:outline-none text-gray-800 dark:text-gray-200 w-full text-xs"
+                                            />
+                                        </div>
+                                        <div className="flex-1 flex items-center gap-1.5 bg-white dark:bg-gray-700 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-xs">
+                                            <span className="text-[11px] text-gray-400 font-medium">To:</span>
+                                            <input
+                                                type="date"
+                                                value={historyEndDate}
+                                                onChange={(e) => setHistoryEndDate(e.target.value)}
+                                                className="bg-transparent focus:outline-none text-gray-800 dark:text-gray-200 w-full text-xs"
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Section 1: Inward Receipts & QC Passes */}
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                                         <div className="p-1.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-600 rounded-lg">
                                             <ArrowDownLeft size={16} />
                                         </div>
-                                        <span>Top 5 Recent Inward Entries (Receipts / GRN)</span>
+                                        <span>Recent Inward Entries (Receipts / GRN)</span>
                                     </h3>
-                                    <span className="text-xs text-emerald-600 font-semibold">Inward (+)</span>
+                                    <span className="text-xs text-emerald-600 font-semibold">{filteredHistory.length} Entries</span>
                                 </div>
 
                                 <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
                                     {loading ? (
                                         <div className="p-8 flex justify-center"><LoadingSpinner /></div>
-                                    ) : history.length === 0 ? (
-                                        <div className="p-8 text-center text-xs text-gray-400">No recent GRN inward entries found for this item.</div>
+                                    ) : filteredHistory.length === 0 ? (
+                                        <div className="p-8 text-center text-xs text-gray-400">No inward GRN entries found for selected date range.</div>
                                     ) : (
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-xs text-left">
                                                 <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-100 dark:border-gray-800 font-bold text-gray-500 uppercase tracking-wider">
                                                     <tr>
                                                         <th className="px-4 py-3">Date</th>
-                                                        <th className="px-4 py-3">GRN No.</th>
-                                                        <th className="px-4 py-3">{type === 'bo' ? 'Supplier' : 'Source'}</th>
+                                                        <th className="px-4 py-3">Ref / GRN No.</th>
+                                                        <th className="px-4 py-3">Supplier / Conversion Vendor</th>
                                                         <th className="px-4 py-3 text-center">Received Qty</th>
                                                         <th className="px-4 py-3 text-center">Accepted Qty</th>
                                                         <th className="px-4 py-3">QC Status</th>
-                                                        <th className="px-4 py-3">GRN Done By</th>
+                                                        <th className="px-4 py-3">Inward Done By</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 font-medium">
-                                                    {history.slice(0, 5).map((grn) => {
+                                                    {filteredHistory.slice(0, 10).map((grn) => {
                                                         const grnItem = grn.items?.find((i: any) =>
-                                                            (type === 'bo' && (i.material?._id === targetId || i.material === targetId)) ||
-                                                            (type === 'inhouse' && (i.component?._id === targetId || i.component === targetId || i.fgItem?._id === targetId || i.fgItem === targetId))
+                                                            i.material?._id === targetId || i.material === targetId ||
+                                                            i.consumable?._id === targetId || i.consumable === targetId ||
+                                                            i.component?._id === targetId || i.component === targetId ||
+                                                            i.fgItem?._id === targetId || i.fgItem === targetId
                                                         );
+
+                                                        const isConversion = grn.isConversion || grn.transactionCategory === 'RM_CONVERSION_INWARD';
+                                                        const sourceDisplay = isConversion
+                                                            ? (grn.supplierName || grn.supplier?.name || grn.recipientOrSource || 'RM Conversion Vendor')
+                                                            : (grn.supplier?.name || grn.supplierName || ((type as string) === 'inhouse' || (type as string) === 'fg' ? 'In-House Production' : 'Supplier'));
+
+                                                        const rejCount = Number(grnItem?.rejectedQuantity) || 0;
 
                                                         return (
                                                             <tr key={grn._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                                                                 <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-300">
-                                                                    {new Date(grn.date).toLocaleDateString()}
+                                                                    {new Date(grn.date || grn.createdAt).toLocaleDateString()}
                                                                 </td>
                                                                 <td className="px-4 py-3 font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
                                                                     {grn.grnNumber}
                                                                 </td>
-                                                                <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
-                                                                    {type === 'bo' ? (grn.supplier?.name || grn.supplierName || 'N/A') : 'In-House Production'}
+                                                                <td className="px-4 py-3">
+                                                                    <div className="flex flex-col">
+                                                                        <span className={`font-semibold ${isConversion ? 'text-purple-700 dark:text-purple-300' : 'text-gray-800 dark:text-gray-200'}`}>
+                                                                            {sourceDisplay}
+                                                                        </span>
+                                                                        {isConversion && (
+                                                                            <span className="text-[9px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
+                                                                                RM Conversion
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center font-bold text-emerald-600">
-                                                                    +{grnItem ? (grnItem.quantity || grnItem.receivedQuantity) : '-'} {item.unit}
+                                                                    +{grnItem ? (grnItem.quantity || grnItem.receivedQuantity) : (grn.quantity || '-')} {item.unit}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">
-                                                                    {grnItem ? (grnItem.acceptedQuantity || 0) : '-'}
+                                                                    <div>
+                                                                        {grnItem ? (grnItem.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem.quantity || '-')) : '-'}
+                                                                    </div>
+                                                                    {rejCount > 0 && (
+                                                                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block">
+                                                                            ({rejCount} rejected)
+                                                                        </span>
+                                                                    )}
                                                                 </td>
                                                                 <td className="px-4 py-3">
                                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                                                        grn.qcStatus === 'Completed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                                        grn.qcStatus === 'Completed' || isConversion ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' :
                                                                         grn.qcStatus === 'Pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' :
+                                                                        grn.qcStatus === 'Rejected' ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300' :
                                                                         'bg-gray-100 text-gray-600'
                                                                     }`}>
-                                                                        {grn.qcStatus || 'N/A'}
+                                                                        {grn.qcStatus || (isConversion ? 'Completed' : 'N/A')}
                                                                     </span>
                                                                 </td>
                                                                 <td className="px-4 py-3 font-bold text-indigo-600 dark:text-indigo-300">
@@ -630,23 +785,23 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                 </div>
                             </div>
 
-                            {/* Section 2: Top 5 Outward Dispatches */}
+                            {/* Section 2: Outward Dispatches & QC Rejections */}
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                                         <div className="p-1.5 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">
                                             <ArrowUpRight size={16} />
                                         </div>
-                                        <span>Top 5 Recent Outward Entries (Material Issues / Dispatches)</span>
+                                        <span>Recent Outward & QC Rejection Entries</span>
                                     </h3>
-                                    <span className="text-xs text-rose-600 font-semibold">Outward (-)</span>
+                                    <span className="text-xs text-rose-600 font-semibold">{filteredOutwardTransactions.length} Entries</span>
                                 </div>
 
                                 <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm">
                                     {loading ? (
                                         <div className="p-8 flex justify-center"><LoadingSpinner /></div>
-                                    ) : outwardTransactions.length === 0 ? (
-                                        <div className="p-8 text-center text-xs text-gray-400">No recent outward dispatch entries found for this item.</div>
+                                    ) : filteredOutwardTransactions.length === 0 ? (
+                                        <div className="p-8 text-center text-xs text-gray-400">No outward or rejection entries found for selected date range.</div>
                                     ) : (
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-xs text-left">
@@ -655,36 +810,93 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                         <th className="px-4 py-3">Date</th>
                                                         <th className="px-4 py-3">Ref Doc / DC No.</th>
                                                         <th className="px-4 py-3">Destination / Recipient</th>
-                                                        <th className="px-4 py-3 text-right">Quantity Issued</th>
+                                                        <th className="px-4 py-3 text-right">Quantity</th>
                                                         <th className="px-4 py-3">Purpose / Category</th>
-                                                        <th className="px-4 py-3">Issued By</th>
+                                                        <th className="px-4 py-3">Issued / Action By</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 font-medium">
-                                                    {outwardTransactions.slice(0, 5).map((tx) => (
-                                                        <tr key={tx._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                                            <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-300">
-                                                                {new Date(tx.timestamp || tx.createdAt).toLocaleDateString()}
-                                                            </td>
-                                                            <td className="px-4 py-3 font-semibold text-rose-600 dark:text-rose-400 font-mono">
-                                                                {tx.referenceDocNumber || 'N/A'}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-gray-800 dark:text-gray-200">
-                                                                {tx.recipientOrSource || 'Shopfloor Production'}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-right font-bold text-rose-600">
-                                                                -{tx.quantity} {tx.unit || item.unit}
-                                                            </td>
-                                                            <td className="px-4 py-3">
-                                                                <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200/50">
-                                                                    {tx.purpose || tx.transactionCategory || 'Outward Issue'}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-4 py-3 font-bold text-rose-600 dark:text-rose-300">
-                                                                {tx.performedByName || tx.performedBy?.name || tx.performedBy?.username || 'Store Admin'}
-                                                            </td>
-                                                        </tr>
-                                                    ))}
+                                                    {filteredOutwardTransactions.slice(0, 10).map((tx) => {
+                                                        const isQCRejection = tx.transactionCategory?.includes("REJECT") || tx.transactionCategory === "INCOMING_QC_REJECTED" || tx.transactionCategory === "JOBWORK_QC_REJECTED";
+                                                        const isJobWork = tx.referenceDocType === "JobWorkChallan" || tx.transactionCategory?.includes("JOB_WORK") || tx.transactionCategory?.includes("RM_CONVERSION");
+                                                        const isSales = tx.referenceDocType === "DeliveryChallan" || tx.referenceDocType === "Invoice" || tx.transactionCategory?.includes("SALES");
+                                                        
+                                                        let destinationDisplay = tx.recipientOrSource;
+                                                        if (isQCRejection) {
+                                                            destinationDisplay = tx.recipientOrSource || "Vendor QC Rejection";
+                                                        } else if (isJobWork) {
+                                                            destinationDisplay = tx.recipientOrSource && tx.recipientOrSource !== "Store" ? tx.recipientOrSource : "Job Work Vendor";
+                                                        } else if (isSales) {
+                                                            destinationDisplay = tx.recipientOrSource && tx.recipientOrSource !== "Store" ? tx.recipientOrSource : "Customer";
+                                                        } else if (!destinationDisplay || destinationDisplay.toLowerCase() === "store") {
+                                                            destinationDisplay = "Shop Floor";
+                                                        } else if (!destinationDisplay.toLowerCase().includes("shop floor")) {
+                                                            destinationDisplay = `Shop Floor (${destinationDisplay})`;
+                                                        }
+
+                                                        let purposeDisplay = tx.purpose || tx.transactionCategory || 'Outward Issue';
+                                                        if (isQCRejection) {
+                                                            purposeDisplay = tx.purpose || 'Quality Control Rejection / Scrap';
+                                                        } else if (isJobWork) {
+                                                            purposeDisplay = tx.purpose || `Job Work Outward (DC: ${tx.referenceDocNumber || 'JWC'})`;
+                                                        } else if (tx.referenceDocType === "MaterialIssue" || tx.transactionCategory?.includes("MATERIAL_ISSUE")) {
+                                                            if (purposeDisplay.toLowerCase().includes("issue to shop floor")) {
+                                                                // already has prefix
+                                                            } else if (purposeDisplay.toLowerCase().includes("demand for mrp")) {
+                                                                purposeDisplay = `Issue to Shop Floor (${purposeDisplay})`;
+                                                            } else {
+                                                                purposeDisplay = `Issue to Shop Floor — ${purposeDisplay}`;
+                                                            }
+                                                        }
+
+                                                        return (
+                                                            <tr key={tx._id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors ${
+                                                                isQCRejection ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''
+                                                            }`}>
+                                                                <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-300">
+                                                                    {new Date(tx.timestamp || tx.createdAt).toLocaleDateString()}
+                                                                </td>
+                                                                <td className="px-4 py-3 font-semibold text-rose-600 dark:text-rose-400 font-mono">
+                                                                    {tx.referenceDocNumber || 'N/A'}
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    <span className={`font-semibold ${
+                                                                        isQCRejection
+                                                                            ? "text-rose-700 dark:text-rose-300"
+                                                                            : isJobWork 
+                                                                                ? "text-purple-700 dark:text-purple-300" 
+                                                                                : isSales 
+                                                                                    ? "text-blue-700 dark:text-blue-300" 
+                                                                                    : "text-amber-700 dark:text-amber-300"
+                                                                    }`}>
+                                                                        {destinationDisplay}
+                                                                    </span>
+                                                                </td>
+                                                                <td className="px-4 py-3 text-right font-bold text-rose-600">
+                                                                    -{Math.abs(tx.quantity)} {tx.unit || item.unit}
+                                                                </td>
+                                                                <td className="px-4 py-3">
+                                                                    {isQCRejection ? (
+                                                                        <div className="space-y-0.5">
+                                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800 inline-block">
+                                                                                QC REJECTED
+                                                                            </span>
+                                                                            <span className="block text-[11px] text-rose-600 font-medium">
+                                                                                {purposeDisplay}
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-semibold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200/50">
+                                                                            {purposeDisplay}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="px-4 py-3 font-bold text-rose-600 dark:text-rose-300">
+                                                                    {tx.performedByName || tx.performedBy?.name || tx.performedBy?.username || 'Store Admin'}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
                                                 </tbody>
                                             </table>
                                         </div>

@@ -284,5 +284,28 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
     }
   }
 
+  // Record Rejection / Scrap in Stock Ledger if any items rejected
+  if (rejectedQtyNum > 0 && itemId) {
+    try {
+      await recordStockTransaction(req, {
+        itemType: "Component",
+        item: itemId,
+        itemName: itemName || "Job Work Item",
+        unit: unit || "Nos",
+        movementType: "OUTWARD",
+        transactionCategory: "JOBWORK_QC_REJECTED",
+        quantity: -rejectedQtyNum,
+        previousStock: rejectedQtyNum,
+        newStock: 0,
+        referenceDocType: "JobWorkChallan",
+        referenceDocId: jobWorkChallanId,
+        referenceDocNumber: challanNumber,
+        recipientOrSource: `Vendor Rejection (${vendorName || "Subcontractor"})`,
+        purpose: rejectionReason || defectCategory || "Job Work Quality Rejection / Scrap",
+        performedBy: req.user?._id || req.user?.id
+      });
+    } catch (e) { }
+  }
+
   return res.status(201).json(new ApiResponse(201, jwQCRecord, "Job Work Quality Inspection recorded and respective stock synchronized successfully"));
 });

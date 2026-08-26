@@ -75,6 +75,14 @@ export const deliveryChallanSchema = new mongoose.Schema(
     packagingType: String,
     packagingCharges: { type: Number, default: 0 },
     otherDetails: String,
+    reduceStock: {
+      type: Boolean,
+      default: true,
+    },
+    stockDeducted: {
+      type: Boolean,
+      default: false,
+    },
     status: {
       type: String,
       enum: ["Draft", "Issued", "Delivered"],

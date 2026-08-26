@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Filter, Search, X } from 'lucide-react';
+import { Filter, Search, X, ArrowUpAZ, ArrowDownZA } from 'lucide-react';
 
 interface ColumnFilterProps {
     column: string;
@@ -9,6 +8,9 @@ interface ColumnFilterProps {
     currentFilters: string[];
     onFilterChange: (selectedValues: string[]) => void;
     getValue?: (item: any) => string;
+    sortConfig?: { key: string; direction: 'asc' | 'desc' } | null;
+    onSortChange?: (key: string, direction: 'asc' | 'desc') => void;
+    enableSort?: boolean;
 }
 
 export default function ColumnFilter({
@@ -17,7 +19,10 @@ export default function ColumnFilter({
     data,
     currentFilters,
     onFilterChange,
-    getValue
+    getValue,
+    sortConfig,
+    onSortChange,
+    enableSort = true
 }: ColumnFilterProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -28,6 +33,7 @@ export default function ColumnFilter({
         const handleClickOutside = (event: MouseEvent) => {
             if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
                 setIsOpen(false);
+                setSearchTerm('');
             }
         };
 
@@ -39,28 +45,38 @@ export default function ColumnFilter({
         };
     }, [isOpen]);
 
-    // Extract unique values from data
-    const uniqueValues = useMemo(() => {
-        const values = new Set<string>();
+    // Extract unique values and counts from data
+    const uniqueValuesWithCounts = useMemo(() => {
+        const counts = new Map<string, number>();
         data.forEach(item => {
             let val = '';
             if (getValue) {
                 val = getValue(item);
             } else {
-                val = String(item[column] || '');
+                val = String(item[column] !== undefined && item[column] !== null && item[column] !== '' ? item[column] : '-');
             }
-            if (val) values.add(val);
+            if (!val) val = '-';
+            counts.set(val, (counts.get(val) || 0) + 1);
         });
-        return Array.from(values).sort();
+
+        return Array.from(counts.entries()).map(([value, count]) => ({
+            value,
+            count
+        })).sort((a, b) => {
+            if (a.value === '-') return 1;
+            if (b.value === '-') return -1;
+            return a.value.localeCompare(b.value, undefined, { numeric: true, sensitivity: 'base' });
+        });
     }, [data, column, getValue]);
 
     // Filter values based on search term
     const filteredValues = useMemo(() => {
-        if (!searchTerm) return uniqueValues;
-        return uniqueValues.filter(val =>
-            val.toLowerCase().includes(searchTerm.toLowerCase())
+        if (!searchTerm) return uniqueValuesWithCounts;
+        const lower = searchTerm.toLowerCase();
+        return uniqueValuesWithCounts.filter(item =>
+            item.value.toLowerCase().includes(lower)
         );
-    }, [uniqueValues, searchTerm]);
+    }, [uniqueValuesWithCounts, searchTerm]);
 
     const handleCheckboxChange = (value: string) => {
         const newFilters = currentFilters.includes(value)
@@ -71,19 +87,16 @@ export default function ColumnFilter({
 
     const handleSelectAll = () => {
         if (filteredValues.length === 0) return;
-
-        // If all filtered values are already selected, clear them
-        // If some or none are selected, select all filtered values
-        const allFilteredSelected = filteredValues.every(val => currentFilters.includes(val));
+        const allFilteredSelected = filteredValues.every(item => currentFilters.includes(item.value));
 
         if (allFilteredSelected) {
-            const newFilters = currentFilters.filter(f => !filteredValues.includes(f));
+            const filteredSet = new Set(filteredValues.map(v => v.value));
+            const newFilters = currentFilters.filter(f => !filteredSet.has(f));
             onFilterChange(newFilters);
         } else {
-            // Add any filtered values that aren't already selected
             const newFilters = [...currentFilters];
-            filteredValues.forEach(val => {
-                if (!newFilters.includes(val)) newFilters.push(val);
+            filteredValues.forEach(item => {
+                if (!newFilters.includes(item.value)) newFilters.push(item.value);
             });
             onFilterChange(newFilters);
         }
@@ -94,89 +107,144 @@ export default function ColumnFilter({
         setSearchTerm('');
     };
 
-    // Check if filter is active for styling
-    const isActive = currentFilters.length > 0;
+    const isFiltered = currentFilters.length > 0;
+    const isSorted = sortConfig?.key === column;
 
     return (
         <div className="relative inline-flex items-center gap-1.5" ref={containerRef}>
-            <span className="font-semibold text-gray-900">{title}</span>
+            <span className="font-semibold text-gray-900 dark:text-gray-100 select-none">{title}</span>
             <button
+                type="button"
                 onClick={(e) => {
                     e.stopPropagation();
                     setIsOpen(!isOpen);
                 }}
-                className={`p-1 rounded-md transition-colors ${isActive ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'}`}
-                title={`Filter ${title}`}
+                className={`p-1 rounded-md transition-colors cursor-pointer ${
+                    isFiltered || isSorted
+                        ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300 font-bold shadow-xs'
+                        : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/60 dark:hover:bg-slate-700'
+                }`}
+                title={`Filter & Sort ${title}`}
             >
-                <Filter size={14} strokeWidth={isActive ? 2.5 : 2} />
+                <Filter size={13} className={isFiltered ? 'fill-indigo-600 text-indigo-600 dark:fill-indigo-400 dark:text-indigo-400' : ''} />
             </button>
 
             {isOpen && (
                 <div
-                    className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-gray-200 z-50 flex flex-col overflow-hidden"
+                    className="absolute top-full left-0 mt-2 w-64 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-200 dark:border-slate-700 z-50 p-3 text-xs normal-case font-normal animate-in fade-in zoom-in-95 duration-150"
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div className="p-3 border-b border-gray-100 bg-gray-50/50">
-                        <div className="relative">
-                            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input
-                                type="text"
-                                placeholder="Search..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                                autoFocus
-                            />
-                        </div>
+                    {/* Header */}
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-700 mb-2">
+                        <span className="font-bold text-gray-800 dark:text-gray-200 text-xs">Filter: {title}</span>
+                        <button 
+                            type="button"
+                            onClick={() => setIsOpen(false)}
+                            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                        >
+                            <X size={14} />
+                        </button>
                     </div>
 
-                    <div className="max-h-60 overflow-y-auto p-2 space-y-0.5 custom-scrollbar">
-                        <label className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded-lg cursor-pointer select-none">
-                            <input
-                                type="checkbox"
-                                checked={filteredValues.length > 0 && filteredValues.every(val => currentFilters.includes(val))}
-                                ref={input => {
-                                    if (input) {
-                                        input.indeterminate = filteredValues.some(val => currentFilters.includes(val)) && !filteredValues.every(val => currentFilters.includes(val));
-                                    }
-                                }}
-                                onChange={handleSelectAll}
-                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                            />
-                            <span className="text-sm font-medium text-gray-700">(Select All)</span>
-                        </label>
-                        <hr className="my-1 border-gray-100" />
+                    {/* Sort Buttons */}
+                    {enableSort && onSortChange && (
+                        <div className="grid grid-cols-2 gap-1.5 pb-2.5 border-b border-gray-100 dark:border-slate-700 mb-2.5">
+                            <button
+                                type="button"
+                                onClick={() => onSortChange(column, 'asc')}
+                                className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border font-semibold text-[11px] transition-all cursor-pointer ${
+                                    sortConfig?.key === column && sortConfig?.direction === 'asc'
+                                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300'
+                                        : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-gray-300 hover:bg-gray-100'
+                                }`}
+                            >
+                                <ArrowUpAZ size={13} /> Sort A ➔ Z
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => onSortChange(column, 'desc')}
+                                className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border font-semibold text-[11px] transition-all cursor-pointer ${
+                                    sortConfig?.key === column && sortConfig?.direction === 'desc'
+                                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-700 dark:text-indigo-300'
+                                        : 'bg-gray-50 border-gray-200 text-gray-700 dark:bg-slate-700/50 dark:border-slate-600 dark:text-gray-300 hover:bg-gray-100'
+                                }`}
+                            >
+                                <ArrowDownZA size={13} /> Sort Z ➔ A
+                            </button>
+                        </div>
+                    )}
 
+                    {/* Search Input */}
+                    <div className="relative mb-2">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                        <input
+                            type="text"
+                            placeholder="Search values..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 dark:border-slate-600 rounded-lg bg-gray-50 dark:bg-slate-700/50 text-gray-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                    </div>
+
+                    {/* Quick Selection Actions */}
+                    <div className="flex items-center justify-between px-1 mb-1.5 text-[11px]">
+                        <button
+                            type="button"
+                            onClick={handleSelectAll}
+                            className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer"
+                        >
+                            Select All
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleClear}
+                            className="text-rose-600 dark:text-rose-400 hover:underline font-semibold cursor-pointer"
+                        >
+                            Clear
+                        </button>
+                    </div>
+
+                    {/* Checkbox List */}
+                    <div className="max-h-48 overflow-y-auto space-y-1 pr-1 border border-gray-100 dark:border-slate-700/60 rounded-lg p-1.5 bg-gray-50/40 dark:bg-slate-900/30">
                         {filteredValues.length === 0 ? (
-                            <div className="text-center py-4 text-xs text-gray-400">No items found</div>
+                            <div className="text-center py-3 text-gray-400 text-xs">No matching values</div>
                         ) : (
-                            filteredValues.map((value) => (
-                                <label key={value} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded-lg cursor-pointer select-none group">
-                                    <input
-                                        type="checkbox"
-                                        checked={currentFilters.includes(value)}
-                                        onChange={() => handleCheckboxChange(value)}
-                                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                    />
-                                    <span className="text-sm text-gray-600 group-hover:text-gray-900">{value}</span>
-                                </label>
-                            ))
+                            filteredValues.map(({ value, count }) => {
+                                const isChecked = currentFilters.includes(value);
+
+                                return (
+                                    <label
+                                        key={value}
+                                        className="flex items-center justify-between px-2 py-1 hover:bg-gray-100 dark:hover:bg-slate-700/60 rounded-md cursor-pointer text-xs group"
+                                    >
+                                        <div className="flex items-center gap-2 min-w-0 pr-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => handleCheckboxChange(value)}
+                                                className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                                            />
+                                            <span className="truncate text-gray-700 dark:text-gray-200 font-medium">
+                                                {value}
+                                            </span>
+                                        </div>
+                                        <span className="text-[10px] text-gray-400 font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded shrink-0">
+                                          {count}
+                                        </span>
+                                    </label>
+                                );
+                            })
                         )}
                     </div>
 
-                    <div className="p-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center gap-2">
+                    {/* Footer */}
+                    <div className="flex justify-end pt-2.5 mt-2 border-t border-gray-100 dark:border-slate-700">
                         <button
-                            onClick={handleClear}
-                            disabled={!isActive}
-                            className="text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50 transition-colors"
-                        >
-                            Clear Filter
-                        </button>
-                        <button
+                            type="button"
                             onClick={() => setIsOpen(false)}
-                            className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
                         >
-                            Done
+                            Apply
                         </button>
                     </div>
                 </div>

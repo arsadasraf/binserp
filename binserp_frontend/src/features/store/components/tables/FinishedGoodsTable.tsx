@@ -27,7 +27,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
       'Storage Location': item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : '') || '-',
       'Revision No': item.revisionNumber || '-',
       'BOM Items Count': Array.isArray(item.bom) ? item.bom.length : 0,
-      'Description': item.description || '-'
+      'Description': item.description || item.descriptions || '-'
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -40,6 +40,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
     {
       id: 'name',
       label: 'Product Name',
+      getValue: (item) => item.name || '-',
       render: (item) => {
         const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
         return (
@@ -59,15 +60,25 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
               <span className="font-bold text-slate-900 dark:text-white block">
                 {item.name || '-'}
               </span>
-              {item.code && <span className="text-[10px] text-slate-400 font-mono">{item.code}</span>}
             </div>
           </div>
         );
       }
     },
     {
+      id: 'description',
+      label: 'Description',
+      getValue: (item) => item.description || item.descriptions || '-',
+      render: (item) => (
+        <span className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 max-w-[280px] block" title={item.description || item.descriptions || ''}>
+          {item.description || item.descriptions || '-'}
+        </span>
+      )
+    },
+    {
       id: 'type',
       label: 'Classification',
+      getValue: (item) => item.type || 'Component',
       render: (item) => (
         <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800">
           {item.type || 'Component'}
@@ -77,6 +88,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
     {
       id: 'unit',
       label: 'Unit',
+      getValue: (item) => item.unit || 'Nos',
       render: (item) => (
         <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
           {item.unit || 'Nos'}
@@ -86,6 +98,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
     {
       id: 'status',
       label: 'Status',
+      getValue: (item) => (item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated') ? 'Deactivated' : 'Active',
       render: (item) => {
         const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
         return (
@@ -103,6 +116,8 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
     {
       id: 'actions',
       label: 'Actions',
+      enableFilter: false,
+      enableSort: false,
       render: (item) => {
         const isInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
         const hasStockOrTransactions = (Number(item.quantity || item.currentStock || 0) > 0 || Number(item.allocatedQuantity || 0) > 0 || Boolean(item.hasTransactions));
@@ -164,7 +179,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
         data={data}
         onRowClick={onView}
         searchPlaceholder="Search finished goods..."
-        searchableKeys={['name', 'description', 'type', 'revisionNumber']}
+        searchableKeys={['name', 'description', 'descriptions', 'type', 'revisionNumber']}
         actionButton={
           <div className="flex flex-wrap items-center gap-2">
             <StoreMasterExcelActions
@@ -185,4 +200,3 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
     </>
   );
 }
-

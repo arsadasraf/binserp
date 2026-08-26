@@ -146,7 +146,10 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         return effectiveRmList.map((m: any) => {
             const invItem = combinedInventoryList.find((d: any) => {
                 const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
-                return String(dMatId) === String(m._id) || String(d._id) === String(m._id) || (m.code && d.materialCode === m.code);
+                const matchesId = String(dMatId) === String(m._id) || String(d._id) === String(m._id);
+                const matchesCode = m.code && d.materialCode && d.materialCode.toUpperCase() === m.code.toUpperCase();
+                const matchesName = m.name && d.materialName && d.materialName.toLowerCase().trim() === m.name.toLowerCase().trim();
+                return matchesId || matchesCode || matchesName;
             });
 
             return {
@@ -189,7 +192,10 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         return effectiveBoList.map((m: any) => {
             const invItem = combinedInventoryList.find((d: any) => {
                 const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
-                return String(dMatId) === String(m._id) || String(d._id) === String(m._id) || (m.code && d.materialCode === m.code);
+                const matchesId = String(dMatId) === String(m._id) || String(d._id) === String(m._id);
+                const matchesCode = m.code && d.materialCode && d.materialCode.toUpperCase() === m.code.toUpperCase();
+                const matchesName = m.name && d.materialName && d.materialName.toLowerCase().trim() === m.name.toLowerCase().trim();
+                return matchesId || matchesCode || matchesName;
             });
 
             return {
@@ -373,7 +379,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                             setSelectedItem(item);
                             setShowDetails(true);
                         }}
-                        refetch={refetch}
+                        refetch={storeData.fetchData || refetch}
                         onCreateGRN={() => {
                             setEditingGRN(undefined);
                             setShowGRNModal(true);

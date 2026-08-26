@@ -69,6 +69,9 @@ export default function WipInventoryTab({
     const [filterCategory, setFilterCategory] = useState('');
     const [filterMrp, setFilterMrp] = useState('');
     const [filterStatus, setFilterStatus] = useState<'All' | 'Active WIP Only' | 'WIP Zero' | 'Completed'>('All');
+    const [filterDatePreset, setFilterDatePreset] = useState<'all' | 'today' | 'this_month' | 'last_30_days' | 'custom'>('all');
+    const [filterStartDate, setFilterStartDate] = useState('');
+    const [filterEndDate, setFilterEndDate] = useState('');
 
     // Ledger Drawer State
     const [selectedWipItem, setSelectedWipItem] = useState<any | null>(null);
@@ -88,10 +91,12 @@ export default function WipInventoryTab({
             const res = await apiGet(`/api/store/wip/inventory?type=${backendType}`, token);
             setWipItems(res.wipItems || []);
             setMrpBuckets(res.mrpBuckets || []);
-            setLedgerTransactions(res.ledger || []);
-            if (res.summary) setSummary(res.summary);
+            setLedgerTransactions(res.transactionsLedger || []);
+            if (res.summary) {
+                setSummary(res.summary);
+            }
         } catch (err: any) {
-            console.error("Failed to fetch WIP inventory:", err);
+            console.error('Failed to fetch WIP inventory data:', err);
             onError(err.message || 'Failed to fetch WIP Inventory');
         } finally {
             setLoading(false);
@@ -100,43 +105,42 @@ export default function WipInventoryTab({
 
     useEffect(() => {
         fetchWipInventory();
-    }, [token, wipType]);
+    }, [wipType, token]);
 
-    // Unique Categories list for filter dropdown
+    // Categories list for active items
     const categoriesList = useMemo(() => {
-        const set = new Map();
-        wipItems.forEach(item => {
-            if (item.categoryName) set.set(item.categoryName, item.categoryName);
+        const set = new Set<string>();
+        wipItems.forEach((item) => {
+            if (item.categoryName) set.add(item.categoryName);
+            else if (item.categoryType) set.add(item.categoryType);
         });
-        return Array.from(set.values());
+        return Array.from(set);
     }, [wipItems]);
 
-    // Unique MRP Numbers list for filter dropdown
+    // MRP Numbers list for filter dropdown
     const mrpList = useMemo(() => {
-        const set = new Map();
-        mrpBuckets.forEach(bucket => {
-            if (bucket.mrpNumber) set.set(bucket.mrpNumber, bucket.mrpNumber);
+        const set = new Set<string>();
+        mrpBuckets.forEach(b => {
+            if (b.mrpNumber) set.add(b.mrpNumber);
         });
-        return Array.from(set.values());
-    }, [mrpBuckets]);
+        ledgerTransactions.forEach(t => {
+            if (t.mrpNumber) set.add(t.mrpNumber);
+        });
+        return Array.from(set);
+    }, [mrpBuckets, ledgerTransactions]);
 
     // Filtered Items for standard RM/BO/FG WIP tabs
     const filteredItems = useMemo(() => {
         return wipItems.filter(item => {
             const matchSearch =
-                (item.materialName && item.materialName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                item.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 (item.materialCode && item.materialCode.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.materialDescription && item.materialDescription.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (item.categoryName && item.categoryName.toLowerCase().includes(searchTerm.toLowerCase()));
+                (item.materialDescription && item.materialDescription.toLowerCase().includes(searchTerm.toLowerCase()));
 
-            const matchCategory = !filterCategory || item.categoryName === filterCategory;
-            
-            let matchStatus = true;
-            if (filterStatus === 'Active WIP Only') {
-                matchStatus = item.pendingWipQty > 0;
-            } else if (filterStatus === 'WIP Zero') {
-                matchStatus = item.pendingWipQty <= 0;
-            }
+            const matchCategory = !filterCategory || item.categoryName === filterCategory || item.categoryType === filterCategory;
+
+            const matchStatus = filterStatus === 'All' || 
+                (filterStatus === 'Active WIP Only' ? item.pendingWipQty > 0 : item.pendingWipQty === 0);
 
             return matchSearch && matchCategory && matchStatus;
         });
@@ -158,9 +162,9 @@ export default function WipInventoryTab({
         });
     }, [mrpBuckets, searchTerm, filterMrp, filterStatus]);
 
-    // Filtered Ledger Transactions
+    // Filtered Ledger Transactions with Date Filter
     const filteredLedger = useMemo(() => {
-        return ledgerTransactions.filter(tx => {
+        let list = ledgerTransactions.filter(tx => {
             const matchSearch =
                 (tx.materialName && tx.materialName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (tx.docNumber && tx.docNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -171,7 +175,33 @@ export default function WipInventoryTab({
             const matchMrp = !filterMrp || tx.mrpNumber === filterMrp;
             return matchSearch && matchMrp;
         });
-    }, [ledgerTransactions, searchTerm, filterMrp]);
+
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+        if (filterDatePreset === 'today') {
+            list = list.filter(tx => new Date(tx.date) >= startOfToday);
+        } else if (filterDatePreset === 'this_month') {
+            list = list.filter(tx => new Date(tx.date) >= startOfMonth);
+        } else if (filterDatePreset === 'last_30_days') {
+            list = list.filter(tx => new Date(tx.date) >= thirtyDaysAgo);
+        } else if (filterDatePreset === 'custom') {
+            if (filterStartDate) {
+                const sDate = new Date(filterStartDate);
+                sDate.setHours(0, 0, 0, 0);
+                list = list.filter(tx => new Date(tx.date) >= sDate);
+            }
+            if (filterEndDate) {
+                const eDate = new Date(filterEndDate);
+                eDate.setHours(23, 59, 59, 999);
+                list = list.filter(tx => new Date(tx.date) <= eDate);
+            }
+        }
+
+        return list;
+    }, [ledgerTransactions, searchTerm, filterMrp, filterDatePreset, filterStartDate, filterEndDate]);
 
     const openLedger = (item: any) => {
         setSelectedWipItem(item);
@@ -211,6 +241,7 @@ export default function WipInventoryTab({
                 'Process / Vendor': tx.processType || tx.vendorName || '-',
                 'WIP Inward (+)': tx.sentQty > 0 ? tx.sentQty : 0,
                 'WIP Consumed (-)': tx.receivedQty > 0 ? tx.receivedQty : 0,
+                'QC Rejected (-)': tx.rejectedQty > 0 ? tx.rejectedQty : 0,
                 'Unit': tx.unit || 'PCS',
                 'Status': tx.status || 'Recorded'
             }));
@@ -218,21 +249,19 @@ export default function WipInventoryTab({
             XLSX.utils.book_append_sheet(wb, ws, 'WIP_Movement_Ledger');
             XLSX.writeFile(wb, `WIP_Movement_Ledger_${dateStr}.xlsx`);
         } else {
-            const typeLabel = wipType === 'rm' ? 'Raw_Materials' : wipType === 'bo' ? 'Bought_Out' : 'Finished_Goods';
+            const typeLabel = wipType.toUpperCase();
             const rows = filteredItems.map((item, idx) => {
-                const rowObj: Record<string, any> = {
+                const rowObj: any = {
                     'S.No': idx + 1,
                     'Material Name': item.materialName || '-',
-                    'Description': item.materialDescription || '-',
                     'Material Code': item.materialCode || '-',
-                    'Category / Node': item.categoryName || '-',
+                    'Category': item.categoryName || item.categoryType || '-',
                     'Unit': item.unit || 'PCS',
                     'Main Store Stock': item.mainStoreStock || 0,
-                    'Store Outward (WIP Inward)': (item.totalIssuedQty || 0) + (item.totalJobWorkSentQty || 0),
-                    'FG GRN Consumed': item.totalReturnedQty || 0,
                     'Shopfloor WIP': item.shopfloorWipQty || 0,
+                    'Pending QC': item.pendingQcQty || 0,
                     'Job Work Stock': item.jobWorkWipQty || 0,
-                    'Net Total WIP': item.pendingWipQty || 0,
+                    'Total WIP': item.pendingWipQty || 0,
                     'Status': item.status || (item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero'),
                     'Last Movement Date': item.lastMovementDate ? new Date(item.lastMovementDate).toLocaleDateString() : '-'
                 };
@@ -251,7 +280,7 @@ export default function WipInventoryTab({
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
                     <span className="text-[11px] font-bold uppercase text-slate-400 block tracking-wider">
-                        {wipType === 'mrp' ? 'Total MRP WIP Plans' : wipType === 'ledger' ? 'Total Movement Docs' : 'Master Catalog Items'}
+                        {wipType === 'mrp' ? 'Total MRP WIP Plans' : wipType === 'ledger' ? 'Total Movement Docs' : 'Catalog Items'}
                     </span>
                     <div className="mt-1 flex items-baseline gap-2">
                         <span className="text-2xl font-black text-slate-900 dark:text-white">
@@ -264,120 +293,161 @@ export default function WipInventoryTab({
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-amber-500 block tracking-wider">Store Outward (WIP Inward)</span>
+                    <span className="text-[11px] font-bold uppercase text-amber-500 block tracking-wider">Shopfloor WIP Stock</span>
                     <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-black text-amber-600 dark:text-amber-400">
-                            {summary.totalIssuedQty + summary.totalJobWorkSentQty}
+                        <span className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">
+                            {summary.shopfloorWipQty}
                         </span>
-                        <span className="text-xs text-slate-400 font-semibold">Units Issued</span>
+                        <span className="text-xs text-slate-400 font-semibold">Units In-House</span>
                     </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-emerald-500 block tracking-wider">FG GRN Consumed (WIP Outward)</span>
+                    <span className="text-[11px] font-bold uppercase text-purple-500 block tracking-wider">Job Work Stock</span>
                     <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                            {summary.totalReturnedQty}
+                        <span className="text-2xl font-black text-purple-600 dark:text-purple-400 font-mono">
+                            {summary.jobWorkWipQty}
                         </span>
-                        <span className="text-xs text-slate-400 font-semibold">Units Consumed</span>
+                        <span className="text-xs text-slate-400 font-semibold">Units with Vendors</span>
                     </div>
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/20 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">Net Active Total WIP</span>
+                    <span className="text-[11px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">Total Active WIP</span>
                     <div className="mt-1 flex items-baseline gap-2">
                         <span className="text-2xl font-black text-indigo-700 dark:text-indigo-300 font-mono">
                             {summary.netPendingWipQty}
                         </span>
-                        <span className="text-xs text-indigo-600/70 font-semibold">Units in WIP</span>
+                        <span className="text-xs text-indigo-600/70 font-semibold">Total WIP Units</span>
                     </div>
                 </div>
             </div>
 
             {/* Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
-                <div className="flex-1 flex flex-wrap gap-2.5 items-center">
-                    {/* Search Input */}
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-                        <input
-                            type="text"
-                            placeholder={wipType === 'mrp' ? "Search MRP #, customer, FG name..." : "Search material name, description, category..."}
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-9 pr-3.5 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-white font-medium"
-                        />
+            <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col gap-2.5">
+                <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+                    <div className="flex-1 flex flex-wrap gap-2.5 items-center">
+                        {/* Search Input */}
+                        <div className="relative flex-1 sm:w-64 min-w-[200px]">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                            <input
+                                type="text"
+                                placeholder={wipType === 'mrp' ? "Search MRP Plan / Sales Order..." : "Search Material Name / Code..."}
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-900 dark:text-slate-100 placeholder-slate-400"
+                            />
+                        </div>
+
+                        {/* Category Filter */}
+                        {wipType !== 'mrp' && wipType !== 'ledger' && categoriesList.length > 0 && (
+                            <select
+                                value={filterCategory}
+                                onChange={(e) => setFilterCategory(e.target.value)}
+                                className="px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                                <option value="">All Categories</option>
+                                {categoriesList.map((cat, idx) => (
+                                    <option key={idx} value={cat}>{cat}</option>
+                                ))}
+                            </select>
+                        )}
+
+                        {/* Status Filter */}
+                        {wipType !== 'ledger' && (
+                            <select
+                                value={filterStatus}
+                                onChange={(e: any) => setFilterStatus(e.target.value)}
+                                className="px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                                <option value="All">All Status</option>
+                                <option value="Active WIP Only">Active WIP Only</option>
+                                <option value="WIP Zero">WIP Zero</option>
+                            </select>
+                        )}
+
+                        {/* MRP Plan Filter for Ledger */}
+                        {wipType === 'ledger' && mrpList.length > 0 && (
+                            <select
+                                value={filterMrp}
+                                onChange={(e) => setFilterMrp(e.target.value)}
+                                className="px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            >
+                                <option value="">All MRP Plans</option>
+                                {mrpList.map((mrp, idx) => (
+                                    <option key={idx} value={mrp}>{mrp}</option>
+                                ))}
+                            </select>
+                        )}
                     </div>
 
-                    {/* Category Filter for RM/BO/FG */}
-                    {wipType !== 'mrp' && wipType !== 'ledger' && categoriesList.length > 0 && (
-                        <select
-                            value={filterCategory}
-                            onChange={(e) => setFilterCategory(e.target.value)}
-                            className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold focus:outline-none"
+                    <div className="flex items-center gap-2">
+                        {/* Refresh Data Button */}
+                        <button
+                            onClick={fetchWipInventory}
+                            disabled={loading}
+                            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
                         >
-                            <option value="">All Categories</option>
-                            {categoriesList.map((cat: any) => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                        </select>
-                    )}
+                            <RefreshCw size={13} className={loading ? "animate-spin text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"} />
+                            <span>Refresh</span>
+                        </button>
 
-                    {/* MRP Plan Filter */}
-                    {(wipType === 'mrp' || wipType === 'ledger') && mrpList.length > 0 && (
-                        <select
-                            value={filterMrp}
-                            onChange={(e) => setFilterMrp(e.target.value)}
-                            className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold focus:outline-none"
+                        {/* Excel Export Button */}
+                        <button
+                            onClick={exportToExcel}
+                            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 dark:text-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border border-emerald-200/60 dark:border-emerald-800"
                         >
-                            <option value="">All MRP Plans</option>
-                            {mrpList.map((mrp: any) => (
-                                <option key={mrp} value={mrp}>{mrp}</option>
-                            ))}
-                        </select>
-                    )}
+                            <Download size={13} />
+                            <span>Export</span>
+                        </button>
+                    </div>
+                </div>
 
-                    {/* Status Filter */}
-                    {wipType !== 'ledger' && (
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-1">
-                            {(wipType === 'mrp' 
-                                ? (['All', 'In Production', 'Completed'] as const) 
-                                : (['All', 'Active WIP Only', 'WIP Zero'] as const)
-                            ).map((st) => (
+                {/* Date Filter Bar for Ledger view */}
+                {wipType === 'ledger' && (
+                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Date:</span>
+                            {[
+                                { key: 'all', label: 'All Time' },
+                                { key: 'today', label: 'Today' },
+                                { key: 'this_month', label: 'This Month' },
+                                { key: 'last_30_days', label: 'Last 30 Days' },
+                                { key: 'custom', label: 'Custom Range' },
+                            ].map((btn) => (
                                 <button
-                                    key={st}
-                                    onClick={() => setFilterStatus(st as any)}
-                                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
-                                        filterStatus === st 
-                                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs' 
-                                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-white'
+                                    key={btn.key}
+                                    onClick={() => setFilterDatePreset(btn.key as any)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                                        filterDatePreset === btn.key
+                                            ? 'bg-indigo-600 text-white shadow-xs'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                                     }`}
                                 >
-                                    {st}
+                                    {btn.label}
                                 </button>
                             ))}
                         </div>
-                    )}
 
-                    {/* Refresh Data Button */}
-                    <button
-                        onClick={fetchWipInventory}
-                        disabled={loading}
-                        className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0"
-                    >
-                        <RefreshCw size={13} className={loading ? "animate-spin text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"} />
-                        <span>Refresh Data</span>
-                    </button>
-
-                    {/* Excel Export Button */}
-                    <button
-                        onClick={exportToExcel}
-                        className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 dark:text-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border border-emerald-200/60 dark:border-emerald-800"
-                    >
-                        <Download size={13} />
-                        <span>Export Excel</span>
-                    </button>
-                </div>
+                        {filterDatePreset === 'custom' && (
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="date"
+                                    value={filterStartDate}
+                                    onChange={(e) => setFilterStartDate(e.target.value)}
+                                    className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                                />
+                                <span className="text-slate-400">to</span>
+                                <input
+                                    type="date"
+                                    value={filterEndDate}
+                                    onChange={(e) => setFilterEndDate(e.target.value)}
+                                    className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs"
+                                />
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Main Content Area */}
@@ -389,84 +459,65 @@ export default function WipInventoryTab({
                 /* MRP WIP Inventory View */
                 filteredMrpBuckets.length === 0 ? (
                     <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                        <Package className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                        <Boxes className="mx-auto h-12 w-12 text-slate-300 mb-3" />
                         <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                            No MRP WIP Inventory Records Found
+                            No Active MRP WIP Tracking Plans
                         </h3>
-                        <p className="text-xs text-slate-500 mt-1">Materials issued against an MRP Number will aggregate into their dedicated MRP WIP inventory here.</p>
+                        <p className="text-xs text-slate-500 mt-1">Material issues against MRP Plans will group and show cumulative progress here.</p>
                     </div>
                 ) : (
                     <div className="space-y-4">
                         {filteredMrpBuckets.map((bucket) => {
-                            const isCompleted = bucket.status === 'Completed' || (bucket.items && bucket.items.length > 0 && bucket.netPendingWipCount <= 0);
-
+                            const isCompleted = bucket.pendingWipQty <= 0 && bucket.totalIssuedQty > 0;
                             return (
-                                <div 
-                                    key={bucket.mrpNumber} 
-                                    className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden p-5 space-y-4 hover:border-indigo-300 transition-colors"
-                                >
-                                    {/* Bucket Header */}
-                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                                <div key={bucket.mrpPlanId || bucket.mrpNumber} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4">
+                                    {/* MRP Header Info */}
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-100 dark:border-indigo-900">
-                                                <Package size={20} />
+                                            <div className="p-2.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                                                <Boxes size={20} />
                                             </div>
                                             <div>
                                                 <div className="flex items-center gap-2">
-                                                    <h3 className="text-sm font-black text-slate-900 dark:text-white font-mono">
-                                                        MRP: {bucket.mrpNumber}
+                                                    <h3 className="text-base font-bold text-slate-900 dark:text-white font-mono">
+                                                        {bucket.mrpNumber}
                                                     </h3>
                                                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                                                        isCompleted
-                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
-                                                            : bucket.status === 'Planned'
-                                                                ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                                                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-900'
+                                                        isCompleted 
+                                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' 
+                                                            : 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
                                                     }`}>
-                                                        {isCompleted ? '✓ Completed' : (bucket.status || 'In Production')}
+                                                        {isCompleted ? 'MRP Closed' : 'In Production'}
                                                     </span>
                                                 </div>
                                                 <p className="text-xs text-slate-500 mt-0.5">
-                                                    Customer / Reference: <span className="font-semibold text-slate-700 dark:text-slate-300">{bucket.customerName}</span>
+                                                    Product: <span className="font-semibold text-slate-700 dark:text-slate-300">{bucket.productName}</span> ({bucket.orderQuantity} {bucket.unit})
+                                                    {bucket.salesOrderNumber && <span className="ml-2">| SO: <span className="font-mono font-bold text-indigo-600">{bucket.salesOrderNumber}</span></span>}
+                                                    {bucket.customerName && <span className="ml-2 text-slate-400">({bucket.customerName})</span>}
                                                 </p>
                                             </div>
                                         </div>
 
-                                        {/* Action to view MRP movements */}
-                                        <button
-                                            onClick={() => openLedger({
-                                                sentItemName: `MRP WIP Plan: ${bucket.mrpNumber}`,
-                                                vendorName: bucket.customerName,
-                                                processType: "MRP Production & WIP Lifecycle",
-                                                unit: "Units",
-                                                totalIssuedQty: bucket.totalRmIssued + bucket.totalBoIssued + bucket.totalFgIssued,
-                                                totalReturnedQty: bucket.totalFgProduced,
-                                                pendingWipQty: bucket.netPendingWipCount,
-                                                transactions: bucket.transactions
-                                            })}
-                                            className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                                        >
-                                            <Eye size={14} /> View WIP Movements
-                                        </button>
-                                    </div>
-
-                                    {/* Bucket Metrics */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl text-xs">
-                                        <div>
-                                            <span className="text-[10px] font-bold uppercase text-blue-500 block">RM Issued</span>
-                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalRmIssued}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-bold uppercase text-emerald-500 block">BO Issued</span>
-                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalBoIssued}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-bold uppercase text-purple-500 block">FG / Comp Issued</span>
-                                            <span className="text-sm font-black text-slate-800 dark:text-white font-mono">{bucket.totalFgIssued}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-bold uppercase text-indigo-600 block">FG GRN Produced</span>
-                                            <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">{bucket.totalFgProduced}</span>
+                                        {/* Progress Metrics */}
+                                        <div className="flex items-center gap-4 text-xs">
+                                            <div className="text-right">
+                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Issued to WIP</span>
+                                                <span className="font-bold text-amber-600 font-mono text-sm">
+                                                    {bucket.totalIssuedQty}
+                                                </span>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="text-[10px] uppercase font-bold text-slate-400 block">FG Consumed</span>
+                                                <span className="font-bold text-emerald-600 font-mono text-sm">
+                                                    {bucket.totalConsumedQty}
+                                                </span>
+                                            </div>
+                                            <div className="text-right pl-3 border-l border-slate-200 dark:border-slate-700">
+                                                <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400 block">Pending In WIP</span>
+                                                <span className="font-black text-indigo-700 dark:text-indigo-300 font-mono text-base">
+                                                    {bucket.pendingWipQty}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -525,45 +576,65 @@ export default function WipInventoryTab({
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
-                                    {filteredLedger.map((tx: any, idx: number) => (
-                                        <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
-                                            <td className="px-5 py-3.5 text-slate-500 font-mono">
-                                                {new Date(tx.date).toLocaleDateString()} {new Date(tx.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </td>
-                                            <td className="px-5 py-3.5 font-bold font-mono text-slate-900 dark:text-white">
-                                                {tx.docNumber}
-                                            </td>
-                                            <td className="px-5 py-3.5">
-                                                {tx.mrpNumber ? (
-                                                    <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                                                        {tx.mrpNumber}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-slate-400 italic">Direct Store Issue</span>
-                                                )}
-                                            </td>
-                                            <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white max-w-[200px]">
-                                                <div className="font-bold">{tx.materialName}</div>
-                                            </td>
-                                            <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400">
-                                                <span className="text-slate-700 dark:text-slate-300 font-medium block">{tx.processType || tx.vendorName || '-'}</span>
-                                            </td>
-                                            <td className="px-5 py-3.5 text-slate-600 dark:text-slate-400">
-                                                <span className="font-semibold block text-slate-800 dark:text-slate-200">{tx.type}</span>
-                                            </td>
-                                            <td className="px-5 py-3.5 text-center font-bold text-amber-600 dark:text-amber-400 font-mono">
-                                                {tx.sentQty > 0 ? `+${tx.sentQty} ${tx.unit}` : '-'}
-                                            </td>
-                                            <td className="px-5 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                                                {tx.receivedQty > 0 ? `-${tx.receivedQty} ${tx.unit}` : '-'}
-                                            </td>
-                                            <td className="px-5 py-3.5 text-center">
-                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                                    {tx.status || 'Recorded'}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {filteredLedger.map((tx: any, idx: number) => {
+                                        const isRejection = tx.isRejection || tx.status === 'Rejected' || tx.rejectedQty > 0 || tx.type.toLowerCase().includes('rejection');
+                                        return (
+                                            <tr key={idx} className={`transition-colors ${
+                                                isRejection 
+                                                    ? 'bg-rose-50/40 dark:bg-rose-950/20 hover:bg-rose-50/70' 
+                                                    : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/50'
+                                            }`}>
+                                                <td className="px-5 py-3.5 text-slate-500 font-mono">
+                                                    {new Date(tx.date).toLocaleDateString()} {new Date(tx.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                </td>
+                                                <td className="px-5 py-3.5 font-bold font-mono text-slate-900 dark:text-white">
+                                                    {tx.docNumber}
+                                                </td>
+                                                <td className="px-5 py-3.5">
+                                                    {tx.mrpNumber ? (
+                                                        <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                                                            {tx.mrpNumber}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400 italic">Direct Store Issue</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-5 py-3.5 font-semibold text-slate-900 dark:text-white max-w-[200px]">
+                                                    <div className="font-bold">{tx.materialName}</div>
+                                                </td>
+                                                <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400">
+                                                    <span className="text-slate-700 dark:text-slate-300 font-medium block">{tx.processType || tx.vendorName || '-'}</span>
+                                                    {isRejection && tx.rejectionReason && (
+                                                        <span className="text-[11px] text-rose-600 block mt-0.5">Reason: {tx.rejectionReason}</span>
+                                                    )}
+                                                </td>
+                                                <td className="px-5 py-3.5 text-slate-600 dark:text-slate-400">
+                                                    <span className="font-semibold block text-slate-800 dark:text-slate-200">{tx.type}</span>
+                                                </td>
+                                                <td className="px-5 py-3.5 text-center font-bold text-amber-600 dark:text-amber-400 font-mono">
+                                                    {tx.sentQty > 0 ? `+${tx.sentQty} ${tx.unit}` : '-'}
+                                                </td>
+                                                <td className="px-5 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                    {isRejection && tx.rejectedQty > 0 ? (
+                                                        <span className="text-rose-600 dark:text-rose-400 font-bold">-{tx.rejectedQty} {tx.unit} (Rej)</span>
+                                                    ) : (
+                                                        tx.receivedQty > 0 ? `-${tx.receivedQty} ${tx.unit}` : '-'
+                                                    )}
+                                                </td>
+                                                <td className="px-5 py-3.5 text-center">
+                                                    {isRejection ? (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                                                            QC REJECTED
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                            {tx.status || 'Recorded'}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
@@ -589,11 +660,9 @@ export default function WipInventoryTab({
                                         <th className="px-4 py-3.5">Material & Description</th>
                                         <th className="px-4 py-3.5">Category</th>
                                         <th className="px-4 py-3.5 text-center">Main Store Stock</th>
-                                        <th className="px-4 py-3.5 text-center">Store Outward (WIP Inward)</th>
-                                        <th className="px-4 py-3.5 text-center">FG GRN Consumed</th>
                                         <th className="px-4 py-3.5 text-center">Shopfloor WIP</th>
                                         <th className="px-4 py-3.5 text-center">Job Work Stock</th>
-                                        <th className="px-4 py-3.5 text-center">Net Total WIP</th>
+                                        <th className="px-4 py-3.5 text-center">Total WIP</th>
                                         <th className="px-4 py-3.5 text-center">Status</th>
                                         <th className="px-4 py-3.5 text-right">Action</th>
                                     </tr>
@@ -621,16 +690,15 @@ export default function WipInventoryTab({
                                                     {item.mainStoreStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                                                 </td>
 
-                                                <td className="px-4 py-3.5 text-center font-bold text-amber-600 dark:text-amber-400 font-mono">
-                                                    {item.totalIssuedQty + item.totalJobWorkSentQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
-                                                </td>
-
-                                                <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                                                    {item.totalReturnedQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
-                                                </td>
-
                                                 <td className="px-4 py-3.5 text-center font-bold text-slate-900 dark:text-white font-mono">
-                                                    {item.shopfloorWipQty} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    <div>
+                                                        <span>{item.shopfloorWipQty}</span> <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    </div>
+                                                    {item.pendingQcQty > 0 && (
+                                                        <span className="inline-block text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-0.5" title="Stock Awaiting QC Inspection">
+                                                            (+{item.pendingQcQty} in QC)
+                                                        </span>
+                                                    )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-purple-600 dark:text-purple-400 font-mono">
@@ -699,25 +767,26 @@ export default function WipInventoryTab({
                                         </span>
                                     </div>
 
-                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 block">Store Stock</span>
                                             <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{item.mainStoreStock}</span>
                                         </div>
                                         <div>
-                                            <span className="text-[10px] font-bold text-amber-600 block">Issued</span>
-                                            <span className="font-bold text-amber-600 font-mono">{item.totalIssuedQty + item.totalJobWorkSentQty}</span>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10px] font-bold text-emerald-600 block">Consumed</span>
-                                            <span className="font-bold text-emerald-600 font-mono">{item.totalReturnedQty}</span>
+                                            <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 block">Shopfloor</span>
+                                            <span className="font-bold text-slate-900 dark:text-white font-mono">{item.shopfloorWipQty}</span>
+                                            {item.pendingQcQty > 0 && (
+                                                <span className="text-[9px] font-bold text-amber-600 block">
+                                                    (+{item.pendingQcQty} in QC)
+                                                </span>
+                                            )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-purple-600 block">Job Work</span>
                                             <span className="font-bold text-purple-600 font-mono">{item.jobWorkWipQty || 0}</span>
                                         </div>
-                                        <div className="col-span-2 sm:col-span-1">
-                                            <span className="text-[10px] font-bold text-indigo-600 block">Net WIP</span>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-indigo-600 block">Total WIP</span>
                                             <span className="font-black text-indigo-600 font-mono">{item.pendingWipQty}</span>
                                         </div>
                                     </div>
