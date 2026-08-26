@@ -26,6 +26,9 @@ export const invoiceSchema = new mongoose.Schema(
       ref: "Customer",
     },
     customerPoReference: {
+      type: String,
+    },
+    incomingPO: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "IncomingPO",
     },

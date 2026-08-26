@@ -324,14 +324,19 @@ export const createJobWorkChallan = async (req, res) => {
 
       const firstReturn = processedReturningItems[0] || {};
 
+      const rateValue = Number(item.processRate != null ? item.processRate : unitPrice) || 0;
+      const sentQtyNum = Number(quantitySent) || 0;
+
       const processedItem = {
         itemName,
         itemType: itemType || "custom",
         processType: processType || "Job Work",
-        quantitySent: Number(quantitySent) || 0,
+        quantitySent: sentQtyNum,
         quantityReceived: 0,
         unit: unit || "PCS",
-        unitPrice: Number(unitPrice) || 0,
+        unitPrice: rateValue,
+        processRate: rateValue,
+        processAmount: sentQtyNum * rateValue,
         description: description || "",
         returningItems: processedReturningItems,
         // Legacy fallbacks

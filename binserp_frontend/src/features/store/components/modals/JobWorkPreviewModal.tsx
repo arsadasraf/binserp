@@ -267,8 +267,17 @@ export default function JobWorkPreviewModal({
 
                                                     {rIdx === 0 && (
                                                         <td rowSpan={retList.length} className="px-4 py-3.5 border-l border-slate-100 dark:border-slate-800 align-top text-xs">
-                                                            <div className="font-semibold text-slate-700 dark:text-slate-300">{item.processType}</div>
-                                                            {item.unitPrice ? <div className="text-slate-400">Rate: ₹{item.unitPrice}</div> : null}
+                                                            <div className="font-bold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</div>
+                                                            {(item.processRate || item.unitPrice) ? (
+                                                                <div className="text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
+                                                                    Rate: ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
+                                                                </div>
+                                                            ) : null}
+                                                            {(item.processRate || item.unitPrice) ? (
+                                                                <div className="text-[11px] text-slate-500 font-semibold font-mono">
+                                                                    Value: ₹{(Number(item.quantitySent || 0) * Number(item.processRate != null ? item.processRate : item.unitPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </div>
+                                                            ) : null}
                                                             {item.description ? <div className="text-slate-400 italic mt-0.5">{item.description}</div> : null}
                                                         </td>
                                                     )}

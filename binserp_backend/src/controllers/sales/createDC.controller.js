@@ -54,7 +54,9 @@ export const createDC = async (req, res) => {
 
     console.log("Creating DC:", { dcNumber, companyId });
 
-    let finalPoReference = customerPoReference;
+    let finalPoReference = customerPoReference || "";
+    let incomingPoDocId = null;
+
     if (customerPoReference) {
       const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
       const po = await IncomingPO.findOne({
@@ -65,42 +67,34 @@ export const createDC = async (req, res) => {
         ]
       });
       
-      if (!po) {
-        return res.status(404).json({ message: "Customer PO not found" });
-      }
+      if (po) {
+        incomingPoDocId = po._id;
+        finalPoReference = po.poNumber || customerPoReference;
 
-      if (po.poNumber) {
-        finalPoReference = po.poNumber;
-      }
-
-      // Validate quantities
-      for (const dcItem of items) {
-        // Find matching item in PO (assuming matching by productName for now, since DC might not store fgItem id)
-        const poItem = po.items.find(i => i.productName === dcItem.materialName || i.fgItem?.toString() === dcItem.material?.toString());
-        if (poItem) {
-          const remainingQty = poItem.quantity - (poItem.dispatchedQuantity || 0);
-          if (dcItem.quantity > remainingQty) {
-            return res.status(400).json({ 
-              message: `Cannot dispatch more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${dcItem.quantity}` 
-            });
+        // Validate and update dispatched quantities
+        for (const dcItem of items) {
+          const poItem = po.items.find(i => 
+            (i.productName && dcItem.materialName && i.productName.trim().toLowerCase() === dcItem.materialName.trim().toLowerCase()) || 
+            (i.fgItem && dcItem.fgItem && i.fgItem.toString() === dcItem.fgItem.toString())
+          );
+          if (poItem) {
+            poItem.dispatchedQuantity = (poItem.dispatchedQuantity || 0) + Number(dcItem.quantity || 0);
           }
-          // Update dispatched quantity
-          poItem.dispatchedQuantity = (poItem.dispatchedQuantity || 0) + Number(dcItem.quantity);
         }
-      }
 
-      // Auto-update Customer PO fulfillment status
-      const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
-      const totalDispatched = po.items.reduce((acc, item) => acc + (Number(item.dispatchedQuantity) || 0), 0);
-      if (totalOrdered > 0) {
-        if (totalDispatched >= totalOrdered) {
-          po.status = "Completed";
-        } else if (totalDispatched > 0) {
-          po.status = "Partially Dispatched";
+        // Auto-update Customer PO fulfillment status
+        const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+        const totalDispatched = po.items.reduce((acc, item) => acc + (Number(item.dispatchedQuantity) || 0), 0);
+        if (totalOrdered > 0) {
+          if (totalDispatched >= totalOrdered) {
+            po.status = "Completed";
+          } else if (totalDispatched > 0) {
+            po.status = "Partially Dispatched";
+          }
         }
-      }
 
-      await po.save();
+        await po.save();
+      }
     }
 
     const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false';
@@ -139,6 +133,7 @@ export const createDC = async (req, res) => {
       customer,
       customerAddress: req.body.customerAddress,
       customerPoReference: finalPoReference,
+      incomingPO: incomingPoDocId,
       items,
       discount: req.body.discount,
       otherDetails: req.body.otherDetails,

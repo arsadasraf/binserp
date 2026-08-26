@@ -445,7 +445,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                                         <tr>
                                             <th className="px-3 py-2 text-left">Item Sent</th>
                                             <th className="px-3 py-2 text-left">Material to be Received</th>
-                                            <th className="px-3 py-2 text-left">Process</th>
+                                            <th className="px-3 py-2 text-left">Process / Rate</th>
                                             <th className="px-3 py-2 text-center">Sent Qty</th>
                                             <th className="px-3 py-2 text-center">Recv Qty</th>
                                             <th className="px-3 py-2 text-center">Pending</th>
@@ -466,6 +466,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                                                 const expQty = Number(ret.quantityToBeReceived) || 0;
                                                 const recvQty = Number(ret.quantityReceived) || 0;
                                                 const pending = expQty - recvQty;
+                                                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
 
                                                 return (
                                                     <tr key={`${idx}_${rIdx}`}>
@@ -479,7 +480,12 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                                                         </td>
                                                         {rIdx === 0 && (
                                                             <td rowSpan={retList.length} className="px-3 py-2 text-gray-600 border-r border-gray-100 align-top">
-                                                                {item.processType}
+                                                                <div className="font-semibold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</div>
+                                                                {rate > 0 && (
+                                                                    <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                        ₹{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                         )}
                                                         {rIdx === 0 && (
@@ -522,7 +528,9 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                                                 <div>
                                                     <span className="text-[10px] text-slate-400 uppercase font-bold block">Sent Item</span>
                                                     <span className="font-bold text-slate-900 text-xs">{item.itemName}</span>
-                                                    <span className="text-[11px] text-indigo-600 font-medium block">Process: {item.processType}</span>
+                                                    <span className="text-[11px] text-indigo-600 font-medium block">
+                                                        Process: {item.processType} {(item.processRate || item.unitPrice) ? `(₹${item.processRate || item.unitPrice}/${item.unit || 'PCS'})` : ''}
+                                                    </span>
                                                 </div>
                                                 <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded text-[11px] font-bold">
                                                     {item.quantitySent} {item.unit}

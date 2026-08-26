@@ -104,6 +104,14 @@ export const jobWorkSchema = new mongoose.Schema(
           type: Number,
           default: 0,
         },
+        processRate: {
+          type: Number,
+          default: 0,
+        },
+        processAmount: {
+          type: Number,
+          default: 0,
+        },
         processType: {
           type: String,
           required: true,

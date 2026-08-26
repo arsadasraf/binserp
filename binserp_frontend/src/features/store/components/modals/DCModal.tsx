@@ -206,6 +206,8 @@ export default function DCModal({
 
     const handlePOSelect = (poId: string) => {
         setCustomerPoReference(poId);
+        if (!poId) return;
+
         const po = Array.isArray(incomingPOs) ? incomingPOs.find((p: any) => p._id === poId) : null;
         if (po) {
             if (po.customer) {
@@ -215,7 +217,7 @@ export default function DCModal({
             if (po.items && po.items.length > 0) {
                 // Filter only items with pending dispatch quantity > 0
                 const pendingItems = po.items.filter((i: any) => {
-                    const remainingQty = (i.quantity || 0) - (i.dispatchedQuantity || 0);
+                    const remainingQty = (Number(i.quantity) || 0) - (Number(i.dispatchedQuantity) || 0);
                     return remainingQty > 0;
                 });
 
@@ -225,22 +227,30 @@ export default function DCModal({
                 }
 
                 const mappedItems: DCItemEntry[] = pendingItems.map((i: any) => {
-                    const fgId = typeof i.fgItem === 'object' ? i.fgItem?._id : i.fgItem || "";
-                    const reservedStock = i.allocatedFgQty !== undefined ? Number(i.allocatedFgQty || 0) : Number(i.quantity || 0);
-                    const alreadyDispatched = Number(i.dispatchedQuantity || 0);
-                    const availableForDispatch = Math.max(1, reservedStock > 0 ? (reservedStock - alreadyDispatched) : ((i.quantity || 1) - alreadyDispatched));
-                    const rate = i.pricePerQuantity || i.rate || 0;
+                    const rawFgId = typeof i.fgItem === 'object' ? i.fgItem?._id : i.fgItem || "";
+                    const matchedFG = availableFGItems.find(f => 
+                        (rawFgId && (f._id === rawFgId || f.id === rawFgId)) ||
+                        (f.name && i.productName && f.name.trim().toLowerCase() === i.productName.trim().toLowerCase())
+                    );
+                    const finalFgId = matchedFG?._id || rawFgId || "";
+                    const remainingQty = Math.max(1, (Number(i.quantity) || 1) - (Number(i.dispatchedQuantity) || 0));
+                    const priceConfig = Array.isArray(priceLists) ? priceLists.find((p: any) => (p.fgItem?._id || p.fgItem) === finalFgId) : null;
+                    const rate = Number(i.pricePerQuantity ?? i.rate ?? priceConfig?.price ?? matchedFG?.sellingPrice ?? matchedFG?.rate ?? 0);
+                    const hsn = i.hsnCode || priceConfig?.hsnCode || matchedFG?.hsnCode || "";
+                    const desc = i.description || matchedFG?.description || matchedFG?.partDescription || "";
+                    const unit = i.unit || matchedFG?.unit || "PCS";
+
                     return {
                         itemType: 'fg' as const,
-                        fgItem: fgId,
-                        component: fgId,
-                        materialName: i.productName || i.name || "",
-                        hsnCode: i.hsnCode || "",
-                        quantity: availableForDispatch,
-                        unit: i.unit || "PCS",
+                        fgItem: finalFgId,
+                        component: finalFgId,
+                        materialName: i.productName || matchedFG?.name || "",
+                        hsnCode: hsn,
+                        quantity: remainingQty,
+                        unit: unit,
                         rate: rate,
-                        amount: availableForDispatch * rate,
-                        description: `Reserved for PO ${po.poNumber || po.poReference}`
+                        amount: remainingQty * rate,
+                        description: desc
                     };
                 });
                 setItems(mappedItems);
@@ -263,6 +273,7 @@ export default function DCModal({
         const rate = Number(priceConfig?.price ?? selectedFG?.sellingPrice ?? selectedFG?.rate ?? 0);
         const name = selectedFG?.name || selectedFG?.partName || selectedFG?.componentName || "";
         const hsn = priceConfig?.hsnCode || selectedFG?.hsnCode || "";
+        const desc = selectedFG?.description || selectedFG?.partDescription || "";
         const unit = selectedFG?.unit || "PCS";
         const qty = newItems[index].quantity || 1;
 
@@ -271,6 +282,7 @@ export default function DCModal({
             fgItem: selectedFgId,
             component: selectedFgId,
             materialName: name,
+            description: desc,
             hsnCode: hsn,
             unit: unit,
             rate: rate,

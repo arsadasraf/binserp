@@ -471,6 +471,8 @@ export interface JobWorkItem {
     itemName: string;
     itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
     processType: string;
+    processRate?: number;
+    processAmount?: number;
     quantitySent: number;
     quantityReceived: number;
     unit: string;
@@ -538,6 +540,8 @@ export interface JobWorkFormData {
         itemName?: string;
         itemType: 'rm' | 'bo' | 'fg' | 'inhouse';
         processType: string;
+        processRate?: number;
+        processAmount?: number;
         quantitySent: number;
         unit: string;
         unitPrice?: number;

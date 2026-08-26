@@ -208,6 +208,8 @@ export default function BillingModal({
 
     const handlePOSelect = (poId: string) => {
         setCustomerPoReference(poId);
+        if (!poId) return;
+
         const po = Array.isArray(incomingPOs) ? incomingPOs.find((p: any) => p._id === poId) : null;
         if (po) {
             if (po.customer) {
@@ -216,7 +218,7 @@ export default function BillingModal({
             }
             if (po.items && po.items.length > 0) {
                 const pendingItems = po.items.filter((i: any) => {
-                    const remainingQty = (i.quantity || 0) - (i.billedQuantity || i.dispatchedQuantity || 0);
+                    const remainingQty = (Number(i.quantity) || 0) - (Number(i.billedQuantity) || 0);
                     return remainingQty > 0;
                 });
 
@@ -226,23 +228,34 @@ export default function BillingModal({
                 }
 
                 const mappedItems: InvoiceItemEntry[] = pendingItems.map((i: any) => {
-                    const fgId = typeof i.fgItem === 'object' ? i.fgItem?._id : i.fgItem || "";
-                    const remainingQty = (i.quantity || 0) - (i.billedQuantity || i.dispatchedQuantity || 0);
-                    const rate = i.pricePerQuantity || i.rate || 0;
+                    const rawFgId = typeof i.fgItem === 'object' ? i.fgItem?._id : i.fgItem || "";
+                    const matchedFG = availableFGItems.find(f => 
+                        (rawFgId && (f._id === rawFgId || f.id === rawFgId)) ||
+                        (f.name && i.productName && f.name.trim().toLowerCase() === i.productName.trim().toLowerCase())
+                    );
+                    const finalFgId = matchedFG?._id || rawFgId || "";
+                    const remainingQty = Math.max(1, (Number(i.quantity) || 1) - (Number(i.billedQuantity) || 0));
+                    const priceConfig = Array.isArray(priceLists) ? priceLists.find((p: any) => (p.fgItem?._id || p.fgItem) === finalFgId) : null;
+                    const rate = Number(i.pricePerQuantity ?? i.rate ?? priceConfig?.price ?? matchedFG?.sellingPrice ?? matchedFG?.rate ?? 0);
                     const amt = remainingQty * rate;
-                    const taxRate = i.taxRate || 0;
+                    const taxRate = Number(i.taxRate ?? priceConfig?.taxRate ?? matchedFG?.taxRate ?? globalTaxRate ?? 18);
+                    const taxAmt = amt * (taxRate / 100);
+                    const hsn = i.hsnCode || priceConfig?.hsnCode || matchedFG?.hsnCode || "";
+                    const desc = i.description || matchedFG?.description || matchedFG?.partDescription || "";
+                    const unit = i.unit || matchedFG?.unit || "PCS";
+
                     return {
                         itemType: 'fg',
-                        fgItem: fgId,
-                        materialName: i.productName || i.name || "",
-                        hsnCode: i.hsnCode || "",
+                        fgItem: finalFgId,
+                        materialName: i.productName || matchedFG?.name || "",
+                        hsnCode: hsn,
                         quantity: remainingQty,
-                        unit: i.unit || "PCS",
+                        unit: unit,
                         rate: rate,
                         amount: amt,
                         taxRate: taxRate,
-                        taxAmount: amt * (taxRate / 100),
-                        description: `PO ${po.poNumber} Line Item`
+                        taxAmount: taxAmt,
+                        description: desc
                     };
                 });
                 setItems(mappedItems);
@@ -256,9 +269,10 @@ export default function BillingModal({
         const priceConfig = Array.isArray(priceLists) ? priceLists.find((p: any) => (p.fgItem?._id || p.fgItem) === selectedFgId) : null;
 
         const rate = Number(priceConfig?.price ?? selectedFG?.sellingPrice ?? selectedFG?.rate ?? 0);
-        const taxRate = Number(priceConfig?.taxRate ?? selectedFG?.taxRate ?? globalTaxRate ?? 0);
+        const taxRate = Number(priceConfig?.taxRate ?? selectedFG?.taxRate ?? globalTaxRate ?? 18);
         const name = selectedFG?.name || selectedFG?.partName || selectedFG?.componentName || "";
         const hsn = priceConfig?.hsnCode || selectedFG?.hsnCode || "";
+        const desc = selectedFG?.description || selectedFG?.partDescription || "";
         const unit = selectedFG?.unit || "PCS";
         const qty = newItems[index].quantity || 1;
         const amt = qty * rate;
@@ -268,6 +282,7 @@ export default function BillingModal({
             ...newItems[index],
             fgItem: selectedFgId,
             materialName: name,
+            description: desc,
             hsnCode: hsn,
             unit: unit,
             rate: rate,
@@ -716,17 +731,24 @@ export default function BillingModal({
                                                     )}
                                                 </div>
 
-                                                {/* HSN */}
+                                                {/* HSN & Description */}
                                                 <div className="md:col-span-2 space-y-1.5">
                                                     <label className="text-[10px] uppercase font-bold text-slate-400 block">
-                                                        HSN Code
+                                                        HSN & Specs
                                                     </label>
                                                     <input
                                                         type="text"
                                                         value={entry.hsnCode || ''}
                                                         onChange={e => updateItem(index, 'hsnCode', e.target.value)}
                                                         placeholder="HSN Code"
-                                                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm dark:text-white"
+                                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        value={entry.description || ''}
+                                                        onChange={e => updateItem(index, 'description', e.target.value)}
+                                                        placeholder="Description / Specs"
+                                                        className="w-full px-3 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs dark:text-white"
                                                     />
                                                 </div>
 

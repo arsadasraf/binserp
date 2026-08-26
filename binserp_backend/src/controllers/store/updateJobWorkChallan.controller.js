@@ -148,13 +148,18 @@ export const updateJobWorkChallan = async (req, res) => {
           }
         }
 
+        const rateValue = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
+        const sentQtyNum = Number(item.quantitySent) || 0;
+
         const processedItem = {
           itemName: itemName || item.itemName || "Sent Item",
           itemType: item.itemType || "rm",
-          quantitySent: Number(item.quantitySent) || 0,
+          quantitySent: sentQtyNum,
           quantityReceived: Number(item.quantityReceived) || 0,
           unit: item.unit || "PCS",
-          unitPrice: Number(item.unitPrice) || 0,
+          unitPrice: rateValue,
+          processRate: rateValue,
+          processAmount: sentQtyNum * rateValue,
           processType: item.processType || "Job Work",
           description: item.description || "",
           returningItems: processedReturningItems,

@@ -1366,7 +1366,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                                 }`}
                             >
-                                <Truck size={15} /> Dispatch Timeline ({timelineData.deliveryChallans.length} DCs)
+                                <Truck size={15} /> Dispatch & Billing Timeline ({timelineData.deliveryChallans.length} DCs, {timelineData.invoices.length} Invoices)
                             </button>
                         </div>
 

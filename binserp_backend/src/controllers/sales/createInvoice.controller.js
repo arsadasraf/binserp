@@ -54,12 +54,6 @@ export const createInvoice = async (req, res) => {
 
     let { customerPoReference, items, customer } = req.body;
 
-    // Clean empty string ObjectIds to prevent Mongoose CastErrors
-    if (!customerPoReference || customerPoReference === "" || !mongoose.Types.ObjectId.isValid(customerPoReference)) {
-      customerPoReference = undefined;
-      req.body.customerPoReference = undefined;
-    }
-
     if (!customer || customer === "" || !mongoose.Types.ObjectId.isValid(customer)) {
       req.body.customer = undefined;
     }
@@ -75,7 +69,9 @@ export const createInvoice = async (req, res) => {
       });
     }
 
-    let finalPoReference = customerPoReference;
+    let finalPoReference = customerPoReference || "";
+    let incomingPoDocId = null;
+
     if (customerPoReference) {
       const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
       const po = await IncomingPO.findOne({
@@ -87,34 +83,42 @@ export const createInvoice = async (req, res) => {
       });
       
       if (po) {
-        if (po.poNumber) {
-          finalPoReference = po.poNumber;
-        }
+        incomingPoDocId = po._id;
+        finalPoReference = po.poNumber || customerPoReference;
+
         if (Array.isArray(items)) {
-          // Validate quantities
+          // Validate and update quantities
           for (const invoiceItem of items) {
-            const poItem = po.items.find(i => i.productName === invoiceItem.materialName || (invoiceItem.fgItem && i.fgItem?.toString() === invoiceItem.fgItem.toString()));
+            const poItem = po.items.find(i => 
+              (i.productName && invoiceItem.materialName && i.productName.trim().toLowerCase() === invoiceItem.materialName.trim().toLowerCase()) || 
+              (invoiceItem.fgItem && i.fgItem && i.fgItem.toString() === invoiceItem.fgItem.toString())
+            );
             if (poItem) {
-              const remainingQty = poItem.quantity - (poItem.billedQuantity || 0);
-              if (invoiceItem.quantity > remainingQty) {
-                return res.status(400).json({ 
-                  message: `Cannot bill more than PO quantity for item: ${poItem.productName}. Remaining: ${remainingQty}, Requested: ${invoiceItem.quantity}` 
-                });
-              }
-              // Update billed quantity
-              poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity);
+              poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity || 0);
+              poItem.dispatchedQuantity = (poItem.dispatchedQuantity || 0) + Number(invoiceItem.quantity || 0);
             }
           }
 
-          // Auto-update Customer PO fulfillment status
+          // Auto-update Customer PO fulfillment status and timeline history
+          const previousStatus = po.status;
           const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
           const totalFulfilled = po.items.reduce((acc, item) => acc + Math.max(Number(item.dispatchedQuantity || 0), Number(item.billedQuantity || 0)), 0);
+          
           if (totalOrdered > 0) {
             if (totalFulfilled >= totalOrdered) {
               po.status = "Completed";
             } else if (totalFulfilled > 0) {
               po.status = "Partially Dispatched";
             }
+          }
+
+          if (po.status !== previousStatus) {
+            po.statusHistory = po.statusHistory || [];
+            po.statusHistory.push({
+              status: po.status,
+              updatedBy: req.user?.id || req.user?._id,
+              updatedAt: new Date()
+            });
           }
 
           await po.save();
@@ -169,6 +173,7 @@ export const createInvoice = async (req, res) => {
       company: companyId,
       ...req.body,
       customerPoReference: finalPoReference,
+      incomingPO: incomingPoDocId,
       preparedBy: req.user?.id || req.user?._id,
       createdBy: req.user?.id || req.user?._id
     });

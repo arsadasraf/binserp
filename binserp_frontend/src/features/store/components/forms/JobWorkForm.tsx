@@ -321,14 +321,19 @@ export default function JobWorkForm({
                         }];
                     }
 
+                    const rateVal = Number(it.processRate != null ? it.processRate : it.unitPrice) || 0;
+                    const sentQty = Number(it.quantitySent) || 1;
+
                     return {
                         item: itId,
                         itemName: it.itemName || '',
                         itemType: it.itemType || 'rm',
-                        quantitySent: Number(it.quantitySent) || 1,
+                        quantitySent: sentQty,
                         unit: it.unit || 'PCS',
                         processType: it.processType || 'Job Work',
-                        unitPrice: Number(it.unitPrice) || 0,
+                        processRate: rateVal,
+                        processAmount: sentQty * rateVal,
+                        unitPrice: rateVal,
                         description: it.description || '',
                         returningItems: retItems
                     };
@@ -457,8 +462,30 @@ export default function JobWorkForm({
             current.itemName = '';
         }
 
+        if (field === 'processRate') {
+            current.unitPrice = value;
+            current.processAmount = (Number(current.quantitySent) || 0) * (Number(value) || 0);
+        }
+
+        if (field === 'quantitySent') {
+            const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
+            current.processAmount = (Number(value) || 0) * currentRate;
+        }
+
         newItems[itemIdx] = current;
-        setFormData({ ...formData, items: newItems });
+
+        // Calculate total estimated process price
+        const totalProcPrice = newItems.reduce((acc, it) => {
+            const r = Number(it.processRate != null ? it.processRate : it.unitPrice) || 0;
+            const q = Number(it.quantitySent) || 0;
+            return acc + (q * r);
+        }, 0);
+
+        setFormData({ 
+            ...formData, 
+            items: newItems,
+            estimatedPrice: totalProcPrice > 0 ? totalProcPrice : formData.estimatedPrice
+        });
     };
 
     // Handle Returning Item Sub-Row Field Changes
@@ -523,6 +550,8 @@ export default function JobWorkForm({
                     quantitySent: 1,
                     unit: 'PCS',
                     processType: 'Machining',
+                    processRate: 0,
+                    processAmount: 0,
                     unitPrice: 0,
                     description: '',
                     returningItems: [
@@ -1119,7 +1148,7 @@ export default function JobWorkForm({
                                             {/* Process / Operation */}
                                             <div className="sm:col-span-2 lg:col-span-2">
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                    Process
+                                                    Process / Operation
                                                 </label>
                                                 <input
                                                     type="text"
@@ -1128,6 +1157,38 @@ export default function JobWorkForm({
                                                     onChange={(e) => handleSentItemChange(itemIdx, 'processType', e.target.value)}
                                                     className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                                 />
+                                            </div>
+
+                                            {/* Process Rate (₹ / Unit) */}
+                                            <div className="sm:col-span-2 lg:col-span-2">
+                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                    Process Rate (₹)
+                                                </label>
+                                                <div className="relative">
+                                                    <span className="absolute left-2.5 top-2 text-xs font-bold text-slate-400">₹</span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="any"
+                                                        placeholder="0.00"
+                                                        value={sentItem.processRate !== undefined ? sentItem.processRate : (sentItem.unitPrice || '')}
+                                                        onChange={(e) => {
+                                                            const val = parseFloat(e.target.value) || 0;
+                                                            handleSentItemChange(itemIdx, 'processRate', val);
+                                                        }}
+                                                        className="w-full h-9 pl-6 pr-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            {/* Process Value Subtotal */}
+                                            <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
+                                                <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
+                                                    Amount
+                                                </label>
+                                                <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-slate-700 dark:text-slate-200 truncate">
+                                                    ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.processRate != null ? sentItem.processRate : sentItem.unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </div>
                                             </div>
                                         </div>
 
