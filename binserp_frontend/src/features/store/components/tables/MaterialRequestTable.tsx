@@ -1,5 +1,6 @@
 import React from 'react';
 import { BadgeCheck, XCircle, Clock, Eye, Calendar, ArrowRight, FileText, Layers, ShoppingCart, Package, Boxes, User } from 'lucide-react';
+import { formatDateTime } from './MaterialIssueHistoryTable';
 
 interface MaterialRequestTableProps {
     requests: any[];
@@ -61,7 +62,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Request #</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Target SO / MRP</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Inventory Type</th>
-                            <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Date</th>
+                            <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Date & Time</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500">Requester</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500 hidden md:table-cell">Items Summary</th>
                             <th className="p-4 text-xs font-semibold uppercase tracking-wider text-gray-500 text-right">Actions</th>
@@ -101,10 +102,10 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                 <td className="p-4">
                                     {renderTypeBadge(request.type)}
                                 </td>
-                                <td className="p-4 text-sm text-gray-600 dark:text-gray-400">
-                                    <div className="flex items-center gap-1.5 text-xs font-medium">
+                                <td className="p-4 text-xs font-mono text-gray-600 dark:text-gray-300">
+                                    <div className="flex items-center gap-1.5">
                                         <Calendar size={13} className="text-gray-400" />
-                                        {new Date(request.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                                        {formatDateTime(request.createdAt)}
                                     </div>
                                 </td>
                                 <td className="p-4">
@@ -173,8 +174,8 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     <div className="font-bold text-gray-900 dark:text-white">{request.requestNumber}</div>
                                     <div className="flex items-center gap-2 mt-1">
                                         {renderTypeBadge(request.type)}
-                                        <div className="text-xs text-gray-500 flex items-center gap-1">
-                                            <Calendar size={11} /> {new Date(request.createdAt).toLocaleDateString()}
+                                        <div className="text-xs text-gray-500 flex items-center gap-1 font-mono">
+                                            <Calendar size={11} /> {formatDateTime(request.createdAt)}
                                         </div>
                                     </div>
                                 </div>

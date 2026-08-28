@@ -3,12 +3,14 @@ import {
     FileCheck, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, 
     ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, 
     History, ShieldCheck, Download, ShoppingBag, ShoppingCart, Truck, IndianRupee, 
-    FileText, CheckCircle, PackageCheck, Lock, Upload, Paperclip, ExternalLink, Image as ImageIcon 
+    FileText, CheckCircle, PackageCheck, Lock, Upload, Paperclip, ExternalLink, Image as ImageIcon,
+    AlertTriangle
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import OrderAcknowledgementModal from '../modals/OrderAcknowledgementModal';
 import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
+import { getCurrencySymbol, CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
 
 interface CustomerPoTabProps {
     token: string | null;
@@ -33,6 +35,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [editingPo, setEditingPo] = useState<any | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [selectedQuoteId, setSelectedQuoteId] = useState<string>('');
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    const clearError = (field: string) => {
+        setFormErrors(prev => {
+            const next = { ...prev };
+            delete next[field];
+            delete next.server_error;
+            return next;
+        });
+    };
 
     // Order Acknowledgement Modal State
     const [acknowledgingPo, setAcknowledgingPo] = useState<any | null>(null);
@@ -48,6 +60,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         quotationReference: '',
         customer: '',
         customerName: '',
+        currency: 'INR',
         date: new Date().toISOString().slice(0, 10),
         transportationMethod: 'Road Freight',
         transportationCharges: 0,
@@ -183,6 +196,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const handleOpenCreateModal = () => {
         setEditingPo(null);
         setSelectedQuoteId('');
+        setFormErrors({});
         setPoFile(null);
         setPoFilePreview(null);
         setExistingPdf(null);
@@ -192,12 +206,13 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             quotationReference: '',
             customer: '',
             customerName: '',
+            currency: 'INR',
             date: new Date().toISOString().slice(0, 10),
             transportationMethod: 'Road Freight',
             transportationCharges: 0,
             remarks: '',
             status: 'Received',
-            items: [{ fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }],
+            items: [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }],
             subtotal: 0,
             taxAmount: 0,
             totalAmount: 0
@@ -214,6 +229,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         }
         setEditingPo(po);
         setSelectedQuoteId(po.quotationReference?._id || po.quotationReference || '');
+        setFormErrors({});
         setPoFile(null);
         setPoFilePreview(null);
         setExistingPdf(po.pdf || null);
@@ -223,6 +239,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             quotationReference: po.quotationReference?._id || po.quotationReference || '',
             customer: po.customer?._id || po.customer || '',
             customerName: po.customerName || po.customer?.name || '',
+            currency: po.currency || 'INR',
             date: po.date ? new Date(po.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
             transportationMethod: po.transportationMethod || 'Road Freight',
             transportationCharges: po.transportationCharges || 0,
@@ -232,6 +249,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 ? po.items.map((it: any) => ({
                     fgItem: it.fgItem?._id || it.fgItem || '',
                     productName: it.productName || it.fgItem?.name || '',
+                    hsnCode: it.hsnCode || '',
                     description: it.description || '',
                     quantity: it.quantity || 1,
                     unit: it.unit || 'PCS',
@@ -240,7 +258,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     expectedDeliveryDate: it.expectedDeliveryDate ? new Date(it.expectedDeliveryDate).toISOString().slice(0, 10) : '',
                     amount: it.amount || (it.quantity * it.rate * 1.18)
                 }))
-                : [{ fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }],
+                : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }],
             subtotal: po.subtotal || 0,
             taxAmount: po.taxAmount || 0,
             totalAmount: po.totalAmount || 0
@@ -280,6 +298,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
     const handleSelectQuotation = (quotId: string) => {
         setSelectedQuoteId(quotId);
+        setFormErrors({});
         const selectedQuot = (Array.isArray(quotations) ? quotations : []).find((q: any) => q._id === quotId);
         if (!selectedQuot) return;
 
@@ -300,12 +319,14 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             const tax = it.taxRate != null 
                 ? Number(it.taxRate) 
                 : (pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18));
+            const hsn = it.hsnCode || pEntry?.hsnCode || matchedFg?.hsnCode || '';
             const lineSub = qty * rate;
             const lineTax = lineSub * (tax / 100);
 
             return {
                 fgItem: fgId,
                 productName: matchedFg?.name || it.fgItem?.name || it.productName || 'FG Item',
+                hsnCode: hsn,
                 description: it.description || matchedFg?.description || '',
                 quantity: qty,
                 unit: it.unit || matchedFg?.unit || 'PCS',
@@ -324,14 +345,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             quotationReference: quotId,
             customer: custId || '',
             customerName: selectedQuot.customerName || matchedCust?.name || '',
-            items: autoItems.length > 0 ? autoItems : prev.items,
+            currency: selectedQuot.currency || prev.currency || 'INR',
+            items: autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }],
             subtotal: sub,
             taxAmount: taxSum,
-            totalAmount: sub + taxSum
+            totalAmount: sub + taxSum + Number(prev.transportationCharges || 0)
         }));
     };
 
     const handleSelectCustomer = (custId: string) => {
+        clearError('customer');
         const selectedCust = (Array.isArray(customers) ? customers : []).find((c: any) => (c._id || c.id)?.toString() === custId?.toString());
         if (selectedCust) {
             setNewPo(prev => ({
@@ -347,7 +370,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const handleAddItem = () => {
         setNewPo(prev => ({
             ...prev,
-            items: [...prev.items, { fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }]
+            items: [...prev.items, { fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, expectedDeliveryDate: '', amount: 0 }]
         }));
     };
 
@@ -357,6 +380,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     };
 
     const handleItemChange = (index: number, field: string, value: any) => {
+        clearError(`item_${index}_${field}`);
         const updated = [...newPo.items];
         if (field === 'fgItem') {
             const selectedFg = (Array.isArray(fgItems) ? fgItems : []).find((m: any) => (m._id || m.id)?.toString() === value?.toString());
@@ -364,7 +388,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             const autoDesc = selectedFg?.description || selectedFg?.details || autoName;
             const autoUnit = selectedFg?.unit || selectedFg?.uom || 'PCS';
 
-            // Lookup price from Sales Price List
+            // Lookup price & HSN from Sales Price List or FG Item
             const priceEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
                 const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
                 return pFgId?.toString() === value?.toString();
@@ -372,11 +396,13 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
             const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.unitPrice || selectedFg?.rate || 0));
             const autoTax = priceEntry && priceEntry.taxRate != null ? Number(priceEntry.taxRate) : (Number(selectedFg?.taxRate || selectedFg?.gstRate || 18));
+            const autoHsn = priceEntry?.hsnCode || (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || '';
 
             updated[index] = {
                 ...updated[index],
                 fgItem: value,
                 productName: autoName,
+                hsnCode: autoHsn || updated[index].hsnCode || '',
                 description: autoDesc,
                 unit: autoUnit,
                 rate: autoRate,
@@ -461,29 +487,52 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     };
 
     const handleCreatePoSubmit = async () => {
-        if (!newPo.poNumber.trim()) {
-            onError("Please enter Customer PO number");
-            return;
+        const errors: Record<string, string> = {};
+        if (!newPo.poNumber || !newPo.poNumber.trim()) {
+            errors.poNumber = "Customer PO Number is required";
         }
-        if (!newPo.customerName.trim() && !newPo.customer) {
-            onError("Please select customer for this PO");
-            return;
+        if (!newPo.customer) {
+            errors.customer = "Please select Customer from Master list";
         }
-        if (!newPo.items || newPo.items.length === 0 || !newPo.items.some(i => i.fgItem && Number(i.quantity) > 0 && Number(i.rate) > 0)) {
-            onError("Please select at least one FG Item with quantity and unit rate");
-            return;
+        if (!newPo.date) {
+            errors.date = "PO Date is required";
         }
-        if (newPo.items.some(i => !i.fgItem || Number(i.quantity) <= 0 || Number(i.rate) <= 0)) {
-            onError("Please ensure all item rows have a selected FG Item, quantity > 0, and unit rate > 0");
+        if (!newPo.items || newPo.items.length === 0) {
+            errors.items = "At least one item is required";
+        } else {
+            newPo.items.forEach((it, idx) => {
+                if (!it.fgItem) {
+                    errors[`item_${idx}_fgItem`] = "Select FG Item";
+                }
+                if (!it.quantity || Number(it.quantity) <= 0) {
+                    errors[`item_${idx}_quantity`] = "Qty > 0 required";
+                }
+                if (it.rate === undefined || it.rate === null || Number(it.rate) <= 0) {
+                    errors[`item_${idx}_rate`] = "Rate > 0 required";
+                }
+            });
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setFormErrors(errors);
+            setTimeout(() => {
+                const firstErr = document.querySelector('[data-has-error="true"]');
+                if (firstErr) {
+                    firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    (firstErr.querySelector('input, select, button') as HTMLElement)?.focus?.();
+                }
+            }, 50);
             return;
         }
 
+        setFormErrors({});
         setSubmitting(true);
         try {
             const formData = new FormData();
-            formData.append('poNumber', newPo.poNumber);
+            formData.append('poNumber', newPo.poNumber.trim());
             formData.append('customer', newPo.customer);
             formData.append('customerName', newPo.customerName);
+            formData.append('currency', newPo.currency || 'INR');
             if (newPo.quotationReference) {
                 formData.append('quotationReference', newPo.quotationReference);
             }
@@ -522,7 +571,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             setPoFilePreview(null);
             fetchData();
         } catch (err: any) {
-            onError(err.message || "Failed to save Customer PO");
+            setFormErrors({ server_error: err.message || "Failed to save Customer PO" });
         } finally {
             setSubmitting(false);
         }
@@ -586,7 +635,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 {/* Right Side: Status Filter Tabs + Log Customer PO Button */}
                 <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
                     <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                        {['All', 'Received', 'Accepted', 'Processing', 'Sales Order Generated', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
+                        {['All', 'Received', 'Accepted', 'MRP Done', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
                             <button
                                 key={status}
                                 onClick={() => setFilterStatus(status)}
@@ -679,7 +728,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             </td>
 
                                             <td className="px-4 py-3.5 text-right font-mono font-extrabold text-blue-600 dark:text-blue-400 text-sm">
-                                                ₹{total.toLocaleString()}
+                                                {getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </td>
 
                                             <td className="px-4 py-3.5 text-center">
@@ -688,16 +737,15 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     onChange={(e) => handleStatusChange(po._id, e.target.value)}
                                                     className={`px-2.5 py-1 rounded-full text-xs font-bold border-none outline-none cursor-pointer ${
                                                         po.status === 'Completed' || po.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800' :
-                                                        po.status === 'Sales Order Generated' ? 'bg-blue-100 text-blue-800' :
-                                                        po.status === 'Partially Dispatched' || po.status === 'Processing' ? 'bg-indigo-100 text-indigo-800' :
+                                                        po.status === 'MRP Done' ? 'bg-blue-100 text-blue-800' :
+                                                        po.status === 'Partially Dispatched' ? 'bg-indigo-100 text-indigo-800' :
                                                         po.status === 'Cancelled' ? 'bg-rose-100 text-rose-800' :
                                                         'bg-amber-100 text-amber-800'
                                                     }`}
                                                 >
                                                     <option value="Received">Received</option>
                                                     <option value="Accepted">Accepted</option>
-                                                    <option value="Processing">Processing</option>
-                                                    <option value="Sales Order Generated">Sales Order Generated</option>
+                                                    <option value="MRP Done">MRP Done</option>
                                                     <option value="Partially Dispatched">Partially Dispatched</option>
                                                     <option value="Completed">Completed</option>
                                                     <option value="Cancelled">Cancelled</option>
@@ -733,7 +781,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     const createdDate = po.createdAt ? new Date(po.createdAt) : (po.date ? new Date(po.date) : null);
                                                     const hoursDiff = createdDate ? (Date.now() - createdDate.getTime()) / (1000 * 60 * 60) : 0;
                                                     const isWithin24h = hoursDiff <= 24;
-                                                    const isSoGenerated = po.status === 'Sales Order Generated' || po.status === 'Partially Dispatched' || po.status === 'Completed';
+                                                    const isSoGenerated = po.status === 'MRP Done' || po.status === 'Partially Dispatched' || po.status === 'Completed';
 
                                                     return (
                                                         <>
@@ -819,16 +867,15 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             onChange={(e) => handleStatusChange(po._id, e.target.value)}
                                             className={`px-2.5 py-1 rounded-full text-xs font-bold border-none outline-none cursor-pointer ${
                                                 po.status === 'Completed' || po.status === 'Accepted' ? 'bg-emerald-100 text-emerald-800' :
-                                                po.status === 'Sales Order Generated' ? 'bg-blue-100 text-blue-800' :
-                                                po.status === 'Partially Dispatched' || po.status === 'Processing' ? 'bg-indigo-100 text-indigo-800' :
+                                                po.status === 'MRP Done' ? 'bg-blue-100 text-blue-800' :
+                                                po.status === 'Partially Dispatched' ? 'bg-indigo-100 text-indigo-800' :
                                                 po.status === 'Cancelled' ? 'bg-rose-100 text-rose-800' :
                                                 'bg-amber-100 text-amber-800'
                                             }`}
                                         >
                                             <option value="Received">Received</option>
                                             <option value="Accepted">Accepted</option>
-                                            <option value="Processing">Processing</option>
-                                            <option value="Sales Order Generated">Sales Order Generated</option>
+                                            <option value="MRP Done">MRP Done</option>
                                             <option value="Partially Dispatched">Partially Dispatched</option>
                                             <option value="Completed">Completed</option>
                                             <option value="Cancelled">Cancelled</option>
@@ -850,8 +897,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 uppercase">Total Amount</span>
-                                            <p className="font-extrabold text-sm text-blue-600 dark:text-blue-400">
-                                                ₹{total.toLocaleString()}
+                                            <p className="font-extrabold text-sm text-blue-600 dark:text-blue-400 font-mono">
+                                                {getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </p>
                                         </div>
                                     </div>
@@ -918,6 +965,23 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                         <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
                             
+                            {/* In-Form Error Guidance Banner */}
+                            {Object.keys(formErrors).length > 0 && (
+                                <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-2xl flex items-center justify-between gap-3 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-xs">
+                                    <div className="flex items-center gap-2.5">
+                                        <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                                        <span className="text-xs font-bold">
+                                            {formErrors.server_error || `Please fill in the compulsory field${Object.keys(formErrors).length > 1 ? 's' : ''} highlighted in red below.`}
+                                        </span>
+                                    </div>
+                                    {!formErrors.server_error && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                                            {Object.keys(formErrors).length} required
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Step 1: Customer & Linked Quotation Logistics */}
                             <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
                                 <h3 className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
@@ -950,9 +1014,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         />
                                     </div>
 
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Customer / Client *
+                                    <div className="md:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>Customer from Master <span className="text-rose-500">*</span></span>
+                                            {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
                                         </label>
                                         <SearchableSelect
                                             options={(Array.isArray(customers) ? customers : []).map(c => ({
@@ -960,33 +1025,67 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 label: `${c.name || c.companyName} ${c.code ? `(${c.code})` : ''} ${c.city ? `- ${c.city}` : ''}`.trim()
                                             }))}
                                             value={newPo.customer}
+                                            hasError={!!formErrors.customer}
                                             onChange={(val: any) => handleSelectCustomer(val)}
-                                            placeholder="Select Customer..."
+                                            placeholder="Search & Select Customer from Master..."
                                         />
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Customer PO Number *
+                                        <label className="block text-xs font-bold text-blue-600 dark:text-blue-400 mb-1.5">
+                                            Currency *
+                                        </label>
+                                        <select
+                                            value={newPo.currency || 'INR'}
+                                            onChange={(e) => setNewPo({ ...newPo, currency: e.target.value })}
+                                            className="w-full px-3.5 py-2 bg-blue-50/50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-xl text-sm font-bold text-blue-700 dark:text-blue-300 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                        >
+                                            {CURRENCY_OPTIONS.map((c) => (
+                                                <option key={c.code} value={c.code}>
+                                                    {c.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1" data-has-error={!!formErrors.poNumber}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>Customer PO Number <span className="text-rose-500">*</span></span>
+                                            {formErrors.poNumber && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.poNumber}</span>}
                                         </label>
                                         <input
                                             type="text"
                                             value={newPo.poNumber}
-                                            onChange={(e) => setNewPo({ ...newPo, poNumber: e.target.value })}
+                                            onChange={(e) => {
+                                                setNewPo({ ...newPo, poNumber: e.target.value });
+                                                if (e.target.value.trim()) clearError('poNumber');
+                                            }}
                                             placeholder="e.g. PO-CUST-8823"
-                                            className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                            className={`w-full px-3.5 py-2 rounded-xl text-sm font-semibold outline-none transition-all ${
+                                                formErrors.poNumber
+                                                    ? 'bg-rose-50/50 dark:bg-rose-950/40 border border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                    : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/20'
+                                            }`}
                                         />
                                     </div>
 
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Customer PO Date
+                                    <div className="space-y-1" data-has-error={!!formErrors.date}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>Customer PO Date <span className="text-rose-500">*</span></span>
+                                            {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.date}</span>}
                                         </label>
                                         <input
                                             type="date"
                                             value={newPo.date}
-                                            onChange={(e) => setNewPo({ ...newPo, date: e.target.value })}
-                                            className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20"
+                                            onChange={(e) => {
+                                                setNewPo({ ...newPo, date: e.target.value });
+                                                if (e.target.value) clearError('date');
+                                            }}
+                                            className={`w-full px-3.5 py-2 rounded-xl text-sm font-semibold outline-none transition-all ${
+                                                formErrors.date
+                                                    ? 'bg-rose-50/50 dark:bg-rose-950/40 border border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                    : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-blue-500/20'
+                                            }`}
                                         />
                                     </div>
 
@@ -1009,7 +1108,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Freight / Transport Charges (₹)
+                                            Freight / Transport Charges ({getCurrencySymbol(newPo.currency)})
                                         </label>
                                         <input
                                             type="number"
@@ -1044,10 +1143,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                     <div className="col-span-3">FG Item * (Price List)</div>
-                                    <div className="col-span-3">Specifications</div>
+                                    <div className="col-span-1 text-center">HSN</div>
+                                    <div className="col-span-2">Specifications</div>
                                     <div className="col-span-1 text-center">Qty</div>
                                     <div className="col-span-1 text-center">Unit</div>
-                                    <div className="col-span-2 text-right">Unit Rate (₹)</div>
+                                    <div className="col-span-2 text-right">Unit Rate ({getCurrencySymbol(newPo.currency)})</div>
                                     <div className="col-span-1 text-center">GST %</div>
                                     <div className="col-span-1 text-right">Action</div>
                                 </div>
@@ -1059,20 +1159,36 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <div className="grid grid-cols-12 gap-3 items-center">
                                                 
                                                 {/* FG Item Column */}
-                                                <div className="col-span-12 lg:col-span-3">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        FG Item *
+                                                <div className="col-span-12 lg:col-span-3" data-has-error={!!formErrors[`item_${idx}_fgItem`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>FG Item <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_fgItem`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_fgItem`]}</span>}
                                                     </label>
                                                     <SearchableSelect
                                                         options={fgOptions}
                                                         value={item.fgItem}
+                                                        hasError={!!formErrors[`item_${idx}_fgItem`]}
                                                         onChange={(val: any) => handleItemChange(idx, 'fgItem', val)}
                                                         placeholder="Select FG Item..."
                                                     />
                                                 </div>
 
+                                                {/* HSN Code Column */}
+                                                <div className="col-span-6 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        HSN
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsnCode || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN"
+                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-blue-500"
+                                                    />
+                                                </div>
+
                                                 {/* Specifications */}
-                                                <div className="col-span-12 lg:col-span-3">
+                                                <div className="col-span-12 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Specifications
                                                     </label>
@@ -1086,16 +1202,21 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
 
                                                 {/* Qty */}
-                                                <div className="col-span-6 lg:col-span-1">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Qty
+                                                <div className="col-span-6 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>Qty <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_quantity`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_quantity`]}</span>}
                                                     </label>
                                                     <input
                                                         type="number"
                                                         min="1"
                                                         value={item.quantity}
                                                         onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
-                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center"
+                                                        className={`w-full px-2 py-2 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                            formErrors[`item_${idx}_quantity`]
+                                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                                : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white'
+                                                        }`}
                                                     />
                                                 </div>
 
@@ -1113,9 +1234,10 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
 
                                                 {/* Rate */}
-                                                <div className="col-span-6 lg:col-span-2">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Unit Rate (₹)
+                                                <div className="col-span-6 lg:col-span-2" data-has-error={!!formErrors[`item_${idx}_rate`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>Rate <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_rate`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_rate`]}</span>}
                                                     </label>
                                                     <input
                                                         type="number"
@@ -1123,8 +1245,12 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         step="0.01"
                                                         value={item.rate}
                                                         onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
-                                                        placeholder="Rate ₹"
-                                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-extrabold text-blue-600 dark:text-blue-400 text-right"
+                                                        placeholder={`Rate ${getCurrencySymbol(newPo.currency)}`}
+                                                        className={`w-full px-3 py-2 border rounded-xl text-xs font-extrabold text-right font-mono outline-none transition-all ${
+                                                            formErrors[`item_${idx}_rate`]
+                                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                                : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-blue-600 dark:text-blue-400'
+                                                        }`}
                                                     />
                                                 </div>
 
@@ -1297,16 +1423,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             <div className="bg-blue-50/70 dark:bg-blue-950/40 p-5 rounded-2xl border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="text-xs space-y-1">
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
-                                        Subtotal: <span className="font-mono text-slate-900 dark:text-white">₹{newPo.subtotal.toLocaleString()}</span>
+                                        Subtotal: <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newPo.currency)}{newPo.subtotal.toLocaleString()}</span>
                                     </div>
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
-                                        Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">₹{newPo.taxAmount.toLocaleString()}</span>
+                                        Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newPo.currency)}{newPo.taxAmount.toLocaleString()}</span>
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Grand Total PO Amount</span>
+                                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Grand Total PO Amount ({newPo.currency || 'INR'})</span>
                                     <span className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono">
-                                        ₹{newPo.totalAmount.toLocaleString()}
+                                        {getCurrencySymbol(newPo.currency)}{newPo.totalAmount.toLocaleString()}
                                     </span>
                                 </div>
                             </div>
@@ -1376,7 +1502,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 /* TAB 1: OVERVIEW & ITEMS */
                                 <div className="space-y-6">
                                     {/* General Status & Interactive Control */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                                         <div>
                                             <span className="text-slate-400 block mb-0.5">Linked Quotation Ref:</span>
                                             <strong className="text-blue-600 dark:text-blue-400 font-mono font-bold">
@@ -1392,9 +1518,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </div>
 
                                         <div>
+                                            <span className="text-slate-400 block mb-0.5">Currency:</span>
+                                            <strong className="text-blue-600 dark:text-blue-400 font-bold">
+                                                {selectedPo.currency || 'INR'} ({getCurrencySymbol(selectedPo.currency)})
+                                            </strong>
+                                        </div>
+
+                                        <div>
                                             <span className="text-slate-400 block mb-0.5">Total PO Value:</span>
                                             <strong className="text-blue-600 font-extrabold font-mono text-sm">
-                                                ₹{Number(selectedPo.totalAmount || selectedPo.subtotal || 0).toLocaleString()}
+                                                {getCurrencySymbol(selectedPo.currency)}{Number(selectedPo.totalAmount || selectedPo.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </strong>
                                         </div>
 
@@ -1407,8 +1540,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             >
                                                 <option value="Received">Received</option>
                                                 <option value="Accepted">Accepted</option>
-                                                <option value="Processing">Processing</option>
-                                                <option value="Sales Order Generated">Sales Order Generated</option>
+                                                <option value="MRP Done">MRP Done</option>
                                                 <option value="Partially Dispatched">Partially Dispatched</option>
                                                 <option value="Completed">Completed</option>
                                                 <option value="Cancelled">Cancelled</option>
@@ -1488,10 +1620,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600 dark:text-slate-300">
                                                     <tr>
                                                         <th className="p-3">FG Item Name</th>
+                                                        <th className="p-3 text-center">HSN</th>
                                                         <th className="p-3 text-center">Ordered Qty</th>
-                                                        <th className="p-3 text-right">Unit Rate (₹)</th>
+                                                        <th className="p-3 text-right">Unit Rate ({selectedPo.currency || 'INR'})</th>
                                                         <th className="p-3 text-center">GST %</th>
-                                                        <th className="p-3 text-right">Line Total (₹)</th>
+                                                        <th className="p-3 text-right">Line Total ({selectedPo.currency || 'INR'})</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -1508,10 +1641,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                                     {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
                                                                     {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
                                                                 </td>
+                                                                <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-400">{item.hsnCode || item.hsn || '-'}</td>
                                                                 <td className="p-3 text-center font-bold text-blue-600">{qty} {item.unit || 'PCS'}</td>
-                                                                <td className="p-3 text-right font-bold font-mono">₹{rate.toLocaleString()}</td>
+                                                                <td className="p-3 text-right font-bold font-mono">{getCurrencySymbol(selectedPo.currency)}{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                                 <td className="p-3 text-center font-bold text-slate-600">{tax}%</td>
-                                                                <td className="p-3 text-right font-extrabold font-mono text-blue-600">₹{lineTotal.toLocaleString()}</td>
+                                                                <td className="p-3 text-right font-extrabold font-mono text-blue-600">{getCurrencySymbol(selectedPo.currency)}{lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                             </tr>
                                                         );
                                                     })}

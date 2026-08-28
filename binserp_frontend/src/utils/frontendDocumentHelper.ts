@@ -2,48 +2,7 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
 import { generateFrontendDcPDF, generateFrontendInvoicePDF } from "./frontendPdfHelper";
-
-interface DocumentOptions {
-  doc: any;
-  companyInfo?: any;
-  title?: string;
-  copyType?: "all" | "original" | "duplicate" | "triplicate";
-}
-
-/**
- * Generate 4-Copy Professional PDF directly in the Browser
- * Copy 1: ORIGINAL FOR RECIPIENT
- * Copy 2: DUPLICATE FOR TRANSPORTER
- * Copy 3: TRIPLICATE FOR SUPPLIER
- * Copy 4: QUADRUPLICATE / EXTRA COPY
- */
-// Number to Words Converter (Indian Currency Format)
-function numberToWords(num: number): string {
-  if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
-  const a = [
-    "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
-    "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
-  ];
-  const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-  function inWords(n: number): string {
-    if (n < 20) return a[n];
-    if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
-    if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
-    if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
-    if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
-    return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
-  }
-
-  const integerPart = Math.floor(num);
-  const decimalPart = Math.round((num - integerPart) * 100);
-
-  let str = "Rupees " + inWords(integerPart).trim();
-  if (decimalPart > 0) {
-    str += " and " + inWords(decimalPart).trim() + " Paise";
-  }
-  return str + " Only";
-}
+import { getCurrencySymbol, convertAmountToWords } from "./currencyHelper";
 
 const formatDateTime = (dateStr?: string | Date) => {
   if (!dateStr) return "-";
@@ -58,6 +17,12 @@ const formatDateTime = (dateStr?: string | Date) => {
     hour12: true
   });
 };
+
+export interface DocumentOptions {
+  doc: any;
+  companyInfo?: any;
+  copyType?: "all" | "original" | "duplicate" | "triplicate";
+}
 
 export const download4CopyPDF = (type: "dc" | "invoice", { doc, companyInfo, copyType = "all" }: DocumentOptions) => {
   try {
@@ -303,10 +268,12 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
   pdf.setDrawColor(oldColor);
 }
 
+      const docCurrSym = getCurrencySymbol(doc.currency);
+
       // Line Items AutoTable
       const tableHeaders = isInvoice
-        ? [["S.No.", "Material / Item Description", "HSN Code", "Qty", "Unit", "Rate (   )", "Tax %", "Amount (   )"]]
-        : [["S.No.", "Material / Item Description", "HSN Code", "Qty", "Unit", "Rate (   )", "Amount (   )", "Remarks"]];
+        ? [["S.No.", "Material / Item Description", "HSN Code", "Qty", "Unit", `Rate (${docCurrSym})`, "Tax %", `Amount (${docCurrSym})`]]
+        : [["S.No.", "Material / Item Description", "HSN Code", "Qty", "Unit", `Rate (${docCurrSym})`, `Amount (${docCurrSym})`, "Remarks"]];
 
       const items = doc.items || [];
       const tableRows = items.map((item: any, idx: number) => {
@@ -387,21 +354,6 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
           6: { halign: "right", cellWidth: 26 },
           7: { cellWidth: 27.2 }
         },
-        didDrawCell: (data) => {
-          if (data.section === 'head') {
-            const pdfInst = data.doc;
-            const oldDraw = pdfInst.getDrawColor();
-            pdfInst.setDrawColor(255, 255, 255); // White Rupee symbol in dark header
-
-            if (data.column.index === 5) {
-              drawRupeeSymbol(pdfInst, data.cell.x + data.cell.width - 6.2, data.cell.y + 4.8, 2.2);
-            } else if (data.column.index === 6 || (isInvoice && data.column.index === 7)) {
-              drawRupeeSymbol(pdfInst, data.cell.x + data.cell.width - 6.2, data.cell.y + 4.8, 2.2);
-            }
-
-            pdfInst.setDrawColor(oldDraw);
-          }
-        },
         margin: { left: 8.4, right: 8.4 }
       });
 
@@ -450,7 +402,7 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
       // Amount in Words Highlight
       pdf.setFont("helvetica", "bold");
       pdf.setTextColor(15, 23, 42);
-      const wordsStr = `Amount in Words: ${numberToWords(grandTotal)}`;
+      const wordsStr = `Amount in Words: ${convertAmountToWords(grandTotal, doc.currency)}`;
       const wordLines = pdf.splitTextToSize(wordsStr, 110);
       pdf.text(wordLines, 12, footerY);
 
@@ -460,34 +412,38 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
       pdf.setTextColor(15, 23, 42);
 
       let calcY = footerStartY + 5;
-      const drawValWithRupee = (label: string, val: number, prefix = "") => {
+      const drawValWithCurrency = (label: string, val: number, prefix = "") => {
         pdf.text(label, 130, calcY);
         const valStr = `${prefix}${val.toFixed(2)}`;
         const valWidth = pdf.getTextWidth(valStr);
         pdf.text(valStr, 196, calcY, { align: "right" });
-        drawRupeeSymbol(pdf, 196 - valWidth - 3.2, calcY, 2.3);
+        if (docCurrSym === '₹') {
+          drawRupeeSymbol(pdf, 196 - valWidth - 3.2, calcY, 2.3);
+        } else {
+          pdf.text(docCurrSym, 196 - valWidth - 3.2, calcY, { align: "right" });
+        }
       };
 
-      drawValWithRupee("Subtotal:", subtotal);
+      drawValWithCurrency("Subtotal:", subtotal);
 
       if (transportCharges > 0) {
         calcY += 4.5;
-        drawValWithRupee("Freight / Transport:", transportCharges, "+ ");
+        drawValWithCurrency("Freight / Transport:", transportCharges, "+ ");
       }
 
       if (packagingCharges > 0) {
         calcY += 4.5;
-        drawValWithRupee("Packaging Charges:", packagingCharges, "+ ");
+        drawValWithCurrency("Packaging Charges:", packagingCharges, "+ ");
       }
 
       if (discount > 0) {
         calcY += 4.5;
-        drawValWithRupee("Discount:", discount, "- ");
+        drawValWithCurrency("Discount:", discount, "- ");
       }
 
       if (isInvoice || taxAmount > 0) {
         calcY += 4.5;
-        drawValWithRupee("Tax Amount (GST):", taxAmount);
+        drawValWithCurrency("Tax Amount (GST):", taxAmount);
       }
 
       calcY += 6;
@@ -498,12 +454,16 @@ function drawRupeeSymbol(pdf: jsPDF, x: number, y: number, size: number = 2.4) {
       pdf.setFont("helvetica", "bold");
       pdf.setFontSize(9.5);
       pdf.setTextColor(15, 23, 42);
-      pdf.text("GRAND TOTAL:", 128, calcY + 2);
+      pdf.text(`GRAND TOTAL (${doc.currency || 'INR'}):`, 128, calcY + 2);
       
       const grandStr = grandTotal.toFixed(2);
       const grandWidth = pdf.getTextWidth(grandStr);
       pdf.text(grandStr, 196, calcY + 2, { align: "right" });
-      drawRupeeSymbol(pdf, 196 - grandWidth - 3.5, calcY + 2, 2.6);
+      if (docCurrSym === '₹') {
+        drawRupeeSymbol(pdf, 196 - grandWidth - 3.5, calcY + 2, 2.6);
+      } else {
+        pdf.text(docCurrSym, 196 - grandWidth - 3.5, calcY + 2, { align: "right" });
+      }
 
       // Bottom Signatures Block (Pinned to bottom frame)
       const signY = Math.max(calcY + 16, 260);
@@ -695,8 +655,11 @@ export const downloadDCExcelDocument = (dc: any, companyInfo?: any) => {
     sheetData.push(['', '', '', '', '', '', '', '']);
     rowIdx++;
 
+    const dcCurrCode = dc.currency || 'INR';
+    const dcCurrSym = getCurrencySymbol(dc.currency);
+
     // Row 12: Itemized Table Headers
-    sheetData.push(['S.No.', 'Product / Material Description', 'HSN Code', 'Quantity', 'Unit', 'Unit Rate (₹)', 'Line Amount (₹)', 'Remarks']);
+    sheetData.push(['S.No.', 'Product / Material Description', 'HSN Code', 'Quantity', 'Unit', `Unit Rate (${dcCurrCode})`, `Line Amount (${dcCurrCode})`, 'Remarks']);
     rowIdx++;
 
     // Item rows
@@ -726,49 +689,49 @@ export const downloadDCExcelDocument = (dc: any, companyInfo?: any) => {
     rowIdx++;
 
     // Summary & Bank Section
-    sheetData.push([`Bank: ${bankName} | A/c: ${accountNumber} | IFSC: ${ifscCode} ${branchName ? `| Branch: ${branchName}` : ''}`, '', '', '', 'Subtotal (₹)', '', subtotal, '']);
+    sheetData.push([`Bank: ${bankName} | A/c: ${accountNumber} | IFSC: ${ifscCode} ${branchName ? `| Branch: ${branchName}` : ''}`, '', '', '', `Subtotal (${dcCurrCode})`, '', subtotal, '']);
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 3 } });
     merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
     merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
     rowIdx++;
 
     if (transportCharges > 0) {
-      sheetData.push(['', '', '', '', 'Freight Charges (₹)', '', transportCharges, '']);
+      sheetData.push(['', '', '', '', `Freight Charges (${dcCurrCode})`, '', transportCharges, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     if (packagingCharges > 0) {
-      sheetData.push(['', '', '', '', 'Packaging Charges (₹)', '', packagingCharges, '']);
+      sheetData.push(['', '', '', '', `Packaging Charges (${dcCurrCode})`, '', packagingCharges, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     if (discount > 0) {
-      sheetData.push(['', '', '', '', 'Discount (₹)', '', discount, '']);
+      sheetData.push(['', '', '', '', `Discount (${dcCurrCode})`, '', discount, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     if (taxAmount > 0) {
-      sheetData.push(['', '', '', '', 'Tax Amount GST (₹)', '', taxAmount, '']);
+      sheetData.push(['', '', '', '', `Tax Amount GST (${dcCurrCode})`, '', taxAmount, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     // Grand Total Row
-    sheetData.push(['Terms: Subject to local jurisdiction. Goods dispatched in good condition.', '', '', '', 'GRAND TOTAL (₹)', '', grandTotal, '']);
+    sheetData.push(['Terms: Subject to local jurisdiction. Goods dispatched in good condition.', '', '', '', `GRAND TOTAL (${dcCurrCode})`, '', grandTotal, '']);
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 3 } });
     merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
     merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
     rowIdx++;
 
     // Amount in Words Row
-    sheetData.push([`Amount in Words: ${numberToWords(grandTotal)}`, '', '', '', '', '', '', '']);
+    sheetData.push([`Amount in Words: ${convertAmountToWords(grandTotal, dc.currency)}`, '', '', '', '', '', '', '']);
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 7 } });
     rowIdx++;
 
@@ -961,8 +924,11 @@ export const downloadInvoiceExcelDocument = (invoice: any, companyInfo?: any) =>
     sheetData.push(['', '', '', '', '', '', '', '']);
     rowIdx++;
 
+    const invCurrCode = invoice.currency || 'INR';
+    const invCurrSym = getCurrencySymbol(invoice.currency);
+
     // Row 12: Itemized Table Headers
-    sheetData.push(['S.No.', 'Product / Material Description', 'HSN Code', 'Quantity', 'Unit', 'Unit Rate (₹)', 'GST %', 'Line Amount (₹)']);
+    sheetData.push(['S.No.', 'Product / Material Description', 'HSN Code', 'Quantity', 'Unit', `Unit Rate (${invCurrCode})`, 'GST %', `Line Amount (${invCurrCode})`]);
     rowIdx++;
 
     // Item rows
@@ -993,49 +959,49 @@ export const downloadInvoiceExcelDocument = (invoice: any, companyInfo?: any) =>
     rowIdx++;
 
     // Summary & Bank Section
-    sheetData.push([`Bank: ${bankName} | A/c: ${accountNumber} | IFSC: ${ifscCode} ${branchName ? `| Branch: ${branchName}` : ''}`, '', '', '', 'Subtotal (₹)', '', subtotal, '']);
+    sheetData.push([`Bank: ${bankName} | A/c: ${accountNumber} | IFSC: ${ifscCode} ${branchName ? `| Branch: ${branchName}` : ''}`, '', '', '', `Subtotal (${invCurrCode})`, '', subtotal, '']);
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 3 } });
     merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
     merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
     rowIdx++;
 
     if (transportCharges > 0) {
-      sheetData.push(['', '', '', '', 'Freight Charges (₹)', '', transportCharges, '']);
+      sheetData.push(['', '', '', '', `Freight Charges (${invCurrCode})`, '', transportCharges, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     if (packagingCharges > 0) {
-      sheetData.push(['', '', '', '', 'Packaging Charges (₹)', '', packagingCharges, '']);
+      sheetData.push(['', '', '', '', `Packaging Charges (${invCurrCode})`, '', packagingCharges, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     if (discount > 0) {
-      sheetData.push(['', '', '', '', 'Discount (₹)', '', discount, '']);
+      sheetData.push(['', '', '', '', `Discount (${invCurrCode})`, '', discount, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     if (taxAmount > 0) {
-      sheetData.push(['', '', '', '', 'Tax Amount GST (₹)', '', taxAmount, '']);
+      sheetData.push(['', '', '', '', `Tax Amount GST (${invCurrCode})`, '', taxAmount, '']);
       merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
       merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
       rowIdx++;
     }
 
     // Grand Total Row
-    sheetData.push(['Terms: Subject to local jurisdiction. Payment due as per agreed billing terms.', '', '', '', 'GRAND TOTAL (₹)', '', grandTotal, '']);
+    sheetData.push(['Terms: Subject to local jurisdiction. Payment due as per agreed billing terms.', '', '', '', `GRAND TOTAL (${invCurrCode})`, '', grandTotal, '']);
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 3 } });
     merges.push({ s: { r: rowIdx, c: 4 }, e: { r: rowIdx, c: 5 } });
     merges.push({ s: { r: rowIdx, c: 6 }, e: { r: rowIdx, c: 7 } });
     rowIdx++;
 
     // Amount in Words Row
-    sheetData.push([`Amount in Words: ${numberToWords(grandTotal)}`, '', '', '', '', '', '', '']);
+    sheetData.push([`Amount in Words: ${convertAmountToWords(grandTotal, invoice.currency)}`, '', '', '', '', '', '', '']);
     merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 7 } });
     rowIdx++;
 

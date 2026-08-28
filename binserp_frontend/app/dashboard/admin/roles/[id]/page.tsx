@@ -23,7 +23,8 @@ import {
   CheckSquare,
   Square,
   SlidersHorizontal,
-  Info
+  Info,
+  ShoppingCart
 } from "lucide-react";
 import Link from "next/link";
 import { API_BASE_URL } from "@/src/utils/config";
@@ -45,6 +46,20 @@ interface ModuleSchema {
 }
 
 const MODULE_DEFINITIONS: ModuleSchema[] = [
+  {
+    name: "MaterialRequests",
+    label: "Material Requests",
+    icon: ShoppingCart,
+    color: "from-amber-500 to-orange-500",
+    tabs: [
+      { id: "requests-rm", label: "Raw Material (RM)", description: "Allow raising & viewing Raw Material requisitions", route: "/dashboard/material-requests?type=rm" },
+      { id: "requests-bo", label: "Bought-Out (BO)", description: "Allow raising & viewing Bought-Out requisitions", route: "/dashboard/material-requests?type=bo" },
+      { id: "requests-consumable", label: "Consumables", description: "Allow raising & viewing Consumable requisitions", route: "/dashboard/material-requests?type=consumable" },
+      { id: "requests-fg", label: "Finished Goods (FG)", description: "Allow raising & viewing Finished Goods requisitions", route: "/dashboard/material-requests?type=fg" },
+      { id: "ledger", label: "Consumption Ledger & Reports", description: "View requisition ledger, date filters and exportable reports", route: "/dashboard/material-requests?tab=ledger" },
+      { id: "approve-issue", label: "Approve & Issue", description: "Storekeeper approval and stock issue permission", route: "/dashboard/material-requests" }
+    ]
+  },
   {
     name: "Store",
     label: "Store & Inventory",
@@ -155,6 +170,15 @@ const MODULE_DEFINITIONS: ModuleSchema[] = [
 // Helper to normalize legacy tab strings to clean main tab IDs
 function normalizeTabId(moduleName: string, rawTab: string): string {
   const t = rawTab.toLowerCase();
+  if (moduleName.toLowerCase() === "materialrequests" || moduleName.toLowerCase() === "material-requests") {
+    if (t.includes("rm")) return "requests-rm";
+    if (t.includes("bo")) return "requests-bo";
+    if (t.includes("consumable")) return "requests-consumable";
+    if (t.includes("fg")) return "requests-fg";
+    if (t.includes("ledger") || t.includes("report")) return "ledger";
+    if (t.includes("approve") || t.includes("issue")) return "approve-issue";
+    return "requests-consumable";
+  }
   if (moduleName.toLowerCase() === "store") {
     if (t.startsWith("inventory") || t === "home" || t.includes("stock") || t.includes("grn")) return "inventory";
     if (t.startsWith("purchase") || t.includes("po") || t.includes("mrp") || t.includes("vendor-price")) return "purchase";

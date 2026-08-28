@@ -329,6 +329,7 @@ export interface POFormData {
     _id?: string; // For edit mode
     poNumber?: string;  // Auto-generated
     date: string;
+    currency?: string;
     vendor: string;  // Vendor ID
     // Single material fields (backward compatibility)
     material?: string;  // Material ID from master
@@ -369,6 +370,7 @@ export interface DCFormData {
     _id?: string;
     dcNumber?: string;  // Auto-generated
     date: string;
+    currency?: string;
     customerName: string;
     customer?: string; // ID
     customerAddress?: string;
@@ -392,6 +394,7 @@ export interface BillingFormData {
     _id?: string;
     invoiceNumber?: string;  // Auto-generated
     date: string;
+    currency?: string;
     customerName: string;
     customer?: string; // ID
     customerAddress?: string;
@@ -422,6 +425,7 @@ export interface QuotationFormData {
     _id?: string;
     quotationNumber?: string;
     date: string;
+    currency?: string;
     customerType?: 'custom' | 'master';
     customer?: string; // ID
     customerName: string;

@@ -22,6 +22,7 @@ import {
   Briefcase,
   Target,
   X,
+  ShoppingCart,
 } from "lucide-react";
 
 import type { LucideIcon } from "lucide-react";
@@ -76,6 +77,12 @@ const departmentNavMap: Record<string, NavItem> = {
     label: "Gate Entry",
     icon: UserCheck,
     priority: 5,
+  },
+  MaterialRequests: {
+    href: "/dashboard/material-requests",
+    label: "Material Requests",
+    icon: ShoppingCart,
+    priority: 3.5,
   },
   Maintenance: { href: "/dashboard/maintenance", label: "Maintenance", icon: Wrench, priority: 6 },
   Quality: { href: "/dashboard/quality", label: "Quality", icon: CheckCircle, priority: 7 },
@@ -527,6 +534,7 @@ function LayoutContent({ children }: { children: ReactNode }) {
          !pathname.startsWith("/dashboard/accounts") &&
          !pathname.startsWith("/dashboard/hr") &&
          !pathname.startsWith("/dashboard/gate-entry") &&
+         !pathname.startsWith("/dashboard/material-requests") &&
          !pathname.startsWith("/dashboard/maintenance") && (
           <nav
             className={`lg:hidden bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 fixed bottom-0 left-0 right-0 z-30 pb-safe transition-transform duration-300 ease-in-out ${

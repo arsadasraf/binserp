@@ -115,6 +115,10 @@ export default function LoginPage() {
                 router.push("/dashboard/hr?tab=home");
                 return;
               }
+              if (allowedModules.has("MATERIALREQUESTS")) {
+                router.push("/dashboard/material-requests");
+                return;
+              }
               if (allowedModules.has("HR")) {
                 router.push("/dashboard/hr?tab=home");
                 return;
@@ -211,6 +215,8 @@ export default function LoginPage() {
                   src="/icon.svg"
                   alt="BinsErp Logo"
                   fill
+                  sizes="40px"
+                  priority
                   className="object-contain"
                 />
               </div>

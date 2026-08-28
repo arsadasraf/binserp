@@ -32,6 +32,10 @@ export const deliveryChallanSchema = new mongoose.Schema(
       ref: "IncomingPO",
     },
     customerAddress: String,
+    currency: {
+      type: String,
+      default: "INR",
+    },
     items: [
       {
         fgItem: {

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Inbox, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download } from 'lucide-react';
+import { Inbox, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, AlertTriangle } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import { generateFrontendInwardRfqPDF } from '@/src/utils/frontendPdfHelper';
+import { getCurrencySymbol, CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
 
 interface InwardRfqTabProps {
     token: string | null;
@@ -28,18 +29,29 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const [editingRfq, setEditingRfq] = useState<any | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    const clearError = (field: string) => {
+        setFormErrors(prev => {
+            const next = { ...prev };
+            delete next[field];
+            delete next.server_error;
+            return next;
+        });
+    };
 
     const [newRfq, setNewRfq] = useState({
         rfqNumber: '',
         date: new Date().toISOString().slice(0, 10),
         expectedDeliveryDate: '',
+        currency: 'INR',
         customer: '',
         customerName: '',
         customerEmail: '',
         customerPhone: '',
         remarks: '',
         status: 'Open',
-        items: [{ fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+        items: [{ fgItem: '', hsnCode: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
     });
 
     // View Modal State
@@ -106,41 +118,43 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
     // Formatted FG options for SearchableSelect with list price and descriptions
     const fgOptions = useMemo(() => {
-        return (Array.isArray(fgItems) ? fgItems : []).map(fg => {
-            const priceEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
-                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
-                return pFgId?.toString() === (fg._id || fg.id)?.toString();
-            });
-            const rate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : Number(fg.sellingPrice || fg.rate || 0);
-            const desc = fg.descriptions || fg.description || '';
-            const code = fg.code ? `[${fg.code}]` : '';
-            const rateLabel = rate > 0 ? ` — ₹${rate.toLocaleString('en-IN')}` : '';
-
-            return {
-                value: (fg._id || fg.id)?.toString(),
-                label: `${fg.name || fg.itemName || 'Unnamed FG'} ${code} ${desc ? `— ${desc}` : ''}${rateLabel}`.trim(),
-                description: desc,
-                code: fg.code,
-                rate: rate,
-                unit: fg.unit || 'PCS'
-            };
-        }).filter(o => o.value);
-    }, [fgItems, priceLists]);
+        return (Array.isArray(fgItems) ? fgItems : [])
+            .map(m => {
+                const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                    const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                    return pFgId?.toString() === (m._id || m.id)?.toString();
+                });
+                const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.rate || 0));
+                const priceText = rate > 0 ? ` — ${getCurrencySymbol(newRfq.currency)}${rate}` : '';
+                const descText = m.description ? ` (${m.description})` : '';
+                const codeText = m.code ? ` [${m.code}]` : '';
+                return {
+                    value: (m._id || m.id)?.toString(),
+                    label: `${m.name || m.itemName || 'FG Item'}${codeText}${descText}${priceText}`,
+                    rate: rate,
+                    raw: m,
+                    priceEntry: pEntry
+                };
+            })
+            .filter(o => o.value);
+    }, [fgItems, priceLists, newRfq.currency]);
 
     const handleOpenCreateModal = () => {
         setEditingRfq(null);
         setCustomerSearchTerm('');
+        setFormErrors({});
         setNewRfq({
             rfqNumber: generateRfqNumber(),
             date: new Date().toISOString().slice(0, 10),
             expectedDeliveryDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            currency: 'INR',
             customer: '',
             customerName: '',
             customerEmail: '',
             customerPhone: '',
             remarks: '',
             status: 'Open',
-            items: [{ fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [{ fgItem: '', hsnCode: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         });
         setIsCreateModalOpen(true);
     };
@@ -148,10 +162,12 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const handleOpenEditModal = (rfq: any) => {
         setEditingRfq(rfq);
         setCustomerSearchTerm('');
+        setFormErrors({});
         setNewRfq({
             rfqNumber: rfq.rfqNumber || '',
             date: rfq.date ? new Date(rfq.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
             expectedDeliveryDate: rfq.expectedDeliveryDate ? new Date(rfq.expectedDeliveryDate).toISOString().slice(0, 10) : (rfq.dueDate ? new Date(rfq.dueDate).toISOString().slice(0, 10) : ''),
+            currency: rfq.currency || 'INR',
             customer: rfq.customer?._id || rfq.customer || '',
             customerName: rfq.customerName || rfq.customer?.name || '',
             customerEmail: rfq.customerEmail || rfq.customer?.email || '',
@@ -161,12 +177,13 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             items: Array.isArray(rfq.items) && rfq.items.length > 0
                 ? rfq.items.map((it: any) => ({
                     fgItem: it.fgItem?._id || it.fgItem || '',
+                    hsnCode: it.hsnCode || '',
                     description: it.description || '',
                     quantity: it.quantity || 1,
                     unit: it.unit || 'PCS',
                     targetPrice: it.targetPrice != null ? it.targetPrice : ''
                 }))
-                : [{ fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+                : [{ fgItem: '', hsnCode: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         });
         setIsCreateModalOpen(true);
     };
@@ -204,7 +221,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const handleAddItem = () => {
         setNewRfq(prev => ({
             ...prev,
-            items: [...prev.items, { fgItem: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
+            items: [...prev.items, { fgItem: '', hsnCode: '', description: '', quantity: 1, unit: 'PCS', targetPrice: '' }]
         }));
     };
 
@@ -216,6 +233,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     };
 
     const handleItemChange = (index: number, field: string, value: any) => {
+        clearError(`item_${index}_${field}`);
         const updatedItems = [...newRfq.items];
         if (field === 'fgItem') {
             const selectedFg = (Array.isArray(fgItems) ? fgItems : []).find((m: any) => (m._id || m.id)?.toString() === value?.toString());
@@ -224,6 +242,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                 return pFgId?.toString() === value?.toString();
             });
             const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.rate || 0));
+            const autoHsn = priceEntry?.hsnCode || (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || '';
             const autoName = selectedFg?.name || selectedFg?.itemName || '';
             const autoDesc = selectedFg?.descriptions || selectedFg?.description || autoName;
             const autoUnit = selectedFg?.unit || 'PCS';
@@ -231,6 +250,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             updatedItems[index] = {
                 ...updatedItems[index],
                 fgItem: value,
+                hsnCode: autoHsn || updatedItems[index].hsnCode || '',
                 description: autoDesc,
                 unit: autoUnit,
                 targetPrice: autoRate > 0 ? String(autoRate) : (updatedItems[index].targetPrice || '')
@@ -242,6 +262,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     };
 
     const handleSelectCustomer = (custId: string) => {
+        clearError('customer');
         const selectedCust = (Array.isArray(customers) ? customers : []).find((c: any) => (c._id || c.id)?.toString() === custId?.toString());
         if (selectedCust) {
             setNewRfq(prev => ({
@@ -257,15 +278,39 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     };
 
     const handleCreateRfqSubmit = async () => {
-        if (!newRfq.customerName.trim()) {
-            onError("Please select or enter customer name");
-            return;
+        const errors: Record<string, string> = {};
+        if (!newRfq.customer) {
+            errors.customer = "Please select a registered customer";
         }
-        if (!newRfq.items.some(i => i.fgItem && Number(i.quantity) > 0)) {
-            onError("Please select a Finished Good (FG) item and enter quantity for all items");
+        if (!newRfq.date) {
+            errors.date = "RFQ date is required";
+        }
+        if (!newRfq.items || newRfq.items.length === 0) {
+            errors.items = "At least one item is required";
+        } else {
+            newRfq.items.forEach((it, idx) => {
+                if (!it.fgItem) {
+                    errors[`item_${idx}_fgItem`] = "Select Finished Good";
+                }
+                if (!it.quantity || Number(it.quantity) <= 0) {
+                    errors[`item_${idx}_quantity`] = "Qty > 0 required";
+                }
+            });
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setFormErrors(errors);
+            setTimeout(() => {
+                const firstErr = document.querySelector('[data-has-error="true"]');
+                if (firstErr) {
+                    firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    (firstErr.querySelector('input, select, button') as HTMLElement)?.focus?.();
+                }
+            }, 50);
             return;
         }
 
+        setFormErrors({});
         setSubmitting(true);
         try {
             if (editingRfq && editingRfq._id) {
@@ -279,7 +324,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             setEditingRfq(null);
             fetchData();
         } catch (err: any) {
-            onError(err.message || "Failed to save Inward RFQ");
+            setFormErrors({ server_error: err.message || "Failed to save Inward RFQ" });
         } finally {
             setSubmitting(false);
         }
@@ -607,6 +652,23 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
                         <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
                             
+                            {/* In-Form Error Guidance Banner */}
+                            {Object.keys(formErrors).length > 0 && (
+                                <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-2xl flex items-center justify-between gap-3 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-xs">
+                                    <div className="flex items-center gap-2.5">
+                                        <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                                        <span className="text-xs font-bold">
+                                            {formErrors.server_error || `Please fill in the compulsory field${Object.keys(formErrors).length > 1 ? 's' : ''} highlighted in red below.`}
+                                        </span>
+                                    </div>
+                                    {!formErrors.server_error && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                                            {Object.keys(formErrors).length} required
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
                             {/* General & Customer Info Panel */}
                             <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
                                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
@@ -614,9 +676,10 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                 </h3>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Select Customer / Client *
+                                    <div className="md:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>Select Customer from Master <span className="text-rose-500">*</span></span>
+                                            {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
                                         </label>
                                         <SearchableSelect
                                             options={(Array.isArray(customers) ? customers : []).map(c => ({
@@ -624,29 +687,46 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 label: `${c.name || c.companyName} ${c.code ? `(${c.code})` : ''} ${c.city ? `- ${c.city}` : ''}`.trim()
                                             }))}
                                             value={newRfq.customer}
+                                            hasError={!!formErrors.customer}
                                             onChange={(val: any) => handleSelectCustomer(val)}
-                                            placeholder="Search & Select Customer..."
+                                            placeholder="Search & Select Registered Customer..."
                                         />
-                                        {!newRfq.customer && (
-                                            <input
-                                                type="text"
-                                                value={newRfq.customerName}
-                                                onChange={(e) => setNewRfq({ ...newRfq, customerName: e.target.value })}
-                                                placeholder="Or type customer name directly..."
-                                                className="w-full mt-2 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
-                                            />
-                                        )}
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            RFQ Date
+                                        <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1.5">
+                                            Currency *
+                                        </label>
+                                        <select
+                                            value={newRfq.currency || 'INR'}
+                                            onChange={(e) => setNewRfq({ ...newRfq, currency: e.target.value })}
+                                            className="w-full px-3.5 py-2 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-300 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                        >
+                                            {CURRENCY_OPTIONS.map((c) => (
+                                                <option key={c.code} value={c.code}>
+                                                    {c.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1" data-has-error={!!formErrors.date}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>RFQ Date <span className="text-rose-500">*</span></span>
+                                            {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.date}</span>}
                                         </label>
                                         <input
                                             type="date"
                                             value={newRfq.date}
-                                            onChange={(e) => setNewRfq({ ...newRfq, date: e.target.value })}
-                                            className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                            onChange={(e) => {
+                                                setNewRfq({ ...newRfq, date: e.target.value });
+                                                if (e.target.value) clearError('date');
+                                            }}
+                                            className={`w-full px-3.5 py-2 rounded-xl text-sm font-semibold outline-none transition-all ${
+                                                formErrors.date
+                                                    ? 'bg-rose-50/50 dark:bg-rose-950/40 border border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                    : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20'
+                                            }`}
                                         />
                                     </div>
 
@@ -662,7 +742,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                         />
                                     </div>
 
-                                    <div className="md:col-span-2 lg:col-span-4">
+                                    <div className="md:col-span-2 lg:col-span-3">
                                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                             Remarks / Special Notes
                                         </label>
@@ -694,9 +774,10 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                    <div className="col-span-4">Finished Good (FG Item) *</div>
+                                    <div className="col-span-3">Finished Good (FG Item) *</div>
+                                    <div className="col-span-1 text-center">HSN</div>
                                     <div className="col-span-3">Item Specifications / Details</div>
-                                    <div className="col-span-2 text-center">Target Price (₹)</div>
+                                    <div className="col-span-2 text-center">Target Price ({getCurrencySymbol(newRfq.currency)})</div>
                                     <div className="col-span-1 text-center">Required Qty *</div>
                                     <div className="col-span-1 text-center">Unit</div>
                                     <div className="col-span-1 text-right">Action</div>
@@ -709,16 +790,32 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                             <div className="grid grid-cols-12 gap-3 items-center">
                                                 
                                                 {/* FG Item Column */}
-                                                <div className="col-span-12 lg:col-span-4">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Finished Good (FG Item) *
+                                                <div className="col-span-12 lg:col-span-3" data-has-error={!!formErrors[`item_${idx}_fgItem`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>Finished Good (FG Item) <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_fgItem`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_fgItem`]}</span>}
                                                     </label>
                                                     <SearchableSelect
                                                         options={fgOptions}
                                                         value={item.fgItem}
+                                                        hasError={!!formErrors[`item_${idx}_fgItem`]}
                                                         onChange={(val: any) => handleItemChange(idx, 'fgItem', val)}
                                                         placeholder="Select FG Item..."
                                                         dropdownPosition="auto"
+                                                    />
+                                                </div>
+
+                                                {/* HSN Code Column */}
+                                                <div className="col-span-6 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        HSN
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsnCode || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN"
+                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-indigo-500"
                                                     />
                                                 </div>
 
@@ -739,7 +836,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 {/* Target / List Price Column */}
                                                 <div className="col-span-6 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Target Price (₹)
+                                                        Target Price ({getCurrencySymbol(newRfq.currency)})
                                                     </label>
                                                     <input
                                                         type="number"
@@ -747,15 +844,16 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                         step="any"
                                                         value={item.targetPrice}
                                                         onChange={(e) => handleItemChange(idx, 'targetPrice', e.target.value)}
-                                                        placeholder="Target / List Rate"
-                                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center"
+                                                        placeholder="0.00"
+                                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 outline-none focus:ring-1 focus:ring-indigo-500 text-center"
                                                     />
                                                 </div>
 
                                                 {/* Required Qty Column */}
-                                                <div className="col-span-3 lg:col-span-1">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Qty *
+                                                <div className="col-span-3 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>Qty <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_quantity`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_quantity`]}</span>}
                                                     </label>
                                                     <input
                                                         type="number"
@@ -763,7 +861,11 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                         value={item.quantity}
                                                         onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
                                                         placeholder="Qty"
-                                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white text-center"
+                                                        className={`w-full px-3 py-2 border rounded-xl text-sm font-bold text-center outline-none transition-all ${
+                                                            formErrors[`item_${idx}_quantity`]
+                                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                                : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white'
+                                                        }`}
                                                     />
                                                 </div>
 
@@ -837,11 +939,18 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                         <div className="p-6 overflow-y-auto space-y-5">
                             
                             {/* General Status & Interactive Control */}
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                                 <div>
                                     <span className="text-slate-400 block mb-0.5">Expected Delivery Date:</span>
                                     <strong className="text-slate-800 dark:text-slate-200 font-bold">
                                         {selectedRfq.expectedDeliveryDate || selectedRfq.dueDate ? new Date(selectedRfq.expectedDeliveryDate || selectedRfq.dueDate).toLocaleDateString('en-GB') : 'N/A'}
+                                    </strong>
+                                </div>
+
+                                <div>
+                                    <span className="text-slate-400 block mb-0.5">Currency:</span>
+                                    <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {selectedRfq.currency || 'INR'} ({getCurrencySymbol(selectedRfq.currency)})
                                     </strong>
                                 </div>
 
@@ -902,7 +1011,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 <div key={idx} className="flex justify-between items-center text-[11px] bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 rounded-lg border border-indigo-100/60 dark:border-indigo-900/60">
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 rounded text-[10px]">
-                                                            {h.status}
+                                                             {h.status}
                                                         </span>
                                                         <span className="text-slate-600 dark:text-slate-400 font-medium">By: {getUserName(h.updatedBy)}</span>
                                                     </div>
@@ -938,8 +1047,9 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
                                             <tr>
                                                 <th className="p-3">Item Name</th>
+                                                <th className="p-3 text-center">HSN</th>
                                                 <th className="p-3 text-center">Required Qty</th>
-                                                <th className="p-3 text-center">Target Rate</th>
+                                                <th className="p-3 text-center">Target Rate ({selectedRfq.currency || 'INR'})</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
@@ -950,8 +1060,9 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                         {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
                                                         {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
                                                     </td>
+                                                    <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-400">{item.hsnCode || item.hsn || '-'}</td>
                                                     <td className="p-3 text-center font-bold text-indigo-600">{item.quantity} {item.unit || 'PCS'}</td>
-                                                    <td className="p-3 text-center font-bold text-slate-700">{item.targetPrice ? `₹${item.targetPrice}` : '-'}</td>
+                                                    <td className="p-3 text-center font-bold text-slate-700">{item.targetPrice ? `${getCurrencySymbol(selectedRfq.currency)}${item.targetPrice}` : '-'}</td>
                                                 </tr>
                                             ))}
                                         </tbody>

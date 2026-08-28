@@ -84,6 +84,19 @@ export const materialRequestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
     },
+    approvedByName: {
+      type: String,
+    },
+    issuedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    issuedByName: {
+      type: String,
+    },
+    issuedAt: {
+      type: Date,
+    },
     remarks: String,
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

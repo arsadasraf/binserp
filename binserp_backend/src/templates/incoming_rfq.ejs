@@ -38,16 +38,30 @@
             <% if (doc.customerPhone) { %><p class="text-sm text-slate-500">Phone: <%= doc.customerPhone %></p><% } %>
         </div>
 
+        <% 
+            const getCurrSym = (curr) => {
+                switch ((curr || '').toUpperCase()) {
+                    case 'USD': return '$';
+                    case 'POUND': case 'GBP': return '£';
+                    case 'EURO': case 'EUR': return '€';
+                    case 'YEN': case 'JPY': return '¥';
+                    case 'YUAN': case 'CNY': case 'RMB': return '¥';
+                    case 'INR': default: return '₹';
+                }
+            };
+            const currSym = getCurrSym(doc.currency);
+        %>
         <!-- Items Table -->
         <table class="w-full text-sm text-left mb-8">
             <thead class="text-xs text-white uppercase bg-indigo-600 rounded-t-lg">
                 <tr>
                     <th class="px-4 py-3 rounded-tl-lg">S.No</th>
                     <th class="px-4 py-3">Item Name</th>
+                    <th class="px-4 py-3 text-center">HSN</th>
                     <th class="px-4 py-3">Description</th>
                     <th class="px-4 py-3 text-right">Quantity</th>
                     <th class="px-4 py-3">Unit</th>
-                    <th class="px-4 py-3 text-right rounded-tr-lg">Target Price</th>
+                    <th class="px-4 py-3 text-right rounded-tr-lg">Target Price (<%= currSym %>)</th>
                 </tr>
             </thead>
             <tbody>
@@ -58,15 +72,16 @@
                         <td class="px-4 py-3 font-medium text-slate-800">
                             <%= item.itemType === 'FGItem' ? (item.fgItem?.name || item.fgItem) : item.customItemName %>
                         </td>
+                        <td class="px-4 py-3 text-center font-mono text-slate-600"><%= item.hsnCode || item.hsn || '-' %></td>
                         <td class="px-4 py-3 text-slate-500"><%= item.description || '-' %></td>
                         <td class="px-4 py-3 text-right text-slate-600"><%= item.quantity %></td>
                         <td class="px-4 py-3 text-slate-600"><%= item.unit || '-' %></td>
-                        <td class="px-4 py-3 text-right text-slate-600"><%= item.targetPrice ? item.targetPrice.toFixed(2) : '-' %></td>
+                        <td class="px-4 py-3 text-right text-slate-600"><%= item.targetPrice ? `${currSym} ${item.targetPrice.toFixed(2)}` : '-' %></td>
                     </tr>
                     <% }); %>
                 <% } else { %>
                     <tr>
-                        <td colspan="6" class="px-4 py-3 text-center text-slate-500">No items found</td>
+                        <td colspan="7" class="px-4 py-3 text-center text-slate-500">No items found</td>
                     </tr>
                 <% } %>
             </tbody>

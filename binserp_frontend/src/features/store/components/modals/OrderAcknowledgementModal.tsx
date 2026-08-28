@@ -8,6 +8,7 @@ import {
     generateFrontendOrderAcknowledgementPDF, 
     downloadOrderAcknowledgementJsPDF 
 } from "@/src/utils/generateOrderAcknowledgementPDF";
+import { getCurrencySymbol } from "@/src/utils/currencyHelper";
 
 interface OrderAcknowledgementModalProps {
     isOpen: boolean;
@@ -250,7 +251,7 @@ export default function OrderAcknowledgementModal({
                                         <th className="p-3.5 text-center w-10">#</th>
                                         <th className="p-3.5">Product Name & Specifications</th>
                                         <th className="p-3.5 text-center">Ordered Qty</th>
-                                        <th className="p-3.5 text-right">Unit Rate (₹)</th>
+                                        <th className="p-3.5 text-right">Unit Rate ({po.currency || 'INR'})</th>
                                         <th className="p-3.5 text-center">Requested Date</th>
                                         <th className="p-3.5 text-center w-56">Committed Dispatch Date</th>
                                     </tr>
@@ -277,7 +278,7 @@ export default function OrderAcknowledgementModal({
                                                     {qty} {item.unit || 'PCS'}
                                                 </td>
                                                 <td className="p-3.5 text-right font-mono font-bold text-slate-700 dark:text-slate-300">
-                                                    ₹{rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                    {getCurrencySymbol(po.currency)}{rate.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                                 </td>
                                                 <td className="p-3.5 text-center text-slate-500 font-medium">
                                                     {reqDate}

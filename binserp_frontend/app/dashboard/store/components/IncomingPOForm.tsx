@@ -520,7 +520,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                         {selectedCustomerObj?.name || selectedCustomerObj?.customerName || formData.customer || "Customer PO"}
                       </h3>
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                        formData.status === 'Accepted' || formData.status === 'Sales Order Generated' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
+                        formData.status === 'Accepted' || formData.status === 'MRP Done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
                         formData.status === 'Received' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
                         'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
                       }`}>
@@ -839,7 +839,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                   >
                     <option value="Received">Received</option>
                     <option value="Accepted">Accepted</option>
-                    <option value="Sales Order Generated">Sales Order Generated</option>
+                    <option value="MRP Done">MRP Done</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>

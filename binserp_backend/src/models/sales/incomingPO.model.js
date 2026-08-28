@@ -25,6 +25,10 @@ export const incomingPOSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Quotation",
     },
+    currency: {
+      type: String,
+      default: "INR",
+    },
     items: [
       {
         fgItem: {
@@ -32,6 +36,7 @@ export const incomingPOSchema = new mongoose.Schema(
           ref: "FGItem",
         },
         productName: { type: String, required: true },
+        hsnCode: { type: String, trim: true },
         description: String,
         quantity: { type: Number, required: true, min: 1 },
         unit: { type: String, default: "PCS" },
@@ -55,8 +60,15 @@ export const incomingPOSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Received", "Accepted", "Processing", "Sales Order Generated", "Partially Dispatched", "Completed", "Cancelled"],
+      enum: ["Received", "Accepted", "MRP Done", "Partially Dispatched", "Completed", "Cancelled"],
       default: "Received",
+    },
+    mrpPlan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MRPPlan",
+    },
+    mrpNumber: {
+      type: String,
     },
     acknowledgementNumber: {
       type: String,

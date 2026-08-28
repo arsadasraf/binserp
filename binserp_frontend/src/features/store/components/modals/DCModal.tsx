@@ -12,7 +12,7 @@ import { X, Plus, Trash2, Package, User, Calendar, Hash, FileText, Truck, Calcul
 import { DCModalProps, RmBoItem } from "@/src/features/store/types/store.types";
 import SearchableSelect from "../SearchableSelect";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
-import Swal from "sweetalert2";
+import { getCurrencySymbol, CURRENCY_OPTIONS } from "@/src/utils/currencyHelper";
 
 interface ExtendedDCModalProps extends DCModalProps {
     materials?: RmBoItem[];
@@ -51,6 +51,7 @@ export default function DCModal({
     const [customerName, setCustomerName] = useState("");
     const [customerAddress, setCustomerAddress] = useState("");
     const [customerPoReference, setCustomerPoReference] = useState("");
+    const [currency, setCurrency] = useState("INR");
     const [transportationType, setTransportationType] = useState("Road Transport");
     const [transportationCharges, setTransportationCharges] = useState(0);
     const [vehicleNumber, setVehicleNumber] = useState("");
@@ -119,6 +120,7 @@ export default function DCModal({
             setCustomerName(initialData.customerName || (initialData.customer as any)?.name || "");
             setCustomerAddress(initialData.customerAddress || (initialData.customer as any)?.address || "");
             setCustomerPoReference(initialData.customerPoReference || "");
+            setCurrency(initialData.currency || (initialData as any).po?.currency || "INR");
             setTransportationType((initialData as any).transportationType || "Road Transport");
             setTransportationCharges((initialData as any).transportationCharges || 0);
             setVehicleNumber((initialData as any).vehicleNumber || "");
@@ -160,6 +162,7 @@ export default function DCModal({
             setCustomerName("");
             setCustomerAddress("");
             setCustomerPoReference("");
+            setCurrency("INR");
             setTransportationType("Road Transport");
             setTransportationCharges(0);
             setVehicleNumber("");
@@ -210,6 +213,9 @@ export default function DCModal({
 
         const po = Array.isArray(incomingPOs) ? incomingPOs.find((p: any) => p._id === poId) : null;
         if (po) {
+            if (po.currency) {
+                setCurrency(po.currency);
+            }
             if (po.customer) {
                 const custId = typeof po.customer === 'object' ? po.customer._id : po.customer;
                 handleCustomerChange(custId);
@@ -222,7 +228,7 @@ export default function DCModal({
                 });
 
                 if (pendingItems.length === 0) {
-                    Swal.fire("PO Dispatch Info", "All items in this Customer PO have already been fully dispatched.", "info");
+                    setFormErrors({ server_error: "All items in this Customer PO have already been fully dispatched." });
                     return;
                 }
 
@@ -384,27 +390,14 @@ export default function DCModal({
             return itemPayload;
         });
 
-        // Validation against Customer PO
-        if (customerPoReference && incomingPOs) {
-            const po = (incomingPOs as any[]).find(p => p._id === customerPoReference);
-            if (po) {
-                for (const item of payloadItems) {
-                    const poItem = po.items.find((i: any) => i.productName === item.materialName || i.fgItem?._id === item.fgItem || i.fgItem === item.fgItem);
-                    if (poItem) {
-                        const remaining = poItem.quantity - (poItem.dispatchedQuantity || 0);
-                        if (item.quantity > remaining) {
-                            Swal.fire("Validation Warning", `Requested ${item.quantity} ${item.unit} exceeds remaining PO balance (${remaining} ${item.unit}). Proceeding with dispatch.`, "warning");
-                        }
-                    }
-                }
-            }
-        }
+
 
         const payload: any = {
             dcNumber,
             date,
             customerName,
             customerAddress,
+            currency,
             transportationType,
             transportationCharges,
             vehicleNumber,
@@ -439,8 +432,8 @@ export default function DCModal({
     });
 
     return (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[200] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl max-w-7xl w-full max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto">
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[200] flex items-center justify-center p-2 sm:p-5 overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1600px] max-h-[92vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto overflow-hidden">
                 
                 {/* Modal Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-20">
@@ -491,7 +484,7 @@ export default function DCModal({
                                 <span>Challan & Customer Details</span>
                             </div>
                             
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                                 <div className="space-y-1">
                                     <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">DC Number</label>
                                     <input
@@ -540,7 +533,22 @@ export default function DCModal({
                                 </div>
 
                                 <div className="space-y-1">
-                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Inward PO Ref (Optional Auto-Fill)</label>
+                                    <label className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Currency</label>
+                                    <select
+                                        value={currency || "INR"}
+                                        onChange={(e) => setCurrency(e.target.value)}
+                                        className="w-full px-3 py-2 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 outline-none"
+                                    >
+                                        {CURRENCY_OPTIONS.map((c) => (
+                                            <option key={c.code} value={c.code}>
+                                                {c.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Inward PO Ref (Auto-Fill)</label>
                                     <SearchableSelect
                                         options={[
                                             { value: "", label: "Direct / No PO" },
@@ -590,7 +598,7 @@ export default function DCModal({
                                     />
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Freight Charges (₹)</label>
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Freight Charges ({getCurrencySymbol(currency)})</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -616,7 +624,7 @@ export default function DCModal({
                                     </select>
                                 </div>
                                 <div className="space-y-1">
-                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Charges (₹)</label>
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Packaging Charges ({getCurrencySymbol(currency)})</label>
                                     <input
                                         type="number"
                                         min="0"
@@ -774,7 +782,7 @@ export default function DCModal({
                                             {/* Rate & Line Total */}
                                             <div className="md:col-span-3 flex gap-2">
                                                 <div className="flex-1">
-                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Unit Price (₹)</label>
+                                                    <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Unit Price ({getCurrencySymbol(currency)})</label>
                                                     <input
                                                         type="number"
                                                         min="0"
@@ -787,7 +795,7 @@ export default function DCModal({
                                                 <div className="flex-1">
                                                     <label className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Line Amount</label>
                                                     <div className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
-                                                        <span className="text-slate-400 text-xs">₹</span>
+                                                        <span className="text-slate-400 text-xs">{getCurrencySymbol(currency)}</span>
                                                         <span>{((entry.amount || 0)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                                                     </div>
                                                 </div>
@@ -831,15 +839,15 @@ export default function DCModal({
                             <div className="lg:col-span-5 bg-slate-50 dark:bg-slate-800/60 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
                                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                                     <span>Items Subtotal</span>
-                                    <span className="font-semibold text-slate-900 dark:text-white">₹{subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">{getCurrencySymbol(currency)}{subtotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                                 </div>
                                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                                     <span>Freight Charges</span>
-                                    <span className="font-semibold text-slate-900 dark:text-white">+ ₹{Number(transportationCharges || 0).toFixed(2)}</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">+ {getCurrencySymbol(currency)}{Number(transportationCharges || 0).toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400">
                                     <span>Packaging Charges</span>
-                                    <span className="font-semibold text-slate-900 dark:text-white">+ ₹{Number(packagingCharges || 0).toFixed(2)}</span>
+                                    <span className="font-semibold text-slate-900 dark:text-white">+ {getCurrencySymbol(currency)}{Number(packagingCharges || 0).toFixed(2)}</span>
                                 </div>
                                 <div className="flex justify-between text-sm text-slate-600 dark:text-slate-400 items-center">
                                     <span>Discount</span>
@@ -853,8 +861,8 @@ export default function DCModal({
                                     />
                                 </div>
                                 <div className="pt-3 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
-                                    <span className="text-base font-bold text-slate-900 dark:text-white">Total DC Value</span>
-                                    <span className="text-xl font-bold text-blue-600 dark:text-blue-400">₹{totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                                    <span className="text-base font-bold text-slate-900 dark:text-white">Total DC Value ({currency || "INR"})</span>
+                                    <span className="text-xl font-bold text-blue-600 dark:text-blue-400">{getCurrencySymbol(currency)}{totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                                 </div>
                             </div>
                         </div>

@@ -34,6 +34,10 @@ export const invoiceSchema = new mongoose.Schema(
     },
     customerAddress: String,
     customerGST: String,
+    currency: {
+      type: String,
+      default: "INR",
+    },
     items: [
       {
         fgItem: {

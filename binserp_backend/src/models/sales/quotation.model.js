@@ -33,6 +33,10 @@ export const quotationSchema = new mongoose.Schema(
     customerAddress: String,
     customerEmail: String,
     customerPhone: String,
+    currency: {
+      type: String,
+      default: "INR",
+    },
     items: [
       {
         material: {
@@ -48,6 +52,7 @@ export const quotationSchema = new mongoose.Schema(
           ref: "FGItem",
         },
         productName: { type: String, required: true },
+        hsnCode: { type: String, trim: true },
         quantity: { type: Number, required: true },
         unit: { type: String, default: "PCS" },
         rate: { type: Number, required: true },

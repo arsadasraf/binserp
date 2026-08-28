@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Calendar, User, FileText, ShoppingCart, Layers, Package, Boxes, ShieldCheck, Edit3 } from 'lucide-react';
+import { formatDateTime } from '../tables/MaterialIssueHistoryTable';
 
 interface MaterialRequestDetailsModalProps {
     isOpen: boolean;
@@ -72,10 +73,10 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="p-3.5 bg-gray-50 dark:bg-gray-800/60 rounded-2xl border border-gray-100 dark:border-gray-800">
                             <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-bold mb-1">
-                                <Calendar size={14} /> Created Date
+                                <Calendar size={14} /> Created Date & Time
                             </div>
-                            <div className="text-gray-900 dark:text-gray-100 font-bold text-sm">
-                                {new Date(request.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                            <div className="text-gray-900 dark:text-gray-100 font-bold text-xs font-mono">
+                                {formatDateTime(request.createdAt)}
                             </div>
                         </div>
 
@@ -143,30 +144,57 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                     {/* Audit & Tracking Information */}
                     <div className="p-4 rounded-2xl bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800">
                         <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                            <ShieldCheck size={15} className="text-indigo-600 dark:text-indigo-400" /> Audit & Tracking
+                            <ShieldCheck size={15} className="text-indigo-600 dark:text-indigo-400" /> Audit & Fulfillment Tracking
                         </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="flex items-start gap-2.5">
-                                <div className="p-2 rounded-xl bg-emerald-100/60 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
-                                    <User size={14} />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-150 dark:border-gray-700">
+                                <div className="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                                    <User size={13} />
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold text-gray-400">Created By</div>
                                     <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.createdByName || request.requestedBy?.name || 'System'}</div>
-                                    <div className="text-[11px] text-gray-500">
-                                        {request.createdAt ? new Date(request.createdAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
+                                    <div className="text-[10px] text-gray-500">
+                                        {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : '-'}
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-start gap-2.5">
-                                <div className="p-2 rounded-xl bg-indigo-100/60 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
-                                    <Edit3 size={14} />
+
+                            <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-150 dark:border-gray-700">
+                                <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                                    <ShieldCheck size={13} />
+                                </div>
+                                <div>
+                                    <div className="text-[10px] uppercase font-bold text-gray-400">Approved By</div>
+                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.approvedByName || request.approvedBy?.name || '-'}</div>
+                                    <div className="text-[10px] text-gray-500">
+                                        {request.status === 'Approved' || request.status === 'Issued' ? 'Approved' : 'Pending'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-150 dark:border-gray-700">
+                                <div className="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                                    <Package size={13} />
+                                </div>
+                                <div>
+                                    <div className="text-[10px] uppercase font-bold text-gray-400">Issued By</div>
+                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.issuedByName || request.issuedBy?.name || '-'}</div>
+                                    <div className="text-[10px] text-gray-500">
+                                        {request.issuedAt ? new Date(request.issuedAt).toLocaleDateString() : '-'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-gray-800 border border-gray-150 dark:border-gray-700">
+                                <div className="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                                    <Edit3 size={13} />
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold text-gray-400">Last Modified</div>
                                     <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.updatedByName || request.createdByName || 'System'}</div>
-                                    <div className="text-[11px] text-gray-500">
-                                        {request.updatedAt ? new Date(request.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '-'}
+                                    <div className="text-[10px] text-gray-500">
+                                        {request.updatedAt ? new Date(request.updatedAt).toLocaleDateString() : '-'}
                                     </div>
                                 </div>
                             </div>

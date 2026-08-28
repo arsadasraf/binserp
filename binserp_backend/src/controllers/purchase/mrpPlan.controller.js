@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema } from "../../models/store/index.js";
+import { incomingPOSchema } from "../../models/sales/index.js";
 import { userSchema } from "../../models/user/index.js";
 
 const getCompanyId = (req) => {
@@ -15,6 +16,7 @@ export const createMRPPlan = async (req, res) => {
     const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
     const Category = req.getModel("Category", categorySchema);
     const FGItem = req.getModel("FGItem", fgItemSchema);
+    const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
     req.getModel("User", userSchema);
 
     const companyId = getCompanyId(req);
@@ -293,6 +295,28 @@ export const createMRPPlan = async (req, res) => {
       createdBy: req.user?.id || req.user?._id,
       createdByName: req.user?.name || req.user?.username || "Planner",
     });
+
+    // Auto-update Customer PO status to 'MRP Done'
+    if (customerPo || customerPoNumber) {
+      try {
+        const poQuery = { company: companyId };
+        if (customerPo && mongoose.Types.ObjectId.isValid(customerPo)) {
+          poQuery._id = customerPo;
+        } else if (customerPoNumber) {
+          poQuery.poNumber = customerPoNumber;
+        }
+
+        const poDoc = await IncomingPO.findOne(poQuery);
+        if (poDoc) {
+          poDoc.status = "MRP Done";
+          poDoc.mrpPlan = newPlan._id;
+          poDoc.mrpNumber = newPlan.mrpNumber;
+          await poDoc.save();
+        }
+      } catch (poErr) {
+        console.warn("Could not update IncomingPO status to MRP Done:", poErr);
+      }
+    }
 
     res.status(201).json({
       success: true,

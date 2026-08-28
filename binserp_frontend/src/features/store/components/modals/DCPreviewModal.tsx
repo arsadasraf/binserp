@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Calendar, User, Truck, Package, Layers, FileText, Download, Edit2, Trash2, CheckCircle2, Building2, Eye, Printer, MapPin, Hash, Sparkles } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadDCExcelDocument } from '@/src/utils/frontendDocumentHelper';
+import { getCurrencySymbol, convertAmountToWords } from '@/src/utils/currencyHelper';
 
 interface DCPreviewModalProps {
     isOpen: boolean;
@@ -10,33 +11,6 @@ interface DCPreviewModalProps {
     companyInfo?: CompanyInfo;
     onEdit?: (dc: any) => void;
     onDelete?: (id: string) => void;
-}
-
-function numberToWords(num: number): string {
-    if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
-    const a = [
-        "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
-        "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
-    ];
-    const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-    function inWords(n: number): string {
-        if (n < 20) return a[n];
-        if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
-        if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
-        if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
-        if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
-        return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
-    }
-
-    const integerPart = Math.floor(num);
-    const decimalPart = Math.round((num - integerPart) * 100);
-
-    let str = "Rupees " + inWords(integerPart).trim();
-    if (decimalPart > 0) {
-        str += " and " + inWords(decimalPart).trim() + " Paise";
-    }
-    return str + " Only";
 }
 
 const formatDateTime = (dateStr?: string | Date) => {
@@ -224,6 +198,7 @@ export default function DCPreviewModal({
                                 <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">Document & Transport Info</span>
                                 <div className="flex justify-between"><span>DC Number:</span> <span className="font-mono font-bold text-slate-900 dark:text-white">{dc.dcNumber}</span></div>
                                 <div className="flex justify-between"><span>Creation Time:</span> <span className="font-medium text-slate-700 dark:text-slate-300">{formatDateTime(dc.createdAt || dc.date)}</span></div>
+                                <div className="flex justify-between"><span>Currency:</span> <span className="font-bold text-blue-600 dark:text-blue-400">{dc.currency || "INR"} ({getCurrencySymbol(dc.currency)})</span></div>
                                 <div className="flex justify-between"><span>Transport Mode:</span> <span className="font-medium">{dc.transportationType || dc.transportType || "Road Transport"}</span></div>
                                 <div className="flex justify-between"><span>Vehicle Number:</span> <span className="font-mono font-bold">{dc.vehicleNumber || "-"}</span></div>
                             </div>
@@ -239,8 +214,8 @@ export default function DCPreviewModal({
                                         <th className="p-2.5 text-center">HSN</th>
                                         <th className="p-2.5 text-center">Qty</th>
                                         <th className="p-2.5 text-center">Unit</th>
-                                        <th className="p-2.5 text-right">Rate (₹)</th>
-                                        <th className="p-2.5 text-right">Total (₹)</th>
+                                        <th className="p-2.5 text-right">Rate ({dc.currency || 'INR'})</th>
+                                        <th className="p-2.5 text-right">Total ({dc.currency || 'INR'})</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-medium">
@@ -258,8 +233,8 @@ export default function DCPreviewModal({
                                                 <td className="p-2.5 text-center font-mono text-slate-500">{item.hsnCode || "-"}</td>
                                                 <td className="p-2.5 text-center font-bold text-blue-600 dark:text-blue-400">{qty}</td>
                                                 <td className="p-2.5 text-center text-slate-600 dark:text-slate-300">{item.unit || "PCS"}</td>
-                                                <td className="p-2.5 text-right font-mono">₹{rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="p-2.5 text-right font-mono">{getCurrencySymbol(dc.currency)}{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">{getCurrencySymbol(dc.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                             </tr>
                                         );
                                     })}
@@ -272,17 +247,17 @@ export default function DCPreviewModal({
                             <div className="text-xs space-y-1 max-w-sm">
                                 <span className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">Amount in Words</span>
                                 <p className="font-bold text-slate-800 dark:text-slate-200 italic bg-slate-50 dark:bg-slate-900 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                                    {numberToWords(grandTotal)}
+                                    {convertAmountToWords(grandTotal, dc.currency)}
                                 </p>
                             </div>
 
                             <div className="w-full sm:w-72 space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-                                <div className="flex justify-between"><span>Items Subtotal:</span> <span className="font-mono font-bold">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-                                {transportCharges > 0 && <div className="flex justify-between"><span>Freight Charges:</span> <span className="font-mono">+ ₹{transportCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
-                                {packagingCharges > 0 && <div className="flex justify-between"><span>Packaging Charges:</span> <span className="font-mono">+ ₹{packagingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                                <div className="flex justify-between"><span>Items Subtotal:</span> <span className="font-mono font-bold">{getCurrencySymbol(dc.currency)}{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+                                {transportCharges > 0 && <div className="flex justify-between"><span>Freight Charges:</span> <span className="font-mono">+ {getCurrencySymbol(dc.currency)}{transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
+                                {packagingCharges > 0 && <div className="flex justify-between"><span>Packaging Charges:</span> <span className="font-mono">+ {getCurrencySymbol(dc.currency)}{packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>}
                                 <div className="flex justify-between font-extrabold text-sm text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
-                                    <span>GRAND TOTAL:</span> 
-                                    <span className="font-mono text-blue-600 dark:text-blue-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                    <span>GRAND TOTAL ({dc.currency || 'INR'}):</span> 
+                                    <span className="font-mono text-blue-600 dark:text-blue-400">{getCurrencySymbol(dc.currency)}{grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                             </div>
                         </div>

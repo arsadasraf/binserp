@@ -101,7 +101,7 @@ export const IncomingPOTable: React.FC<IncomingPOTableProps> = ({
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       po.status === 'Received' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400' :
                       po.status === 'Accepted' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400' :
-                      po.status === 'Sales Order Generated' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
+                      po.status === 'MRP Done' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' :
                       'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
                     }`}>
                       {po.status}

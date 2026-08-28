@@ -51,21 +51,62 @@ export const getAllMaterialRequests = async (req, res) => {
     req.getModel('SalesOrder', salesOrderSchema);
 
     const companyId = getCompanyId(req);
-    const { status, department } = req.query;
+    const { status, department, type, requestedBy, startDate, endDate } = req.query;
 
     const query = { company: companyId };
-    if (status) query.status = status;
-    if (department) query.department = department;
+    if (status && status !== 'All') query.status = status;
+    if (department && department !== 'All') query.department = department;
+    if (requestedBy && requestedBy !== 'All') query.requestedBy = requestedBy;
+
+    if (type && type !== 'All') {
+      const t = type.toLowerCase();
+      if (t === 'rm' || t === 'raw-material') {
+        query.type = { $in: ['rm', 'raw-material'] };
+      } else if (t === 'bo' || t === 'bought-out') {
+        query.type = { $in: ['bo', 'bought-out'] };
+      } else if (t === 'fg' || t === 'inhouse') {
+        query.type = { $in: ['fg', 'inhouse'] };
+      } else if (t === 'consumable') {
+        query.type = 'consumable';
+      } else {
+        query.type = type;
+      }
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
 
     const materialRequests = await MaterialRequest.find(query)
-      .populate("requestedBy", "name userId department")
-      .populate("approvedBy", "name userId")
+      .populate("requestedBy", "name userId department email")
+      .populate("approvedBy", "name userId department")
+      .populate("issuedBy", "name userId department")
       .populate("salesOrder", "orderNumber status customer poReference")
+      .lean()
       .sort({ createdAt: -1 });
 
+    const formattedRequests = materialRequests.map((reqItem) => {
+      if (!reqItem.requestedBy && (reqItem.createdBy || reqItem.createdByName)) {
+        reqItem.requestedBy = {
+          _id: reqItem.createdBy,
+          id: reqItem.createdBy,
+          name: reqItem.createdByName || 'User',
+          userId: reqItem.createdBy,
+          department: reqItem.department || 'Store'
+        };
+      }
+      return reqItem;
+    });
+
     res.status(200).json({
-      materialRequests,
-      count: materialRequests.length,
+      materialRequests: formattedRequests,
+      count: formattedRequests.length,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

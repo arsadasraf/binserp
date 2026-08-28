@@ -1,37 +1,10 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getCurrencySymbol, convertAmountToWords } from "./currencyHelper";
 
 export interface OrderAcknowledgementData {
     po: any;
     companyInfo?: any;
-}
-
-// Number to Words Converter (Indian Currency Format)
-function numberToWords(num: number): string {
-    if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
-    const a = [
-        "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
-        "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
-    ];
-    const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-    function inWords(n: number): string {
-        if (n < 20) return a[n];
-        if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
-        if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
-        if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
-        if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
-        return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
-    }
-
-    const integerPart = Math.floor(num);
-    const decimalPart = Math.round((num - integerPart) * 100);
-
-    let str = "Rupees " + inWords(integerPart).trim();
-    if (decimalPart > 0) {
-        str += " and " + inWords(decimalPart).trim() + " Paise";
-    }
-    return str + " Only";
 }
 
 const formatDate = (dateStr?: string | Date) => {
@@ -84,6 +57,7 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
     const freightAmount = Number(po.transportationCharges || 0);
 
     // 4. Line Items Construction
+    const currSym = getCurrencySymbol(po.currency);
     const items = po.items || [];
     let itemsRowsHtml = '';
 
@@ -104,6 +78,8 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
 
         const isSpecific = !!item.committedDeliveryDate;
 
+        const hsn = item.hsnCode || item.hsn || '-';
+
         itemsRowsHtml += `
             <tr style="border-bottom: 1px solid #e2e8f0;">
                 <td style="padding: 7px 8px; text-align: center; font-size: 11px; font-weight: bold; color: #475569;">${idx + 1}</td>
@@ -111,11 +87,14 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
                     <strong style="color: #0f172a;">${pName} ${pCode}</strong>
                     ${desc}
                 </td>
+                <td style="padding: 7px 8px; text-align: center; font-size: 11px; font-family: monospace; font-weight: bold; color: #475569;">
+                    ${hsn}
+                </td>
                 <td style="padding: 7px 8px; text-align: center; font-size: 11px; font-weight: bold; color: #1e293b;">
                     ${qty} <span style="font-size: 9px; color: #64748b; font-weight: normal;">${unit}</span>
                 </td>
                 <td style="padding: 7px 8px; text-align: right; font-size: 11px; font-family: monospace; font-weight: bold; color: #1e293b;">
-                    ₹${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${currSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td style="padding: 7px 8px; text-align: center; font-size: 11px; font-weight: bold; color: #475569;">
                     ${taxRate}%
@@ -126,7 +105,7 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
                     </span>
                 </td>
                 <td style="padding: 7px 8px; text-align: right; font-size: 11px; font-family: monospace; font-weight: bold; color: #1e3a8a;">
-                    ₹${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${currSym}${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
             </tr>
         `;
@@ -269,12 +248,13 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
                         <thead style="background: #1e3a8a; color: #fff;">
                             <tr>
                                 <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 5%;">#</th>
-                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: left; width: 36%;">Item Description / Spec</th>
-                                <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 11%;">Qty</th>
-                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: right; width: 14%;">Rate (₹)</th>
-                                <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 8%;">GST</th>
+                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: left; width: 30%;">Item Description / Spec</th>
+                                <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 10%;">HSN</th>
+                                <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 9%;">Qty</th>
+                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: right; width: 13%;">Rate (${currSym})</th>
+                                <th style="padding: 7px 6px; font-size: 10px; font-weight: 800; text-align: center; width: 7%;">GST</th>
                                 <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: center; width: 14%;">Committed Date</th>
-                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: right; width: 12%;">Total (₹)</th>
+                                <th style="padding: 7px 8px; font-size: 10px; font-weight: 800; text-align: right; width: 12%;">Total (${currSym})</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -292,7 +272,7 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
                                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px;">
                                     <span style="font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase;">Amount in Words:</span>
                                     <div style="font-size: 11px; font-weight: 800; color: #0f172a; margin-top: 2px;">
-                                        ${numberToWords(totalAmount)}
+                                        ${convertAmountToWords(totalAmount, po.currency)}
                                     </div>
                                 </div>
 
@@ -309,22 +289,22 @@ export const generateFrontendOrderAcknowledgementPDF = ({ po, companyInfo }: Ord
                                 <table style="width: 100%; font-size: 11px; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden;">
                                     <tr style="border-bottom: 1px solid #e2e8f0;">
                                         <td style="padding: 5px 8px; color: #64748b;">Subtotal:</td>
-                                        <td style="padding: 5px 8px; text-align: right; font-weight: bold; font-family: monospace;">₹${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td style="padding: 5px 8px; text-align: right; font-weight: bold; font-family: monospace;">${currSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     </tr>
                                     <tr style="border-bottom: 1px solid #e2e8f0;">
                                         <td style="padding: 5px 8px; color: #64748b;">Total GST Tax:</td>
-                                        <td style="padding: 5px 8px; text-align: right; font-weight: bold; font-family: monospace;">₹${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                        <td style="padding: 5px 8px; text-align: right; font-weight: bold; font-family: monospace;">${currSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     </tr>
                                     ${freightAmount > 0 ? `
                                         <tr style="border-bottom: 1px solid #e2e8f0;">
                                             <td style="padding: 5px 8px; color: #64748b;">Freight Charges:</td>
-                                            <td style="padding: 5px 8px; text-align: right; font-weight: bold; font-family: monospace;">₹${freightAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td style="padding: 5px 8px; text-align: right; font-weight: bold; font-family: monospace;">${currSym}${freightAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                         </tr>
                                     ` : ''}
                                     <tr style="background: #1e3a8a; color: #fff;">
-                                        <td style="padding: 7px 8px; font-weight: 800; font-size: 12px;">Grand Total:</td>
+                                        <td style="padding: 7px 8px; font-weight: 800; font-size: 12px;">Grand Total (${po.currency || 'INR'}):</td>
                                         <td style="padding: 7px 8px; text-align: right; font-weight: 900; font-size: 13px; font-family: monospace;">
-                                            ₹${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            ${currSym}${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                     </tr>
                                 </table>
@@ -393,6 +373,7 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
     const poDate = formatDate(po.date || po.createdAt);
     const globalCommitment = formatDate(po.committedDispatchDate || po.date);
     const totalAmount = Number(po.totalAmount || po.subtotal || 0);
+    const currSym = getCurrencySymbol(po.currency);
 
     // Header
     doc.setFillColor(30, 58, 138); // Dark blue #1e3a8a
@@ -445,20 +426,23 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
             ? formatDate(item.committedDeliveryDate) 
             : (po.committedDispatchDate ? formatDate(po.committedDispatchDate) : globalCommitment);
 
+        const rateStr = `${currSym} ${rate.toFixed(2)}`;
+        const lineTotalStr = `${currSym} ${lineTotal.toFixed(2)}`;
+
         return [
             idx + 1,
             pName,
             `${qty} ${unit}`,
-            `INR ${rate.toFixed(2)}`,
+            rateStr,
             `${taxRate}%`,
             itemCommitDate,
-            `INR ${lineTotal.toFixed(2)}`
+            lineTotalStr
         ];
     });
 
     autoTable(doc, {
         startY: yPos,
-        head: [["#", "Item Description", "Qty", "Rate", "GST", "Committed Date", "Total Amount"]],
+        head: [["#", "Item Description", "Qty", `Rate (${currSym})`, "GST", "Committed Date", `Total Amount (${currSym})`]],
         body: tableBody,
         theme: "striped",
         headStyles: { fillColor: [30, 58, 138], textColor: 255, fontStyle: "bold", fontSize: 8 },
@@ -480,11 +464,11 @@ export const downloadOrderAcknowledgementJsPDF = ({ po, companyInfo }: OrderAckn
     // Summary
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9);
-    doc.text(`Grand Total: INR ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 196, finalY + 8, { align: "right" });
+    doc.text(`Grand Total (${po.currency || 'INR'}): ${currSym} ${totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 196, finalY + 8, { align: "right" });
     
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
-    doc.text(`Amount in words: ${numberToWords(totalAmount)}`, 14, finalY + 8);
+    doc.text(`Amount in words: ${convertAmountToWords(totalAmount, po.currency)}`, 14, finalY + 8);
 
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);

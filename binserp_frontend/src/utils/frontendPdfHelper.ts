@@ -4,6 +4,8 @@
  * Fully populating Vendor address, GST, PAN, and Company details directly in the browser.
  */
 
+import { getCurrencySymbol, convertAmountToWords, formatCurrencyAmount } from "./currencyHelper";
+
 export interface PrintDocumentData {
     doc: any;
     companyInfo?: any;
@@ -532,6 +534,9 @@ export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; c
     const compEmail = companyInfo?.email || '';
     const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
 
+    const rfqCurrSym = getCurrencySymbol(rfq.currency);
+    const rfqCurrCode = rfq.currency || 'INR';
+
     const items = rfq.items || [];
     let totalQty = 0;
     let itemsTableRowsHtml = '';
@@ -550,7 +555,7 @@ export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; c
                         ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
                     </td>
                     <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                    <td style="text-align: center; padding: 6px; color: #64748b;">${item.targetPrice ? '₹' + item.targetPrice : '-'}</td>
+                    <td style="text-align: center; padding: 6px; color: #0f172a; font-weight: 600;">${item.targetPrice ? `${rfqCurrSym}${Number(item.targetPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
                     <td style="text-align: left; padding: 6px;">${item.remarks || item.specifications || ''}</td>
                 </tr>
             `;
@@ -624,6 +629,10 @@ export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; c
                                 <td style="padding: 4px 0; font-weight: 900; color: #b91c1c;">${rfq.dueDate || rfq.expectedDeliveryDate ? new Date(rfq.dueDate || rfq.expectedDeliveryDate).toLocaleDateString('en-GB') : 'Immediate'}</td>
                             </tr>
                             <tr>
+                                <td style="padding: 4px 0; color: #64748b;"><b>Currency:</b></td>
+                                <td style="padding: 4px 0; font-weight: bold; color: #0284c7;">${rfqCurrCode} (${rfqCurrSym})</td>
+                            </tr>
+                            <tr>
                                 <td style="padding: 4px 0; color: #64748b;"><b>Status:</b></td>
                                 <td style="padding: 4px 0; font-weight: bold; color: #4f46e5;">${rfq.status || 'Open'}</td>
                             </tr>
@@ -640,7 +649,7 @@ export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; c
                         <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
                         <th style="width: 40%; padding: 7px 8px; text-align: left;">Item Description & Specifications</th>
                         <th style="width: 15%; padding: 7px 4px; text-align: center;">Req. Qty</th>
-                        <th style="width: 15%; padding: 7px 4px; text-align: center;">Target Rate</th>
+                        <th style="width: 15%; padding: 7px 4px; text-align: center;">Target Rate (${rfqCurrCode})</th>
                         <th style="width: 25%; padding: 7px 8px; text-align: left;">Remarks / Specs</th>
                     </tr>
                 </thead>
@@ -750,6 +759,9 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
     const compEmail = companyInfo?.email || '';
     const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
 
+    const quotCurrSym = getCurrencySymbol(quotation.currency);
+    const quotCurrCode = quotation.currency || 'INR';
+
     const items = quotation.items || [];
     let totalQty = 0;
     let itemsTableRowsHtml = '';
@@ -772,9 +784,9 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
                         ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
                     </td>
                     <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || 'PCS'}</td>
-                    <td style="text-align: right; padding: 6px; font-weight: bold;">₹${rate.toLocaleString()}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: bold; font-family: monospace;">${quotCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td style="text-align: center; padding: 6px;">${tax > 0 ? tax + '%' : '-'}</td>
-                    <td style="text-align: right; padding: 6px; font-weight: 800; color: #0f172a;">₹${lineTotal.toLocaleString()}</td>
+                    <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">${quotCurrSym}${lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
             `;
         });
@@ -847,6 +859,10 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
                                 <td style="padding: 3px 0; font-weight: bold; color: #b91c1c;">${quotation.validUntil ? new Date(quotation.validUntil).toLocaleDateString('en-GB') : 'N/A'}</td>
                             </tr>
                             <tr>
+                                <td style="padding: 3px 0; color: #64748b;"><b>Currency:</b></td>
+                                <td style="padding: 3px 0; font-weight: bold; color: #0284c7;">${quotCurrCode} (${quotCurrSym})</td>
+                            </tr>
+                            <tr>
                                 <td style="padding: 3px 0; color: #64748b;"><b>Transportation:</b></td>
                                 <td style="padding: 3px 0; font-weight: bold;">${transMode}</td>
                             </tr>
@@ -866,9 +882,9 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
                         <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
                         <th style="width: 35%; padding: 7px 8px; text-align: left;">Product / Item Description</th>
                         <th style="width: 12%; padding: 7px 4px; text-align: center;">Quantity</th>
-                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate (${quotCurrCode})</th>
                         <th style="width: 11%; padding: 7px 4px; text-align: center;">GST %</th>
-                        <th style="width: 22%; padding: 7px 8px; text-align: right;">Total Amount</th>
+                        <th style="width: 22%; padding: 7px 8px; text-align: right;">Total Amount (${quotCurrCode})</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -878,30 +894,30 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
                     ${subtotal ? `
                         <tr>
                             <td colspan="5" style="padding: 5px 8px; text-align: right;">Subtotal =</td>
-                            <td style="padding: 5px 8px; text-align: right;">₹${subtotal.toLocaleString()}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     ` : ''}
                     ${taxAmount ? `
                         <tr>
                             <td colspan="5" style="padding: 5px 8px; text-align: right;">GST Tax =</td>
-                            <td style="padding: 5px 8px; text-align: right;">₹${taxAmount.toLocaleString()}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     ` : ''}
                     ${transCharges > 0 ? `
                         <tr>
                             <td colspan="5" style="padding: 5px 8px; text-align: right;">Freight / Transport Charges (${transMode}) =</td>
-                            <td style="padding: 5px 8px; text-align: right;">₹${transCharges.toLocaleString()}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${transCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     ` : ''}
                     ${packCharges > 0 ? `
                         <tr>
                             <td colspan="5" style="padding: 5px 8px; text-align: right;">Packaging Charges (${packType}) =</td>
-                            <td style="padding: 5px 8px; text-align: right;">₹${packCharges.toLocaleString()}</td>
+                            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">${quotCurrSym}${packCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                     ` : ''}
                     <tr style="font-size: 11px; background: #eef2ff; color: #3730a3;">
-                        <td colspan="5" style="padding: 7px 8px; text-align: right;">Grand Total Amount =</td>
-                        <td style="padding: 7px 8px; text-align: right; font-weight: 900;">₹${grandTotal.toLocaleString()}</td>
+                        <td colspan="5" style="padding: 7px 8px; text-align: right; font-weight: bold;">Grand Total (${quotCurrCode}) =</td>
+                        <td style="padding: 7px 8px; text-align: right; font-weight: 900; font-family: monospace;">${quotCurrSym}${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                 </tfoot>
             </table>
@@ -1497,33 +1513,8 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
         return;
     }
 
-    // Number to Words Converter (Indian Currency Format)
-    function numberToWords(num: number): string {
-        if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
-        const a = [
-            "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
-            "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
-        ];
-        const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-        function inWords(n: number): string {
-            if (n < 20) return a[n];
-            if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
-            if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
-            if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
-            if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
-            return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
-        }
-
-        const integerPart = Math.floor(num);
-        const decimalPart = Math.round((num - integerPart) * 100);
-
-        let str = "Rupees " + inWords(integerPart).trim();
-        if (decimalPart > 0) {
-            str += " and " + inWords(decimalPart).trim() + " Paise";
-        }
-        return str + " Only";
-    }
+    const dcCurrSym = getCurrencySymbol(doc.currency);
+    const dcCurrCode = doc.currency || 'INR';
 
     // 1. Resolve Company Master Details
     let masterCompany = companyInfo;
@@ -1605,8 +1596,8 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                 </td>
                 <td style="text-align: center; padding: 6px; font-family: monospace;">${hsn}</td>
                 <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                <td style="text-align: right; padding: 6px; font-family: monospace;">₹${rate ? rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
-                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">₹${amount ? amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                <td style="text-align: right; padding: 6px; font-family: monospace;">${rate ? `${dcCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
+                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">${amount ? `${dcCurrSym}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}</td>
                 <td style="text-align: left; padding: 6px; color: #475569; font-size: 9.5px;">${remarks}</td>
             </tr>
         `;
@@ -1660,7 +1651,7 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10.5px;">
                 <tr>
                     <td style="width: 52%; vertical-align: top; border: 1px solid #94a3b8; padding: 10px; background: #f8fafc;">
-                        <div style="font-weight: bold; color: #4f46e5; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">BUYER / CONSIGNEE DETAILS</div>
+                        <div style="font-weight: bold; color: #4f46e5; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">CONSIGNEE / BUYER DETAILS</div>
                         <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${custName}</div>
                         <div style="line-height: 1.4; color: #334155;">
                             ${custAddress ? '<b>Address:</b> ' + custAddress + '<br>' : ''}
@@ -1674,7 +1665,7 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                     <td style="width: 48%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 10px; background: #ffffff;">
                         <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
                             <tr>
-                                <td style="padding: 2.5px 0; color: #64748b;"><b>DC Number:</b></td>
+                                <td style="padding: 2.5px 0; color: #64748b;"><b>Challan Number:</b></td>
                                 <td style="padding: 2.5px 0; font-weight: 900; font-size: 12.5px; color: #3730a3; font-family: monospace;">${docNum}</td>
                             </tr>
                             <tr>
@@ -1712,8 +1703,8 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                         <th style="width: 32%; padding: 6px 8px; text-align: left;">Product / Item Description</th>
                         <th style="width: 11%; padding: 6px 4px; text-align: center;">HSN</th>
                         <th style="width: 10%; padding: 6px 4px; text-align: center;">Qty</th>
-                        <th style="width: 13%; padding: 6px 8px; text-align: right;">Unit Rate</th>
-                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount</th>
+                        <th style="width: 13%; padding: 6px 8px; text-align: right;">Unit Rate (${dcCurrCode})</th>
+                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount (${dcCurrCode})</th>
                         <th style="width: 15%; padding: 6px 6px; text-align: left;">Remarks</th>
                     </tr>
                 </thead>
@@ -1733,7 +1724,7 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                             Terms: Subject to local jurisdiction. Goods dispatched in good condition.
                         </div>
                         <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 10px; font-style: italic;">
-                            Amount in Words: ${numberToWords(grandTotal)}
+                            Amount in Words: ${convertAmountToWords(grandTotal, doc.currency)}
                         </div>
                     </td>
 
@@ -1741,35 +1732,35 @@ export const generateFrontendDcPDF = (data: { doc: any; companyInfo?: any; copyT
                         <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Subtotal:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${dcCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ${transportCharges > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${transportCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${dcCurrSym}${transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${packagingCharges > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${packagingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${dcCurrSym}${packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${discount > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Discount:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ₹${discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ${dcCurrSym}${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${taxAmount > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Tax Amount (GST):</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${dcCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             <tr style="background: #eef2ff; color: #3730a3; font-weight: 900; font-size: 11.5px;">
-                                <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL:</td>
-                                <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL (${dcCurrCode}):</td>
+                                <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">${dcCurrSym}${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                         </table>
                     </td>
@@ -1851,33 +1842,8 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
         return;
     }
 
-    // Number to Words Converter (Indian Currency Format)
-    function numberToWords(num: number): string {
-        if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
-        const a = [
-            "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
-            "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
-        ];
-        const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-        function inWords(n: number): string {
-            if (n < 20) return a[n];
-            if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
-            if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
-            if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
-            if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
-            return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
-        }
-
-        const integerPart = Math.floor(num);
-        const decimalPart = Math.round((num - integerPart) * 100);
-
-        let str = "Rupees " + inWords(integerPart).trim();
-        if (decimalPart > 0) {
-            str += " and " + inWords(decimalPart).trim() + " Paise";
-        }
-        return str + " Only";
-    }
+    const invCurrSym = getCurrencySymbol(doc.currency);
+    const invCurrCode = doc.currency || 'INR';
 
     // 1. Resolve Company Master Details
     let masterCompany = companyInfo;
@@ -1958,9 +1924,9 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                 <td style="text-align: left; font-weight: bold; padding: 6px; color: #0f172a;">${itemName}</td>
                 <td style="text-align: center; padding: 6px; font-family: monospace;">${hsn}</td>
                 <td style="text-align: center; font-weight: bold; padding: 6px; color: #3730a3;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                <td style="text-align: right; padding: 6px; font-family: monospace;">₹${rate ? rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</td>
+                <td style="text-align: right; padding: 6px; font-family: monospace;">${rate ? `${invCurrSym}${rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '0.00'}</td>
                 <td style="text-align: center; padding: 6px;">${taxRate > 0 ? taxRate + '%' : '-'}</td>
-                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">₹${totalAmt ? totalAmt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0.00'}</td>
+                <td style="text-align: right; padding: 6px; font-weight: 800; font-family: monospace; color: #0f172a;">${totalAmt ? `${invCurrSym}${totalAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '0.00'}</td>
             </tr>
         `;
     });
@@ -2065,9 +2031,9 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                         <th style="width: 36%; padding: 6px 8px; text-align: left;">Product / Item Description</th>
                         <th style="width: 12%; padding: 6px 4px; text-align: center;">HSN</th>
                         <th style="width: 10%; padding: 6px 4px; text-align: center;">Qty</th>
-                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Unit Rate (${invCurrCode})</th>
                         <th style="width: 9%; padding: 6px 4px; text-align: center;">GST %</th>
-                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount</th>
+                        <th style="width: 14%; padding: 6px 8px; text-align: right;">Total Amount (${invCurrCode})</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2086,7 +2052,7 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                             Terms: Subject to local jurisdiction. Payment due as per agreed billing terms.
                         </div>
                         <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 10px; font-style: italic;">
-                            Amount in Words: ${numberToWords(grandTotal)}
+                            Amount in Words: ${convertAmountToWords(grandTotal, doc.currency)}
                         </div>
                     </td>
 
@@ -2094,35 +2060,35 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                         <table style="width: 100%; font-size: 10.5px; border-collapse: collapse;">
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Subtotal:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${invCurrSym}${subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ${transportCharges > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Freight / Transport:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${transportCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${transportCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${packagingCharges > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Packaging Charges:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ₹${packagingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">+ ${invCurrSym}${packagingCharges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${discount > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Discount:</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ₹${discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">- ${invCurrSym}${discount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             ${taxAmount > 0 ? `
                             <tr>
                                 <td style="padding: 2.5px 0; color: #475569;">Tax Amount (GST):</td>
-                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">₹${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 2.5px 0; text-align: right; font-weight: bold; font-family: monospace;">${invCurrSym}${taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                             ` : ''}
                             <tr style="background: #eef2ff; color: #3730a3; font-weight: 900; font-size: 11.5px;">
-                                <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL:</td>
-                                <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td style="padding: 6px 6px; border: 1px solid #c7d2fe;">GRAND TOTAL (${invCurrCode}):</td>
+                                <td style="padding: 6px 6px; text-align: right; border: 1px solid #c7d2fe; font-family: monospace;">${invCurrSym}${grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                             </tr>
                         </table>
                     </td>

@@ -38,6 +38,9 @@ function getPrimaryLandingPage(userType: string | null, roles: any[], department
       return "/dashboard/hr?tab=home";
     }
 
+    if (allowedModules.has("MATERIALREQUESTS")) {
+      return "/dashboard/material-requests";
+    }
     if (allowedModules.has("HR")) {
       return "/dashboard/hr?tab=home";
     }

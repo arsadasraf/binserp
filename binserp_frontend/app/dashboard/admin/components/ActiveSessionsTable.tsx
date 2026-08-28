@@ -111,7 +111,7 @@ export default function ActiveSessionsTable() {
                       <div className="flex items-center gap-3">
                         <div className="relative flex-shrink-0 h-10 w-10 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm text-white font-bold text-sm">
                           {session.photo ? (
-                            <Image src={session.photo} alt={session.name} fill className="object-cover" />
+                            <Image src={session.photo} alt={session.name} fill sizes="40px" className="object-cover" />
                           ) : (
                             <span>{session.name?.charAt(0)?.toUpperCase() || "U"}</span>
                           )}

@@ -7,6 +7,7 @@ import SearchableSelect from "../SearchableSelect";
 import { API_BASE_URL } from "@/src/utils/config";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getCurrencySymbol, CURRENCY_OPTIONS } from "@/src/utils/currencyHelper";
 
 interface QuotationModalProps {
   isOpen: boolean;
@@ -48,6 +49,7 @@ export default function QuotationModal({
   const [formData, setFormData] = useState({
     quotationNumber: generateQuotationNumber(prefix),
     date: new Date().toISOString().split("T")[0],
+    currency: "INR",
     customerType: "master",
     customer: "",
     customerName: "",
@@ -127,6 +129,7 @@ export default function QuotationModal({
       setFormData({
         quotationNumber: initialData.quotationNumber || "Auto-generated",
         date: initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        currency: initialData.currency || "INR",
         customerType: initialData.customer ? "master" : "custom",
         customer: typeof initialData.customer === "object" ? initialData.customer?._id : initialData.customer || "",
         customerName: initialData.customerName || "",
@@ -275,11 +278,11 @@ export default function QuotationModal({
       return;
     }
 
-    if (!formData.customerName || !formData.customerName.trim()) {
+    if (!formData.customer || !formData.customerName || !formData.customerName.trim()) {
       Swal.fire({
         icon: 'error',
-        title: 'Customer Name Required',
-        text: 'Please select a Customer from Master list or enter Custom Customer Name.',
+        title: 'Customer Selection Required',
+        text: 'Please select a registered Customer from the Master list.',
         confirmButtonColor: '#4f46e5'
       });
       return;
@@ -396,6 +399,8 @@ export default function QuotationModal({
 
       const tableStartY = Math.max(56, custLineY + 4);
 
+      const currSym = getCurrencySymbol(formData.currency);
+
       // Table Columns: SI.No, Product & Description, Qty, Unit, Rate, Tax Rate, Total Price
       const tableData = (formData.items || []).map((item: any, idx: number) => {
         const prodName = item.productName || "Product";
@@ -405,15 +410,15 @@ export default function QuotationModal({
           `${prodName}${specText}`,
           item.quantity || 0,
           item.unit || "PCS",
-          `₹${Number(item.rate || 0).toFixed(2)}`,
+          `${currSym}${Number(item.rate || 0).toFixed(2)}`,
           `${item.taxRate || 0}%`,
-          `₹${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
+          `${currSym}${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
         ];
       });
 
       autoTable(doc, {
         startY: tableStartY,
-        head: [["SI.No", "Product & Description", "Qty", "Unit", "Rate", "Tax Rate", "Total Price"]],
+        head: [["SI.No", "Product & Description", "Qty", "Unit", `Rate (${currSym})`, "Tax %", `Total Price (${currSym})`]],
         body: tableData,
         headStyles: {
           fillColor: [241, 245, 249],
@@ -454,27 +459,27 @@ export default function QuotationModal({
       doc.setTextColor(71, 85, 105);
 
       doc.text("Items Subtotal:", 118, finalY + 13);
-      doc.text(`₹${Number(formData.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
+      doc.text(`${currSym}${Number(formData.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
 
       doc.text(`Transport (${formData.transportationType || 'Included'}):`, 118, finalY + 19);
-      doc.text(`+ ₹${Number(formData.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
+      doc.text(`+ ${currSym}${Number(formData.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
 
       doc.text(`Packaging (${formData.packagingType || 'Standard'}):`, 118, finalY + 25);
-      doc.text(`+ ₹${Number(formData.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
+      doc.text(`+ ${currSym}${Number(formData.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
 
       doc.text("Total Tax (GST):", 118, finalY + 31);
-      doc.text(`+ ₹${Number(formData.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
+      doc.text(`+ ${currSym}${Number(formData.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
 
       if (Number(formData.discount || 0) > 0) {
         doc.text("Discount:", 118, finalY + 36);
-        doc.text(`- ₹${Number(formData.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
+        doc.text(`- ${currSym}${Number(formData.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
       }
 
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(15, 23, 42);
-      doc.text("Total Price:", 118, finalY + 44);
-      doc.text(`₹${Number(formData.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
+      doc.text(`Total Price (${formData.currency || 'INR'}):`, 118, finalY + 44);
+      doc.text(`${currSym}${Number(formData.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
 
       // Remarks / Terms Section
       if (formData.remarks) {
@@ -707,59 +712,48 @@ export default function QuotationModal({
                   </select>
                 </div>
 
-                <div className="md:col-span-2 lg:col-span-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                      Customer Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-gray-400">Master</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomerType(customerType === "master" ? "custom" : "master");
-                          setFormData({ ...formData, customer: "", customerName: "", customerEmail: "", customerPhone: "", customerAddress: "" });
-                        }}
-                        className={`relative inline-flex h-3.5 w-7 items-center rounded-full transition-colors focus:outline-none ${customerType === "custom" ? "bg-indigo-600" : "bg-gray-300"}`}
-                      >
-                        <span className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${customerType === "custom" ? "translate-x-3.5" : "translate-x-0.5"}`} />
-                      </button>
-                      <span className="text-[10px] text-gray-400">Custom</span>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mb-1">
+                    Currency
+                  </label>
+                  <select
+                    value={formData.currency || 'INR'}
+                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                  {customerType === "master" ? (
-                    <SearchableSelect
-                      options={customers.map((c: any) => ({
-                        value: c._id || c.name,
-                        label: `${c.name}${c.code ? ` (${c.code})` : ''}`
-                      }))}
-                      value={formData.customer || (customers.find(c => c.name === formData.customerName)?._id) || formData.customerName}
-                      onChange={(val: any) => {
-                        const selected = customers.find(c => c._id === val || c.name === val);
-                        const fullAddr = selected?.address || selected?.billingAddress || [selected?.street, selected?.city, selected?.state, selected?.pincode].filter(Boolean).join(", ") || "";
-                        setFormData(prev => ({
-                          ...prev,
-                          customer: selected?._id || val,
-                          customerName: selected?.name || val,
-                          customerEmail: selected?.email || prev.customerEmail || "",
-                          customerPhone: selected?.phone || prev.customerPhone || "",
-                          customerAddress: fullAddr || prev.customerAddress || ""
-                        }));
-                      }}
-                      placeholder="Select Customer from Master..."
-                      className="w-full text-xs"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      required
-                      value={formData.customerName}
-                      onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                      className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Customer name..."
-                    />
-                  )}
+                <div className="md:col-span-2 lg:col-span-2">
+                  <label className="block text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                    Customer Name (from Master) <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    options={customers.map((c: any) => ({
+                      value: c._id || c.name,
+                      label: `${c.name}${c.code ? ` (${c.code})` : ''}${c.city ? ` - ${c.city}` : ''}`
+                    }))}
+                    value={formData.customer || (customers.find(c => c.name === formData.customerName)?._id) || formData.customerName}
+                    onChange={(val: any) => {
+                      const selected = customers.find(c => c._id === val || c.name === val);
+                      const fullAddr = selected?.address || selected?.billingAddress || [selected?.street, selected?.city, selected?.state, selected?.pincode].filter(Boolean).join(", ") || "";
+                      setFormData(prev => ({
+                        ...prev,
+                        customer: selected?._id || val,
+                        customerName: selected?.name || val,
+                        customerEmail: selected?.email || prev.customerEmail || "",
+                        customerPhone: selected?.phone || prev.customerPhone || "",
+                        customerAddress: fullAddr || prev.customerAddress || ""
+                      }));
+                    }}
+                    placeholder="Select Customer from Master..."
+                    className="w-full text-xs"
+                  />
                 </div>
 
                 <div>
@@ -799,7 +793,7 @@ export default function QuotationModal({
                 <div className="col-span-3">Product Name / Selection</div>
                 <div className="col-span-1 text-center">Qty</div>
                 <div className="col-span-1">Unit</div>
-                <div className="col-span-1 text-right">Rate (₹)</div>
+                <div className="col-span-1 text-right">Rate ({getCurrencySymbol(formData.currency)})</div>
                 <div className="col-span-1 text-right">Tax (%)</div>
                 <div className="col-span-2">Description / Specs</div>
                 <div className="col-span-1 text-right">Action</div>

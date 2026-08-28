@@ -18,7 +18,7 @@ const departmentAccess: Record<string, string[]> = {
   "/dashboard/reports": ["Reports"],
 };
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = request.cookies.get("accessToken")?.value;
   const refreshToken = request.cookies.get("refreshToken")?.value || request.cookies.get("saasAdminToken")?.value;
@@ -83,4 +83,3 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/dashboard/:path*", "/login"],
 };
-

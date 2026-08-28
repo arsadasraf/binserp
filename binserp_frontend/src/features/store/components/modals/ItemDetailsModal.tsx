@@ -21,11 +21,25 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+export const formatDateTime = (dateStr: any) => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleString([], {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    });
+};
+
 interface ItemDetailsModalProps {
     isOpen: boolean;
     onClose: () => void;
     item: any; // The inventory item object
-    type: 'bo' | 'inhouse';
+    type: 'bo' | 'inhouse' | 'consumable' | 'rm';
 }
 
 export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDetailsModalProps) {
@@ -61,13 +75,13 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
             const currentDate = new Date();
             const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
             
-            const endpoint = type === 'bo' ? '/api/store/monthly-inventory/rm' : '/api/store/monthly-inventory/fg';
-            const payload = type === 'bo' ? {
-                materialId: item.material || item.materialId || item._id,
+            const endpoint = type === 'inhouse' ? '/api/store/monthly-inventory/fg' : '/api/store/monthly-inventory/rm';
+            const payload = type === 'inhouse' ? {
+                fgItemId: item._id,
                 month: currentMonthStr,
                 openingStock: editingStockValue
             } : {
-                fgItemId: item._id,
+                materialId: item.material || item.materialId || item._id,
                 month: currentMonthStr,
                 openingStock: editingStockValue
             };
@@ -82,6 +96,10 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
         }
     };
 
+    const targetId = item
+        ? (item.materialId ? (typeof item.materialId === 'object' ? item.materialId._id : item.materialId) : item._id)
+        : '';
+
     useEffect(() => {
         if (isOpen && item && token) {
             fetchHistory();
@@ -89,11 +107,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
             setHistory([]);
             setTransactions([]);
         }
-    }, [isOpen, item, type]);
-
-    const targetId = item && (type === 'bo'
-        ? (item.materialId ? (typeof item.materialId === 'object' ? item.materialId._id : item.materialId) : item._id)
-        : item._id);
+    }, [isOpen, item, type, targetId]);
 
     const fetchHistory = async () => {
         setLoading(true);
@@ -571,6 +585,67 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                     </div>
                                 </div>
                             )}
+                            {/* Material Issue & Outward History Card in Tab 1 */}
+                            <div className="bg-white dark:bg-gray-800/60 rounded-2xl border border-gray-100 dark:border-gray-700 p-5 space-y-3 shadow-sm">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                                        <div className="p-1.5 bg-rose-100 dark:bg-rose-950 text-rose-600 rounded-lg">
+                                            <ArrowUpRight size={16} />
+                                        </div>
+                                        <span>Material Issue & Outward Movement History</span>
+                                    </h3>
+                                    <span className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                                        {filteredOutwardTransactions.length} Record{filteredOutwardTransactions.length !== 1 ? 's' : ''}
+                                    </span>
+                                </div>
+
+                                {loading ? (
+                                    <div className="p-6 flex justify-center"><LoadingSpinner /></div>
+                                ) : filteredOutwardTransactions.length === 0 ? (
+                                    <div className="p-6 text-center text-xs text-gray-400 bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-gray-100 dark:border-gray-800">
+                                        No material issue or outward dispatch records found for this item.
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-800">
+                                        <table className="w-full text-xs text-left">
+                                            <thead className="bg-gray-50 dark:bg-gray-900/50 font-bold text-gray-500 uppercase tracking-wider text-[10px]">
+                                                <tr>
+                                                    <th className="px-3.5 py-2.5">Date & Time</th>
+                                                    <th className="px-3.5 py-2.5">Issue / Doc #</th>
+                                                    <th className="px-3.5 py-2.5">Issued To / Recipient</th>
+                                                    <th className="px-3.5 py-2.5 text-right">Quantity</th>
+                                                    <th className="px-3.5 py-2.5">Purpose</th>
+                                                    <th className="px-3.5 py-2.5">Issued By</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100 dark:divide-gray-800 font-medium">
+                                                {filteredOutwardTransactions.slice(0, 10).map((tx) => (
+                                                    <tr key={tx._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                                                        <td className="px-3.5 py-2.5 font-mono text-gray-600 dark:text-gray-300">
+                                                            {formatDateTime(tx.timestamp || tx.createdAt)}
+                                                        </td>
+                                                        <td className="px-3.5 py-2.5 font-bold font-mono text-rose-600 dark:text-rose-400">
+                                                            {tx.referenceDocNumber || 'N/A'}
+                                                        </td>
+                                                        <td className="px-3.5 py-2.5 font-semibold text-gray-800 dark:text-gray-200">
+                                                            {tx.recipientOrSource || 'Shop Floor'}
+                                                        </td>
+                                                        <td className="px-3.5 py-2.5 text-right font-extrabold text-rose-600">
+                                                            -{Math.abs(tx.quantity)} {tx.unit || item.unit}
+                                                        </td>
+                                                        <td className="px-3.5 py-2.5 text-gray-600 dark:text-gray-400 truncate max-w-[180px]" title={tx.purpose || tx.transactionCategory}>
+                                                            {tx.purpose || tx.transactionCategory || 'Material Issue'}
+                                                        </td>
+                                                        <td className="px-3.5 py-2.5 font-bold text-indigo-600 dark:text-indigo-400">
+                                                            {tx.performedByName || tx.performedBy?.name || tx.performedBy?.username || 'Store Admin'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -732,7 +807,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                         return (
                                                             <tr key={grn._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                                                                 <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-300">
-                                                                    {new Date(grn.date || grn.createdAt).toLocaleDateString()}
+                                                                    {formatDateTime(grn.date || grn.createdAt)}
                                                                 </td>
                                                                 <td className="px-4 py-3 font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
                                                                     {grn.grnNumber}
@@ -854,7 +929,7 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                 isQCRejection ? 'bg-rose-50/40 dark:bg-rose-950/20' : ''
                                                             }`}>
                                                                 <td className="px-4 py-3 font-mono text-gray-600 dark:text-gray-300">
-                                                                    {new Date(tx.timestamp || tx.createdAt).toLocaleDateString()}
+                                                                    {formatDateTime(tx.timestamp || tx.createdAt)}
                                                                 </td>
                                                                 <td className="px-4 py-3 font-semibold text-rose-600 dark:text-rose-400 font-mono">
                                                                     {tx.referenceDocNumber || 'N/A'}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Calendar, User, Truck, Package, Layers, FileText, Download, Edit2, Trash2, CheckCircle2, Building2, Eye, Printer, MapPin, Hash, Sparkles } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadInvoiceExcelDocument } from '@/src/utils/frontendDocumentHelper';
+import { getCurrencySymbol, convertAmountToWords } from '@/src/utils/currencyHelper';
 
 interface InvoicePreviewModalProps {
     isOpen: boolean;
@@ -10,33 +11,6 @@ interface InvoicePreviewModalProps {
     companyInfo?: CompanyInfo;
     onEdit?: (invoice: any) => void;
     onDelete?: (id: string) => void;
-}
-
-function numberToWords(num: number): string {
-    if (!num || isNaN(num) || num <= 0) return "Zero Rupees Only";
-    const a = [
-        "", "One ", "Two ", "Three ", "Four ", "Five ", "Six ", "Seven ", "Eight ", "Nine ", "Ten ",
-        "Eleven ", "Twelve ", "Thirteen ", "Fourteen ", "Fifteen ", "Sixteen ", "Seventeen ", "Eighteen ", "Nineteen "
-    ];
-    const b = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
-
-    function inWords(n: number): string {
-        if (n < 20) return a[n];
-        if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? " " + a[n % 10] : " ");
-        if (n < 1000) return a[Math.floor(n / 100)] + "Hundred " + (n % 100 ? inWords(n % 100) : "");
-        if (n < 100000) return inWords(Math.floor(n / 1000)) + "Thousand " + (n % 1000 ? inWords(n % 1000) : "");
-        if (n < 10000000) return inWords(Math.floor(n / 100000)) + "Lakh " + (n % 100000 ? inWords(n % 100000) : "");
-        return inWords(Math.floor(n / 10000000)) + "Crore " + (n % 10000000 ? inWords(n % 10000000) : "");
-    }
-
-    const integerPart = Math.floor(num);
-    const decimalPart = Math.round((num - integerPart) * 100);
-
-    let str = "Rupees " + inWords(integerPart).trim();
-    if (decimalPart > 0) {
-        str += " and " + inWords(decimalPart).trim() + " Paise";
-    }
-    return str + " Only";
 }
 
 const formatDateTime = (dateStr?: string | Date) => {
@@ -258,6 +232,10 @@ export default function InvoicePreviewModal({
                                     <span className="font-semibold">{formatDateTime(invoice.createdAt || invoice.date)}</span>
                                 </div>
                                 <div className="flex justify-between py-0.5 border-b border-slate-100 dark:border-slate-800">
+                                    <span className="text-slate-500">Currency:</span>
+                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{invoice.currency || "INR"} ({getCurrencySymbol(invoice.currency)})</span>
+                                </div>
+                                <div className="flex justify-between py-0.5 border-b border-slate-100 dark:border-slate-800">
                                     <span className="text-slate-500">Transport Mode:</span>
                                     <span className="font-semibold">{invoice.transportationType || invoice.transportMode || 'Road Transport'}</span>
                                 </div>
@@ -278,9 +256,9 @@ export default function InvoicePreviewModal({
                                         <th className="p-2.5">Product / Item Description</th>
                                         <th className="p-2.5 text-center">HSN</th>
                                         <th className="p-2.5 text-center">Qty</th>
-                                        <th className="p-2.5 text-right">Unit Rate</th>
+                                        <th className="p-2.5 text-right">Unit Rate ({invoice.currency || 'INR'})</th>
                                         <th className="p-2.5 text-center">GST %</th>
-                                        <th className="p-2.5 text-right">Total Amount</th>
+                                        <th className="p-2.5 text-right">Total Amount ({invoice.currency || 'INR'})</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -296,6 +274,7 @@ export default function InvoicePreviewModal({
                                             const taxRate = Number(item.taxRate || 0);
                                             const totalLine = lineAmt + (lineAmt * (taxRate / 100));
 
+                                            const currSym = getCurrencySymbol(invoice.currency);
                                             return (
                                                 <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-900/40">
                                                     <td className="p-2.5 text-center text-slate-400">{idx + 1}</td>
@@ -304,9 +283,9 @@ export default function InvoicePreviewModal({
                                                     </td>
                                                     <td className="p-2.5 text-center font-mono text-slate-500">{item.hsnCode || item.hsn || '-'}</td>
                                                     <td className="p-2.5 text-center font-bold text-indigo-600 dark:text-indigo-400">{qty} {item.unit || 'PCS'}</td>
-                                                    <td className="p-2.5 text-right font-mono">₹{rate.toFixed(2)}</td>
+                                                    <td className="p-2.5 text-right font-mono">{currSym}{rate.toFixed(2)}</td>
                                                     <td className="p-2.5 text-center">{taxRate > 0 ? `${taxRate}%` : '-'}</td>
-                                                    <td className="p-2.5 text-right font-bold font-mono text-slate-900 dark:text-white">₹{totalLine.toFixed(2)}</td>
+                                                    <td className="p-2.5 text-right font-bold font-mono text-slate-900 dark:text-white">{currSym}{totalLine.toFixed(2)}</td>
                                                 </tr>
                                             );
                                         })
@@ -329,7 +308,7 @@ export default function InvoicePreviewModal({
                                     IFSC: <b>{(companyInfo as any)?.ifscCode || companyInfo?.bankDetails?.ifscCode || '-'}</b>
                                 </p>
                                 <div className="pt-2 border-t border-slate-200 dark:border-slate-800 font-semibold italic text-indigo-900 dark:text-indigo-300">
-                                    Amount in Words: {numberToWords(grandTotal)}
+                                    Amount in Words: {convertAmountToWords(grandTotal, invoice.currency)}
                                 </div>
                             </div>
 
@@ -337,29 +316,29 @@ export default function InvoicePreviewModal({
                             <div className="bg-slate-50 dark:bg-slate-900/80 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
                                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                     <span>Subtotal:</span>
-                                    <span className="font-mono font-bold">₹{subtotal.toFixed(2)}</span>
+                                    <span className="font-mono font-bold">{getCurrencySymbol(invoice.currency)}{subtotal.toFixed(2)}</span>
                                 </div>
                                 {transportCharges > 0 && (
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                         <span>Freight Charges:</span>
-                                        <span className="font-mono">+ ₹{transportCharges.toFixed(2)}</span>
+                                        <span className="font-mono">+ {getCurrencySymbol(invoice.currency)}{transportCharges.toFixed(2)}</span>
                                     </div>
                                 )}
                                 {packagingCharges > 0 && (
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                         <span>Packaging Charges:</span>
-                                        <span className="font-mono">+ ₹{packagingCharges.toFixed(2)}</span>
+                                        <span className="font-mono">+ {getCurrencySymbol(invoice.currency)}{packagingCharges.toFixed(2)}</span>
                                     </div>
                                 )}
                                 {taxAmount > 0 && (
                                     <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                         <span>Tax Amount (GST):</span>
-                                        <span className="font-mono">+ ₹{taxAmount.toFixed(2)}</span>
+                                        <span className="font-mono">+ {getCurrencySymbol(invoice.currency)}{taxAmount.toFixed(2)}</span>
                                     </div>
                                 )}
                                 <div className="flex justify-between pt-2 border-t-2 border-indigo-600 text-indigo-900 dark:text-indigo-300 font-black text-sm">
-                                    <span>GRAND TOTAL:</span>
-                                    <span className="font-mono">₹{grandTotal.toFixed(2)}</span>
+                                    <span>GRAND TOTAL ({invoice.currency || 'INR'}):</span>
+                                    <span className="font-mono">{getCurrencySymbol(invoice.currency)}{grandTotal.toFixed(2)}</span>
                                 </div>
                             </div>
 

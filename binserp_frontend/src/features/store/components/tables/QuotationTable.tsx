@@ -8,6 +8,7 @@ import { Edit2, Trash2, Download, Search, Plus, FileText, Eye } from 'lucide-rea
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { getCurrencySymbol } from "@/src/utils/currencyHelper";
 
 interface QuotationTableProps {
     data: any[];
@@ -98,6 +99,7 @@ export default function QuotationTable({ data = [], companyInfo, onCreate, onEdi
                 doc.text(custContact, 110, Math.min(custLineY, 52));
             }
 
+            const currSym = getCurrencySymbol(quotation.currency);
             const tableStartY = Math.max(56, custLineY + 4);
 
             // Table Columns: SI.No, Product & Description, Qty, Unit, Rate, Tax Rate, Total Price
@@ -109,15 +111,15 @@ export default function QuotationTable({ data = [], companyInfo, onCreate, onEdi
                     `${prodName}${specText}`,
                     item.quantity || 0,
                     item.unit || "PCS",
-                    `₹${Number(item.rate || 0).toFixed(2)}`,
+                    `${currSym}${Number(item.rate || 0).toFixed(2)}`,
                     `${item.taxRate || 0}%`,
-                    `₹${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
+                    `${currSym}${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
                 ];
             });
 
             autoTable(doc, {
                 startY: tableStartY,
-                head: [["SI.No", "Product & Description", "Qty", "Unit", "Rate", "Tax Rate", "Total Price"]],
+                head: [["SI.No", "Product & Description", "Qty", "Unit", `Rate (${currSym})`, "Tax %", `Total Price (${currSym})`]],
                 body: tableData,
                 headStyles: {
                     fillColor: [241, 245, 249],
@@ -158,27 +160,27 @@ export default function QuotationTable({ data = [], companyInfo, onCreate, onEdi
             doc.setTextColor(71, 85, 105);
 
             doc.text("Items Subtotal:", 118, finalY + 13);
-            doc.text(`₹${Number(quotation.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
+            doc.text(`${currSym}${Number(quotation.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
 
             doc.text(`Transport (${quotation.transportationType || 'Included'}):`, 118, finalY + 19);
-            doc.text(`+ ₹${Number(quotation.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
+            doc.text(`+ ${currSym}${Number(quotation.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
 
             doc.text(`Packaging (${quotation.packagingType || 'Standard'}):`, 118, finalY + 25);
-            doc.text(`+ ₹${Number(quotation.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
+            doc.text(`+ ${currSym}${Number(quotation.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
 
             doc.text("Total Tax (GST):", 118, finalY + 31);
-            doc.text(`+ ₹${Number(quotation.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
+            doc.text(`+ ${currSym}${Number(quotation.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
 
             if (Number(quotation.discount || 0) > 0) {
                 doc.text("Discount:", 118, finalY + 36);
-                doc.text(`- ₹${Number(quotation.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
+                doc.text(`- ${currSym}${Number(quotation.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
             }
 
             doc.setFontSize(9.5);
             doc.setFont("helvetica", "bold");
             doc.setTextColor(15, 23, 42);
-            doc.text("Total Price:", 118, finalY + 44);
-            doc.text(`₹${Number(quotation.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
+            doc.text(`Total Price (${quotation.currency || 'INR'}):`, 118, finalY + 44);
+            doc.text(`${currSym}${Number(quotation.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
 
             // Remarks / Terms Section
             if (quotation.remarks) {
@@ -277,11 +279,11 @@ export default function QuotationTable({ data = [], companyInfo, onCreate, onEdi
                                     <td className="px-6 py-4 text-gray-500 dark:text-gray-400">{new Date(item.date).toLocaleDateString()}</td>
                                     <td className="px-6 py-4 font-medium text-gray-900 dark:text-white">{item.customerName}</td>
                                     <td className="px-6 py-4 text-xs text-gray-500">
-                                        <div>{item.transportationType || 'Included'} {item.transportationCharges ? `(₹${item.transportationCharges})` : ''}</div>
-                                        <div>{item.packagingType || 'Standard'} {item.packagingCharges ? `(₹${item.packagingCharges})` : ''}</div>
+                                        <div>{item.transportationType || 'Included'} {item.transportationCharges ? `(${getCurrencySymbol(item.currency)}${item.transportationCharges})` : ''}</div>
+                                        <div>{item.packagingType || 'Standard'} {item.packagingCharges ? `(${getCurrencySymbol(item.currency)}${item.packagingCharges})` : ''}</div>
                                     </td>
                                     <td className="px-6 py-4 text-right font-bold text-indigo-600 dark:text-indigo-400">
-                                        ₹ {Number(item.totalAmount || 0).toFixed(2)}
+                                        {getCurrencySymbol(item.currency)} {Number(item.totalAmount || 0).toFixed(2)}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${

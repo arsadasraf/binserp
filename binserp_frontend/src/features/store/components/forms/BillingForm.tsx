@@ -11,6 +11,7 @@
 
 import React from 'react';
 import { StoreFormData, Customer } from "@/src/features/store/types/store.types";
+import { CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
 
 interface BillingFormProps {
     formData: StoreFormData;
@@ -41,6 +42,19 @@ export default function BillingForm({ formData, setFormData, customers }: Billin
                 {customers.map((c) => (
                     <option key={c._id} value={c._id}>
                         {c.name}
+                    </option>
+                ))}
+            </select>
+
+            {/* Currency selection dropdown */}
+            <select
+                value={(formData as any).currency || "INR"}
+                onChange={(e) => setFormData({ ...formData, currency: e.target.value } as any)}
+                className="input-field font-semibold text-indigo-600"
+            >
+                {CURRENCY_OPTIONS.map((c) => (
+                    <option key={c.code} value={c.code}>
+                        {c.label}
                     </option>
                 ))}
             </select>

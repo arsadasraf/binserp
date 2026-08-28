@@ -138,24 +138,39 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
             const isInhouse = rType === 'fg' || rType === 'inhouse';
             const isConsumable = rType === 'consumable';
 
+            // Generate clean issueNumber (replace REQ, PR, MR with ISS, or fallback to ISS-<timestamp>)
+            let issueNum = request.requestNumber
+                ? request.requestNumber.replace(/^(REQ|PR|MR)-?/i, 'ISS-')
+                : `ISS-${Date.now()}`;
+            if (issueNum === request.requestNumber) {
+                issueNum = `ISS-${request.requestNumber}`;
+            }
+
+            const issuedToId = typeof request.requestedBy === 'object'
+                ? (request.requestedBy?._id || request.requestedBy?.id)
+                : request.requestedBy;
+
             const issueData = {
-                issueNumber: request.requestNumber.replace('REQ', 'ISS'),
+                issueNumber: issueNum,
                 department: request.department || 'General Store',
                 type: rType,
-                issuedTo: request.requestedBy?._id,
-                mrpPlan: request.mrpPlan || undefined,
+                issuedTo: issuedToId || undefined,
+                mrpPlan: typeof request.mrpPlan === 'object' ? request.mrpPlan?._id : request.mrpPlan || undefined,
                 mrpNumber: request.mrpNumber || undefined,
-                items: (request.items || []).map((item: any) => ({
-                    material: item.material || (!isInhouse && !isConsumable ? item._id : undefined),
-                    consumable: item.consumable || (isConsumable ? (item.material || item._id) : undefined),
-                    component: item.component || item.fgItem || (isInhouse ? (item.material || item._id) : undefined),
-                    fgItem: item.fgItem || (isInhouse ? (item.material || item._id) : undefined),
-                    materialName: item.materialName,
-                    materialCode: item.materialCode,
-                    quantity: Number(item.quantity) || 1,
-                    unit: item.unit || 'PCS',
-                    purpose: item.purpose || ''
-                })),
+                items: (request.items || []).map((item: any) => {
+                    const masterId = item.material?._id || item.material || item.consumable?._id || item.consumable || item.component?._id || item.component || item.fgItem?._id || item.fgItem;
+                    return {
+                        material: !isInhouse && !isConsumable ? masterId : undefined,
+                        consumable: isConsumable ? masterId : undefined,
+                        component: isInhouse ? masterId : undefined,
+                        fgItem: isInhouse ? masterId : undefined,
+                        materialName: item.materialName || item.name || '',
+                        materialCode: item.materialCode || item.code || '',
+                        quantity: Number(item.quantity) || 1,
+                        unit: item.unit || 'PCS',
+                        purpose: item.purpose || ''
+                    };
+                }),
                 date: new Date().toISOString(),
                 status: 'Issued',
             };
@@ -163,9 +178,10 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
             await createMaterialIssue(issueData);
             await updateMaterialRequest(request._id, { status: 'Issued', skipInventoryUpdate: true });
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Issue failed", error);
-            alert("Failed to issue material. Check stock or try again.");
+            const errorMsg = error?.data?.message || error?.response?.data?.message || error?.message || "Failed to issue material. Check stock or try again.";
+            alert(errorMsg);
         }
     };
 

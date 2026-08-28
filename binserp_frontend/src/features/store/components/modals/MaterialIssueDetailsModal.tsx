@@ -1,6 +1,6 @@
 import React from 'react';
 import { X, Calendar, User, FileText, Package } from 'lucide-react';
-import { resolveIssueType } from '../tables/MaterialIssueHistoryTable';
+import { resolveIssueType, formatDateTime } from '../tables/MaterialIssueHistoryTable';
 
 interface MaterialIssueDetailsModalProps {
     isOpen: boolean;
@@ -43,10 +43,10 @@ export default function MaterialIssueDetailsModal({ isOpen, onClose, issue }: Ma
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
                             <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wider font-semibold mb-1">
-                                <Calendar size={14} /> Date
+                                <Calendar size={14} /> Date & Time
                             </div>
-                            <div className="text-gray-900 dark:text-gray-100 font-medium">
-                                {new Date(issue.date).toLocaleDateString()}
+                            <div className="text-gray-900 dark:text-gray-100 font-medium text-xs">
+                                {formatDateTime(issue.date)}
                             </div>
                         </div>
                         <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">

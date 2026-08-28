@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, ShoppingCart } from 'lucide-react';
+import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, ShoppingCart, AlertTriangle } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import { generateFrontendOutwardQuotationPDF } from '@/src/utils/frontendPdfHelper';
+import { getCurrencySymbol, CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
 
 interface OutwardQuotationTabProps {
     token: string | null;
@@ -28,6 +29,16 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     const [editingQuote, setEditingQuote] = useState<any | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [selectedRfqId, setSelectedRfqId] = useState<string>('');
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    const clearError = (field: string) => {
+        setFormErrors(prev => {
+            const next = { ...prev };
+            delete next[field];
+            delete next.server_error;
+            return next;
+        });
+    };
 
     const [newQuote, setNewQuote] = useState({
         quotationNumber: '',
@@ -39,6 +50,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
         customerAddress: '',
         customerEmail: '',
         customerPhone: '',
+        currency: 'INR',
         date: new Date().toISOString().slice(0, 10),
         validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         transportationType: 'Included',
@@ -143,6 +155,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             customerAddress: '',
             customerEmail: '',
             customerPhone: '',
+            currency: 'INR',
             date: new Date().toISOString().slice(0, 10),
             validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
             transportationType: 'Included',
@@ -151,7 +164,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             packagingCharges: 0,
             otherDetails: '',
             status: 'Draft',
-            items: [{ fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }],
+            items: [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }],
             subtotal: 0,
             taxAmount: 0,
             totalAmount: 0
@@ -167,7 +180,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                     return pFgId?.toString() === (m._id || m.id)?.toString();
                 });
                 const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.unitPrice || 0));
-                const priceText = rate > 0 ? ` — ₹${rate}` : '';
+                const priceText = rate > 0 ? ` — ${getCurrencySymbol(newQuote.currency || 'INR')}${rate}` : '';
                 const descText = m.description ? ` (${m.description})` : '';
                 const codeText = m.code ? ` [${m.code}]` : '';
                 return {
@@ -179,119 +192,10 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                 };
             })
             .filter(o => o.value);
-    }, [fgItems, priceLists]);
-
-    const handleOpenCreateModalWithRfq = (targetRfq: any, custList: any[], fgList: any[]) => {
-        setEditingQuote(null);
-        setSelectedRfqId(targetRfq._id);
-        const custId = targetRfq.customer?._id || targetRfq.customer;
-        const matchedCust = (custList || []).find((c: any) => (c._id || c.id)?.toString() === custId?.toString());
-
-        const autoItems = (targetRfq.items || []).map((it: any) => {
-            const qty = Number(it.quantity) || 1;
-            const fgId = (it.fgItem?._id || it.fgItem || '').toString();
-            const matchedFg = (fgList || []).find((m: any) => (m._id || m.id)?.toString() === fgId);
-            const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
-                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
-                return pFgId?.toString() === fgId;
-            });
-            const rate = Number(it.targetPrice) > 0 ? Number(it.targetPrice) : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
-            const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
-            const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
-            const amount = qty * rate * (1 + taxRate / 100);
-
-            return {
-                fgItem: fgId,
-                productName: prodName,
-                description: it.description || matchedFg?.description || '',
-                quantity: qty,
-                unit: it.unit || matchedFg?.unit || 'PCS',
-                rate: rate,
-                taxRate: taxRate,
-                taxAmount: qty * rate * (taxRate / 100),
-                amount: amount
-            };
-        });
-
-        const sub = autoItems.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.rate), 0);
-        const tax = autoItems.reduce((acc: number, cur: any) => acc + (cur.taxAmount || 0), 0);
-
-        setNewQuote({
-            quotationNumber: generateQuoteNo(),
-            rfq: targetRfq._id,
-            rfqId: targetRfq._id,
-            rfqNumber: targetRfq.rfqNumber || '',
-            customer: custId || '',
-            customerName: targetRfq.customerName || matchedCust?.name || '',
-            customerAddress: matchedCust?.address || matchedCust?.billingAddress || '',
-            customerEmail: targetRfq.customerEmail || matchedCust?.email || '',
-            customerPhone: targetRfq.customerPhone || matchedCust?.phone || '',
-            date: new Date().toISOString().slice(0, 10),
-            validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            transportationType: 'Included',
-            transportationCharges: 0,
-            packagingType: 'Standard',
-            packagingCharges: 0,
-            otherDetails: targetRfq.remarks || '',
-            status: 'Draft',
-            items: autoItems.length > 0 ? autoItems : [{ fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }],
-            subtotal: sub,
-            taxAmount: tax,
-            totalAmount: sub + tax
-        });
-        setIsCreateModalOpen(true);
-    };
-
-    const handleOpenEditModal = (quote: any) => {
-        setEditingQuote(quote);
-        setSelectedRfqId(quote.rfq?._id || quote.rfq || quote.rfqId || '');
-        setNewQuote({
-            quotationNumber: quote.quotationNumber || '',
-            rfq: quote.rfq?._id || quote.rfq || quote.rfqId || '',
-            rfqId: quote.rfq?._id || quote.rfq || quote.rfqId || '',
-            rfqNumber: quote.rfqNumber || quote.rfq?.rfqNumber || '',
-            customer: quote.customer?._id || quote.customer || '',
-            customerName: quote.customerName || quote.customer?.name || '',
-            customerAddress: quote.customerAddress || '',
-            customerEmail: quote.customerEmail || '',
-            customerPhone: quote.customerPhone || '',
-            date: quote.date ? new Date(quote.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-            validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : '',
-            transportationType: quote.transportationType || 'Included',
-            transportationCharges: quote.transportationCharges || 0,
-            packagingType: quote.packagingType || 'Standard',
-            packagingCharges: quote.packagingCharges || 0,
-            otherDetails: quote.otherDetails || quote.remarks || '',
-            status: quote.status || 'Draft',
-            items: Array.isArray(quote.items) && quote.items.length > 0
-                ? quote.items.map((it: any) => ({
-                    fgItem: it.fgItem?._id || it.fgItem || '',
-                    productName: it.productName || it.fgItem?.name || '',
-                    description: it.description || '',
-                    quantity: it.quantity || 1,
-                    unit: it.unit || 'PCS',
-                    rate: it.rate || it.unitPrice || 0,
-                    taxRate: it.taxRate != null ? it.taxRate : 18,
-                    taxAmount: it.taxAmount || 0,
-                    amount: it.amount || (it.quantity * it.rate * 1.18)
-                }))
-                : [{ fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }],
-            subtotal: quote.subtotal || 0,
-            taxAmount: quote.taxAmount || 0,
-            totalAmount: quote.totalAmount || quote.grandTotal || 0
-        });
-        setIsCreateModalOpen(true);
-    };
-
-    const handleSelectRfq = (rfqId: string) => {
-        setSelectedRfqId(rfqId);
-        const selectedRfq = (Array.isArray(rfqs) ? rfqs : []).find((r: any) => r._id === rfqId);
-        if (!selectedRfq) return;
-
-        handleOpenCreateModalWithRfq(selectedRfq, customers, fgItems);
-    };
+    }, [fgItems, priceLists, newQuote.currency]);
 
     const handleSelectCustomer = (custId: string) => {
+        clearError('customer');
         const selectedCust = (Array.isArray(customers) ? customers : []).find((c: any) => (c._id || c.id)?.toString() === custId?.toString());
         if (selectedCust) {
             setNewQuote(prev => ({
@@ -307,10 +211,201 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
         }
     };
 
+    const handleOpenCreateModalWithRfq = (targetRfq: any, customersList: any[], fgsList: any[]) => {
+        setEditingQuote(null);
+        setSelectedRfqId(targetRfq._id);
+        setFormErrors({});
+
+        const custId = targetRfq.customer?._id || targetRfq.customer || '';
+        const matchedCust = (Array.isArray(customersList) ? customersList : []).find(c => (c._id || c.id)?.toString() === custId?.toString());
+
+        const autoItems = (targetRfq.items || []).map((it: any) => {
+            const fgId = it.fgItem?._id || it.fgItem || '';
+            const matchedFg = (Array.isArray(fgsList) ? fgsList : []).find((f: any) => (f._id || f.id)?.toString() === fgId?.toString());
+            const qty = Number(it.quantity || 1);
+            const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === fgId?.toString();
+            });
+            const rate = Number(it.targetPrice) > 0 ? Number(it.targetPrice) : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
+            const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
+            const hsn = it.hsnCode || pEntry?.hsnCode || matchedFg?.hsnCode || '';
+            const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
+            const amount = qty * rate * (1 + taxRate / 100);
+
+            return {
+                fgItem: fgId,
+                productName: prodName,
+                hsnCode: hsn,
+                description: it.description || matchedFg?.description || '',
+                quantity: qty,
+                unit: it.unit || matchedFg?.unit || 'PCS',
+                rate: rate,
+                taxRate: taxRate,
+                amount: amount
+            };
+        });
+
+        const initialItems = autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }];
+
+        let sub = 0;
+        let taxSum = 0;
+        initialItems.forEach((it: any) => {
+            const qty = Number(it.quantity) || 0;
+            const rate = Number(it.rate) || 0;
+            const tax = Number(it.taxRate != null ? it.taxRate : 18);
+            const lineSub = qty * rate;
+            const lineTax = lineSub * (tax / 100);
+            sub += lineSub;
+            taxSum += lineTax;
+        });
+
+        setNewQuote({
+            quotationNumber: generateQuoteNo(),
+            rfq: targetRfq._id,
+            rfqId: targetRfq._id,
+            rfqNumber: targetRfq.rfqNumber || '',
+            customer: custId,
+            customerName: targetRfq.customerName || matchedCust?.name || matchedCust?.companyName || '',
+            customerAddress: matchedCust?.address || matchedCust?.billingAddress || '',
+            customerEmail: targetRfq.customerEmail || matchedCust?.email || '',
+            customerPhone: targetRfq.customerPhone || matchedCust?.phone || '',
+            currency: targetRfq.currency || 'INR',
+            date: new Date().toISOString().slice(0, 10),
+            validUntil: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            transportationType: 'Included',
+            transportationCharges: 0,
+            packagingType: 'Standard',
+            packagingCharges: 0,
+            otherDetails: targetRfq.remarks ? `Customer RFQ Remarks: ${targetRfq.remarks}` : '',
+            status: 'Draft',
+            items: initialItems,
+            subtotal: sub,
+            taxAmount: taxSum,
+            totalAmount: sub + taxSum
+        });
+
+        setIsCreateModalOpen(true);
+    };
+
+    const handleSelectRfq = (rfqId: string) => {
+        setSelectedRfqId(rfqId);
+        const targetRfq = (Array.isArray(rfqs) ? rfqs : []).find(r => r._id === rfqId);
+        if (!targetRfq) return;
+
+        const custId = targetRfq.customer?._id || targetRfq.customer || '';
+        const matchedCust = (Array.isArray(customers) ? customers : []).find(c => (c._id || c.id)?.toString() === custId?.toString());
+
+        const autoItems = (targetRfq.items || []).map((it: any) => {
+            const fgId = it.fgItem?._id || it.fgItem || '';
+            const matchedFg = (Array.isArray(fgItems) ? fgItems : []).find((f: any) => (f._id || f.id)?.toString() === fgId?.toString());
+            const qty = Number(it.quantity || 1);
+            const pEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
+                const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
+                return pFgId?.toString() === fgId?.toString();
+            });
+            const rate = Number(it.targetPrice) > 0 ? Number(it.targetPrice) : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
+            const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
+            const hsn = it.hsnCode || pEntry?.hsnCode || matchedFg?.hsnCode || '';
+            const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
+            const amount = qty * rate * (1 + taxRate / 100);
+
+            return {
+                fgItem: fgId,
+                productName: prodName,
+                hsnCode: hsn,
+                description: it.description || matchedFg?.description || '',
+                quantity: qty,
+                unit: it.unit || matchedFg?.unit || 'PCS',
+                rate: rate,
+                taxRate: taxRate,
+                amount: amount
+            };
+        });
+
+        const initialItems = autoItems.length > 0 ? autoItems : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }];
+
+        let sub = 0;
+        let taxSum = 0;
+        initialItems.forEach((it: any) => {
+            const qty = Number(it.quantity) || 0;
+            const rate = Number(it.rate) || 0;
+            const tax = Number(it.taxRate != null ? it.taxRate : 18);
+            const lineSub = qty * rate;
+            const lineTax = lineSub * (tax / 100);
+            sub += lineSub;
+            taxSum += lineTax;
+        });
+
+        setNewQuote(prev => ({
+            ...prev,
+            rfq: targetRfq._id,
+            rfqId: targetRfq._id,
+            rfqNumber: targetRfq.rfqNumber || '',
+            customer: custId || prev.customer,
+            customerName: targetRfq.customerName || matchedCust?.name || matchedCust?.companyName || prev.customerName,
+            customerAddress: matchedCust?.address || matchedCust?.billingAddress || prev.customerAddress,
+            customerEmail: targetRfq.customerEmail || matchedCust?.email || prev.customerEmail,
+            customerPhone: targetRfq.customerPhone || matchedCust?.phone || prev.customerPhone,
+            currency: targetRfq.currency || prev.currency || 'INR',
+            items: initialItems,
+            subtotal: sub,
+            taxAmount: taxSum,
+            totalAmount: sub + taxSum
+        }));
+    };
+
+    const handleOpenEditModal = (quote: any) => {
+        setEditingQuote(quote);
+        setSelectedRfqId(quote.rfq?._id || quote.rfq || '');
+        setFormErrors({});
+
+        const mappedItems = Array.isArray(quote.items) && quote.items.length > 0
+            ? quote.items.map((it: any) => ({
+                fgItem: it.fgItem?._id || it.fgItem || it.material || it.component || '',
+                productName: it.productName || it.fgItem?.name || it.materialName || '',
+                hsnCode: it.hsnCode || '',
+                description: it.description || '',
+                quantity: it.quantity || 1,
+                unit: it.unit || 'PCS',
+                rate: it.rate || 0,
+                taxRate: it.taxRate != null ? it.taxRate : 18,
+                amount: it.amount || 0
+            }))
+            : [{ fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }];
+
+        setNewQuote({
+            quotationNumber: quote.quotationNumber || '',
+            rfq: quote.rfq?._id || quote.rfq || '',
+            rfqId: quote.rfq?._id || quote.rfq || '',
+            rfqNumber: quote.rfqNumber || quote.rfq?.rfqNumber || '',
+            customer: quote.customer?._id || quote.customer || '',
+            customerName: quote.customerName || quote.customer?.name || '',
+            customerAddress: quote.customerAddress || '',
+            customerEmail: quote.customerEmail || quote.customer?.email || '',
+            customerPhone: quote.customerPhone || quote.customer?.phone || '',
+            currency: quote.currency || 'INR',
+            date: quote.date ? new Date(quote.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+            validUntil: quote.validUntil ? new Date(quote.validUntil).toISOString().slice(0, 10) : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+            transportationType: quote.transportationType || 'Included',
+            transportationCharges: quote.transportationCharges || 0,
+            packagingType: quote.packagingType || 'Standard',
+            packagingCharges: quote.packagingCharges || 0,
+            otherDetails: quote.otherDetails || '',
+            status: quote.status || 'Draft',
+            items: mappedItems,
+            subtotal: quote.subtotal || 0,
+            taxAmount: quote.taxAmount || 0,
+            totalAmount: quote.totalAmount || 0
+        });
+
+        setIsCreateModalOpen(true);
+    };
+
     const handleAddItem = () => {
         setNewQuote(prev => ({
             ...prev,
-            items: [...prev.items, { fgItem: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }]
+            items: [...prev.items, { fgItem: '', hsnCode: '', productName: '', description: '', quantity: 1, unit: 'PCS', rate: 0, taxRate: 18, amount: 0 }]
         }));
     };
 
@@ -320,6 +415,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     };
 
     const handleItemChange = (index: number, field: string, value: any) => {
+        clearError(`item_${index}_${field}`);
         const updated = [...newQuote.items];
         if (field === 'fgItem') {
             const selectedFg = (Array.isArray(fgItems) ? fgItems : []).find((m: any) => (m._id || m.id)?.toString() === value?.toString());
@@ -327,7 +423,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             const autoDesc = selectedFg?.description || selectedFg?.details || autoName;
             const autoUnit = selectedFg?.unit || selectedFg?.uom || 'PCS';
 
-            // Auto-fetch unit rate and tax rate from FG Price List
+            // Auto-fetch unit rate, tax rate, and HSN code from FG Price List or FG master
             const priceEntry = (Array.isArray(priceLists) ? priceLists : []).find((p: any) => {
                 const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
                 return pFgId?.toString() === value?.toString();
@@ -335,11 +431,13 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.unitPrice || selectedFg?.rate || 0));
             const autoTax = priceEntry && priceEntry.taxRate != null ? Number(priceEntry.taxRate) : (Number(selectedFg?.taxRate || selectedFg?.gstRate || 18));
+            const autoHsn = priceEntry?.hsnCode || (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || '';
 
             updated[index] = {
                 ...updated[index],
                 fgItem: value,
                 productName: autoName,
+                hsnCode: autoHsn || updated[index].hsnCode || '',
                 description: autoDesc,
                 unit: autoUnit,
                 rate: autoRate,
@@ -416,19 +514,42 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     };
 
     const handleCreateQuoteSubmit = async () => {
-        if (!newQuote.customerName.trim()) {
-            onError("Please select or enter customer name");
-            return;
+        const errors: Record<string, string> = {};
+        if (!newQuote.customer && !newQuote.customerName.trim()) {
+            errors.customer = "Please select or enter Customer";
         }
-        if (!newQuote.items || newQuote.items.length === 0 || !newQuote.items.some(i => i.fgItem && Number(i.quantity) > 0 && Number(i.rate) > 0)) {
-            onError("Please select at least one FG Item with quantity and unit rate");
-            return;
+        if (!newQuote.date) {
+            errors.date = "Quotation date is required";
         }
-        if (newQuote.items.some(i => !i.fgItem || Number(i.quantity) <= 0 || Number(i.rate) <= 0)) {
-            onError("Please ensure all item rows have a selected FG Item, quantity > 0, and unit rate > 0");
+        if (!newQuote.items || newQuote.items.length === 0) {
+            errors.items = "At least one item is required";
+        } else {
+            newQuote.items.forEach((it, idx) => {
+                if (!it.fgItem) {
+                    errors[`item_${idx}_fgItem`] = "Select FG Item";
+                }
+                if (!it.quantity || Number(it.quantity) <= 0) {
+                    errors[`item_${idx}_quantity`] = "Qty > 0 required";
+                }
+                if (it.rate === undefined || it.rate === null || Number(it.rate) <= 0) {
+                    errors[`item_${idx}_rate`] = "Rate > 0 required";
+                }
+            });
+        }
+
+        if (Object.keys(errors).length > 0) {
+            setFormErrors(errors);
+            setTimeout(() => {
+                const firstErr = document.querySelector('[data-has-error="true"]');
+                if (firstErr) {
+                    firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    (firstErr.querySelector('input, select, button') as HTMLElement)?.focus?.();
+                }
+            }, 50);
             return;
         }
 
+        setFormErrors({});
         setSubmitting(true);
         try {
             if (editingQuote && editingQuote._id) {
@@ -446,7 +567,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             }
             fetchData();
         } catch (err: any) {
-            onError(err.message || "Failed to save Outward Quotation");
+            setFormErrors({ server_error: err.message || "Failed to save Outward Quotation" });
         } finally {
             setSubmitting(false);
         }
@@ -591,7 +712,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                             </td>
 
                                             <td className="px-4 py-3.5 text-right font-mono font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
-                                                ₹{total.toLocaleString()}
+                                                {getCurrencySymbol(quote.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </td>
 
                                             <td className="px-4 py-3.5 text-center">
@@ -712,8 +833,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 uppercase">Grand Total</span>
-                                            <p className="font-extrabold text-sm text-indigo-600 dark:text-indigo-400">
-                                                ₹{total.toLocaleString()}
+                                            <p className="font-extrabold text-sm text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {getCurrencySymbol(quote.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </p>
                                         </div>
                                     </div>
@@ -775,6 +896,23 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
                         <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
                             
+                            {/* In-Form Error Guidance Banner */}
+                            {Object.keys(formErrors).length > 0 && (
+                                <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-2xl flex items-center justify-between gap-3 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-xs">
+                                    <div className="flex items-center gap-2.5">
+                                        <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                                        <span className="text-xs font-bold">
+                                            {formErrors.server_error || `Please fill in the compulsory field${Object.keys(formErrors).length > 1 ? 's' : ''} highlighted in red below.`}
+                                        </span>
+                                    </div>
+                                    {!formErrors.server_error && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                                            {Object.keys(formErrors).length} required
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
                             {/* Step 1: Linked RFQ & Customer Logistics */}
                             <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
                                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
@@ -812,9 +950,10 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         />
                                     </div>
 
-                                    <div className="md:col-span-2">
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Customer / Client *
+                                    <div className="md:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>Customer / Client <span className="text-rose-500">*</span></span>
+                                            {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
                                         </label>
                                         <SearchableSelect
                                             options={(Array.isArray(customers) ? customers : []).map(c => ({
@@ -822,6 +961,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 label: `${c.name || c.companyName} ${c.code ? `(${c.code})` : ''} ${c.city ? `- ${c.city}` : ''}`.trim()
                                             }))}
                                             value={newQuote.customer}
+                                            hasError={!!formErrors.customer}
                                             onChange={(val: any) => handleSelectCustomer(val)}
                                             placeholder="Select Customer..."
                                         />
@@ -829,22 +969,54 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                             <input
                                                 type="text"
                                                 value={newQuote.customerName}
-                                                onChange={(e) => setNewQuote({ ...newQuote, customerName: e.target.value })}
+                                                onChange={(e) => {
+                                                    setNewQuote({ ...newQuote, customerName: e.target.value });
+                                                    if (e.target.value) clearError('customer');
+                                                }}
                                                 placeholder="Or type customer name directly..."
-                                                className="w-full mt-2 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                className={`w-full mt-2 px-3.5 py-2 rounded-xl text-sm font-semibold outline-none transition-all ${
+                                                    formErrors.customer
+                                                        ? 'bg-rose-50/50 dark:bg-rose-950/40 border border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                        : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20'
+                                                }`}
                                             />
                                         )}
                                     </div>
 
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Quotation Date
+                                        <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1.5">
+                                            Currency *
+                                        </label>
+                                        <select
+                                            value={newQuote.currency || 'INR'}
+                                            onChange={(e) => setNewQuote({ ...newQuote, currency: e.target.value })}
+                                            className="w-full px-3.5 py-2 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-300 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                        >
+                                            {CURRENCY_OPTIONS.map((c) => (
+                                                <option key={c.code} value={c.code}>
+                                                    {c.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="space-y-1" data-has-error={!!formErrors.date}>
+                                        <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                                            <span>Quotation Date <span className="text-rose-500">*</span></span>
+                                            {formErrors.date && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.date}</span>}
                                         </label>
                                         <input
                                             type="date"
                                             value={newQuote.date}
-                                            onChange={(e) => setNewQuote({ ...newQuote, date: e.target.value })}
-                                            className="w-full px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                            onChange={(e) => {
+                                                setNewQuote({ ...newQuote, date: e.target.value });
+                                                if (e.target.value) clearError('date');
+                                            }}
+                                            className={`w-full px-3.5 py-2 rounded-xl text-sm font-semibold outline-none transition-all ${
+                                                formErrors.date
+                                                    ? 'bg-rose-50/50 dark:bg-rose-950/40 border border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                    : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20'
+                                            }`}
                                         />
                                     </div>
 
@@ -880,7 +1052,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Freight Charges (₹)
+                                            Freight Charges ({getCurrencySymbol(newQuote.currency)})
                                         </label>
                                         <input
                                             type="number"
@@ -916,7 +1088,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
                                     <div>
                                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                                            Packaging Charges (₹)
+                                            Packaging Charges ({getCurrencySymbol(newQuote.currency)})
                                         </label>
                                         <input
                                             type="number"
@@ -952,10 +1124,11 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                     <div className="col-span-3">FG Item * (Price List)</div>
-                                    <div className="col-span-3">Specifications</div>
+                                    <div className="col-span-1 text-center">HSN</div>
+                                    <div className="col-span-2">Specifications</div>
                                     <div className="col-span-1 text-center">Qty</div>
                                     <div className="col-span-1 text-center">Unit</div>
-                                    <div className="col-span-2 text-right">Unit Rate (₹)</div>
+                                    <div className="col-span-2 text-right">Unit Rate ({getCurrencySymbol(newQuote.currency)})</div>
                                     <div className="col-span-1 text-center">GST %</div>
                                     <div className="col-span-1 text-right">Action</div>
                                 </div>
@@ -967,20 +1140,36 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                             <div className="grid grid-cols-12 gap-3 items-center">
                                                 
                                                 {/* FG Item Column */}
-                                                <div className="col-span-12 lg:col-span-3">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        FG Item *
+                                                <div className="col-span-12 lg:col-span-3" data-has-error={!!formErrors[`item_${idx}_fgItem`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>FG Item <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_fgItem`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_fgItem`]}</span>}
                                                     </label>
                                                     <SearchableSelect
                                                         options={fgOptions}
                                                         value={item.fgItem}
+                                                        hasError={!!formErrors[`item_${idx}_fgItem`]}
                                                         onChange={(val: any) => handleItemChange(idx, 'fgItem', val)}
                                                         placeholder="Select FG Item..."
                                                     />
                                                 </div>
 
+                                                {/* HSN Code Column */}
+                                                <div className="col-span-6 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        HSN
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsnCode || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN"
+                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-indigo-500"
+                                                    />
+                                                </div>
+
                                                 {/* Specifications */}
-                                                <div className="col-span-12 lg:col-span-3">
+                                                <div className="col-span-12 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Specifications
                                                     </label>
@@ -994,16 +1183,21 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 </div>
 
                                                 {/* Qty */}
-                                                <div className="col-span-6 lg:col-span-1">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Qty
+                                                <div className="col-span-6 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>Qty <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_quantity`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_quantity`]}</span>}
                                                     </label>
                                                     <input
                                                         type="number"
                                                         min="1"
                                                         value={item.quantity}
                                                         onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
-                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white text-center"
+                                                        className={`w-full px-2 py-2 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                            formErrors[`item_${idx}_quantity`]
+                                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                                : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white'
+                                                        }`}
                                                     />
                                                 </div>
 
@@ -1021,9 +1215,10 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 </div>
 
                                                 {/* Rate */}
-                                                <div className="col-span-6 lg:col-span-2">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        Unit Rate (₹)
+                                                <div className="col-span-6 lg:col-span-2" data-has-error={!!formErrors[`item_${idx}_rate`]}>
+                                                    <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        <span>Rate <span className="text-rose-500">*</span></span>
+                                                        {formErrors[`item_${idx}_rate`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_rate`]}</span>}
                                                     </label>
                                                     <input
                                                         type="number"
@@ -1031,8 +1226,12 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                         step="0.01"
                                                         value={item.rate}
                                                         onChange={(e) => handleItemChange(idx, 'rate', e.target.value)}
-                                                        placeholder="Rate ₹"
-                                                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-extrabold text-indigo-600 dark:text-indigo-400 text-right"
+                                                        placeholder={`Rate ${getCurrencySymbol(newQuote.currency)}`}
+                                                        className={`w-full px-3 py-2 border rounded-xl text-xs font-extrabold text-right font-mono outline-none transition-all ${
+                                                            formErrors[`item_${idx}_rate`]
+                                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400'
+                                                                : 'bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-indigo-600 dark:text-indigo-400'
+                                                        }`}
                                                     />
                                                 </div>
 
@@ -1075,16 +1274,16 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-5 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="text-xs space-y-1">
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
-                                        Subtotal: <span className="font-mono text-slate-900 dark:text-white">₹{newQuote.subtotal.toLocaleString()}</span>
+                                        Subtotal: <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
-                                        Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">₹{newQuote.taxAmount.toLocaleString()}</span>
+                                        Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Grand Total Amount</span>
+                                    <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Grand Total ({newQuote.currency || 'INR'})</span>
                                     <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                                        ₹{newQuote.totalAmount.toLocaleString()}
+                                        {getCurrencySymbol(newQuote.currency)}{newQuote.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                 </div>
                             </div>
@@ -1127,7 +1326,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                         <div className="p-6 overflow-y-auto space-y-5">
                             
                             {/* General Status & Interactive Control */}
-                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                                 <div>
                                     <span className="text-slate-400 block mb-0.5">Linked RFQ Number:</span>
                                     <strong className="text-indigo-600 dark:text-indigo-400 font-mono font-bold">
@@ -1146,6 +1345,13 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                     <span className="text-slate-400 block mb-0.5">Valid Until:</span>
                                     <strong className="text-rose-600 font-bold">
                                         {selectedQuote.validUntil ? new Date(selectedQuote.validUntil).toLocaleDateString('en-GB') : 'N/A'}
+                                    </strong>
+                                </div>
+
+                                <div>
+                                    <span className="text-slate-400 block mb-0.5">Currency:</span>
+                                    <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                        {selectedQuote.currency || 'INR'} ({getCurrencySymbol(selectedQuote.currency)})
                                     </strong>
                                 </div>
 
@@ -1238,10 +1444,11 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-600">
                                             <tr>
                                                 <th className="p-3">FG Item Name</th>
+                                                <th className="p-3 text-center">HSN</th>
                                                 <th className="p-3 text-center">Quantity</th>
-                                                <th className="p-3 text-right">Unit Rate (₹)</th>
+                                                <th className="p-3 text-right">Unit Rate ({selectedQuote.currency || 'INR'})</th>
                                                 <th className="p-3 text-center">GST %</th>
-                                                <th className="p-3 text-right">Line Total (₹)</th>
+                                                <th className="p-3 text-right">Line Total ({selectedQuote.currency || 'INR'})</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
@@ -1258,10 +1465,11 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                             {item.fgItem?.code && <span className="text-[10px] text-slate-400 font-mono ml-1">[{item.fgItem.code}]</span>}
                                                             {item.description && <span className="block text-[10px] font-normal text-slate-400">{item.description}</span>}
                                                         </td>
+                                                        <td className="p-3 text-center font-mono text-xs text-slate-600 dark:text-slate-400">{item.hsnCode || item.hsn || '-'}</td>
                                                         <td className="p-3 text-center font-bold text-indigo-600">{qty} {item.unit || 'PCS'}</td>
-                                                        <td className="p-3 text-right font-bold font-mono">₹{rate.toLocaleString()}</td>
+                                                        <td className="p-3 text-right font-bold font-mono">{getCurrencySymbol(selectedQuote.currency)}{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                         <td className="p-3 text-center font-bold text-slate-600">{tax}%</td>
-                                                        <td className="p-3 text-right font-extrabold font-mono text-indigo-600">₹{lineTotal.toLocaleString()}</td>
+                                                        <td className="p-3 text-right font-extrabold font-mono text-indigo-600">{getCurrencySymbol(selectedQuote.currency)}{lineTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                                     </tr>
                                                 );
                                             })}

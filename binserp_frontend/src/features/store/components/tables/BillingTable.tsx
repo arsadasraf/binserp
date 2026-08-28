@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadInvoiceExcelDocument } from '@/src/utils/frontendDocumentHelper';
+import { getCurrencySymbol } from '@/src/utils/currencyHelper';
 import InvoicePreviewModal from '../modals/InvoicePreviewModal';
 
 interface BillingTableProps {
@@ -315,7 +316,7 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                     <div className="flex justify-between">
                                         <span className="text-slate-400 font-medium">Total Amount:</span> 
                                         <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                                            ₹{(item.grandTotal || item.totalAmount || item.subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            {getCurrencySymbol(item.currency)}{(item.grandTotal || item.totalAmount || item.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                                         </span>
                                     </div>
                                 </div>

@@ -110,38 +110,6 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     }
   };
 
-  // Action: Delete MRP Plan
-  const handleDeletePlan = async (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const result = await Swal.fire({
-      title: 'Delete MRP Plan?',
-      text: 'This will remove the demand calculation. Any generated POs will remain intact.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#ef4444',
-      cancelButtonColor: '#6b7280',
-      confirmButtonText: 'Yes, delete plan'
-    });
-
-    if (!result.isConfirmed) return;
-
-    try {
-      await apiDelete(`/api/purchase/mrp/plan/${id}`, token);
-      Swal.fire({
-        icon: 'success',
-        title: 'Deleted!',
-        text: 'MRP Plan removed successfully',
-        timer: 2000
-      });
-      if (selectedDemandPlan?._id === id) {
-        setSelectedDemandPlan(null);
-      }
-      fetchData();
-    } catch (err: any) {
-      Swal.fire('Error', err.message || 'Failed to delete MRP plan', 'error');
-    }
-  };
-
   const handleOpenDetails = (plan: any) => {
     setSelectedPlanForDetails(plan);
     setIsDetailsModalOpen(true);
@@ -225,6 +193,59 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       fetchData();
     } catch (err: any) {
       Swal.fire('Error', err.message || 'Failed to submit PO', 'error');
+    }
+  };
+
+  // Delete MRP Demand Plan with Safety Check
+  const handleDeletePlan = async (planId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const plan = mrpPlans.find((p) => p._id === planId) || selectedDemandPlan;
+    if (!plan) return;
+
+    const isInProduction = plan.status === 'In Production' || plan.status === 'Partially Completed';
+    const isSentToPPC = plan.ppcStatus === 'Sent' || plan.status === 'In Production';
+
+    let warningHtml = `<p class="text-xs text-slate-600 dark:text-slate-300">Are you sure you want to delete MRP Plan <strong>${plan.mrpNumber}</strong>?</p>`;
+
+    if (isInProduction || isSentToPPC) {
+      warningHtml = `
+        <div class="text-left space-y-2 text-xs">
+          <div class="p-2.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl text-amber-900 dark:text-amber-200">
+            <strong>⚠️ Caution: Active Production / PPC Link</strong>
+            <p class="mt-1">This MRP Demand Plan is currently <strong>${plan.status}</strong> and has active manufacturing operations routed to PPC or procurement.</p>
+          </div>
+          <p class="text-rose-600 font-bold">Deleting this plan will remove all associated material breakdowns and may desynchronize active production jobs!</p>
+        </div>
+      `;
+    }
+
+    const result = await Swal.fire({
+      title: isInProduction ? 'Warning: Plan in Production!' : 'Delete MRP Plan?',
+      html: warningHtml,
+      icon: isInProduction ? 'warning' : 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Yes, Delete Plan',
+      cancelButtonText: 'Cancel'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await apiDelete(`/api/purchase/mrp/plan/${planId}`, token);
+        Swal.fire({
+          icon: 'success',
+          title: 'Plan Deleted',
+          text: `MRP Plan ${plan.mrpNumber} has been deleted.`,
+          timer: 2000
+        });
+        if (selectedDemandPlan && selectedDemandPlan._id === planId) {
+          setSelectedDemandPlan(null);
+        }
+        fetchData();
+      } catch (err: any) {
+        Swal.fire('Error', err.message || 'Failed to delete MRP Plan', 'error');
+      }
     }
   };
 

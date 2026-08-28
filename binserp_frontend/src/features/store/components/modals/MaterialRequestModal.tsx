@@ -21,6 +21,7 @@ interface MaterialRequestModalProps {
     customerPos?: any[];
     loading?: boolean;
     defaultType?: RequestInventoryType | "inhouse";
+    allowedTypes?: RequestInventoryType[];
 }
 
 export default function MaterialRequestModal({
@@ -37,13 +38,22 @@ export default function MaterialRequestModal({
     salesOrders = [],
     customerPos = [],
     loading,
-    defaultType = "consumable"
+    defaultType = "consumable",
+    allowedTypes
 }: MaterialRequestModalProps) {
     const [mrpPlans, setMrpPlans] = useState<any[]>([]);
 
-    const initialType: RequestInventoryType = (
-        defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable'
-    );
+    const effectiveAllowedTypes: RequestInventoryType[] = useMemo(() => {
+        if (Array.isArray(allowedTypes) && allowedTypes.length > 0) {
+            return allowedTypes;
+        }
+        return ['consumable', 'rm', 'bo', 'fg'];
+    }, [allowedTypes]);
+
+    const initialType: RequestInventoryType = useMemo(() => {
+        const raw = defaultType === 'inhouse' ? 'fg' : (defaultType as RequestInventoryType) || 'consumable';
+        return effectiveAllowedTypes.includes(raw) ? raw : effectiveAllowedTypes[0] || 'consumable';
+    }, [defaultType, effectiveAllowedTypes]);
 
     const [formData, setFormData] = useState({
         requestNumber: "",
@@ -129,8 +139,8 @@ export default function MaterialRequestModal({
         });
     }, [activeMrpPlans]);
 
-    const isMrpRequired = formData.type !== 'consumable';
-    const isMrpMissing = isMrpRequired && !formData.mrpPlan;
+    const isMrpRequired = false;
+    const isMrpMissing = false;
 
     // Effective item lists strictly separated for each category
     const effectiveRMList = useMemo(() => {
@@ -367,59 +377,67 @@ export default function MaterialRequestModal({
                             </span>
                         </div>
                         
-                        {/* 4 Inventory Types Switcher (Consumables First, then RM, BO, FG) */}
+                        {/* Allowed Inventory Types Switcher */}
                         <div className="flex flex-wrap bg-gray-200/80 dark:bg-gray-750 p-1 rounded-xl gap-1 w-fit shadow-inner">
-                            {/* Consumable Button (1st Tab) */}
-                            <button
-                                type="button"
-                                onClick={() => switchType('consumable')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                    formData.type === 'consumable' 
-                                        ? 'bg-amber-500 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                            >
-                                <Package size={13} /> Consumables
-                            </button>
+                            {/* Consumable Button */}
+                            {effectiveAllowedTypes.includes('consumable') && (
+                                <button
+                                    type="button"
+                                    onClick={() => switchType('consumable')}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                        formData.type === 'consumable' 
+                                            ? 'bg-amber-500 text-white shadow-sm' 
+                                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <Package size={13} /> Consumables
+                                </button>
+                            )}
 
                             {/* RM Button */}
-                            <button
-                                type="button"
-                                onClick={() => switchType('rm')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                    formData.type === 'rm' 
-                                        ? 'bg-blue-600 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                            >
-                                <Layers size={13} /> Raw Material (RM)
-                            </button>
+                            {effectiveAllowedTypes.includes('rm') && (
+                                <button
+                                    type="button"
+                                    onClick={() => switchType('rm')}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                        formData.type === 'rm' 
+                                            ? 'bg-blue-600 text-white shadow-sm' 
+                                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <Layers size={13} /> Raw Material (RM)
+                                </button>
+                            )}
 
                             {/* BO Button */}
-                            <button
-                                type="button"
-                                onClick={() => switchType('bo')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                    formData.type === 'bo' 
-                                        ? 'bg-emerald-600 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                            >
-                                <ShoppingCart size={13} /> Bought Out (BO)
-                            </button>
+                            {effectiveAllowedTypes.includes('bo') && (
+                                <button
+                                    type="button"
+                                    onClick={() => switchType('bo')}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                        formData.type === 'bo' 
+                                            ? 'bg-emerald-600 text-white shadow-sm' 
+                                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <ShoppingCart size={13} /> Bought Out (BO)
+                                </button>
+                            )}
 
                             {/* FG Button */}
-                            <button
-                                type="button"
-                                onClick={() => switchType('fg')}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                                    formData.type === 'fg' 
-                                        ? 'bg-purple-600 text-white shadow-sm' 
-                                        : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                            >
-                                <Boxes size={13} /> Finished Goods (FG)
-                            </button>
+                            {effectiveAllowedTypes.includes('fg') && (
+                                <button
+                                    type="button"
+                                    onClick={() => switchType('fg')}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                        formData.type === 'fg' 
+                                            ? 'bg-purple-600 text-white shadow-sm' 
+                                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                >
+                                    <Boxes size={13} /> Finished Goods (FG)
+                                </button>
+                            )}
                         </div>
                     </div>
 

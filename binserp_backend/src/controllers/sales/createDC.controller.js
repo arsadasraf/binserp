@@ -125,6 +125,8 @@ export const createDC = async (req, res) => {
       }
     }
 
+    const dcCurrency = req.body.currency || (typeof po !== 'undefined' && po ? po.currency : undefined) || 'INR';
+
     const dc = await DeliveryChallan.create({
       company: companyId,
       dcNumber,
@@ -134,8 +136,14 @@ export const createDC = async (req, res) => {
       customerAddress: req.body.customerAddress,
       customerPoReference: finalPoReference,
       incomingPO: incomingPoDocId,
+      currency: dcCurrency,
       items,
       discount: req.body.discount,
+      transportationType: req.body.transportationType,
+      transportationCharges: req.body.transportationCharges,
+      vehicleNumber: req.body.vehicleNumber,
+      packagingType: req.body.packagingType,
+      packagingCharges: req.body.packagingCharges,
       otherDetails: req.body.otherDetails,
       reduceStock: shouldReduceStock,
       stockDeducted: shouldReduceStock && status !== "Cancelled",

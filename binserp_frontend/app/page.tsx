@@ -87,6 +87,8 @@ export default function Home() {
             src="/features-bg.png"
             alt="Features Background"
             fill
+            priority
+            sizes="100vw"
             className="object-cover opacity-30"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-white/80 via-white/50 to-white/90 backdrop-blur-[2px]"></div>
@@ -191,6 +193,7 @@ function FeatureCard({ image, icon, title, description, color, bg }: any) {
           src={image}
           alt={title}
           fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           className="object-cover group-hover:scale-110 transition-transform duration-500"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end p-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">

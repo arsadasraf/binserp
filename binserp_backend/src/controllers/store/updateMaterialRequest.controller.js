@@ -107,6 +107,20 @@ export const updateMaterialRequest = async (req, res) => {
     }
 
     const { userId, userName } = getUserAudit(req);
+
+    // If approving, set approvedBy
+    if (status === "Approved") {
+      materialRequest.approvedBy = userId;
+      materialRequest.approvedByName = userName;
+    }
+
+    // If issuing, set issuedBy
+    if (status === "Issued") {
+      materialRequest.issuedBy = userId;
+      materialRequest.issuedByName = userName;
+      materialRequest.issuedAt = new Date();
+    }
+
     materialRequest.status = status;
     if (remarks) materialRequest.remarks = remarks;
     materialRequest.updatedBy = userId;

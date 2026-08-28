@@ -7,6 +7,7 @@ import SearchableSelect from "../SearchableSelect";
 import { API_BASE_URL } from "@/src/utils/config";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { CURRENCY_OPTIONS, getCurrencySymbol } from "@/src/utils/currencyHelper";
 
 interface QuotationModalProps {
   isOpen: boolean;
@@ -48,6 +49,7 @@ export default function QuotationModal({
   const [formData, setFormData] = useState({
     quotationNumber: generateQuotationNumber(prefix),
     date: new Date().toISOString().split("T")[0],
+    currency: "INR",
     customerType: "master",
     customer: "",
     customerName: "",
@@ -124,6 +126,7 @@ export default function QuotationModal({
       setFormData({
         quotationNumber: initialData.quotationNumber || "Auto-generated",
         date: initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        currency: initialData.currency || "INR",
         customerType: initialData.customer ? "master" : "custom",
         customer: typeof initialData.customer === "object" ? initialData.customer?._id : initialData.customer || "",
         customerName: initialData.customerName || "",
@@ -699,59 +702,48 @@ export default function QuotationModal({
                   </select>
                 </div>
 
-                <div className="md:col-span-2 lg:col-span-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-semibold text-gray-600 dark:text-gray-300">
-                      Customer Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-gray-400">Master</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomerType(customerType === "master" ? "custom" : "master");
-                          setFormData({ ...formData, customer: "", customerName: "", customerEmail: "", customerPhone: "", customerAddress: "" });
-                        }}
-                        className={`relative inline-flex h-3.5 w-7 items-center rounded-full transition-colors focus:outline-none ${customerType === "custom" ? "bg-indigo-600" : "bg-gray-300"}`}
-                      >
-                        <span className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${customerType === "custom" ? "translate-x-3.5" : "translate-x-0.5"}`} />
-                      </button>
-                      <span className="text-[10px] text-gray-400">Custom</span>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-indigo-600 dark:text-indigo-400 mb-1">
+                    Currency
+                  </label>
+                  <select
+                    value={formData.currency || 'INR'}
+                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                    className="w-full px-3 py-1.5 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                  {customerType === "master" ? (
-                    <SearchableSelect
-                      options={customers.map((c: any) => ({
-                        value: c._id || c.name,
-                        label: `${c.name}${c.code ? ` (${c.code})` : ''}`
-                      }))}
-                      value={formData.customer || (customers.find(c => c.name === formData.customerName)?._id) || formData.customerName}
-                      onChange={(val: any) => {
-                        const selected = customers.find(c => c._id === val || c.name === val);
-                        const fullAddr = selected?.address || selected?.billingAddress || [selected?.street, selected?.city, selected?.state, selected?.pincode].filter(Boolean).join(", ") || "";
-                        setFormData(prev => ({
-                          ...prev,
-                          customer: selected?._id || val,
-                          customerName: selected?.name || val,
-                          customerEmail: selected?.email || prev.customerEmail || "",
-                          customerPhone: selected?.phone || prev.customerPhone || "",
-                          customerAddress: fullAddr || prev.customerAddress || ""
-                        }));
-                      }}
-                      placeholder="Select Customer from Master..."
-                      className="w-full text-xs"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      required
-                      value={formData.customerName}
-                      onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                      className="w-full px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Customer name..."
-                    />
-                  )}
+                <div className="md:col-span-2 lg:col-span-2">
+                  <label className="block text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                    Customer Name (from Master) <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    options={customers.map((c: any) => ({
+                      value: c._id || c.name,
+                      label: `${c.name}${c.code ? ` (${c.code})` : ''}`
+                    }))}
+                    value={formData.customer || (customers.find(c => c.name === formData.customerName)?._id) || formData.customerName}
+                    onChange={(val: any) => {
+                      const selected = customers.find(c => c._id === val || c.name === val);
+                      const fullAddr = selected?.address || selected?.billingAddress || [selected?.street, selected?.city, selected?.state, selected?.pincode].filter(Boolean).join(", ") || "";
+                      setFormData(prev => ({
+                        ...prev,
+                        customer: selected?._id || val,
+                        customerName: selected?.name || val,
+                        customerEmail: selected?.email || prev.customerEmail || "",
+                        customerPhone: selected?.phone || prev.customerPhone || "",
+                        customerAddress: fullAddr || prev.customerAddress || ""
+                      }));
+                    }}
+                    placeholder="Select Customer from Master..."
+                    className="w-full text-xs"
+                  />
                 </div>
 
                 <div>

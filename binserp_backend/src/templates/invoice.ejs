@@ -38,6 +38,19 @@
             <% } %>
         </div>
 
+        <% 
+            const getCurrSym = (curr) => {
+                switch ((curr || '').toUpperCase()) {
+                    case 'USD': return '$';
+                    case 'POUND': case 'GBP': return '£';
+                    case 'EURO': case 'EUR': return '€';
+                    case 'YEN': case 'JPY': return '¥';
+                    case 'YUAN': case 'CNY': case 'RMB': return '¥';
+                    case 'INR': default: return '₹';
+                }
+            };
+            const currSym = getCurrSym(doc.currency);
+        %>
         <!-- Items Table -->
         <table class="w-full text-sm text-left mb-8">
             <thead class="text-xs text-white uppercase bg-indigo-600 rounded-t-lg">
@@ -45,9 +58,9 @@
                     <th class="px-4 py-3 rounded-tl-lg">Item</th>
                     <th class="px-4 py-3">HSN</th>
                     <th class="px-4 py-3 text-right">Qty</th>
-                    <th class="px-4 py-3 text-right">Rate</th>
+                    <th class="px-4 py-3 text-right">Rate (<%= currSym %>)</th>
                     <th class="px-4 py-3 text-right">Tax %</th>
-                    <th class="px-4 py-3 text-right rounded-tr-lg">Amount</th>
+                    <th class="px-4 py-3 text-right rounded-tr-lg">Amount (<%= currSym %>)</th>
                 </tr>
             </thead>
             <tbody>
@@ -56,9 +69,9 @@
                     <td class="px-4 py-3 font-medium text-slate-800"><%= item.materialName %></td>
                     <td class="px-4 py-3 text-slate-500"><%= item.hsnCode || '-' %></td>
                     <td class="px-4 py-3 text-right text-slate-600"><%= item.quantity %></td>
-                    <td class="px-4 py-3 text-right text-slate-600"><%= Number(item.rate || 0).toFixed(2) %></td>
+                    <td class="px-4 py-3 text-right text-slate-600"><%= currSym %> <%= Number(item.rate || 0).toFixed(2) %></td>
                     <td class="px-4 py-3 text-right text-slate-600"><%= item.taxRate || 0 %>%</td>
-                    <td class="px-4 py-3 text-right font-medium text-slate-800"><%= (Number(item.amount || 0) + Number(item.taxAmount || 0)).toFixed(2) %></td>
+                    <td class="px-4 py-3 text-right font-medium text-slate-800"><%= currSym %> <%= (Number(item.amount || 0) + Number(item.taxAmount || 0)).toFixed(2) %></td>
                 </tr>
                 <% }); %>
             </tbody>
@@ -69,15 +82,15 @@
             <div class="w-64">
                 <div class="flex justify-between py-2 text-sm text-slate-600">
                     <span>Subtotal:</span>
-                    <span><%= Number(doc.subtotal || 0).toFixed(2) %></span>
+                    <span><%= currSym %> <%= Number(doc.subtotal || 0).toFixed(2) %></span>
                 </div>
                 <div class="flex justify-between py-2 text-sm text-slate-600 border-b border-slate-200">
                     <span>Tax:</span>
-                    <span><%= Number(doc.taxAmount || 0).toFixed(2) %></span>
+                    <span><%= currSym %> <%= Number(doc.taxAmount || 0).toFixed(2) %></span>
                 </div>
                 <div class="flex justify-between py-3 text-base font-bold text-slate-800">
-                    <span>Total:</span>
-                    <span class="text-indigo-600"><%= Number(doc.totalAmount || 0).toFixed(2) %></span>
+                    <span>Total (<%= doc.currency || 'INR' %>):</span>
+                    <span class="text-indigo-600"><%= currSym %> <%= Number(doc.totalAmount || 0).toFixed(2) %></span>
                 </div>
             </div>
         </div>

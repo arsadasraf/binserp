@@ -89,6 +89,7 @@ export default function AboutPage() {
               src="/connecting-factories.png"
               alt="Connecting Factories Globally"
               fill
+              sizes="(max-width: 1200px) 100vw, 1200px"
               className="object-cover hover:scale-105 transition-transform duration-700"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-indigo-900/80 via-transparent to-transparent flex items-end p-8">

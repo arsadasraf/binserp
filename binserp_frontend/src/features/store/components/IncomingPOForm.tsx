@@ -4,6 +4,7 @@ import SearchableSelect from "./SearchableSelect";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGetIncomingPODispatchHistoryQuery } from "@/src/store/services/storeService";
+import { getCurrencySymbol, CURRENCY_OPTIONS } from "@/src/utils/currencyHelper";
 
 interface IncomingPOFormProps {
   isOpen?: boolean;
@@ -37,6 +38,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
   const [formData, setFormData] = useState({
     poNumber: "",
     date: new Date().toISOString().split("T")[0],
+    currency: "INR",
     customer: "",
     quotationReference: "",
     items: [
@@ -106,6 +108,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
       setFormData({
         poNumber: initialData.poNumber || "",
         date: initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        currency: initialData.currency || "INR",
         customer: typeof initialData.customer === "object" ? initialData.customer?._id : initialData.customer || "",
         quotationReference: typeof initialData.quotationReference === "object" ? initialData.quotationReference?._id : initialData.quotationReference || "",
         items: formattedItems.length > 0 ? formattedItems : [{
@@ -294,6 +297,8 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
 
       const tableStartY = Math.max(56, custLineY + 4);
 
+      const currSym = getCurrencySymbol(formData.currency);
+
       // Table Data
       const tableData = (formData.items || []).map((item: any, idx: number) => {
         const prodName = item.productName || "Product";
@@ -303,15 +308,15 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
           `${prodName}${specText}`,
           item.quantity || 0,
           item.unit || "PCS",
-          `₹${Number(item.rate || 0).toFixed(2)}`,
+          `${currSym}${Number(item.rate || 0).toFixed(2)}`,
           `${item.taxRate || 0}%`,
-          `₹${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
+          `${currSym}${Number(item.amount || (item.quantity * item.rate) || 0).toFixed(2)}`
         ];
       });
 
       autoTable(doc, {
         startY: tableStartY,
-        head: [["SI.No", "Product & Description", "Qty", "Unit", "Rate", "Tax Rate", "Total Price"]],
+        head: [["SI.No", "Product & Description", "Qty", "Unit", `Rate (${currSym})`, "Tax %", `Total Price (${currSym})`]],
         body: tableData,
         headStyles: {
           fillColor: [241, 245, 249],
@@ -352,27 +357,27 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
       doc.setTextColor(71, 85, 105);
 
       doc.text("Items Subtotal:", 118, finalY + 13);
-      doc.text(`₹${Number(formData.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
+      doc.text(`${currSym}${Number(formData.subtotal || 0).toFixed(2)}`, 190, finalY + 13, { align: "right" });
 
       doc.text(`Transport (${formData.transportationType || 'Included'}):`, 118, finalY + 19);
-      doc.text(`+ ₹${Number(formData.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
+      doc.text(`+ ${currSym}${Number(formData.transportationCharges || 0).toFixed(2)}`, 190, finalY + 19, { align: "right" });
 
       doc.text(`Packaging (${formData.packagingType || 'Standard'}):`, 118, finalY + 25);
-      doc.text(`+ ₹${Number(formData.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
+      doc.text(`+ ${currSym}${Number(formData.packagingCharges || 0).toFixed(2)}`, 190, finalY + 25, { align: "right" });
 
       doc.text("Total Tax (GST):", 118, finalY + 31);
-      doc.text(`+ ₹${Number(formData.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
+      doc.text(`+ ${currSym}${Number(formData.taxAmount || 0).toFixed(2)}`, 190, finalY + 31, { align: "right" });
 
       if (Number(formData.discount || 0) > 0) {
         doc.text("Discount:", 118, finalY + 36);
-        doc.text(`- ₹${Number(formData.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
+        doc.text(`- ${currSym}${Number(formData.discount || 0).toFixed(2)}`, 190, finalY + 36, { align: "right" });
       }
 
       doc.setFontSize(9.5);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(15, 23, 42);
-      doc.text("Total Amount:", 118, finalY + 44);
-      doc.text(`₹${Number(formData.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
+      doc.text(`Total Amount (${formData.currency || 'INR'}):`, 118, finalY + 44);
+      doc.text(`${currSym}${Number(formData.totalAmount || 0).toFixed(2)}`, 190, finalY + 44, { align: "right" });
 
       if (formData.remarks) {
         doc.setFontSize(8);
@@ -558,7 +563,7 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                         {selectedCustomerObj?.name || selectedCustomerObj?.customerName || formData.customer || "Customer PO"}
                       </h3>
                       <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                        formData.status === 'Accepted' || formData.status === 'Sales Order Generated' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
+                        formData.status === 'Accepted' || formData.status === 'MRP Done' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300' :
                         formData.status === 'Received' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300' :
                         'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
                       }`}>
@@ -920,8 +925,24 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                   >
                     <option value="Received">Received</option>
                     <option value="Accepted">Accepted</option>
-                    <option value="Sales Order Generated">Sales Order Generated</option>
+                    <option value="MRP Done">MRP Done</option>
                     <option value="Cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-indigo-600 dark:text-indigo-400">Currency</label>
+                  <select
+                    name="currency"
+                    value={formData.currency || 'INR'}
+                    onChange={handleChange}
+                    className="w-full px-3 py-2 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>

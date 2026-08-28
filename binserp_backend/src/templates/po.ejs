@@ -34,21 +34,36 @@
             <p class="text-sm font-semibold text-slate-700"><%= doc.vendorName || doc.vendor?.name || 'N/A' %></p>
         </div>
 
+        <% 
+            const getCurrSym = (curr) => {
+                switch ((curr || '').toUpperCase()) {
+                    case 'USD': return '$';
+                    case 'POUND': case 'GBP': return '£';
+                    case 'EURO': case 'EUR': return '€';
+                    case 'YEN': case 'JPY': return '¥';
+                    case 'YUAN': case 'CNY': case 'RMB': return '¥';
+                    case 'INR': default: return '₹';
+                }
+            };
+            const currSym = getCurrSym(doc.currency);
+        %>
         <!-- Items Table -->
         <table class="w-full text-sm text-left mb-8">
             <thead class="text-xs text-white uppercase bg-purple-600 rounded-t-lg">
                 <tr>
                     <th class="px-4 py-3 rounded-tl-lg">Material</th>
+                    <th class="px-4 py-3 text-center">HSN</th>
                     <th class="px-4 py-3 text-right">Qty</th>
                     <th class="px-4 py-3">Unit</th>
-                    <th class="px-4 py-3 text-right">Rate</th>
-                    <th class="px-4 py-3 text-right rounded-tr-lg">Amount</th>
+                    <th class="px-4 py-3 text-right">Rate (<%= currSym %>)</th>
+                    <th class="px-4 py-3 text-right rounded-tr-lg">Amount (<%= currSym %>)</th>
                 </tr>
             </thead>
             <tbody>
                 <% 
                 const items = doc.items && doc.items.length > 0 ? doc.items : [{
                     materialName: doc.materialName,
+                    hsnCode: doc.hsnCode,
                     quantity: doc.quantity,
                     unit: doc.unit,
                     rate: doc.rate,
@@ -57,11 +72,12 @@
                 items.forEach(function(item, index) { 
                 %>
                 <tr class="border-b border-slate-200 <%= index % 2 === 0 ? 'bg-white' : 'bg-slate-50' %>">
-                    <td class="px-4 py-3 font-medium text-slate-800"><%= item.materialName || 'N/A' %></td>
+                    <td class="px-4 py-3 font-medium text-slate-800"><%= item.materialName || item.productName || 'N/A' %></td>
+                    <td class="px-4 py-3 text-center font-mono text-slate-600"><%= item.hsnCode || item.hsn || '-' %></td>
                     <td class="px-4 py-3 text-right text-slate-600"><%= item.quantity || 0 %></td>
                     <td class="px-4 py-3 text-slate-600"><%= item.unit || 'PCS' %></td>
-                    <td class="px-4 py-3 text-right text-slate-600"><%= Number(item.rate || 0).toFixed(2) %></td>
-                    <td class="px-4 py-3 text-right font-medium text-slate-800"><%= Number(item.amount || 0).toFixed(2) %></td>
+                    <td class="px-4 py-3 text-right text-slate-600"><%= currSym %> <%= Number(item.rate || 0).toFixed(2) %></td>
+                    <td class="px-4 py-3 text-right font-medium text-slate-800"><%= currSym %> <%= Number(item.amount || 0).toFixed(2) %></td>
                 </tr>
                 <% }); %>
             </tbody>
@@ -71,8 +87,8 @@
         <div class="flex justify-end mb-12">
             <div class="w-64">
                 <div class="flex justify-between py-3 text-base font-bold text-slate-800">
-                    <span>Total Amount:</span>
-                    <span class="text-purple-600"><%= Number(doc.totalAmount || doc.amount || 0).toFixed(2) %></span>
+                    <span>Total Amount (<%= doc.currency || 'INR' %>):</span>
+                    <span class="text-purple-600"><%= currSym %> <%= Number(doc.totalAmount || doc.amount || 0).toFixed(2) %></span>
                 </div>
             </div>
         </div>

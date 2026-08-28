@@ -7,6 +7,7 @@ import SearchableSelect from "./SearchableSelect";
 import { API_BASE_URL } from "@/src/utils/config";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { CURRENCY_OPTIONS, getCurrencySymbol } from "@/src/utils/currencyHelper";
 
 interface IncomingRFQFormProps {
   initialData?: any;
@@ -47,6 +48,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({
   const [formData, setFormData] = useState({
     rfqNumber: generateRfqNumber(prefix),
     date: new Date().toISOString().split("T")[0],
+    currency: "INR",
     customerName: "",
     customerEmail: "",
     customerPhone: "",
@@ -83,6 +85,7 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({
       setFormData({
         rfqNumber: initialData.rfqNumber || "Auto-generated",
         date: initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        currency: initialData.currency || "INR",
         customerName: initialData.customerName || "",
         customerEmail: initialData.customerEmail || "",
         customerPhone: initialData.customerPhone || "",
@@ -643,84 +646,70 @@ export const IncomingRFQForm: React.FC<IncomingRFQFormProps> = ({
                   </select>
                 </div>
 
-                <div className="sm:col-span-2 lg:col-span-3">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300">
-                      Customer Name <span className="text-red-500">*</span>
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">Master List</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomerType(customerType === "master" ? "custom" : "master");
-                          setFormData({ ...formData, customerName: "", customerEmail: "", customerPhone: "" });
-                        }}
-                        className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 ${customerType === "custom" ? "bg-indigo-600" : "bg-gray-300"}`}
-                      >
-                        <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${customerType === "custom" ? "translate-x-4" : "translate-x-1"}`} />
-                      </button>
-                      <span className="text-xs text-gray-500">Custom Entry</span>
-                    </div>
-                  </div>
-
-                  {customerType === "master" ? (
-                    <div>
-                      <SearchableSelect
-                        options={customers.map((c: any) => ({ value: c.name, label: c.name || '' }))}
-                        value={formData.customerName}
-                        onChange={(val: any) => {
-                          const selected = customers.find(c => c.name === val);
-                          setFormData({
-                            ...formData,
-                            customerName: val,
-                            customerEmail: selected?.email || "",
-                            customerPhone: selected?.phone || ""
-                          });
-                        }}
-                        placeholder="Search and select customer from master list..."
-                        className="w-full"
-                      />
-                    </div>
-                  ) : (
-                    <input
-                      type="text"
-                      required
-                      value={formData.customerName}
-                      onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                      className="w-full px-3.5 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500"
-                      placeholder="Enter customer name..."
-                    />
-                  )}
+                <div>
+                  <label className="block text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1.5">
+                    Currency
+                  </label>
+                  <select
+                    value={formData.currency || 'INR'}
+                    onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                    className="w-full px-3.5 py-2 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {CURRENCY_OPTIONS.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                {customerType === "custom" && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                        Customer Email
-                      </label>
-                      <input
-                        type="email"
-                        value={formData.customerEmail}
-                        onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
-                        className="w-full px-3.5 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium"
-                        placeholder="customer@email.com"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                        Customer Phone
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.customerPhone}
-                        onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
-                        className="w-full px-3.5 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium"
-                        placeholder="+91 9876543210"
-                      />
-                    </div>
-                  </>
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                    Customer Name (from Master) <span className="text-red-500">*</span>
+                  </label>
+                  <SearchableSelect
+                    options={customers.map((c: any) => ({ value: c.name, label: `${c.name || ''} ${c.code ? `(${c.code})` : ''} ${c.city ? `- ${c.city}` : ''}`.trim() }))}
+                    value={formData.customerName}
+                    onChange={(val: any) => {
+                      const selected = customers.find(c => c.name === val);
+                      setFormData({
+                        ...formData,
+                        customerName: val,
+                        customerEmail: selected?.email || "",
+                        customerPhone: selected?.phone || ""
+                      });
+                    }}
+                    placeholder="Search and select customer from master list..."
+                    className="w-full"
+                  />
+                </div>
+
+                {formData.customerEmail && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                      Customer Email
+                    </label>
+                    <input
+                      type="email"
+                      readOnly
+                      value={formData.customerEmail}
+                      className="w-full px-3.5 py-2 bg-gray-100 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-500 cursor-not-allowed"
+                    />
+                  </div>
+                )}
+
+                {formData.customerPhone && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                      Customer Phone
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={formData.customerPhone}
+                      className="w-full px-3.5 py-2 bg-gray-100 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-medium text-gray-500 cursor-not-allowed"
+                    />
+                  </div>
                 )}
 
                 <div>

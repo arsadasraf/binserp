@@ -1,6 +1,26 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema, fgItemSchema } from "../../models/store/index.js";
+import {
+  grnSchema,
+  materialIssueSchema,
+  bomSchema,
+  inventorySchema,
+  materialRequestSchema,
+  vendorSchema,
+  customerSchema,
+  locationSchema,
+  categorySchema,
+  rawMaterialSchema,
+  boughtOutSchema,
+  consumableItemSchema,
+  rmBoItemSchema,
+  companyInfoSchema,
+  jobWorkSchema,
+  jobWorkSupplierSchema,
+  rmInventoryMonthlySchema,
+  fgInventoryMonthlySchema,
+  fgItemSchema
+} from "../../models/store/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";

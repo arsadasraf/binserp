@@ -2,7 +2,27 @@ import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import mongoose from "mongoose";
 
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, rmInventoryMonthlySchema, fgInventoryMonthlySchema, consumableItemSchema } from "../../models/store/index.js";
+import {
+  grnSchema,
+  materialIssueSchema,
+  bomSchema,
+  inventorySchema,
+  materialRequestSchema,
+  vendorSchema,
+  customerSchema,
+  locationSchema,
+  categorySchema,
+  rawMaterialSchema,
+  boughtOutSchema,
+  rmBoItemSchema,
+  companyInfoSchema,
+  jobWorkSchema,
+  jobWorkSupplierSchema,
+  fgItemSchema,
+  rmInventoryMonthlySchema,
+  fgInventoryMonthlySchema,
+  consumableItemSchema
+} from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
@@ -21,6 +41,8 @@ const getCompanyId = (req) => {
 const getCompanyLoginId = (req) => {
   return req.company?.companyId || req.user?.companyId || req.user?.company?.companyId || "";
 };
+
+const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
 // Helper function to update FGItem stock (InHouse)
 const updateFGItemStock = async (req, componentId, quantityToDeduct) => {
@@ -52,110 +74,165 @@ const updateFGItemStock = async (req, componentId, quantityToDeduct) => {
 export const createMaterialIssue = async (req, res) => {
   try {
     const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
-    const Material = req.getModel('RmBoItem', rmBoItemSchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+    const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
+    const Component = req.getModel('Component', componentSchema);
     const MRPPlan = req.getModel('MRPPlan', mrpPlanSchema);
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    const { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber } = req.body;
+    let { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber } = req.body;
 
     console.log(`>>> [createMaterialIssue] Start. Status: ${status}, Type: ${type}, Items: ${items?.length}`);
 
-    if (!issueNumber || !department || !items || items.length === 0) {
-      return res.status(400).json({ message: "Issue number, department, and items are required" });
+    if (!department) {
+      department = 'General Store';
     }
 
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ message: "Items are required for material issue" });
+    }
+
+    // Auto-generate or deduplicate issueNumber
+    if (!issueNumber) {
+      issueNumber = `ISS-${Date.now()}`;
+    } else {
+      const existingIssue = await MaterialIssue.findOne({ company: companyId, issueNumber });
+      if (existingIssue) {
+        issueNumber = `${issueNumber}-${Date.now().toString().slice(-4)}`;
+      }
+    }
+
+    // Resolve issuedTo ID
+    const validIssuedTo = issuedTo && (typeof issuedTo === 'object' ? (issuedTo._id || issuedTo.id) : issuedTo);
+    const finalIssuedTo = validIssuedTo && isValidObjectId(validIssuedTo.toString()) ? validIssuedTo.toString() : undefined;
+
     const processedItems = [];
-    const isInhouse = type === 'inhouse' || type === 'fg';
-    const isConsumable = type === 'consumable';
+    const normalizedType = (type || 'rm').toLowerCase();
+    const isInhouse = normalizedType === 'inhouse' || normalizedType === 'fg';
+    const isConsumable = normalizedType === 'consumable';
 
     for (const item of items) {
+      const cleanName = (item.materialName || item.name || '').toString().trim();
+      const rawId = item.material?._id || item.material || item.consumable?._id || item.consumable || item.component?._id || item.component || item.fgItem?._id || item.fgItem;
+      const validId = rawId && isValidObjectId(rawId.toString()) ? rawId.toString() : null;
+
       if (isConsumable) {
         // Consumable Logic
-        let consumableId = item.consumable || item.material?._id || item.material || item._id;
-        let consumableDoc;
-
-        if (consumableId) {
-          consumableDoc = await ConsumableItem.findById(consumableId);
+        let consumableDoc = null;
+        if (validId) {
+          consumableDoc = await ConsumableItem.findOne({ _id: validId, company: companyId });
         }
-        if (!consumableDoc && item.materialName) {
-          consumableDoc = await ConsumableItem.findOne({ company: companyId, name: item.materialName });
+        if (!consumableDoc && (item.materialCode || item.code)) {
+          consumableDoc = await ConsumableItem.findOne({ company: companyId, code: item.materialCode || item.code });
         }
-
-        if (consumableDoc) {
-          processedItems.push({
-            ...item,
-            consumable: consumableDoc._id,
-            material: consumableDoc._id,
-            materialCode: consumableDoc.code || item.materialCode || '',
-            materialName: consumableDoc.name,
-            quantity: Number(item.quantity),
-            unit: item.unit || consumableDoc.unit || "PCS"
-          });
-        } else {
-          processedItems.push({
-            ...item,
-            material: consumableId,
-            materialName: item.materialName,
-            materialCode: item.materialCode || '',
-            quantity: Number(item.quantity),
-            unit: item.unit || "PCS"
+        if (!consumableDoc && cleanName) {
+          consumableDoc = await ConsumableItem.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
           });
         }
-      } else if (isInhouse) {
-        // Inhouse Logic
-        const compId = item.component || item.material || item._id; // Frontend flexibility
-        if (!compId) return res.status(400).json({ message: "Component ID is required" });
 
-        let compDoc = await FGItem.findById(compId);
-        if (!compDoc) {
-          const Component = req.getModel('Component', componentSchema);
-          compDoc = await Component.findById(compId);
+        const resolvedId = consumableDoc?._id || validId;
+        if (!resolvedId && !cleanName) {
+          return res.status(400).json({ message: `Consumable item details missing` });
         }
-        if (!compDoc) return res.status(400).json({ message: `FG Item/Component not found: ${compId}` });
 
         processedItems.push({
           ...item,
-          component: compDoc._id,
-          materialName: compDoc.name,
-          quantity: Number(item.quantity)
+          consumable: resolvedId,
+          material: resolvedId,
+          materialCode: consumableDoc?.code || item.materialCode || '',
+          materialName: consumableDoc?.name || cleanName || 'Consumable Item',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || consumableDoc?.unit || "PCS"
+        });
+      } else if (isInhouse) {
+        // Inhouse / FG Logic
+        let compDoc = null;
+        if (validId) {
+          compDoc = await FGItem.findOne({ _id: validId, company: companyId });
+          if (!compDoc) compDoc = await Component.findOne({ _id: validId, company: companyId });
+        }
+        if (!compDoc && (item.materialCode || item.code)) {
+          compDoc = await FGItem.findOne({ company: companyId, code: item.materialCode || item.code });
+          if (!compDoc) compDoc = await Component.findOne({ company: companyId, code: item.materialCode || item.code });
+        }
+        if (!compDoc && cleanName) {
+          compDoc = await FGItem.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!compDoc) {
+            compDoc = await Component.findOne({
+              company: companyId,
+              name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+        }
+
+        const resolvedCompId = compDoc?._id || validId;
+        if (!resolvedCompId && !cleanName) {
+          return res.status(400).json({ message: `FG Item / Component not found: ${cleanName || 'Unknown'}` });
+        }
+
+        processedItems.push({
+          ...item,
+          component: resolvedCompId,
+          fgItem: resolvedCompId,
+          material: resolvedCompId,
+          materialCode: compDoc?.code || item.materialCode || '',
+          materialName: compDoc?.name || cleanName || 'FG Item',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || compDoc?.unit || "Nos"
         });
       } else {
-        // BO / RM Logic
-        let materialId = item.material?._id || item.material; // Handle object or ID
-
-        // If no ID provided, try to find by name (fallback)
-        if (!materialId && item.materialName) {
-          const mat = await Material.findOne({ company: companyId, name: item.materialName });
-          if (mat) materialId = mat._id;
+        // Raw Material (RM) / Bought Out (BO) Logic
+        let materialDoc = null;
+        if (validId) {
+          materialDoc = await RawMaterial.findOne({ _id: validId, company: companyId });
+          if (!materialDoc) materialDoc = await BoughtOut.findOne({ _id: validId, company: companyId });
+          if (!materialDoc) materialDoc = await RmBoItem.findOne({ _id: validId, company: companyId });
+        }
+        if (!materialDoc && (item.materialCode || item.code)) {
+          materialDoc = await RawMaterial.findOne({ company: companyId, code: item.materialCode || item.code });
+          if (!materialDoc) materialDoc = await BoughtOut.findOne({ company: companyId, code: item.materialCode || item.code });
+          if (!materialDoc) materialDoc = await RmBoItem.findOne({ company: companyId, code: item.materialCode || item.code });
+        }
+        if (!materialDoc && cleanName) {
+          materialDoc = await RawMaterial.findOne({
+            company: companyId,
+            name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+          });
+          if (!materialDoc) {
+            materialDoc = await BoughtOut.findOne({
+              company: companyId,
+              name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
+          if (!materialDoc) {
+            materialDoc = await RmBoItem.findOne({
+              company: companyId,
+              name: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+            });
+          }
         }
 
-        if (!materialId) {
-          return res.status(400).json({ message: `Material not found: ${item.materialName}` });
-        }
-
-        // Fetch material to get code
-        let materialDoc = await Material.findById(materialId);
-
-        // Fallback: If not found by ID (or ID was invalid/subdoc), try by Name
-        if (!materialDoc && item.materialName) {
-          console.log(`>>> [createMaterialIssue] Material not found by ID ${materialId}. Trying Name: ${item.materialName}`);
-          materialDoc = await Material.findOne({ company: companyId, name: item.materialName });
-          if (materialDoc) materialId = materialDoc._id;
-        }
-
-        if (!materialDoc) {
-          return res.status(400).json({ message: `Material not found: ${item.materialName}` });
+        const resolvedMaterialId = materialDoc?._id || validId;
+        if (!resolvedMaterialId && !cleanName) {
+          return res.status(400).json({ message: `Material not found: ${cleanName || 'Unknown'}` });
         }
 
         processedItems.push({
           ...item,
-          material: materialId,
-          materialCode: materialDoc ? materialDoc.code : (item.materialCode || ''),
-          materialName: materialDoc ? materialDoc.name : item.materialName,
-          quantity: Number(item.quantity) // Ensure Number
+          material: resolvedMaterialId,
+          materialCode: materialDoc?.code || item.materialCode || '',
+          materialName: materialDoc?.name || cleanName || 'Material',
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit || materialDoc?.unit || "PCS"
         });
       }
     }
@@ -163,10 +240,10 @@ export const createMaterialIssue = async (req, res) => {
     const materialIssue = await MaterialIssue.create({
       company: companyId,
       issueNumber,
-      type: type || 'rm',
+      type: normalizedType || 'rm',
       date: date || new Date(),
       department,
-      issuedTo,
+      issuedTo: finalIssuedTo,
       mrpPlan: mrpPlan || undefined,
       mrpNumber: mrpNumber || undefined,
       items: processedItems,

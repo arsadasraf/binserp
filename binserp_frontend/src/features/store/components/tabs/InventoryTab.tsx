@@ -415,7 +415,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     setSelectedItem(null);
                 }}
                 item={selectedItem}
-                type={activeSubTab === 'inhouse' ? 'inhouse' : 'bo'}
+                type={activeSubTab === 'inhouse' ? 'inhouse' : activeSubTab === 'consumable' ? 'consumable' : (activeSubTab === 'rm' ? 'rm' : 'bo')}
             />
         </div>
     );

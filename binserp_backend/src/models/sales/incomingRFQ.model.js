@@ -26,6 +26,10 @@ export const incomingRFQSchema = new mongoose.Schema(
     },
     customerEmail: String,
     customerPhone: String,
+    currency: {
+      type: String,
+      default: "INR",
+    },
     items: [
       {
         itemType: {
@@ -40,6 +44,10 @@ export const incomingRFQSchema = new mongoose.Schema(
         },
         customItemName: {
           type: String,
+        },
+        hsnCode: {
+          type: String,
+          trim: true,
         },
         quantity: { type: Number, required: true },
         unit: { type: String, default: "PCS" },
