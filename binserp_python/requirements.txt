@@ -3,6 +3,9 @@ uvicorn
 python-dotenv
 requests
 face_recognition
-opencv-python
+opencv-python-headless
 numpy
 python-multipart
+onnxruntime
+scipy
+pillow

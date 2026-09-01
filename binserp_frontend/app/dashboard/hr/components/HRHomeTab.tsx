@@ -173,6 +173,8 @@ export default function HRHomeTab() {
                         checkOut: record?.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
                         checkInBy: record?.checkIn?.markedBy?.name,
                         checkOutBy: record?.checkOut?.markedBy?.name,
+                        checkInMethod: record?.checkIn?.method || (record?.verificationMethod === "Face" || record?.verificationMethod === "face_biometric" ? "Face" : record?.checkIn?.time ? "Manual" : undefined),
+                        checkOutMethod: record?.checkOut?.method || (record?.verificationMethod === "Face" || record?.verificationMethod === "face_biometric" ? "Face" : record?.checkOut?.time ? "Manual" : undefined),
                     });
                 }
             });

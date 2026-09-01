@@ -2,11 +2,16 @@ version: '3.8'
 
 services:
   python_service:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: binserp-python-ai
     ports:
       - "8001:8001"
     volumes:
-      - .:/app
+      - ./data:/app/data
+      - ./models:/app/models
     environment:
       - PYTHONUNBUFFERED=1
+      - PORT=8001
     restart: unless-stopped

@@ -23,8 +23,10 @@ export const trainFace = async (req, res) => {
             return res.status(400).json({ message: "No photos uploaded" });
         }
 
+        const companyId = getCompanyId(req);
         const formData = new FormData();
         formData.append("employee_id", employeeId);
+        formData.append("company_id", String(companyId || "default"));
 
         files.forEach((file) => {
             formData.append("files", fs.createReadStream(file.path), { filename: file.originalname });
@@ -36,7 +38,6 @@ export const trainFace = async (req, res) => {
             },
         });
 
-        const companyId = getCompanyId(req);
         let photoUrl = null;
         if (files.length > 0) {
             try {

@@ -21,11 +21,14 @@ interface AttendanceRecord {
         time: string;
         location?: string;
         markedBy?: { name: string };
+        method?: string;
     };
     checkOut?: {
         time: string;
         markedBy?: { name: string };
+        method?: string;
     };
+    verificationMethod?: string;
     status: string;
     hoursWorked?: number;
 }
@@ -455,21 +458,43 @@ export default function PresentTab() {
                                             </td>
                                             <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
                                                 <div className="flex flex-col gap-1">
-                                                    <div className="bg-green-50 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-green-700 w-fit">
-                                                        <div className="bg-green-500 h-1.5 rounded-full w-1.5"></div>
-                                                        {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className="bg-green-50 dark:bg-green-950/40 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-green-700 dark:text-green-400 w-fit">
+                                                            <div className="bg-green-500 h-1.5 rounded-full w-1.5"></div>
+                                                            {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                                                        </div>
+                                                        {(record.checkIn?.method || (record.verificationMethod === "Face" ? "Face" : record.checkIn?.time ? "Manual" : null)) && (
+                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                                                (record.checkIn?.method === "Face" || record.verificationMethod === "Face")
+                                                                    ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
+                                                                    : "bg-gray-100 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:border-slate-700"
+                                                            }`}>
+                                                                {(record.checkIn?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                    {record.checkIn?.markedBy && <div className="text-[10px] text-gray-500 ml-1 mt-0.5">by {record.checkIn.markedBy.name}</div>}
+                                                    {record.checkIn?.markedBy && <div className="text-[10px] text-gray-500 ml-1">by {record.checkIn.markedBy.name}</div>}
                                                 </div>
                                             </td>
                                             <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
                                                 {record.checkOut?.time ? (
                                                     <div className="flex flex-col gap-1">
-                                                        <div className="bg-red-50 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-red-700 w-fit">
-                                                            <div className="bg-red-500 h-1.5 rounded-full w-1.5"></div>
-                                                            {new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="bg-red-50 dark:bg-red-950/40 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-red-700 dark:text-red-400 w-fit">
+                                                                <div className="bg-red-500 h-1.5 rounded-full w-1.5"></div>
+                                                                {new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </div>
+                                                            {(record.checkOut?.method || (record.verificationMethod === "Face" ? "Face" : record.checkOut?.time ? "Manual" : null)) && (
+                                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                                                    (record.checkOut?.method === "Face" || record.verificationMethod === "Face")
+                                                                        ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
+                                                                        : "bg-gray-100 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:border-slate-700"
+                                                                }`}>
+                                                                    {(record.checkOut?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                                </span>
+                                                            )}
                                                         </div>
-                                                        {record.checkOut?.markedBy && <div className="text-[10px] text-gray-500 ml-1 mt-0.5">by {record.checkOut.markedBy.name}</div>}
+                                                        {record.checkOut?.markedBy && <div className="text-[10px] text-gray-500 ml-1">by {record.checkOut.markedBy.name}</div>}
                                                     </div>
                                                 ) : (
                                                     <span className="dark:text-gray-500 italic text-gray-400 text-xs">Active</span>
@@ -526,16 +551,38 @@ export default function PresentTab() {
                                     <div className="border-gray-50 border-t dark:border-slate-800/50 gap-3 grid grid-cols-2 mt-1 pt-3">
                                         <div className="flex flex-col">
                                             <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check In</span>
-                                            <span className="font-medium font-mono text-green-700 text-sm">
-                                                {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
-                                            </span>
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                                <span className="font-medium font-mono text-green-700 text-sm">
+                                                    {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                                                </span>
+                                                {(record.checkIn?.method || (record.verificationMethod === "Face" ? "Face" : record.checkIn?.time ? "Manual" : null)) && (
+                                                    <span className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
+                                                        (record.checkIn?.method === "Face" || record.verificationMethod === "Face")
+                                                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                                                            : "bg-gray-100 text-gray-600 border-gray-200"
+                                                    }`}>
+                                                        {(record.checkIn?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                    </span>
+                                                )}
+                                            </div>
                                             {record.checkIn?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkIn.markedBy.name}</span>}
                                         </div>
-                                        <div className="flex flex-col text-right">
+                                        <div className="flex flex-col text-right items-end">
                                             <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check Out</span>
-                                            <span className="font-medium font-mono text-red-700 text-sm">
-                                                {record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}
-                                            </span>
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                                <span className="font-medium font-mono text-red-700 text-sm">
+                                                    {record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}
+                                                </span>
+                                                {record.checkOut?.time && (
+                                                    <span className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
+                                                        (record.checkOut?.method === "Face" || record.verificationMethod === "Face")
+                                                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                                                            : "bg-gray-100 text-gray-600 border-gray-200"
+                                                    }`}>
+                                                        {(record.checkOut?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                    </span>
+                                                )}
+                                            </div>
                                             {record.checkOut?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkOut.markedBy.name}</span>}
                                         </div>
                                     </div>

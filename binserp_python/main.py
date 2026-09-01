@@ -2,21 +2,17 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import cv2
-import pickle
 import os
-from typing import List
+from typing import List, Optional
 
-# Try importing face_recognition, else mock it
-try:
-    import face_recognition
-    MOCK_MODE = False
-    print("Face Recognition library loaded successfully.")
-except ImportError:
-    print("WARNING: 'face_recognition' library not found. Running in MOCK MODE.")
-    MOCK_MODE = True
-    face_recognition = None
+from anti_spoof import anti_spoof_engine
+from face_engine import face_engine, DLIB_AVAILABLE
 
-app = FastAPI()
+app = FastAPI(
+    title="Binserp AI Biometrics & Anti-Spoofing Service",
+    version="2.0.0",
+    description="High-accuracy face recognition with passive anti-spoofing and multi-tenant company isolation."
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,167 +22,171 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_DIR = "data"
-ENCODINGS_FILE = os.path.join(DATA_DIR, "encodings.pickle")
-known_encodings: dict = {}
+MAX_DIM = 640  # Max resolution processed for optimal balance of speed and anti-spoofing detail
 
-# ── Optimisation constants ────────────────────────────────────────────────────
-# Max dimension before processing. Keeps HOG fast without losing accuracy.
-MAX_DIM = 480          # Frontend now sends 480×360 – keep as-is; larger images get downscaled
-RECOGNITION_TOLERANCE = 0.52  # Slightly tighter than default 0.6 → fewer false positives
-
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
-def load_encodings():
-    global known_encodings
-    if MOCK_MODE:
-        return
-    if os.path.exists(ENCODINGS_FILE):
-        try:
-            with open(ENCODINGS_FILE, "rb") as f:
-                known_encodings = pickle.load(f)
-            print(f"Loaded {len(known_encodings)} face encodings.")
-        except Exception as e:
-            print(f"Error loading encodings: {e}")
-            known_encodings = {}
-    else:
-        print("No existing encodings found. Starting fresh.")
-
-def save_encodings():
-    if MOCK_MODE:
-        return
+def decode_image(contents: bytes) -> Optional[np.ndarray]:
+    """Decode raw bytes into RGB numpy array with resolution constraint."""
     try:
-        with open(ENCODINGS_FILE, "wb") as f:
-            pickle.dump(known_encodings, f)
-        print("Encodings saved.")
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        if max(h, w) > MAX_DIM:
+            scale = MAX_DIM / max(h, w)
+            img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LINEAR)
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     except Exception as e:
-        print(f"Error saving encodings: {e}")
-
-def decode_image(contents: bytes):
-    """Decode uploaded bytes → RGB numpy array, downscaled if too large."""
-    nparr = np.frombuffer(contents, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    if img is None:
+        print(f"Error decoding image: {e}")
         return None
-    # Downscale to MAX_DIM on the longest side to keep HOG fast
-    h, w = img.shape[:2]
-    if max(h, w) > MAX_DIM:
-        scale = MAX_DIM / max(h, w)
-        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LINEAR)
-    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-load_encodings()
-
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def read_root():
-    mode = "MOCK" if MOCK_MODE else "REAL"
-    return {"message": f"Face Recognition Service Running ({mode} MODE)"}
+    return {
+        "service": "Binserp AI Face Recognition & Anti-Spoofing",
+        "version": "2.0.0",
+        "dlib_active": DLIB_AVAILABLE,
+        "anti_spoofing": "Active (Fourier + Color + Texture + ONNX)"
+    }
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "mode": "MOCK" if MOCK_MODE else "REAL", "faces_loaded": len(known_encodings)}
+    total_companies = len(face_engine.company_cache)
+    total_faces = sum(len(v) for v in face_engine.company_cache.values())
+    return {
+        "status": "healthy",
+        "engine": "dlib" if DLIB_AVAILABLE else "mock",
+        "active_companies": total_companies,
+        "total_enrolled_faces": total_faces
+    }
+
+@app.post("/anti-spoof-check")
+async def check_spoof(file: UploadFile = File(...)):
+    """
+    Standalone endpoint to verify if an image is a live human or a photo/screen spoof.
+    """
+    contents = await file.read()
+    rgb_img = decode_image(contents)
+    if rgb_img is None:
+        raise HTTPException(status_code=400, detail="Invalid image file format")
+
+    _, box, _ = face_engine.detect_and_encode(rgb_img, fast_mode=True)
+    liveness = anti_spoof_engine.check_liveness(rgb_img, box)
+    return {
+        "status": "success",
+        "is_live": liveness["is_live"],
+        "liveness_score": liveness["liveness_score"],
+        "details": liveness.get("details", {})
+    }
 
 @app.post("/train")
-async def train_face(employee_id: str = Form(...), files: List[UploadFile] = File(...)):
-    if MOCK_MODE:
-        return {"message": "MOCK Training successful", "employee_id": employee_id, "samples_used": len(files)}
+async def train_face(
+    employee_id: str = Form(...),
+    company_id: str = Form(default="default"),
+    files: List[UploadFile] = File(...)
+):
+    """
+    Enrolls employee face embeddings with quality filtering and angle aggregation.
+    """
+    print(f"[Train] Enrolling employee {employee_id} (Company: {company_id}) with {len(files)} frames")
+    valid_encodings = []
+    quality_issues = []
 
-    print(f"Training: {employee_id} with {len(files)} images")
-    temp_encodings = []
-
-    for file in files:
+    for idx, file in enumerate(files):
         try:
             contents = await file.read()
             rgb_img = decode_image(contents)
             if rgb_img is None:
                 continue
 
-            # HOG is fine for training (done once); use number_of_times_to_upsample=1 for speed
-            boxes = face_recognition.face_locations(rgb_img, model="hog", number_of_times_to_upsample=1)
-            if not boxes:
+            # Check liveness during training to prevent enrolling photos
+            _, box, quality = face_engine.detect_and_encode(rgb_img, fast_mode=False)
+            if box is None:
+                quality_issues.append(f"Frame {idx+1}: No face detected")
                 continue
-            encodings = face_recognition.face_encodings(rgb_img, boxes, num_jitters=1)
-            if encodings:
-                temp_encodings.append(encodings[0])
+
+            liveness = anti_spoof_engine.check_liveness(rgb_img, box)
+            if not liveness["is_live"] and liveness["liveness_score"] < 0.45:
+                quality_issues.append(f"Frame {idx+1}: Photo/screen spoof detected during enrollment")
+                continue
+
+            encoding, _, _ = face_engine.detect_and_encode(rgb_img, fast_mode=False)
+            if encoding is not None:
+                valid_encodings.append(encoding)
         except Exception as e:
-            print(f"Error processing image: {e}")
+            print(f"Error processing frame {idx}: {e}")
 
-    if not temp_encodings:
-        raise HTTPException(status_code=400, detail="No valid faces detected in uploaded photos.")
+    if not valid_encodings:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Enrollment failed. No high-quality live face frames detected. Issues: {', '.join(quality_issues[:2])}"
+        )
 
-    # Store the MEAN encoding for this employee
-    known_encodings[employee_id] = np.mean(temp_encodings, axis=0)
-    save_encodings()
+    # Compute mean vector
+    mean_encoding = np.mean(valid_encodings, axis=0)
+    company_store = face_engine.get_company_encodings(company_id)
+    company_store[employee_id] = mean_encoding
+    face_engine.save_company_encodings(company_id, company_store)
 
-    return {"message": "Training successful", "employee_id": employee_id, "samples_used": len(temp_encodings)}
-
+    return {
+        "status": "success",
+        "message": f"Successfully enrolled face for employee {employee_id}",
+        "company_id": company_id,
+        "employee_id": employee_id,
+        "samples_used": len(valid_encodings)
+    }
 
 @app.post("/recognize")
-async def recognize_face(file: UploadFile = File(...)):
-    if MOCK_MODE:
-        return {"status": "success", "employee_id": "69370497f400282eb3ceed5f", "confidence": 0.99}
-
+async def recognize_face(
+    file: UploadFile = File(...),
+    company_id: str = Form(default="default")
+):
+    """
+    High-speed recognition endpoint with multi-tenant company isolation and anti-spoofing verification.
+    """
     try:
         contents = await file.read()
         rgb_img = decode_image(contents)
-
         if rgb_img is None:
-            return {"status": "failed", "message": "Invalid image data"}
+            return {"status": "failed", "message": "Invalid image payload"}
 
-        # ── Fast face location ───────────────────────────────────────────────
-        # number_of_times_to_upsample=0: no upsampling → 2-3× faster, still works at 480p
-        boxes = face_recognition.face_locations(
-            rgb_img,
-            model="hog",
-            number_of_times_to_upsample=0
-        )
-
-        if not boxes:
-            # Retry once with 1 upsample in case the face is small
-            boxes = face_recognition.face_locations(rgb_img, model="hog", number_of_times_to_upsample=1)
-            if not boxes:
-                return {"status": "failed", "message": "No face detected"}
-
-        # num_jitters=0: no data augmentation during encoding → fastest path
-        unknown_encodings = face_recognition.face_encodings(rgb_img, boxes, num_jitters=0)
-        if not unknown_encodings:
-            return {"status": "failed", "message": "Could not encode face"}
-
-        unknown_encoding = unknown_encodings[0]
-
-        if not known_encodings:
-            return {"status": "unknown", "message": "No known faces in database"}
-
-        ids           = list(known_encodings.keys())
-        known_values  = np.array(list(known_encodings.values()))  # numpy array for vectorised distance
-
-        distances = face_recognition.face_distance(known_values, unknown_encoding)
-        best_idx  = int(np.argmin(distances))
-
-        if distances[best_idx] < RECOGNITION_TOLERANCE:
+        # 1. Fast Face Detection and Encoding
+        encoding, box, quality = face_engine.detect_and_encode(rgb_img, fast_mode=True)
+        if encoding is None:
             return {
-                "status": "success",
-                "employee_id": ids[best_idx],
-                "confidence": float(1 - distances[best_idx])
+                "status": "failed",
+                "message": "No face detected in camera frame. Please center your face."
             }
-        else:
-            return {"status": "unknown", "message": "Face not recognized"}
+
+        # 2. Anti-Spoofing & Liveness Analysis
+        liveness = anti_spoof_engine.check_liveness(rgb_img, box)
+        if not liveness["is_live"]:
+            return {
+                "status": "spoof_detected",
+                "anti_spoof_passed": False,
+                "liveness_score": liveness["liveness_score"],
+                "message": "Spoof Alert: Live human face required. Digital screens and photos are not permitted.",
+                "details": liveness.get("details", {})
+            }
+
+        # 3. Vector Matching against Company Employee Directory
+        match_result = face_engine.match_face(company_id, encoding)
+        match_result["anti_spoof_passed"] = True
+        match_result["liveness_score"] = liveness["liveness_score"]
+
+        return match_result
 
     except Exception as e:
-        print(f"Recognition error: {e}")
+        print(f"Recognition exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-@app.delete("/reset")
-def reset_encodings():
-    global known_encodings
+@app.delete("/company/{company_id}/reset")
+def reset_company_faces(company_id: str):
+    """Clears face records for a specific company without affecting other tenants."""
     try:
-        known_encodings = {}
-        if os.path.exists(ENCODINGS_FILE):
-            os.remove(ENCODINGS_FILE)
-        return {"status": "success", "message": "All face data cleared."}
+        face_engine.save_company_encodings(company_id, {})
+        return {"status": "success", "message": f"All face data for company '{company_id}' cleared."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to reset: {str(e)}")

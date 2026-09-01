@@ -28,12 +28,14 @@ export const markAttendance = async (req, res) => {
             return res.status(400).json({ message: "No image provided" });
         }
 
+        const companyId = getCompanyId(req);
         const formData = new FormData();
         formData.append("file", fs.createReadStream(file.path), { filename: file.originalname });
+        formData.append("company_id", String(companyId || "default"));
 
         let response;
         try {
-            logMsg(`[markAttendance] Calling python service at ${PYTHON_SERVICE_URL}/recognize`);
+            logMsg(`[markAttendance] Calling python service at ${PYTHON_SERVICE_URL}/recognize for company: ${companyId}`);
             response = await axios.post(`${PYTHON_SERVICE_URL}/recognize`, formData, {
                 headers: { ...formData.getHeaders() },
             });
@@ -52,12 +54,20 @@ export const markAttendance = async (req, res) => {
 
         try { fs.unlinkSync(file.path); } catch (e) { console.error("Cleanup error", e); }
 
+        // Handle Anti-Spoofing Failure
+        if (response.data.status === "spoof_detected" || response.data.anti_spoof_passed === false) {
+            return res.status(200).json({
+                status: "spoof_detected",
+                message: response.data.message || "Live human face required. Photos, screens, or printed copies are not permitted.",
+                liveness_score: response.data.liveness_score
+            });
+        }
+
         if (response.data.status !== "success") {
             return res.status(200).json(response.data);
         }
 
         const employeeId = response.data.employee_id;
-        const companyId = getCompanyId(req);
         const Employee = req.getModel('Employee', employeeSchema);
         const Attendance = req.getModel('Attendance', attendanceSchema);
 
@@ -99,36 +109,59 @@ export const markAttendance = async (req, res) => {
             // === CHECK-OUT ATTEMPT ===
             const checkInTime = new Date(openAttendance.checkIn.time);
             const diffMs = now.getTime() - checkInTime.getTime();
+            const diffMins = diffMs / (1000 * 60);
             const diffHours = diffMs / (1000 * 60 * 60);
 
-            // 4 Hours Validation
-            if (diffHours < 4) {
-                const hoursWait = Math.floor(4 - diffHours);
-                const minsWait = Math.round(((4 - diffHours) % 1) * 60);
-
+            // Rule 1: 5-Minute Anti-Double-Scan Debounce
+            if (diffMins < 5) {
+                const waitSecs = Math.max(1, Math.round(300 - (diffMs / 1000)));
                 return res.status(200).json({
                     status: "warning",
-                    message: `Check-out allowed after 4 hours. Wait ${hoursWait}h ${minsWait}m.`,
+                    type: "debounce",
+                    message: `You just checked in ${Math.floor(diffMins)}m ago. Check-out is available after 5 minutes (wait ${waitSecs}s).`,
                     employee: employee.name
                 });
             }
 
-            // Perform Check-out
+            // Rule 2: Early Check-Out (< 4 Hours) Confirmation Check
+            const forceCheckOut = req.body.forceCheckOut === true || req.body.forceCheckOut === "true";
+            if (diffHours < 4 && !forceCheckOut) {
+                const hoursWorkedFormatted = Math.floor(diffHours);
+                const minsWorkedFormatted = Math.round((diffHours % 1) * 60);
+                return res.status(200).json({
+                    status: "requires_confirmation",
+                    type: "early_checkout",
+                    employee: employee.name,
+                    employeeId: employee._id,
+                    hoursWorked: parseFloat(diffHours.toFixed(2)),
+                    workedText: `${hoursWorkedFormatted}h ${minsWorkedFormatted}m`,
+                    message: `You have worked for ${hoursWorkedFormatted}h ${minsWorkedFormatted}m (less than 4 hours). Do you confirm early check-out?`
+                });
+            }
+
+            // Perform Check-out (Standard or Confirmed Early Departure)
             openAttendance.checkOut = {
                 time: now,
-                location: "Office",
-                markedBy: req.user?._id || req.user?.id
+                location: req.body.location || "Office",
+                markedBy: req.user?._id || req.user?.id,
+                method: "Face"
             };
             openAttendance.hoursWorked = parseFloat(diffHours.toFixed(2));
+            openAttendance.verificationMethod = "Face";
+            if (diffHours < 4) {
+                openAttendance.earlyDeparture = true;
+            }
 
             await openAttendance.save();
 
             return res.status(200).json({
                 status: "success",
                 type: "Check-Out",
+                method: "Face",
                 employee: employee.name,
                 time: currentTime,
-                hoursWorked: openAttendance.hoursWorked
+                hoursWorked: openAttendance.hoursWorked,
+                earlyDeparture: diffHours < 4
             });
         }
 
@@ -161,16 +194,19 @@ export const markAttendance = async (req, res) => {
             date: now,
             checkIn: {
                 time: now,
-                location: "Office",
-                markedBy: req.user?._id || req.user?.id
+                location: req.body.location || "Office",
+                markedBy: req.user?._id || req.user?.id,
+                method: "Face"
             },
             status: "Present",
-            hoursWorked: 0
+            hoursWorked: 0,
+            verificationMethod: "Face"
         });
 
         return res.status(200).json({
             status: "success",
             type: "Check-In",
+            method: "Face",
             employee: employee.name,
             time: currentTime
         });

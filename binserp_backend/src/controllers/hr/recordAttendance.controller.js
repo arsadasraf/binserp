@@ -96,9 +96,11 @@ export const recordAttendance = async (req, res) => {
           time: currentTime,
           photo: photoUrl,
           location: location || "",
-          markedBy: req.user?._id || req.user?.id
+          markedBy: req.user?._id || req.user?.id,
+          method: "Manual"
         },
-        hoursWorked: 0
+        hoursWorked: 0,
+        verificationMethod: "Manual"
       });
 
       await attendance.save();
@@ -137,18 +139,48 @@ export const recordAttendance = async (req, res) => {
         });
       }
 
+      const diffMs = currentTime.getTime() - new Date(attendance.checkIn.time).getTime();
+      const diffMins = diffMs / 60000;
+      const diffHours = diffMs / 3600000;
+
+      // 5-Minute Anti-Double-Scan Debounce
+      if (diffMins < 5) {
+        const waitSecs = Math.max(1, Math.round(300 - (diffMs / 1000)));
+        return res.status(400).json({
+          status: "warning",
+          type: "debounce",
+          message: `Employee checked in only ${Math.floor(diffMins)}m ago. Check-out is available after 5 minutes (wait ${waitSecs}s).`
+        });
+      }
+
+      // Early Check-Out (< 4h) Confirmation
+      const forceCheckOut = req.body.forceCheckOut === true || req.body.forceCheckOut === "true";
+      if (diffHours < 4 && !forceCheckOut) {
+        const hoursFormatted = Math.floor(diffHours);
+        const minsFormatted = Math.round((diffHours % 1) * 60);
+        return res.status(200).json({
+          status: "requires_confirmation",
+          type: "early_checkout",
+          employee: employee.name,
+          employeeId: employee._id,
+          hoursWorked: parseFloat(diffHours.toFixed(2)),
+          workedText: `${hoursFormatted}h ${minsFormatted}m`,
+          message: `Employee has worked for ${hoursFormatted}h ${minsFormatted}m (less than 4 hours). Do you confirm early check-out?`
+        });
+      }
+
       attendance.checkOut = {
         time: currentTime,
         photo: photoUrl,
         location: location || "",
-        markedBy: req.user?._id || req.user?.id
+        markedBy: req.user?._id || req.user?.id,
+        method: "Manual"
       };
 
-      // Calculate hours worked
-      if (attendance.checkIn?.time) {
-        const hoursWorked =
-          (currentTime.getTime() - new Date(attendance.checkIn.time).getTime()) / (1000 * 60 * 60);
-        attendance.hoursWorked = Math.round(hoursWorked * 100) / 100;
+      attendance.hoursWorked = Math.round(diffHours * 100) / 100;
+      attendance.verificationMethod = "Manual";
+      if (diffHours < 4) {
+        attendance.earlyDeparture = true;
       }
 
       await attendance.save();

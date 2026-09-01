@@ -22,13 +22,15 @@ export const attendanceSchema = new mongoose.Schema(
       time: Date,
       photo: String, // URL of check-in photo
       location: String,
-      markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+      markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      method: { type: String, default: "Manual" } // "Face" or "Manual"
     },
     checkOut: {
       time: Date,
       photo: String, // URL of check-out photo
       location: String,
-      markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
+      markedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      method: { type: String, default: "Manual" } // "Face" or "Manual"
     },
     status: {
       type: String,
