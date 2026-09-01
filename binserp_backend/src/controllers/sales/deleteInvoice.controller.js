@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import { fgItemSchema } from "../../models/store/index.js";
 import { incomingPOSchema, invoiceSchema } from "../../models/sales/index.js";
+import { reverseSalesItemsStock } from "./salesStockHelper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -9,7 +10,6 @@ const getCompanyId = (req) => {
 export const deleteInvoice = async (req, res) => {
   try {
     const Invoice = req.getModel('Invoice', invoiceSchema);
-    const FGItem = req.getModel('FGItem', fgItemSchema);
     const IncomingPO = req.getModel('IncomingPO', incomingPOSchema);
 
     const companyId = getCompanyId(req);
@@ -20,14 +20,16 @@ export const deleteInvoice = async (req, res) => {
     // Check if invoice was a direct standalone invoice (not created from DC)
     const isLinkedToDC = !!(invoice.deliveryChallan || invoice.dcNumber || invoice.isLinkedToDC || invoice.deliveryChallanId);
 
-    // If direct invoice had deducted FG stock, restore FG stock
+    // If direct invoice had deducted stock, reverse stock across FG, RM, BO, and Consumables
     if (!isLinkedToDC && invoice.status !== "Cancelled" && Array.isArray(invoice.items)) {
-      for (const item of invoice.items) {
-        const fgId = item.fgItem || item.material || item.component;
-        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
-          await FGItem.findByIdAndUpdate(fgId, { $inc: { quantity: Number(item.quantity || 0) } });
-        }
-      }
+      await reverseSalesItemsStock(req, invoice.items, {
+        companyId,
+        refDocType: "Invoice",
+        refDocId: invoice._id,
+        refDocNumber: invoice.invoiceNumber,
+        recipientName: invoice.customerName || "Customer",
+        performedBy: req.user?.id || req.user?._id
+      });
     }
 
     // If invoice had customerPoReference, reverse PO billedQuantity

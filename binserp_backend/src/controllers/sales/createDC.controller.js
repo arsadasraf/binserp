@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+import { validateSalesItemsStock, deductSalesItemsStock } from "./salesStockHelper.js";
 
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -99,29 +100,11 @@ export const createDC = async (req, res) => {
 
     const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false';
 
-    // Validate FG item inventory stock for all items if reducing stock
-    const FGItem = req.getModel("FGItem", fgItemSchema);
-    if (shouldReduceStock) {
-      for (const dcItem of items) {
-        const fgId = dcItem.fgItem || dcItem.material || dcItem.component;
-        if (!fgId || !mongoose.Types.ObjectId.isValid(fgId)) {
-          return res.status(400).json({
-            message: `Cannot create Delivery Challan: Item '${dcItem.materialName || 'Unnamed'}' is not linked to a valid Finished Goods (FG) item.`
-          });
-        }
-
-        const fgDoc = await FGItem.findById(fgId);
-        const availableStock = fgDoc ? Number(fgDoc.quantity || 0) : 0;
-        if (!fgDoc || availableStock <= 0) {
-          return res.status(400).json({
-            message: `Cannot create Delivery Challan for item '${dcItem.materialName || fgDoc?.name || 'FG Item'}'. FG inventory stock is zero (0 PCS).`
-          });
-        }
-        if (Number(dcItem.quantity) > availableStock) {
-          return res.status(400).json({
-            message: `Requested dispatch quantity (${dcItem.quantity} PCS) exceeds available FG inventory stock (${availableStock} PCS) for item '${dcItem.materialName || fgDoc.name}'.`
-          });
-        }
+    // Validate inventory stock across FG, RM, BO, and Consumables
+    if (shouldReduceStock && Array.isArray(items)) {
+      const validation = await validateSalesItemsStock(req, items, companyId);
+      if (!validation.valid) {
+        return res.status(400).json({ message: validation.message });
       }
     }
 
@@ -137,6 +120,7 @@ export const createDC = async (req, res) => {
       customerPoReference: finalPoReference,
       incomingPO: incomingPoDocId,
       currency: dcCurrency,
+      exchangeRateToINR: Number(req.body.exchangeRateToINR || 1),
       items,
       discount: req.body.discount,
       transportationType: req.body.transportationType,
@@ -152,52 +136,16 @@ export const createDC = async (req, res) => {
       createdBy: req.user?.id || req.user?._id
     });
 
-    // Auto-deduct FG item stock and log SALES_DC_OUTWARD transaction only if shouldReduceStock is true
+    // Auto-deduct inventory stock across FG, RM, BO, and Consumables if shouldReduceStock is true
     if (shouldReduceStock && dc.status !== "Cancelled") {
-      const FGInventoryMonthly = req.getModel("FGInventoryMonthly", fgInventoryMonthlySchema);
-      const currentDate = new Date();
-      const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-
-      for (const item of items) {
-        const fgId = item.fgItem || item.material || item.component;
-        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
-          const fgDoc = await FGItem.findById(fgId);
-          if (fgDoc) {
-            const previousStock = fgDoc.quantity || 0;
-            const newStock = Math.max(0, previousStock - Number(item.quantity));
-
-            await FGItem.findByIdAndUpdate(fgId, { $set: { quantity: newStock } });
-
-            try {
-              await FGInventoryMonthly.findOneAndUpdate(
-                { company: companyId, fgItem: fgId, month: currentMonthStr },
-                { $inc: { totalOutwardQuantity: Number(item.quantity) } },
-                { new: true, upsert: true }
-              );
-            } catch (mErr) {
-              console.error("Monthly FG outward update err:", mErr);
-            }
-
-            await recordStockTransaction(req, {
-              itemType: "FGItem",
-              item: fgId,
-              itemName: item.materialName || fgDoc.name,
-              unit: item.unit || fgDoc.unit || "PCS",
-              movementType: "OUTWARD",
-              transactionCategory: "SALES_DC_OUTWARD",
-              quantity: Number(item.quantity),
-              previousStock,
-              newStock,
-              referenceDocType: "DeliveryChallan",
-              referenceDocId: dc._id,
-              referenceDocNumber: dcNumber,
-              recipientOrSource: req.body.customerName || "Customer",
-              purpose: `Customer Sales Dispatch (DC #${dcNumber})`,
-              performedBy: req.user?.id || req.user?._id,
-            });
-          }
-        }
-      }
+      await deductSalesItemsStock(req, items, {
+        companyId,
+        refDocType: "DeliveryChallan",
+        refDocId: dc._id,
+        refDocNumber: dcNumber,
+        recipientName: req.body.customerName || "Customer",
+        performedBy: req.user?.id || req.user?._id
+      });
     }
 
     res.status(201).json({ message: "DC created successfully", dc });

@@ -36,11 +36,27 @@ export const deliveryChallanSchema = new mongoose.Schema(
       type: String,
       default: "INR",
     },
+    exchangeRateToINR: {
+      type: Number,
+      default: 1,
+    },
     items: [
       {
         fgItem: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "FGItem",
+        },
+        rawMaterial: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "RawMaterial",
+        },
+        boughtOut: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "BoughtOut",
+        },
+        consumableItem: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "ConsumableItem",
         },
         material: {
           type: mongoose.Schema.Types.ObjectId,
@@ -52,8 +68,10 @@ export const deliveryChallanSchema = new mongoose.Schema(
         },
         itemType: {
           type: String,
+          enum: ["fg", "rm", "bo", "consumable"],
           default: "fg",
         },
+        itemCode: String,
         materialName: { type: String, required: true },
         hsnCode: String,
         quantity: { type: Number, required: true },

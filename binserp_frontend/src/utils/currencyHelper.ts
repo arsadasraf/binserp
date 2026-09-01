@@ -226,3 +226,57 @@ export const convertAmountToWords = (
   }
   return `${result} Only`;
 };
+
+/**
+ * Standard baseline Exchange Rates to Indian Rupees (INR ₹)
+ * 1 Foreign Unit = X INR
+ */
+export const DEFAULT_EXCHANGE_RATES_TO_INR: Record<string, number> = {
+  INR: 1.0,
+  USD: 86.80,
+  EUR: 92.50,
+  GBP: 108.20,
+  AED: 23.63,
+  CAD: 61.50,
+  AUD: 55.40,
+  SGD: 64.20,
+  JPY: 0.56,
+  CNY: 11.95,
+};
+
+/**
+ * Returns exchange rate of currency to INR
+ */
+export const getExchangeRateToINR = (currency?: string, customRate?: number): number => {
+  if (customRate && customRate > 0) return customRate;
+  const code = normalizeCurrencyCode(currency);
+  return DEFAULT_EXCHANGE_RATES_TO_INR[code] || 1.0;
+};
+
+/**
+ * Converts any amount from selected currency to INR ₹
+ */
+export const convertToINR = (
+  amount: number | string | undefined | null,
+  currency?: string,
+  customRate?: number
+): { rate: number; inrAmount: number; isForeign: boolean; formattedINR: string } => {
+  const num = Number(amount || 0);
+  const code = normalizeCurrencyCode(currency);
+  const isForeign = code !== 'INR';
+  const rate = isForeign ? getExchangeRateToINR(code, customRate) : 1.0;
+  const inrAmount = isForeign ? num * rate : num;
+
+  const formattedINR = `₹${inrAmount.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+  return {
+    rate,
+    inrAmount,
+    isForeign,
+    formattedINR,
+  };
+};
+

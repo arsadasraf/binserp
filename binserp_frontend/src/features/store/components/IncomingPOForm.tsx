@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers } from "lucide-react";
+import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers, ArrowRightLeft } from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useGetIncomingPODispatchHistoryQuery } from "@/src/store/services/storeService";
-import { getCurrencySymbol, CURRENCY_OPTIONS } from "@/src/utils/currencyHelper";
+import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
 
 interface IncomingPOFormProps {
   isOpen?: boolean;
@@ -1308,9 +1308,24 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                     <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex justify-between">
                       <span className="text-base font-bold text-gray-900 dark:text-white">Total Amount</span>
                       <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
-                        ₹{formData.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        {getCurrencySymbol(formData.currency)} {formData.totalAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                       </span>
                     </div>
+
+                    {/* Live Informational INR Conversion Preview */}
+                    {(() => {
+                      const inr = convertToINR(formData.totalAmount, formData.currency);
+                      if (!inr.isForeign) return null;
+                      return (
+                        <div className="mt-2 p-2.5 bg-indigo-50/80 dark:bg-slate-900/80 rounded-xl border border-indigo-200 dark:border-indigo-800 text-xs space-y-1">
+                          <div className="flex items-center justify-between text-indigo-900 dark:text-indigo-200 font-bold">
+                            <span className="flex items-center gap-1"><ArrowRightLeft size={13} className="text-indigo-600" /> Live INR Total:</span>
+                            <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">{inr.formattedINR}</span>
+                          </div>
+                          <span className="text-[10px] text-gray-500 block">Rate: 1 {formData.currency} ≈ ₹{inr.rate.toFixed(2)} INR (Informational Preview)</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

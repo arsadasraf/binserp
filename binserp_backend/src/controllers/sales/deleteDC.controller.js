@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, fgItemSchema, fgInventoryMonthlySchema } from "../../models/store/index.js";
+import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+import { reverseSalesItemsStock } from "./salesStockHelper.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -54,14 +56,16 @@ export const deleteDC = async (req, res) => {
     const dc = await DeliveryChallan.findOne({ _id: id, company: companyId });
     if (!dc) return res.status(404).json({ message: "DC not found" });
 
-    // If DC had deducted stock (not Cancelled), restore FG stock
+    // If DC had deducted stock (not Cancelled), restore stock across FG, RM, BO, and Consumables
     if (dc.status !== "Cancelled" && Array.isArray(dc.items)) {
-      for (const item of dc.items) {
-        const fgId = item.fgItem || item.material || item.component;
-        if (fgId && mongoose.Types.ObjectId.isValid(fgId)) {
-          await FGItem.findByIdAndUpdate(fgId, { $inc: { quantity: Number(item.quantity || 0) } });
-        }
-      }
+      await reverseSalesItemsStock(req, dc.items, {
+        companyId,
+        refDocType: "DeliveryChallan",
+        refDocId: dc._id,
+        refDocNumber: dc.dcNumber,
+        recipientName: dc.customerName || "Customer",
+        performedBy: req.user?.id || req.user?._id
+      });
     }
 
     // If DC had customerPoReference, reverse PO dispatchedQuantity
