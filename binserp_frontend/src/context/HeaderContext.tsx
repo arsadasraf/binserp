@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, ReactNode } from "react";
 
 interface HeaderContextType {
     title: string;
@@ -17,13 +17,10 @@ export function HeaderProvider({ children }: { children: ReactNode }) {
     const [subtitle, setSubtitle] = useState("");
     const [showBottomNav, setShowBottomNav] = useState(true);
 
-    const setHeader = (newTitle: string, newSubtitle: string) => {
-        // Only update if changed to avoid loops
-        if (newTitle !== title || newSubtitle !== subtitle) {
-            setTitle(newTitle);
-            setSubtitle(newSubtitle);
-        }
-    };
+    const setHeader = useCallback((newTitle: string, newSubtitle: string) => {
+        setTitle(prev => (prev !== newTitle ? newTitle : prev));
+        setSubtitle(prev => (prev !== newSubtitle ? newSubtitle : prev));
+    }, []);
 
     return (
         <HeaderContext.Provider value={{ title, subtitle, setHeader, showBottomNav, setShowBottomNav }}>
@@ -39,3 +36,4 @@ export function useHeader() {
     }
     return context;
 }
+
