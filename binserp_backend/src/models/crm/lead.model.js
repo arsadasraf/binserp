@@ -1,8 +1,5 @@
 import mongoose from "mongoose";
 
-const LeadStatus = ["New", "Contacted", "Qualified", "Proposal Sent", "Negotiation", "Won", "Lost"];
-const LeadSource = ["Website", "Referral", "Cold Call", "Exhibition", "Social Media", "Other"];
-
 export const leadSchema = new mongoose.Schema(
     {
         company: {
@@ -10,26 +7,48 @@ export const leadSchema = new mongoose.Schema(
             ref: "Company",
             required: true,
         },
-        // Lead Details
-        name: { type: String, required: true, trim: true }, // Contact Person or Company Name
+        // Lead Contact & Company Details
+        name: { type: String, required: true, trim: true },
         companyName: { type: String, trim: true },
+        designation: { type: String, trim: true },
         email: { type: String, trim: true, lowercase: true },
         phone: { type: String, trim: true },
+        altPhone: { type: String, trim: true },
+        website: { type: String, trim: true },
 
-        // CRM Metadata
+        // Location Info
+        address: { type: String, trim: true },
+        city: { type: String, trim: true },
+        state: { type: String, trim: true },
+        country: { type: String, trim: true, default: "India" },
+        pincode: { type: String, trim: true },
+
+        // CRM Status & Pipeline
         status: {
             type: String,
-            enum: LeadStatus,
             default: "New",
+            trim: true
         },
         source: {
             type: String,
-            enum: LeadSource,
-            default: "Other",
+            default: "Direct",
+            trim: true
+        },
+        sourceId: { 
+            type: String, 
+            trim: true,
+            index: true
+        }, // e.g. IndiaMART Query ID or Webhook Event ID
+        sourceRawData: { type: mongoose.Schema.Types.Mixed },
+
+        warmth: {
+            type: String,
+            enum: ["Hot", "Warm", "Cold"],
+            default: "Warm"
         },
         priority: {
             type: String,
-            enum: ["Low", "Medium", "High"],
+            enum: ["Low", "Medium", "High", "Urgent"],
             default: "Medium",
         },
         assignedTo: {
@@ -37,21 +56,56 @@ export const leadSchema = new mongoose.Schema(
             ref: "User",
         },
 
-        // Qualification Details
+        // Commercials & Requirements
+        productInterest: [{ type: String, trim: true }],
         requirements: { type: String },
-        estimatedValue: { type: Number },
+        estimatedValue: { type: Number, default: 0 },
+        currency: { type: String, default: "INR" },
         expectedClosingDate: { type: Date },
 
+        // Win / Loss Tracking
+        lossReason: { type: String, trim: true },
+        lossRemarks: { type: String, trim: true },
+
+        // Conversion Tracking
         isConverted: { type: Boolean, default: false },
+        convertedAt: { type: Date },
         convertedToCustomer: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "Customer",
         },
+        convertedToDeal: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Deal",
+        },
+
+        // Stage Change History
+        stageHistory: [
+            {
+                fromStage: String,
+                toStage: String,
+                changedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+                changedAt: { type: Date, default: Date.now },
+                remarks: String
+            }
+        ],
+
+        tags: [{ type: String, trim: true }],
+        notes: { type: String },
 
         createdBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
         },
+        updatedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        }
     },
     { timestamps: true }
 );
+
+leadSchema.index({ company: 1, phone: 1 });
+leadSchema.index({ company: 1, email: 1 });
+leadSchema.index({ company: 1, sourceId: 1 });
+leadSchema.index({ company: 1, status: 1 });

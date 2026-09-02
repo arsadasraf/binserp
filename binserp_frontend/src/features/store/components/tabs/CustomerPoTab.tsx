@@ -49,6 +49,46 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     // Order Acknowledgement Modal State
     const [acknowledgingPo, setAcknowledgingPo] = useState<any | null>(null);
 
+    // Live 1-second ticking timer for 24h edit/delete countdown
+    const [nowTime, setNowTime] = useState(Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNowTime(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
+        if (!createdAt) return 0;
+        const created = new Date(createdAt).getTime();
+        const elapsed = Math.floor((nowTime - created) / 1000);
+        const limit = 24 * 3600; // 24 hours in seconds
+        return Math.max(0, limit - elapsed);
+    };
+
+    const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds <= 0) return '00:00:00';
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    const handleDeletePo = async (po: any) => {
+        const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
+        if (remainingSecs <= 0) {
+            onError("Customer PO can only be deleted within 24 hours of creation");
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to delete Customer PO #${po.poNumber}?`)) return;
+
+        try {
+            await apiDelete(`/api/sales/incoming-po/${po._id}`, token);
+            onSuccess(`Customer PO #${po.poNumber} deleted successfully`);
+            fetchData();
+        } catch (err: any) {
+            onError(err.message || "Failed to delete Customer PO");
+        }
+    };
+
     // Document / Photo Attachment State
     const [poFile, setPoFile] = useState<File | null>(null);
     const [poFilePreview, setPoFilePreview] = useState<string | null>(null);
@@ -221,9 +261,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     };
 
     const handleOpenEditModal = (po: any) => {
-        const createdDate = po.createdAt ? new Date(po.createdAt) : (po.date ? new Date(po.date) : null);
-        const hoursDiff = createdDate ? (Date.now() - createdDate.getTime()) / (1000 * 60 * 60) : 0;
-        if (hoursDiff > 24) {
+        const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
+        if (remainingSecs <= 0) {
             onError("Customer PO can only be edited or deleted within 24 hours of creation");
             return;
         }
@@ -464,27 +503,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
 
 
-    const handleDeletePo = async (po: any) => {
-        if (!po || !po._id) return;
-        const createdDate = po.createdAt ? new Date(po.createdAt) : (po.date ? new Date(po.date) : null);
-        const hoursDiff = createdDate ? (Date.now() - createdDate.getTime()) / (1000 * 60 * 60) : 0;
-        if (hoursDiff > 24) {
-            onError("Customer PO can only be edited or deleted within 24 hours of creation");
-            return;
-        }
-        if (confirm(`Are you sure you want to delete Customer PO #${po.poNumber}? This action cannot be undone.`)) {
-            try {
-                await apiDelete(`/api/sales/incoming-po/${po._id}`, token);
-                onSuccess(`Customer PO #${po.poNumber} deleted successfully`);
-                if (selectedPo && selectedPo._id === po._id) {
-                    setSelectedPo(null);
-                }
-                fetchData();
-            } catch (err: any) {
-                onError(err.message || "Failed to delete PO");
-            }
-        }
-    };
+
 
     const handleCreatePoSubmit = async () => {
         const errors: Record<string, string> = {};
@@ -778,37 +797,39 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </button>
 
                                                 {(() => {
-                                                    const createdDate = po.createdAt ? new Date(po.createdAt) : (po.date ? new Date(po.date) : null);
-                                                    const hoursDiff = createdDate ? (Date.now() - createdDate.getTime()) / (1000 * 60 * 60) : 0;
-                                                    const isWithin24h = hoursDiff <= 24;
-                                                    const isSoGenerated = po.status === 'MRP Done' || po.status === 'Partially Dispatched' || po.status === 'Completed';
+                                                    const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
+                                                    const isWithin24h = remainingSecs > 0;
 
                                                     return (
                                                         <>
                                                             {isWithin24h ? (
-                                                                <button
-                                                                    onClick={() => handleOpenEditModal(po)}
-                                                                    title="Edit PO (Allowed within 24h of creation)"
-                                                                    className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
-                                                                >
-                                                                    <Edit2 size={13} /> Edit
-                                                                </button>
+                                                                <>
+                                                                    <span 
+                                                                        title={`Editing and deletion allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                        className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                                    >
+                                                                        <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                        {formatRemainingTime(remainingSecs)}
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={() => handleOpenEditModal(po)}
+                                                                        title={`Edit PO (${formatRemainingTime(remainingSecs)} left)`}
+                                                                        className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                                    >
+                                                                        <Edit2 size={13} /> Edit
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDeletePo(po)}
+                                                                        title={`Delete PO (${formatRemainingTime(remainingSecs)} left)`}
+                                                                        className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 text-xs font-bold rounded-xl transition-colors inline-flex items-center"
+                                                                    >
+                                                                        <Trash2 size={13} />
+                                                                    </button>
+                                                                </>
                                                             ) : (
-                                                                <span title="Editing allowed only within 24 hours of creation" className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[11px] font-medium rounded-xl inline-flex items-center gap-1 opacity-60">
+                                                                <span title="Editing and deleting window expired (24h limit)" className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[11px] font-medium rounded-xl inline-flex items-center gap-1 opacity-60">
                                                                     <Lock size={12} /> Locked
                                                                 </span>
-                                                            )}
-
-
-
-                                                            {isWithin24h && (
-                                                                <button
-                                                                    onClick={() => handleDeletePo(po)}
-                                                                    title="Delete PO (Allowed within 24h of creation)"
-                                                                    className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 text-xs font-bold rounded-xl transition-colors inline-flex items-center"
-                                                                >
-                                                                    <Trash2 size={13} />
-                                                                </button>
                                                             )}
                                                         </>
                                                     );
@@ -825,10 +846,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
                         {filteredPoList.map((po) => {
                             const total = Number(po.totalAmount || po.subtotal || 0);
-                            const createdDate = po.createdAt ? new Date(po.createdAt) : (po.date ? new Date(po.date) : null);
-                            const hoursDiff = createdDate ? (Date.now() - createdDate.getTime()) / (1000 * 60 * 60) : 0;
-                            const isWithin24h = hoursDiff <= 24;
-                            const isSoGenerated = po.status === 'Sales Order Generated' || po.status === 'Partially Dispatched' || po.status === 'Completed';
+                            const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
+                            const isWithin24h = remainingSecs > 0;
 
                             return (
                                 <div
@@ -854,6 +873,16 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         {po.pdf ? <FileText size={10} /> : <Paperclip size={10} />}
                                                         {po.pdf ? "PDF" : "Photo"}
                                                     </a>
+                                                )}
+                                                {isWithin24h ? (
+                                                    <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-md font-mono text-[9px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-0.5">
+                                                        <Clock size={9} className="text-amber-600 animate-pulse" />
+                                                        {formatRemainingTime(remainingSecs)}
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-400 rounded-md text-[9px] font-bold inline-flex items-center gap-0.5">
+                                                        <Lock size={9} /> Locked
+                                                    </span>
                                                 )}
                                             </div>
                                             {po.quotationReference?.quotationNumber && (
@@ -917,22 +946,24 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <FileText size={13} /> OA / Accept
                                         </button>
 
-                                        {isWithin24h && (
+                                        {isWithin24h ? (
                                             <>
                                                 <button
                                                     onClick={() => handleOpenEditModal(po)}
-                                                    className="py-1.5 px-2 text-xs font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800"
+                                                    title={`Edit PO (${formatRemainingTime(remainingSecs)} left)`}
+                                                    className="py-1.5 px-2.5 text-xs font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center gap-1"
                                                 >
-                                                    <Edit2 size={13} />
+                                                    <Edit2 size={13} /> Edit
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeletePo(po)}
-                                                    className="py-1.5 px-2 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800"
+                                                    title={`Delete PO (${formatRemainingTime(remainingSecs)} left)`}
+                                                    className="py-1.5 px-2.5 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800 flex items-center gap-1"
                                                 >
-                                                    <Trash2 size={13} />
+                                                    <Trash2 size={13} /> Delete
                                                 </button>
                                             </>
-                                        )}
+                                        ) : null}
                                     </div>
                                 </div>
                             );
@@ -1502,7 +1533,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 /* TAB 1: OVERVIEW & ITEMS */
                                 <div className="space-y-6">
                                     {/* General Status & Interactive Control */}
-                                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                                         <div>
                                             <span className="text-slate-400 block mb-0.5">Linked Quotation Ref:</span>
                                             <strong className="text-blue-600 dark:text-blue-400 font-mono font-bold">
@@ -1545,6 +1576,26 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 <option value="Completed">Completed</option>
                                                 <option value="Cancelled">Cancelled</option>
                                             </select>
+                                        </div>
+
+                                        <div>
+                                            <span className="text-slate-400 block mb-0.5">Edit/Delete Window:</span>
+                                            {(() => {
+                                                const remSecs = getRemainingEditSeconds(selectedPo.createdAt || selectedPo.date);
+                                                if (remSecs > 0) {
+                                                    return (
+                                                        <span className="px-2 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-lg font-mono text-[11px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                                                            <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                            {formatRemainingTime(remSecs)}
+                                                        </span>
+                                                    );
+                                                }
+                                                return (
+                                                    <span className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-500 rounded-lg text-[11px] font-bold inline-flex items-center gap-1">
+                                                        <Lock size={11} /> Locked
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 
@@ -1669,7 +1720,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                             rel="noopener noreferrer"
                                                             className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-sm"
                                                         >
-                                                            <FileText size={14} /> Open Original PDF <ExternalLink size={12} />
+                                                            <Eye size={14} /> Preview Original PDF <ExternalLink size={12} />
                                                         </a>
                                                     )}
                                                     {Array.isArray(selectedPo.photos) && selectedPo.photos.map((photo: string, idx: number) => (
@@ -1680,7 +1731,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                             rel="noopener noreferrer"
                                                             className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors inline-flex items-center gap-1.5 shadow-sm"
                                                         >
-                                                            <ImageIcon size={14} /> View Photo #{idx + 1} <ExternalLink size={12} />
+                                                            <Eye size={14} /> Preview Photo #{idx + 1} <ExternalLink size={12} />
                                                         </a>
                                                     ))}
                                                 </div>

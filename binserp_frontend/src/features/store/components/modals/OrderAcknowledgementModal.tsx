@@ -47,12 +47,18 @@ export default function OrderAcknowledgementModal({
 
     const [itemsCommitments, setItemsCommitments] = useState<{ [key: string]: string }>({});
     const [acknowledgementRemarks, setAcknowledgementRemarks] = useState<string>(
-        po.acknowledgementRemarks || "We acknowledge and accept your order. Delivery will be executed strictly as per committed dates."
+        po.acknowledgementRemarks || ""
     );
     const [submitting, setSubmitting] = useState(false);
 
     // Initialize item commitment dates from existing PO items if available
     useEffect(() => {
+        if (po) {
+            setAcknowledgementRemarks(po.acknowledgementRemarks || "");
+            if (po.committedDispatchDate) {
+                setGlobalDispatchDate(new Date(po.committedDispatchDate).toISOString().slice(0, 10));
+            }
+        }
         if (Array.isArray(po.items)) {
             const initialMap: { [key: string]: string } = {};
             po.items.forEach((item: any, idx: number) => {
@@ -135,24 +141,6 @@ export default function OrderAcknowledgementModal({
             })
         };
         generateFrontendOrderAcknowledgementPDF({ po: previewPo, companyInfo });
-    };
-
-    const handleDirectJsPDF = () => {
-        const previewPo = {
-            ...po,
-            committedDispatchDate: globalDispatchDate,
-            acknowledgementRemarks: acknowledgementRemarks,
-            acknowledgementDate: po.acknowledgementDate || new Date(),
-            items: (po.items || []).map((item: any, idx: number) => {
-                const key = item._id || item.fgItem?._id || item.fgItem || `item-${idx}`;
-                const itemSpecificDate = itemsCommitments[key];
-                return {
-                    ...item,
-                    committedDeliveryDate: itemSpecificDate || globalDispatchDate
-                };
-            })
-        };
-        downloadOrderAcknowledgementJsPDF({ po: previewPo, companyInfo });
     };
 
     return (
@@ -320,17 +308,52 @@ export default function OrderAcknowledgementModal({
                     </div>
 
                     {/* 3. Acceptance Remarks & Notes */}
-                    <div className="space-y-1.5">
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                            Order Acceptance Remarks & Notes <span className="text-slate-400 font-normal">(Printed on OA Document)</span>
-                        </label>
+                    <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                                Order Acceptance Remarks & Notes <span className="text-slate-400 font-normal">(Optional - Printed on OA Document)</span>
+                            </label>
+                            {acknowledgementRemarks && (
+                                <button
+                                    type="button"
+                                    onClick={() => setAcknowledgementRemarks("")}
+                                    className="text-[10px] font-bold text-rose-500 hover:text-rose-700 hover:underline"
+                                >
+                                    Clear
+                                </button>
+                            )}
+                        </div>
                         <textarea
                             rows={3}
                             value={acknowledgementRemarks}
                             onChange={(e) => setAcknowledgementRemarks(e.target.value)}
-                            placeholder="Add commercial acceptance remarks, inspection guidelines, or customer delivery conditions..."
+                            placeholder="Optional: Add commercial acceptance remarks, inspection guidelines, or customer delivery conditions..."
                             className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-medium text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
                         />
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mr-1">Quick Templates:</span>
+                            <button
+                                type="button"
+                                onClick={() => setAcknowledgementRemarks("We acknowledge and accept your order. Delivery will be executed strictly as per committed dates.")}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium rounded-lg transition-colors cursor-pointer"
+                            >
+                                + Standard Acceptance
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAcknowledgementRemarks("Material dispatch is subject to raw material inspection & force majeure conditions.")}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium rounded-lg transition-colors cursor-pointer"
+                            >
+                                + Inspection Terms
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setAcknowledgementRemarks("Partial dispatches permitted against advance intimation.")}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-medium rounded-lg transition-colors cursor-pointer"
+                            >
+                                + Partial Dispatch
+                            </button>
+                        </div>
                     </div>
 
                 </div>
@@ -344,13 +367,6 @@ export default function OrderAcknowledgementModal({
                             className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors inline-flex items-center gap-1.5 shadow-2xs"
                         >
                             <Printer size={14} /> Preview Printable OA
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleDirectJsPDF}
-                            className="px-4 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 rounded-xl text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors inline-flex items-center gap-1.5 shadow-2xs"
-                        >
-                            <Download size={14} /> Download PDF
                         </button>
                     </div>
 

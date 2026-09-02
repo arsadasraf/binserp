@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers } from "lucide-react";
+import { Plus, Trash2, X, Search, FileText, Download, Calculator, Building2, Truck, Package, Activity, Layers, Eye } from "lucide-react";
 import SearchableSelect from "./SearchableSelect";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -455,15 +455,17 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
             </h2>
           </div>
           <div className="flex items-center gap-3">
-            {isPreview && (
-              <button
-                type="button"
-                onClick={handleDownloadPDFClientSide}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl flex items-center gap-2 shadow-sm transition-all"
+            {isPreview && (initialData?.pdf || (Array.isArray(initialData?.photos) && initialData.photos.length > 0) || initialData?.photos?.[0]) && (
+              <a
+                href={initialData.pdf || (Array.isArray(initialData.photos) ? initialData.photos[0] : initialData.photos)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-sm transition-all"
+                title="Preview Original Attached Customer PO Document"
               >
-                <Download className="w-4 h-4" />
-                <span>Download PDF</span>
-              </button>
+                <Eye className="w-4 h-4" />
+                <span>Preview Document</span>
+              </a>
             )}
             <button
               onClick={onCancel || onClose}

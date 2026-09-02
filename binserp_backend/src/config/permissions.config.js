@@ -69,7 +69,14 @@ export const SYSTEM_PERMISSIONS = [
     module: "CRM",
     label: "CRM & Sales",
     tabs: [
-      { id: "overview", label: "CRM Overview", description: "Lead Pipeline, Customers & Deals", route: "/dashboard/crm" }
+      { id: "overview", label: "CRM Overview", description: "Analytics, KPIs & Conversion Funnel", route: "/dashboard/crm" },
+      { id: "leads", label: "Leads Management", description: "Kanban Pipeline & Lead Ingestion", route: "/dashboard/crm" },
+      { id: "deals", label: "Deals & Opportunities", description: "Revenue Forecasting & Deal Velocity", route: "/dashboard/crm" },
+      { id: "customers", label: "Customer 360", description: "Customer Directory & Contact Ledger", route: "/dashboard/crm" },
+      { id: "activities", label: "Activities & Follow-ups", description: "Call/Meeting Logs & Follow-up Scheduler", route: "/dashboard/crm" },
+      { id: "datahub", label: "Data Hub (Excel Import/Export)", description: "Bulk Excel/CSV Importer & Exporter", route: "/dashboard/crm" },
+      { id: "integrations", label: "Integrations & Webhooks", description: "IndiaMART, TradeIndia & Webhook API", route: "/dashboard/crm" },
+      { id: "masters", label: "CRM Masters", description: "Sources, Stages, Industries & Loss Reasons", route: "/dashboard/crm" }
     ]
   },
   {
