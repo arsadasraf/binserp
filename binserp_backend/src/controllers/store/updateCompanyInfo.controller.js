@@ -60,9 +60,15 @@ export const updateCompanyInfo = async (req, res) => {
 
     if (req.file) {
       const logo = await uploadOnS3(req.file.path, "logos", getCompanyLoginId(req));
-      if (logo) {
+      if (logo && logo.secure_url) {
         updateData.logo = logo.secure_url;
+      } else {
+        // Fallback to local static path if S3 is not configured
+        const fileName = path.basename(req.file.path);
+        updateData.logo = `/temp/${fileName}`;
       }
+    } else if (req.body.logo) {
+      updateData.logo = req.body.logo;
     }
 
     const info = await CompanyInfo.findOneAndUpdate(

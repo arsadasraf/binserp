@@ -6,6 +6,9 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 interface StorePrefixSettings {
     grnPrefix: string;
     poPrefix: string;
+    outwardPoPrefix?: string;
+    outgoingPoPrefix?: string;
+    incomingPoPrefix?: string;
     dcPrefix: string;
     invoicePrefix: string;
     partPrefix: string;
@@ -160,19 +163,26 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">PO Prefix</label>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Outward PO Prefix</label>
                         <div className="relative">
                             <input
                                 type="text"
                                 name="poPrefix"
-                                value={settings.poPrefix}
-                                onChange={handleChange}
+                                value={settings.outwardPoPrefix || settings.outgoingPoPrefix || settings.poPrefix || ''}
+                                onChange={(e) => {
+                                    setSettings({
+                                        ...settings,
+                                        poPrefix: e.target.value,
+                                        outgoingPoPrefix: e.target.value,
+                                        outwardPoPrefix: e.target.value
+                                    });
+                                }}
                                 disabled={!isEditing}
                                 className={`w-full pl-4 pr-10 py-2.5 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all uppercase ${!isEditing ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                placeholder="e.g. PO"
+                                placeholder="e.g. PO-OUT"
                             />
                         </div>
-                        <p className="text-xs text-gray-400 mt-1">Example: {settings.poPrefix}-2024-001</p>
+                        <p className="text-xs text-gray-400 mt-1">Example: {settings.outwardPoPrefix || settings.outgoingPoPrefix || settings.poPrefix || 'PO-OUT'}-2026-001</p>
                     </div>
 
                     <div>

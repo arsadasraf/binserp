@@ -5,6 +5,7 @@
  */
 
 import { getCurrencySymbol, convertAmountToWords, formatCurrencyAmount } from "./currencyHelper";
+import { API_BASE_URL } from "./config";
 
 export interface PrintDocumentData {
     doc: any;
@@ -1214,28 +1215,61 @@ export const generateFrontendVendorQuotationPDF = (data: { quotation: any; vendo
 };
 
 export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo?: any }) => {
-    const { po, vendor, companyInfo } = data;
+    let { po, vendor, companyInfo } = data;
 
     if (!po) {
         alert("No Purchase Order data provided for PDF generation");
         return;
     }
 
+    // Fallback company info from localStorage if missing or incomplete
+    if (!companyInfo || !companyInfo.companyName || !companyInfo.gstNumber || !companyInfo.logo) {
+        try {
+            if (typeof window !== 'undefined') {
+                const cached = localStorage.getItem("storeCompanyInfo") || localStorage.getItem("companyInfo");
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    companyInfo = { ...(parsed || {}), ...(companyInfo || {}) };
+                }
+                if (!companyInfo || !companyInfo.companyName) {
+                    const userRaw = localStorage.getItem("userInfo");
+                    if (userRaw) {
+                        const parsedUser = JSON.parse(userRaw);
+                        const userComp = parsedUser.company || parsedUser;
+                        companyInfo = { ...(userComp || {}), ...(companyInfo || {}) };
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Failed to parse cached company info for PDF:", e);
+        }
+    }
+
     // Resolve Vendor Details
-    const vendorObj = vendor || po.vendor;
-    const vendorName = vendorObj?.name || po.vendorName || 'SUPPLIER / VENDOR';
-    const vendorAddress = vendorObj?.address || vendorObj?.billingAddress || po.vendorAddress || '';
-    const vendorCityState = `${vendorObj?.city || ''} ${vendorObj?.state || ''} ${vendorObj?.pincode ? '-' + vendorObj?.pincode : ''}`.trim();
-    const vendorGst = vendorObj?.gst || vendorObj?.gstNumber || po.vendorGst || 'N/A';
-    const vendorPan = vendorObj?.pan || vendorObj?.panNumber || 'N/A';
-    const vendorPhone = vendorObj?.phone || vendorObj?.contactNumber || po.vendorPhone || '';
+    const vendorObj = vendor || (typeof po.vendor === 'object' ? po.vendor : null);
+    const vendorName = vendorObj?.name || vendorObj?.companyName || po.vendorName || 'SUPPLIER / VENDOR';
+    const vendorContactPerson = vendorObj?.contactPerson || vendorObj?.contactName || po.vendorContactPerson || po.contactPerson || '';
+    const vendorAddress = vendorObj?.billingAddress || vendorObj?.address || po.vendorAddress || '';
+    const vendorCityState = `${vendorObj?.city || vendorObj?.billingCity || ''} ${vendorObj?.state || vendorObj?.billingState || ''} ${vendorObj?.pincode || vendorObj?.billingPincode ? '-' + (vendorObj?.pincode || vendorObj?.billingPincode) : ''}`.trim();
+    const vendorGst = vendorObj?.gst || vendorObj?.gstNumber || vendorObj?.gstin || po.vendorGst || 'N/A';
+    const vendorPan = vendorObj?.pan || vendorObj?.panNumber || po.vendorPan || 'N/A';
+    const vendorPhone = vendorObj?.phone || vendorObj?.contactNumber || vendorObj?.mobile || po.vendorPhone || '';
     const vendorEmail = vendorObj?.email || po.vendorEmail || '';
 
     // Resolve Company Details
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compEmail = companyInfo?.email || '';
+    const compName = companyInfo?.companyName || companyInfo?.legalName || companyInfo?.tradeName || companyInfo?.name || 'COMPANY NAME';
+    let compLogo = companyInfo?.logo || companyInfo?.logoUrl || companyInfo?.companyLogo || companyInfo?.image || '';
+    if (compLogo && !compLogo.startsWith('http') && !compLogo.startsWith('data:')) {
+        compLogo = `${API_BASE_URL}${compLogo.startsWith('/') ? '' : '/'}${compLogo}`;
+    }
+    const compContactPerson = companyInfo?.contactPerson || companyInfo?.authorizedPerson || companyInfo?.contactName || companyInfo?.fullName || '';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || companyInfo?.companyAddress || companyInfo?.street || '';
+    const compCityState = `${companyInfo?.city || ''} ${companyInfo?.state || ''} ${companyInfo?.pincode ? '-' + companyInfo?.pincode : ''}`.trim();
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || companyInfo?.mobile || companyInfo?.phoneNumber || '';
+    const compEmail = companyInfo?.email || companyInfo?.companyEmail || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || companyInfo?.gst || companyInfo?.companyGst || companyInfo?.taxId || '';
+    const compPan = companyInfo?.panNumber || companyInfo?.pan || companyInfo?.companyPan || '';
+    const compCin = companyInfo?.cinNumber || companyInfo?.cin || '';
 
     const items = (po.items && po.items.length > 0) 
         ? po.items 
@@ -1250,58 +1284,78 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
         }];
 
     let itemsSubtotal = 0;
-    let totalTaxAmount = 0;
     let itemsTableRowsHtml = '';
+
+    // PO overall tax rate (default 18%)
+    const overallTaxRate = po.taxRate != null ? Number(po.taxRate) : 18;
+    const isInterState = po.gstType === 'inter_state';
+    const cgstRate = isInterState ? 0 : (po.cgstRate != null ? Number(po.cgstRate) : (overallTaxRate / 2));
+    const sgstRate = isInterState ? 0 : (po.sgstRate != null ? Number(po.sgstRate) : (overallTaxRate / 2));
+    const igstRate = isInterState ? (po.igstRate != null ? Number(po.igstRate) : overallTaxRate) : 0;
 
     items.forEach((item: any, idx: number) => {
         const qty = Number(item.quantity || 1);
         const rate = Number(item.rate || item.unitPrice || 0);
-        const taxRate = item.taxRate != null ? Number(item.taxRate) : 18;
-        const lineNet = qty * rate;
-        const lineTax = item.taxAmount != null ? Number(item.taxAmount) : (lineNet * (taxRate / 100));
-        const lineTotal = item.amount ? Number(item.amount) : (lineNet + lineTax);
+        const lineNet = qty * rate; // Actual amount without tax
         const itemDesc = item.description || item.itemDescription || item.remarks || item.specifications || item.material?.description || (idx === 0 ? (po.description || po.remarks) : '') || '';
+        const itemHsn = item.hsnCode || item.hsn || '-';
+        const pieceCount = Number(item.pieceCount || item.count || 0);
 
         itemsSubtotal += lineNet;
-        totalTaxAmount += lineTax;
 
         itemsTableRowsHtml += `
             <tr>
                 <td style="text-align: center; padding: 7px 4px; vertical-align: top;">${idx + 1}</td>
                 <td style="text-align: left; padding: 7px 8px; vertical-align: top;">
-                    <div style="font-weight: bold; color: #0f172a; font-size: 11px;">${item.materialName || item.material?.name || item.itemName || 'Material Item'}</div>
+                    <div style="font-weight: bold; color: #0f172a; font-size: 11px;">
+                        ${item.materialName || item.material?.name || item.itemName || 'Material Item'}
+                    </div>
                     ${itemDesc ? `<div style="font-size: 9.5px; color: #475569; margin-top: 3px; font-style: italic;">${itemDesc}</div>` : ''}
                 </td>
+                <td style="text-align: center; font-family: monospace; padding: 7px 4px; vertical-align: top; color: #475569;">${itemHsn}</td>
+                <td style="text-align: center; font-weight: bold; color: #7c2d12; padding: 7px 4px; vertical-align: top;">${pieceCount > 0 ? `${pieceCount} Pcs` : '-'}</td>
                 <td style="text-align: center; font-weight: bold; padding: 7px 4px; vertical-align: top;">${qty} ${item.unit || item.uom || 'PCS'}</td>
                 <td style="text-align: right; padding: 7px 8px; font-weight: bold; vertical-align: top;">₹${rate.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                <td style="text-align: center; padding: 7px 6px; font-size: 10px; vertical-align: top;">
-                    <b>${taxRate}%</b><br>
-                    <span style="color: #64748b; font-size: 9px;">₹${lineTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </td>
-                <td style="text-align: right; padding: 7px 8px; font-weight: 800; color: #0f172a; vertical-align: top;">₹${lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td style="text-align: right; padding: 7px 8px; font-weight: 800; color: #0f172a; vertical-align: top;">₹${lineNet.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>
         `;
     });
 
+    const totalTaxAmount = po.totalTax != null ? Number(po.totalTax) : (itemsSubtotal * (overallTaxRate / 100));
     const transportCharge = Number(po.transportCharge || 0);
     const transportType = po.transportType || 'Road Freight';
     const packingCharge = Number(po.packingCharge || 0);
     const packingType = po.packingType || 'Standard Packaging';
+    
+    const cgstVal = isInterState ? 0 : (po.cgstAmount != null ? Number(po.cgstAmount) : (totalTaxAmount / 2));
+    const sgstVal = isInterState ? 0 : (po.sgstAmount != null ? Number(po.sgstAmount) : (totalTaxAmount / 2));
+    const igstVal = isInterState ? (po.igstAmount != null ? Number(po.igstAmount) : totalTaxAmount) : 0;
 
     const grandTotal = itemsSubtotal + totalTaxAmount + transportCharge + packingCharge;
 
     const htmlContent = `
         <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
             
-            <!-- Header (Clean Top Right) -->
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #581c87; padding-bottom: 12px; margin-bottom: 14px;">
-                <div>
-                    <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #581c87; text-transform: uppercase;">${compName}</h1>
-                    <div style="font-size: 10px; color: #444; margin-top: 4px; line-height: 1.4;">
-                        ${compAddress}<br>
-                        ${compPhone ? `Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}
+            <!-- Header (Company Details & Logo) -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #581c87; padding-bottom: 12px; margin-bottom: 14px;">
+                <div style="flex: 1; max-width: ${compLogo ? '68%' : '100%'};">
+                    <h1 style="margin: 0; font-size: 20px; font-weight: 900; color: #581c87; text-transform: uppercase; letter-spacing: 0.5px;">${compName}</h1>
+                    ${compAddress ? `<div style="font-size: 10px; color: #334155; margin-top: 3px; line-height: 1.4;">${compAddress}${compCityState ? ', ' + compCityState : ''}</div>` : ''}
+                    <div style="font-size: 10px; color: #475569; margin-top: 4px; line-height: 1.4;">
+                        ${compContactPerson ? `<b>Contact Person:</b> ${compContactPerson} &nbsp;|&nbsp; ` : ''}
+                        ${compPhone ? `<b>Ph:</b> ${compPhone} &nbsp;|&nbsp; ` : ''}
+                        ${compEmail ? `<b>Email:</b> ${compEmail}` : ''}
+                    </div>
+                    <div style="font-size: 10px; color: #1e293b; margin-top: 5px; font-weight: bold; background: #f1f5f9; padding: 4px 8px; border-radius: 4px; display: inline-block;">
+                        <span><b>GSTIN:</b> ${compGst || 'N/A'}</span> &nbsp;&nbsp;|&nbsp;&nbsp; <span><b>PAN:</b> ${compPan || 'N/A'}</span>
+                        ${compCin ? ` &nbsp;&nbsp;|&nbsp;&nbsp; <span><b>CIN:</b> ${compCin}</span>` : ''}
                     </div>
                 </div>
+                ${compLogo ? `
+                    <div style="text-align: right; margin-left: 15px; flex-shrink: 0;">
+                        <img src="${compLogo}" alt="${compName}" style="max-height: 65px; max-width: 190px; object-fit: contain;" />
+                    </div>
+                ` : ''}
             </div>
 
             <!-- Title Bar -->
@@ -1315,13 +1369,14 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                     <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
                         <div style="font-weight: bold; color: #6b21a8; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">VENDOR / SUPPLIER</div>
                         <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${vendorName}</div>
-                        <div style="line-height: 1.4; color: #334155;">
+                        ${vendorContactPerson ? `<div style="font-size: 10px; color: #1e293b; margin-bottom: 3px;"><b>Contact Person:</b> ${vendorContactPerson}</div>` : ''}
+                        <div style="line-height: 1.4; color: #334155; font-size: 10px;">
                             ${vendorAddress ? vendorAddress + '<br>' : ''}
                             ${vendorCityState ? vendorCityState + '<br>' : ''}
                             ${vendorPhone ? '<b>Ph:</b> ' + vendorPhone + '<br>' : ''}
                             ${vendorEmail ? '<b>Email:</b> ' + vendorEmail + '<br>' : ''}
                         </div>
-                        <div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+                        <div style="margin-top: 8px; font-size: 10px; border-top: 1px dashed #cbd5e1; padding-top: 6px; color: #475569;">
                             <b>Vendor GSTIN:</b> ${vendorGst} | <b>PAN:</b> ${vendorPan}
                         </div>
                     </td>
@@ -1357,16 +1412,17 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                 </tr>
             </table>
 
-            <!-- Materials Table with Description & GST -->
+            <!-- Materials Table: Distinct HSN & Count Columns, Amount Excl. Tax -->
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10px;" border="1" bordercolor="#94a3b8">
                 <thead style="background: #faf5ff; text-transform: uppercase; font-weight: bold; color: #6b21a8;">
                     <tr>
                         <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
                         <th style="width: 40%; padding: 7px 8px; text-align: left;">Item Name & Specifications</th>
-                        <th style="width: 12%; padding: 7px 4px; text-align: center;">Qty</th>
-                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Unit Rate</th>
-                        <th style="width: 13%; padding: 7px 6px; text-align: center;">GST % (Tax)</th>
-                        <th style="width: 15%; padding: 7px 8px; text-align: right;">Line Amount</th>
+                        <th style="width: 10%; padding: 7px 4px; text-align: center;">HSN / SAC</th>
+                        <th style="width: 10%; padding: 7px 4px; text-align: center;">Count</th>
+                        <th style="width: 11%; padding: 7px 4px; text-align: center;">Quantity</th>
+                        <th style="width: 12%; padding: 7px 8px; text-align: right;">Unit Rate</th>
+                        <th style="width: 12%; padding: 7px 8px; text-align: right;">Amount (₹)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1398,15 +1454,30 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                     </table>
                 </div>
 
-                <div style="width: 320px; border: 1px solid #6b21a8; padding: 10px; background: #faf5ff; border-radius: 4px;">
-                    <div style="font-weight: bold; color: #6b21a8; font-size: 10px; uppercase; margin-bottom: 6px; border-bottom: 1px border #e9d5ff; padding-bottom: 4px;">SUMMARY BREAKDOWN</div>
-                    <table style="width: 100%; font-size: 10.5px; line-height: 1.7;">
+                <div style="width: 330px; border: 1px solid #6b21a8; padding: 10px; background: #faf5ff; border-radius: 4px;">
+                    <div style="font-weight: bold; color: #6b21a8; font-size: 10px; uppercase; margin-bottom: 6px; border-bottom: 1px border #e9d5ff; padding-bottom: 4px;">TAX & FINANCIAL BREAKDOWN</div>
+                    <table style="width: 100%; font-size: 10px; line-height: 1.6;">
                         <tr>
-                            <td style="color: #475569;">Items Subtotal:</td>
+                            <td style="color: #475569;">Taxable Items Subtotal:</td>
                             <td style="font-weight: bold; text-align: right;">₹${itemsSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
+                        ${!isInterState ? `
                         <tr>
-                            <td style="color: #475569;">Total GST Tax:</td>
+                            <td style="color: #0891b2;">Central GST (CGST @ ${cgstRate}%):</td>
+                            <td style="font-weight: bold; text-align: right; color: #0891b2;">₹${cgstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr>
+                            <td style="color: #0891b2;">State GST (SGST @ ${sgstRate}%):</td>
+                            <td style="font-weight: bold; text-align: right; color: #0891b2;">₹${sgstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                        ` : `
+                        <tr>
+                            <td style="color: #0891b2;">Integrated GST (IGST @ ${igstRate}%):</td>
+                            <td style="font-weight: bold; text-align: right; color: #0891b2;">₹${igstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                        `}
+                        <tr>
+                            <td style="color: #475569; font-weight: bold;">Total GST Tax (${overallTaxRate}%):</td>
                             <td style="font-weight: bold; text-align: right;">₹${totalTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                         ${transportCharge > 0 ? `

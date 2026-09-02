@@ -347,6 +347,8 @@ export interface POFormData {
         component?: string;
         materialName: string;
         description?: string;
+        hsnCode?: string;
+        pieceCount?: number;
         quantity: number;
         unit: string;
         rate: number;
@@ -355,6 +357,17 @@ export interface POFormData {
         amount: number;
         category?: string;
     }>;
+    vendorName?: string;
+    remarks?: string;
+    status?: string;
+    gstType?: 'intra_state' | 'inter_state' | string;
+    taxRate?: number;
+    cgstRate?: number;
+    sgstRate?: number;
+    igstRate?: number;
+    cgstAmount?: number;
+    sgstAmount?: number;
+    igstAmount?: number;
     subtotal?: number;
     totalTax?: number;
     transportType?: string;

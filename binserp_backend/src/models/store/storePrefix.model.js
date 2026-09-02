@@ -8,6 +8,7 @@ export const storePrefixSchema = new mongoose.Schema(
         poPrefix: { type: String, default: "PO" },
         incomingPoPrefix: { type: String, default: "PO-IN" },
         outgoingPoPrefix: { type: String, default: "PO-OUT" },
+        outwardPoPrefix: { type: String, default: "PO-OUT" },
         dcPrefix: { type: String, default: "DC" },
         invoicePrefix: { type: String, default: "INV" },
         partPrefix: { type: String, default: "PART" },

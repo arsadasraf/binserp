@@ -98,7 +98,7 @@ export default function CompanyInfoPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data && data.companyName) {
+        if (data && (data.companyName || data.name)) {
           setFormData(prev => ({
             ...prev,
             ...data,
@@ -111,7 +111,11 @@ export default function CompanyInfoPage() {
             }
           }));
           if (data.logo) {
-            setLogoPreview(data.logo);
+            let fullLogo = data.logo;
+            if (fullLogo && !fullLogo.startsWith('http') && !fullLogo.startsWith('data:')) {
+              fullLogo = `${API_BASE_URL}${fullLogo.startsWith('/') ? '' : '/'}${fullLogo}`;
+            }
+            setLogoPreview(fullLogo);
           }
         }
       }
@@ -126,7 +130,15 @@ export default function CompanyInfoPage() {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       setLogoFile(file);
-      setLogoPreview(URL.createObjectURL(file));
+
+      // Create base64 fallback and preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64Str = reader.result as string;
+        setLogoPreview(base64Str);
+        setFormData(prev => ({ ...prev, logo: base64Str }));
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -169,6 +181,9 @@ export default function CompanyInfoPage() {
       submitData.append('qualitySpecs', formData.qualitySpecs || '');
       submitData.append('commercialTerms', formData.commercialTerms || '');
       submitData.append('bankDetails', JSON.stringify(formData.bankDetails));
+      if (formData.logo) {
+        submitData.append('logoStr', formData.logo);
+      }
 
       if (logoFile) {
         submitData.append('logo', logoFile);
@@ -184,11 +199,19 @@ export default function CompanyInfoPage() {
 
       const data = await res.json();
       if (res.ok) {
-        setMessage({ type: 'success', text: 'Company Information saved successfully!' });
-        alert('Company Information saved successfully!');
-        if (data.info && data.info.logo) {
-          setLogoPreview(data.info.logo);
+        setMessage({ type: 'success', text: 'Company Information & Logo saved successfully!' });
+        alert('Company Information & Logo saved successfully!');
+        const updated = data.info || formData;
+        if (updated.logo) {
+          let fullLogo = updated.logo;
+          if (fullLogo && !fullLogo.startsWith('http') && !fullLogo.startsWith('data:')) {
+            fullLogo = `${API_BASE_URL}${fullLogo.startsWith('/') ? '' : '/'}${fullLogo}`;
+          }
+          setLogoPreview(fullLogo);
         }
+        try {
+          localStorage.setItem('storeCompanyInfo', JSON.stringify({ ...formData, ...(data.info || {}) }));
+        } catch (e) {}
       } else {
         throw new Error(data.message || 'Failed to save company information');
       }
@@ -324,20 +347,106 @@ export default function CompanyInfoPage() {
                 />
               </div>
 
-              <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 2xl:col-span-5">
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Company Logo (For Documents & Invoices)</label>
-                <div className="flex flex-wrap items-center gap-4">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleLogoChange}
-                    className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-900/50 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100"
-                  />
-                  {logoPreview && (
-                    <div className="h-16 w-28 p-1 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
-                      <img src={logoPreview} alt="Company Logo Preview" className="max-h-full max-w-full object-contain" />
+              {/* Prominently Show GSTIN Number */}
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center justify-between">
+                  <span>Company GSTIN</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold uppercase">Printed on Header</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.gstNumber}
+                  onChange={e => setFormData({ ...formData, gstNumber: e.target.value.toUpperCase() })}
+                  className="w-full px-4 py-2.5 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm font-mono font-bold transition-all text-gray-900 dark:text-white tracking-wider"
+                  placeholder="29AAAAA0000A1Z5"
+                />
+              </div>
+
+              {/* Prominently Show PAN Number */}
+              <div className="flex flex-col">
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center justify-between">
+                  <span>Company PAN</span>
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold uppercase">Printed on Header</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.panNumber}
+                  onChange={e => setFormData({ ...formData, panNumber: e.target.value.toUpperCase() })}
+                  className="w-full px-4 py-2.5 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl focus:ring-2 focus:ring-emerald-500 text-sm font-mono font-bold transition-all text-gray-900 dark:text-white tracking-wider"
+                  placeholder="ABCDE1234F"
+                />
+              </div>
+
+              {/* Logo Upload Box with Full Specifications & Instructions */}
+              <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 2xl:col-span-5 bg-gradient-to-br from-slate-50 to-indigo-50/30 dark:from-slate-800/60 dark:to-indigo-950/30 p-4 sm:p-5 rounded-2xl border border-indigo-100 dark:border-indigo-900/50">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex-1 space-y-1">
+                    <label className="block text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wider">
+                      Official Company Logo (Printed on POs, DCs & Invoices)
+                    </label>
+                    <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1 leading-relaxed">
+                      <div>• <b>Recommended Dimensions:</b> <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">300 × 100 px</span> or <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">400 × 120 px</span> (Horizontal Aspect Ratio 3:1 to 4:1).</div>
+                      <div>• <b>Supported Formats:</b> <span className="font-bold">PNG</span> (recommended with transparent background), <span className="font-bold">JPEG</span>, or <span className="font-bold">WebP</span>. Max size: <b>2 MB</b>.</div>
                     </div>
-                  )}
+                  </div>
+
+                  <div className="flex items-center gap-4 shrink-0">
+                    <label className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-white dark:bg-gray-800 border-2 border-dashed border-indigo-300 dark:border-indigo-700 hover:border-indigo-500 dark:hover:border-indigo-400 text-indigo-700 dark:text-indigo-300 rounded-xl font-bold text-xs shadow-sm hover:bg-indigo-50/50 transition-all">
+                      <Upload size={16} />
+                      <span>{logoPreview ? 'Change Logo Image' : 'Upload Logo Image'}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        onChange={handleLogoChange}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {logoPreview ? (
+                      <div className="h-16 w-36 p-1.5 border-2 border-indigo-200 dark:border-indigo-800 rounded-xl bg-white dark:bg-gray-800 flex items-center justify-center shadow-inner overflow-hidden">
+                        <img src={logoPreview} alt="Company Logo Preview" className="max-h-full max-w-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="h-16 w-36 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-xl flex flex-col items-center justify-center text-[10px] text-gray-400 text-center p-1">
+                        <span>No Logo Uploaded</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Live Header Preview */}
+                <div className="mt-4 pt-4 border-t border-indigo-100 dark:border-indigo-900/50">
+                  <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider mb-2">
+                    Live Document Header Preview:
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="space-y-1">
+                      <div className="text-sm font-black text-purple-900 dark:text-purple-300 uppercase tracking-wide">
+                        {formData.companyName || 'YOUR COMPANY NAME'}
+                      </div>
+                      <div className="text-[11px] text-gray-600 dark:text-gray-400">
+                        {formData.billingAddress || 'Billing Address Line, City, State'}
+                      </div>
+                      <div className="text-[11px] text-gray-700 dark:text-gray-300 flex flex-wrap gap-2 pt-0.5">
+                        {formData.contactPerson && <span><b>Contact:</b> {formData.contactPerson}</span>}
+                        {formData.contactNumber && <span>• <b>Ph:</b> {formData.contactNumber}</span>}
+                        {formData.email && <span>• <b>Email:</b> {formData.email}</span>}
+                      </div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 pt-0.5 font-mono">
+                        <b>GSTIN:</b> {formData.gstNumber || 'N/A'} &nbsp;|&nbsp; <b>PAN:</b> {formData.panNumber || 'N/A'}
+                      </div>
+                    </div>
+
+                    {logoPreview ? (
+                      <div className="shrink-0 p-1 bg-white rounded-lg border border-gray-100 dark:border-gray-800">
+                        <img src={logoPreview} alt="Logo Preview" className="h-12 max-w-[140px] object-contain" />
+                      </div>
+                    ) : (
+                      <div className="text-xs italic text-gray-400">
+                        [Logo will appear here]
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

@@ -47,6 +47,7 @@ export default function PurchasePOPage() {
             refetch();
           }}
           initialData={editingPO}
+          isEditing={Boolean(editingPO)}
         />
       )}
     </div>

@@ -19,7 +19,8 @@ export const createPO = asyncHandler(async (req, res) => {
   const {
     poNumber, date, vendor, vendorName, quotation, quotationNumber, rfqNumber,
     items, material, component, materialName, quantity, unit, rate, amount, category, status,
-    transportType, transportCharge, packingType, packingCharge, subtotal, totalTax, grandTotal, remarks, description
+    transportType, transportCharge, packingType, packingCharge, subtotal, totalTax, grandTotal, remarks, description,
+    gstType, cgstAmount, sgstAmount, igstAmount
   } = req.body;
 
   if (!poNumber) {
@@ -46,6 +47,14 @@ export const createPO = asyncHandler(async (req, res) => {
     transportCharge: transportCharge != null ? Number(transportCharge) : 0,
     packingType: packingType || 'Standard Packaging',
     packingCharge: packingCharge != null ? Number(packingCharge) : 0,
+    gstType: gstType || 'intra_state',
+    taxRate: req.body.taxRate != null ? Number(req.body.taxRate) : 18,
+    cgstRate: req.body.cgstRate != null ? Number(req.body.cgstRate) : 9,
+    sgstRate: req.body.sgstRate != null ? Number(req.body.sgstRate) : 9,
+    igstRate: req.body.igstRate != null ? Number(req.body.igstRate) : 18,
+    cgstAmount: cgstAmount != null ? Number(cgstAmount) : 0,
+    sgstAmount: sgstAmount != null ? Number(sgstAmount) : 0,
+    igstAmount: igstAmount != null ? Number(igstAmount) : 0,
     subtotal: subtotal != null ? Number(subtotal) : 0,
     totalTax: totalTax != null ? Number(totalTax) : 0,
     grandTotal: grandTotal != null ? Number(grandTotal) : 0,
@@ -79,6 +88,8 @@ export const createPO = asyncHandler(async (req, res) => {
         materialName: matName,
         itemType: (item.itemType || 'rm').toLowerCase(),
         description: item.description || item.itemDescription || item.remarks || item.specifications || description || '',
+        hsnCode: item.hsnCode || item.hsn || '',
+        pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: qty,
         receivedQuantity: recQty,
         pendingQuantity: pendQty,

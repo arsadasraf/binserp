@@ -51,7 +51,14 @@ export const getCompanyInfo = async (req, res) => {
     const info = await CompanyInfo.findOne({ company: companyId });
     if (info) {
       const infoObj = info.toObject();
-      if (infoObj.logo) infoObj.logo = (await signPhotos([infoObj.logo]))[0];
+      if (infoObj.logo && !infoObj.logo.startsWith('/temp') && !infoObj.logo.startsWith('/uploads') && !infoObj.logo.startsWith('data:')) {
+        try {
+          const signed = await signPhotos([infoObj.logo]);
+          if (signed && signed[0]) infoObj.logo = signed[0];
+        } catch (e) {
+          console.error("Error signing company logo:", e);
+        }
+      }
       return res.status(200).json(infoObj);
     }
     res.status(200).json({});

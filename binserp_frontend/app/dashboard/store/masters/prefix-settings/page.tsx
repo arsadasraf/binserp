@@ -12,6 +12,7 @@ interface PrefixSettings {
   categoryPrefix: string;
   partPrefix: string;
   incomingPoPrefix: string;
+  outwardPoPrefix?: string;
   outgoingPoPrefix: string;
   poPrefix: string;
   incomingRfqPrefix: string;
@@ -35,6 +36,7 @@ export default function PrefixSettingsPage() {
     categoryPrefix: 'CAT',
     partPrefix: 'PART',
     incomingPoPrefix: 'PO-IN',
+    outwardPoPrefix: 'PO-OUT',
     outgoingPoPrefix: 'PO-OUT',
     poPrefix: 'PO',
     incomingRfqPrefix: 'RFQ-IN',
@@ -237,11 +239,12 @@ export default function PrefixSettingsPage() {
               </div>
 
               <div className="flex flex-col">
-                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Outgoing PO Prefix</label>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">Outward PO Prefix</label>
                 <input
                   type="text"
-                  value={settings.outgoingPoPrefix || settings.poPrefix || ''}
+                  value={settings.outwardPoPrefix || settings.outgoingPoPrefix || settings.poPrefix || ''}
                   onChange={e => {
+                    handleChange('outwardPoPrefix', e.target.value);
                     handleChange('outgoingPoPrefix', e.target.value);
                     handleChange('poPrefix', e.target.value);
                   }}
