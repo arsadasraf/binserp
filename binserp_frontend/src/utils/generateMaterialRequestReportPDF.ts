@@ -57,7 +57,7 @@ export function generateMaterialRequestReportPDF(
           ` : ''}
           <td style="padding: 6px 8px; font-size: 10px; border-right: 1px solid #e2e8f0;">
             <strong>${item.materialName || item.name}</strong>
-            ${item.materialCode ? `<br/><span style="font-size: 9px; color: #64748b; font-family: monospace;">Code: ${item.materialCode}</span>` : ''}
+            ${(item.materialDescription || item.description || item.specification) ? `<br/><span style="font-size: 9px; color: #64748b;">${item.materialDescription || item.description || item.specification}</span>` : ''}
             ${item.purpose ? `<br/><span style="font-size: 9px; color: #475569; font-style: italic;">Purpose: ${item.purpose}</span>` : ''}
           </td>
           <td style="padding: 6px 8px; text-align: center; font-size: 10px; font-weight: bold; border-right: 1px solid #e2e8f0;">

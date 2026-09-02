@@ -63,14 +63,25 @@ export const getDashboardStats = async (req, res) => {
 
     // Calculate Counts
     let presentCount = 0;
+    let checkInOnlyCount = 0;
+    let completedCount = 0;
 
     // Map to store counts for aggregation
     const deptStats = {};
     const desigStats = {};
 
     todayAttendance.forEach(record => {
-      if (record.status === 'Present' || record.status === 'HalfDay' || record.status === 'Late') {
+      const hasCheckIn = Boolean(record.checkIn?.time);
+      const hasCheckOut = Boolean(record.checkOut?.time);
+
+      if (record.status === 'Present' || record.status === 'HalfDay' || record.status === 'Late' || hasCheckIn) {
         presentCount++;
+
+        if (hasCheckIn && !hasCheckOut) {
+          checkInOnlyCount++;
+        } else if (hasCheckIn && hasCheckOut) {
+          completedCount++;
+        }
 
         // Department Aggregation
         const dept = record.employee?.department || 'Unknown';
@@ -121,7 +132,9 @@ export const getDashboardStats = async (req, res) => {
     res.status(200).json({
       totalEmployees,
       presentToday: presentCount,
-      absentToday: totalEmployees - presentCount,
+      checkInOnlyToday: checkInOnlyCount,
+      completedToday: completedCount,
+      absentToday: Math.max(0, totalEmployees - presentCount),
       departmentWise,
       designationWise
     });

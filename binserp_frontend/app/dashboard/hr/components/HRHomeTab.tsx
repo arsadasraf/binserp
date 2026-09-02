@@ -11,6 +11,8 @@ const backendUrl = API_BASE_URL;
 interface DashboardStats {
     totalEmployees: number;
     presentToday: number;
+    checkInOnlyToday?: number;
+    completedToday?: number;
     absentToday: number;
     departmentWise: { name: string; total: number; present: number; absent: number }[];
     designationWise: { name: string; total: number; present: number; absent: number }[];
@@ -157,8 +159,17 @@ export default function HRHomeTab() {
 
             allEmployees.forEach(emp => {
                 const record = attendanceMap.get(String(emp._id));
-                // Basic status check
-                const hasRecord = !!record;
+                const hasCheckIn = Boolean(record?.checkIn?.time);
+                const hasCheckOut = Boolean(record?.checkOut?.time);
+
+                let status = 'Absent';
+                if (hasCheckIn && !hasCheckOut) {
+                    status = 'Check-In Only';
+                } else if (hasCheckIn && hasCheckOut) {
+                    status = 'Completed';
+                } else if (record && record.status) {
+                    status = record.status;
+                }
 
                 if (filterFn(emp, record)) {
                     processedData.push({
@@ -168,7 +179,7 @@ export default function HRHomeTab() {
                         department: emp.department,
                         designation: emp.designation,
                         photo: emp.photo,
-                        status: hasRecord ? record.status : 'Absent',
+                        status: status,
                         checkIn: record?.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
                         checkOut: record?.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
                         checkInBy: record?.checkIn?.markedBy?.name,
@@ -198,10 +209,10 @@ export default function HRHomeTab() {
             filterFn = () => true;
         } else if (type === 'present') {
             title = "Present Employees";
-            filterFn = (_, record) => !!record && (record.status === 'Present' || record.status === 'Late' || record.status === 'HalfDay');
+            filterFn = (_, record) => Boolean(record?.checkIn?.time) || (!!record && (record.status === 'Present' || record.status === 'Late' || record.status === 'HalfDay'));
         } else if (type === 'absent') {
             title = "Absent Employees";
-            filterFn = (_, record) => !record;
+            filterFn = (_, record) => !record || (!record.checkIn?.time && record.status === 'Absent');
         }
 
         fetchDataAndOpenModal(filterFn, title);
@@ -275,7 +286,7 @@ export default function HRHomeTab() {
                     value={stats.presentToday}
                     icon={UserCheck}
                     color="bg-green-500"
-                    sub={`${attendanceRate}% Attendance Rate`}
+                    sub={stats.checkInOnlyToday !== undefined ? `${stats.checkInOnlyToday} Check-In Only · ${stats.completedToday || 0} Complete` : `${attendanceRate}% Attendance Rate`}
                     onClick={() => handleCardClick('present')}
                 />
                 <StatCard

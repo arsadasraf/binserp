@@ -109,33 +109,40 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                             <table className="w-full text-left text-xs">
                                 <thead className="bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800">
                                     <tr>
-                                        <th className="px-4 py-3 font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Item & Code</th>
+                                        <th className="px-4 py-3 font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Material Name & Description</th>
                                         <th className="px-4 py-3 font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-center">Category</th>
                                         <th className="px-4 py-3 font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider text-center">Requested Qty</th>
                                         <th className="px-4 py-3 font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Purpose</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                                    {(request.items || []).map((item: any, idx: number) => (
-                                        <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
-                                            <td className="px-4 py-3">
-                                                <div className="font-bold text-gray-900 dark:text-gray-100">{item.materialName}</div>
-                                                <div className="text-xs text-gray-400 font-mono">{item.materialCode || '-'}</div>
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                                                    {item.itemType || (request.type === 'consumable' ? 'Consumable' : request.type === 'fg' ? 'FG Item' : request.type === 'bo' ? 'Bought Out' : 'Raw Material')}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-3 text-center">
-                                                <span className="font-bold text-gray-900 dark:text-white text-sm">{item.quantity}</span>
-                                                <span className="text-xs text-gray-500 ml-1 font-semibold">{item.unit || 'PCS'}</span>
-                                            </td>
-                                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[220px]" title={item.purpose}>
-                                                {item.purpose || '-'}
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {(request.items || []).map((item: any, idx: number) => {
+                                        const desc = item.materialDescription || item.description || item.specification || item.grade || '';
+                                        return (
+                                            <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
+                                                <td className="px-4 py-3">
+                                                    <div className="font-bold text-gray-900 dark:text-gray-100">{item.materialName || item.name}</div>
+                                                    {desc && (
+                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                            {desc}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                                        {item.itemType || (request.type === 'consumable' ? 'Consumable' : request.type === 'fg' ? 'FG Item' : request.type === 'bo' ? 'Bought Out' : 'Raw Material')}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <span className="font-bold text-gray-900 dark:text-white text-sm">{item.quantity}</span>
+                                                    <span className="text-xs text-gray-500 ml-1 font-semibold">{item.unit || 'PCS'}</span>
+                                                </td>
+                                                <td className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[220px]" title={item.purpose}>
+                                                    {item.purpose || '-'}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>

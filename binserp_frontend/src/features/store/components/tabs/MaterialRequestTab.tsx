@@ -258,7 +258,8 @@ export default function MaterialRequestTab({
         const reqBy = (r.requestedBy?.name || r.createdByName || '').toLowerCase();
         const itemsMatch = (r.items || []).some((it: any) => 
           (it.materialName || '').toLowerCase().includes(q) ||
-          (it.materialCode || '').toLowerCase().includes(q)
+          (it.materialDescription || it.description || '').toLowerCase().includes(q) ||
+          (it.purpose || '').toLowerCase().includes(q)
         );
         if (!reqNum.includes(q) && !reqBy.includes(q) && !itemsMatch) {
           return false;

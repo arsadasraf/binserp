@@ -139,8 +139,16 @@ export default function MaterialRequestModal({
         });
     }, [activeMrpPlans]);
 
-    const isMrpRequired = false;
-    const isMrpMissing = false;
+    // Enforce compulsory MRP selection for RM, BO, and FG requests
+    const isMrpRequired = ['rm', 'bo', 'fg'].includes((formData.type || '').toLowerCase());
+    const isMrpMissing = isMrpRequired && !formData.mrpPlan;
+
+    // Safe multi-attribute description extractor
+    const getDescStr = (item: any): string => {
+        if (!item) return '';
+        const val = item.descriptions || item.description || item.specification || item.specifications || item.grade || item.size || item.thickness || item.materialType || (typeof item.categoryId === 'object' ? item.categoryId?.name : '') || item.category || '';
+        return String(val || '').trim();
+    };
 
     // Effective item lists strictly separated for each category
     const effectiveRMList = useMemo(() => {
@@ -440,13 +448,12 @@ export default function MaterialRequestModal({
                             )}
                         </div>
                     </div>
-
-                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500 cursor-pointer">
-                        <X size={20} />
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-400 hover:text-gray-600 cursor-pointer">
+                        <X size={18} />
                     </button>
                 </div>
 
-                {/* Modal Body with proper scrolling and padding */}
+                {/* Body */}
                 <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-36">
                     
                     {/* Linked MRP Plan */}
@@ -458,7 +465,7 @@ export default function MaterialRequestModal({
                                     <span>MRP Plan #</span>
                                     {isMrpRequired ? (
                                         <span className="text-[10px] text-rose-600 dark:text-rose-400 font-extrabold bg-rose-100 dark:bg-rose-950 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900">
-                                            * Compulsory
+                                            * Compulsory for {formData.type.toUpperCase()}
                                         </span>
                                     ) : (
                                         <span className="text-[10px] text-slate-400 font-normal">(Optional for Consumables)</span>
@@ -473,7 +480,7 @@ export default function MaterialRequestModal({
                                 options={mrpOptions}
                                 value={formData.mrpPlan || ''}
                                 onChange={(val) => handleSelectMRPPlan(val)}
-                                placeholder={isMrpRequired ? "🔍 Search active MRP #, Customer, FG (* Required)..." : "🔍 Search MRP # (Optional)..."}
+                                placeholder={isMrpRequired ? `🔍 Search active MRP #, Customer, FG (* Required for ${formData.type.toUpperCase()})...` : "🔍 Search MRP # (Optional)..."}
                                 hasError={isMrpMissing}
                                 className="w-full"
                             />
@@ -512,44 +519,28 @@ export default function MaterialRequestModal({
                                 // Options generation strictly filtered per category with Name and Description ONLY
                                 const currentOptions = (
                                     formData.type === 'consumable'
-                                        ? (consumables || []).map((c: any) => {
-                                            const desc = c.description || c.specification || c.category || '';
-                                            return {
-                                                value: c._id,
-                                                label: `${c.name || ''}${desc ? ` • ${desc}` : ''}`,
-                                                description: desc || '',
-                                                code: c.code
-                                            };
-                                        })
+                                        ? (consumables || []).map((c: any) => ({
+                                            value: c._id,
+                                            label: c.name || '',
+                                            description: getDescStr(c)
+                                        }))
                                         : formData.type === 'fg'
-                                            ? effectiveFGList.map((c: any) => {
-                                                const desc = c.description || c.specification || '';
-                                                return {
-                                                    value: c._id,
-                                                    label: `${c.name || c.componentName || ''}${desc ? ` • ${desc}` : ''}`,
-                                                    description: desc || '',
-                                                    code: c.code
-                                                };
-                                            })
+                                            ? effectiveFGList.map((c: any) => ({
+                                                value: c._id,
+                                                label: c.name || c.componentName || '',
+                                                description: getDescStr(c)
+                                            }))
                                             : formData.type === 'bo'
-                                                ? effectiveBOList.map((b: any) => {
-                                                    const desc = b.description || b.specification || b.category || '';
-                                                    return {
-                                                        value: b._id,
-                                                        label: `${b.name || ''}${desc ? ` • ${desc}` : ''}`,
-                                                        description: desc || '',
-                                                        code: b.code
-                                                    };
-                                                })
-                                                : effectiveRMList.map((r: any) => {
-                                                    const desc = r.description || r.specification || r.grade || r.thickness || r.materialType || '';
-                                                    return {
-                                                        value: r._id,
-                                                        label: `${r.name || ''}${desc ? ` • ${desc}` : ''}`,
-                                                        description: desc || '',
-                                                        code: r.code
-                                                    };
-                                                })
+                                                ? effectiveBOList.map((b: any) => ({
+                                                    value: b._id,
+                                                    label: b.name || '',
+                                                    description: getDescStr(b)
+                                                }))
+                                                : effectiveRMList.map((r: any) => ({
+                                                    value: r._id,
+                                                    label: r.name || '',
+                                                    description: getDescStr(r)
+                                                }))
                                 );
 
                                 return (
@@ -570,8 +561,9 @@ export default function MaterialRequestModal({
                                                 dropdownPosition="bottom"
                                             />
                                             {item.materialDescription && (
-                                                <div className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800">
-                                                    <span className="font-bold text-slate-700 dark:text-slate-300">Description:</span> {item.materialDescription}
+                                                <div className="mt-1.5 text-[11px] text-slate-600 dark:text-slate-300 bg-white/80 dark:bg-slate-900/80 px-2.5 py-1 rounded-lg border border-slate-200/60 dark:border-slate-800 flex items-center gap-1.5">
+                                                    <span className="font-bold text-slate-500 text-[10px] uppercase">Description:</span>
+                                                    <span>{item.materialDescription}</span>
                                                 </div>
                                             )}
                                         </div>

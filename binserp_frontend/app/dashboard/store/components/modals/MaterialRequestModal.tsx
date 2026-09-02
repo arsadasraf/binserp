@@ -29,7 +29,16 @@ export default function MaterialRequestModal({
         type: "bo" as "bo" | "inhouse",
         salesOrder: "",
         soNumber: "",
-        items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined as string | undefined }]
+        items: [{ 
+            material: "", 
+            materialName: "", 
+            materialCode: "", 
+            materialDescription: "" as string | undefined,
+            quantity: 1, 
+            unit: "PCS", 
+            purpose: "", 
+            component: undefined as string | undefined 
+        }]
     });
 
     // Filter open sales orders (status !== 'Completed' && status !== 'Cancelled')
@@ -50,7 +59,16 @@ export default function MaterialRequestModal({
                 type: "bo",
                 salesOrder: "",
                 soNumber: "",
-                items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
+                items: [{ 
+                    material: "", 
+                    materialName: "", 
+                    materialCode: "", 
+                    materialDescription: "", 
+                    quantity: 1, 
+                    unit: "PCS", 
+                    purpose: "", 
+                    component: undefined 
+                }]
             });
         }
     }, [isOpen]);
@@ -88,19 +106,21 @@ export default function MaterialRequestModal({
     };
 
     const handleMaterialChange = (index: number, materialId: string) => {
-        let selectedItem;
+        let selectedItem: any;
         if (formData.type === 'inhouse') {
             selectedItem = inHouseComponents?.find((c: any) => c._id === materialId);
         } else {
             selectedItem = materials.find(m => m._id === materialId);
         }
 
+        const materialDesc = selectedItem?.description || selectedItem?.specification || selectedItem?.grade || "";
         const newItems = [...formData.items];
         newItems[index] = {
             ...newItems[index],
             material: materialId,
             materialName: selectedItem?.componentName || selectedItem?.name || "",
-            materialCode: selectedItem?.componentCode || selectedItem?.code || "",
+            materialCode: "",
+            materialDescription: materialDesc,
             unit: (formData.type === 'inhouse' ? selectedItem?.unit : (typeof selectedItem?.categoryId === 'object' ? (selectedItem.categoryId as any).unit : "PCS")) || "PCS",
             component: formData.type === 'inhouse' ? materialId : undefined
         };
@@ -116,7 +136,7 @@ export default function MaterialRequestModal({
     const addItem = () => {
         setFormData({
             ...formData,
-            items: [...formData.items, { material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
+            items: [...formData.items, { material: "", materialName: "", materialCode: "", materialDescription: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
         });
     };
 
@@ -133,73 +153,79 @@ export default function MaterialRequestModal({
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 sticky top-0 z-10 backdrop-blur-md">
                     <div>
                         <h2 className="text-xl font-bold text-gray-800">New Material Request</h2>
-                        <div className="flex items-center gap-4 mt-1">
-                            <p className="text-sm text-gray-500">
-                                Request Number: {formData.requestNumber}
-                            </p>
-                            <div className="flex bg-gray-100 rounded-lg p-1">
-                                <button
-                                    onClick={() => {
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            type: 'bo',
-                                            items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
-                                        }));
-                                    }}
-                                    className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${formData.type === 'bo' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                    BO Items
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            type: 'inhouse',
-                                            items: [{ material: "", materialName: "", materialCode: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
-                                        }));
-                                    }}
-                                    className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${formData.type === 'inhouse' ? 'bg-white shadow-sm text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
-                                >
-                                    Inhouse Items
-                                </button>
-                            </div>
-                        </div>
+                        <p className="text-xs text-gray-500 mt-1">Raise a requisition for {formData.type === 'inhouse' ? 'In-house components' : 'Bought out (BO) items'} linked to Sales Orders</p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500">
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors text-gray-400 hover:text-gray-600">
                         <X size={20} />
                     </button>
                 </div>
 
                 <div className="p-6 space-y-6 pb-32">
-                    {/* Target Sales Order Selector */}
-                    <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-100 shadow-sm">
-                        <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                            <ShoppingCart size={15} className="text-indigo-600" /> Target Sales Order (Which Sales Order are you requesting material for?)
-                        </label>
-                        <SearchableSelect
-                            options={openSalesOrders.map((so: any) => ({
-                                value: so._id,
-                                label: `${so.orderNumber || 'SO'} - ${so.customer?.name || 'Customer'} (Status: ${so.status || 'Open'})`
-                            }))}
-                            value={formData.salesOrder || ''}
-                            onChange={(val: any) => {
-                                const selectedSO = openSalesOrders.find((so: any) => so._id === val);
-                                setFormData(prev => ({
-                                    ...prev,
-                                    salesOrder: val,
-                                    soNumber: selectedSO?.orderNumber || ''
-                                }));
-                            }}
-                            placeholder="Select Open Sales Order (e.g. SO-0001)..."
-                        />
-                        {formData.soNumber && (
-                            <div className="mt-2 text-xs text-indigo-700 font-medium">
-                                Bound to Sales Order: <strong className="font-mono bg-indigo-100 px-2 py-0.5 rounded">{formData.soNumber}</strong>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-2">Request Type</label>
+                            <div className="flex bg-gray-100 p-1 rounded-xl">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            type: 'bo',
+                                            items: [{ material: "", materialName: "", materialCode: "", materialDescription: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
+                                        }));
+                                    }}
+                                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${formData.type === "bo"
+                                        ? "bg-white text-emerald-700 shadow-xs"
+                                        : "text-gray-600 hover:text-gray-900"
+                                        }`}
+                                >
+                                    <ShoppingCart size={14} /> Bought Out (BO)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            type: 'inhouse',
+                                            items: [{ material: "", materialName: "", materialCode: "", materialDescription: "", quantity: 1, unit: "PCS", purpose: "", component: undefined }]
+                                        }));
+                                    }}
+                                    className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${formData.type === "inhouse"
+                                        ? "bg-white text-purple-700 shadow-xs"
+                                        : "text-gray-600 hover:text-gray-900"
+                                        }`}
+                                >
+                                    <Package size={14} /> In-house Component
+                                </button>
                             </div>
-                        )}
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-500 mb-2">Target Sales Order (Optional)</label>
+                            <SearchableSelect
+                                options={openSalesOrders.map((so: any) => ({
+                                    value: so._id,
+                                    label: `${so.orderNumber || 'SO'} - ${so.customer?.name || 'Customer'} (Status: ${so.status || 'Open'})`
+                                }))}
+                                value={formData.salesOrder || ''}
+                                onChange={(val: any) => {
+                                    const selectedSO = openSalesOrders.find((so: any) => so._id === val);
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        salesOrder: val,
+                                        soNumber: selectedSO?.orderNumber || ''
+                                    }));
+                                }}
+                                placeholder="Select Open Sales Order (e.g. SO-0001)..."
+                            />
+                            {formData.soNumber && (
+                                <div className="mt-2 text-xs text-indigo-700 font-medium">
+                                    Bound to Sales Order: <strong className="font-mono bg-indigo-100 px-2 py-0.5 rounded">{formData.soNumber}</strong>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
-                    {/* Items Section */}
                     <div>
                         <div className="flex justify-between items-center mb-4">
                             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wider">Requested Items</h3>
@@ -213,7 +239,7 @@ export default function MaterialRequestModal({
                         </div>
 
                         <div className="space-y-3">
-                            {formData.items.map((item, index) => {
+                            {formData.items.map((item: any, index) => {
                                 const currentStock = getStock(item.material, item.materialCode, item.materialName);
                                 const isExceedingStock = item.material && item.quantity > currentStock;
 
@@ -223,23 +249,36 @@ export default function MaterialRequestModal({
                                             <label className="block text-xs font-medium text-gray-500 mb-1">Material</label>
                                             <SearchableSelect
                                                 options={formData.type === 'inhouse' ? (
-                                                    (inHouseComponents || []).map((c: any) => ({
-                                                        value: c._id,
-                                                        label: `${c.name || c.componentName || ''} ${c.code ? `(${c.code})` : ''} ${c.description ? `- ${c.description}` : ''}`
-                                                    }))
+                                                    (inHouseComponents || []).map((c: any) => {
+                                                        const desc = c.description || c.specification || '';
+                                                        return {
+                                                            value: c._id,
+                                                            label: `${c.name || c.componentName || ''}${desc ? ` • ${desc}` : ''}`,
+                                                            description: desc || ''
+                                                        };
+                                                    })
                                                 ) : (
-                                                    (materials || []).map((m) => ({
-                                                        value: m._id,
-                                                        label: `${m.name || ''} ${((m as any).code) ? `(${((m as any).code)})` : ''}`
-                                                    }))
+                                                    (materials || []).map((m: any) => {
+                                                        const desc = m.description || m.specification || m.grade || '';
+                                                        return {
+                                                            value: m._id,
+                                                            label: `${m.name || ''}${desc ? ` • ${desc}` : ''}`,
+                                                            description: desc || ''
+                                                        };
+                                                    })
                                                 )}
                                                 value={typeof item.material === 'object' ? (item.material as any)._id : item.material || ''}
                                                 onChange={(val: any) => handleMaterialChange(index, val)}
                                                 placeholder={`Select ${formData.type === 'inhouse' ? 'Component' : 'Material'}`}
                                             />
+                                            {item.materialDescription && (
+                                                <div className="mt-1.5 text-[11px] text-slate-600 bg-white px-2.5 py-1 rounded-lg border border-slate-200 flex items-center gap-1.5">
+                                                    <span className="font-bold text-slate-500 text-[10px] uppercase">Description:</span>
+                                                    <span>{item.materialDescription}</span>
+                                                </div>
+                                            )}
                                         </div>
 
-                                        {/* Current Stock Field */}
                                         <div className="w-32">
                                             <label className="block text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
                                                 <Package size={12} /> Stock

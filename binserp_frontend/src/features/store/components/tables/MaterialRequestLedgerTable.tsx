@@ -121,7 +121,7 @@ export default function MaterialRequestLedgerTable({
         const so = (req.soNumber || req.salesOrder?.orderNumber || '').toLowerCase();
         const itemsMatch = (req.items || []).some((it: any) => 
           (it.materialName || '').toLowerCase().includes(q) ||
-          (it.materialCode || '').toLowerCase().includes(q) ||
+          (it.materialDescription || it.description || '').toLowerCase().includes(q) ||
           (it.purpose || '').toLowerCase().includes(q)
         );
         if (!reqNum.includes(q) && !reqBy.includes(q) && !mrp.includes(q) && !so.includes(q) && !itemsMatch) {
@@ -578,12 +578,19 @@ export default function MaterialRequestLedgerTable({
                         </td>
                         <td className="p-3.5">
                           <div className="space-y-1">
-                            {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => (
-                              <div key={iIdx} className="text-xs">
-                                <span className="font-semibold text-slate-800 dark:text-slate-200">{it.materialName || it.name}</span>
-                                {it.materialCode && <span className="text-[10px] text-slate-400 font-mono ml-1">({it.materialCode})</span>}
-                              </div>
-                            ))}
+                            {(req.items || []).slice(0, 2).map((it: any, iIdx: number) => {
+                              const desc = it.materialDescription || it.description || it.specification || '';
+                              return (
+                                <div key={iIdx} className="text-xs">
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200">{it.materialName || it.name}</span>
+                                  {desc && (
+                                    <div className="text-[10.5px] text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
+                                      {desc}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                             {itemsCount > 2 && (
                               <span className="text-[10px] text-blue-600 font-bold">
                                 +{itemsCount - 2} more items
@@ -698,23 +705,26 @@ export default function MaterialRequestLedgerTable({
                       </span>
                     </div>
 
-                    {(req.items || []).slice(0, 3).map((it: any, iIdx: number) => (
-                      <div key={iIdx} className="flex justify-between items-center text-xs">
-                        <div className="truncate max-w-[70%]">
-                          <span className="font-semibold text-slate-800 dark:text-slate-200">
-                            • {it.materialName || it.name}
-                          </span>
-                          {it.materialCode && (
-                            <span className="text-[10px] text-slate-400 font-mono ml-1">
-                              ({it.materialCode})
+                    {(req.items || []).slice(0, 3).map((it: any, iIdx: number) => {
+                      const desc = it.materialDescription || it.description || it.specification || '';
+                      return (
+                        <div key={iIdx} className="flex justify-between items-start text-xs">
+                          <div className="truncate max-w-[70%]">
+                            <span className="font-semibold text-slate-800 dark:text-slate-200">
+                              • {it.materialName || it.name}
                             </span>
-                          )}
+                            {desc && (
+                              <span className="text-[10.5px] text-slate-500 dark:text-slate-400 block ml-2">
+                                {desc}
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px] shrink-0">
+                            {it.quantity} {it.unit || 'PCS'}
+                          </span>
                         </div>
-                        <span className="font-mono font-bold text-slate-900 dark:text-white text-[11px] shrink-0">
-                          {it.quantity} {it.unit || 'PCS'}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
 
                     {itemsCount > 3 && (
                       <div className="text-[10px] text-blue-600 dark:text-blue-400 font-bold pt-0.5">

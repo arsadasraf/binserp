@@ -143,18 +143,22 @@ export const recordAttendance = async (req, res) => {
       const diffMins = diffMs / 60000;
       const diffHours = diffMs / 3600000;
 
-      // 5-Minute Anti-Double-Scan Debounce
-      if (diffMins < 5) {
-        const waitSecs = Math.max(1, Math.round(300 - (diffMs / 1000)));
-        return res.status(400).json({
-          status: "warning",
-          type: "debounce",
-          message: `Employee checked in only ${Math.floor(diffMins)}m ago. Check-out is available after 5 minutes (wait ${waitSecs}s).`
+      // 5-Minute Anti-Double-Scan Debounce (allows override with forceCheckOut or confirmation)
+      const forceCheckOut = req.body.forceCheckOut === true || req.body.forceCheckOut === "true";
+
+      if (diffMins < 5 && !forceCheckOut) {
+        return res.status(200).json({
+          status: "requires_confirmation",
+          type: "early_checkout",
+          employee: employee.name,
+          employeeId: employee.employeeId,
+          hoursWorked: parseFloat(diffHours.toFixed(2)),
+          workedText: `${Math.max(1, Math.floor(diffMins))}m`,
+          message: `Employee checked in only ${Math.max(1, Math.floor(diffMins))}m ago. Do you confirm early check-out?`
         });
       }
 
       // Early Check-Out (< 4h) Confirmation
-      const forceCheckOut = req.body.forceCheckOut === true || req.body.forceCheckOut === "true";
       if (diffHours < 4 && !forceCheckOut) {
         const hoursFormatted = Math.floor(diffHours);
         const minsFormatted = Math.round((diffHours % 1) * 60);
@@ -162,7 +166,7 @@ export const recordAttendance = async (req, res) => {
           status: "requires_confirmation",
           type: "early_checkout",
           employee: employee.name,
-          employeeId: employee._id,
+          employeeId: employee.employeeId,
           hoursWorked: parseFloat(diffHours.toFixed(2)),
           workedText: `${hoursFormatted}h ${minsFormatted}m`,
           message: `Employee has worked for ${hoursFormatted}h ${minsFormatted}m (less than 4 hours). Do you confirm early check-out?`

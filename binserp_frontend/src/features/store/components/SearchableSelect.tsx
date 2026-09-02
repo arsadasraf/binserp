@@ -162,7 +162,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     const filteredOptions = useMemo(() => {
         if (!searchTerm.trim()) return uniqueOptions;
         const term = searchTerm.toLowerCase().trim();
-        return uniqueOptions.filter((o) => (o.label || '').toLowerCase().includes(term));
+        return uniqueOptions.filter((o) => 
+            (o.label || '').toLowerCase().includes(term) ||
+            (o.description || '').toLowerCase().includes(term) ||
+            (o.code || '').toLowerCase().includes(term)
+        );
     }, [uniqueOptions, searchTerm]);
 
     const exactMatch = uniqueOptions.some((o) => (o.label || '').toLowerCase() === searchTerm.trim().toLowerCase());
@@ -203,7 +207,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     if (!disabled) setIsOpen(!isOpen);
                 }}
             >
-                <span className={`truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300' : !selectedOption ? 'text-gray-400' : 'text-gray-800'}`}>
+                <span className={`truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300' : !selectedOption ? 'text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
                     {selectedOption ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label)) : placeholder}
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 ${hasError ? 'text-rose-500' : 'text-gray-400'} shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
@@ -254,10 +258,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                             filteredOptions.map((o) => {
                                 const isSelected = value === o.value;
                                 const { name, code } = formatOptionLabel(o.label);
+                                const itemDesc = o.description || '';
                                 return (
                                     <div
                                         key={o.value}
-                                        className={`px-3.5 py-2 text-xs cursor-pointer flex items-center justify-between gap-2 transition-colors ${
+                                        className={`px-3.5 py-2.5 text-xs cursor-pointer flex items-center justify-between gap-2 transition-colors ${
                                             isSelected 
                                                 ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-950 dark:text-indigo-200 font-bold' 
                                                 : 'text-gray-700 dark:text-slate-200 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/40 hover:text-indigo-900 dark:hover:text-indigo-300'
@@ -270,9 +275,14 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                         }}
                                     >
                                         <div className="flex-1 min-w-0">
-                                            <div className="truncate font-semibold">{name}</div>
+                                            <div className="font-semibold text-slate-900 dark:text-white truncate">{name}</div>
+                                            {itemDesc && (
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 break-words line-clamp-2 font-normal">
+                                                    {itemDesc}
+                                                </div>
+                                            )}
                                             {code && (
-                                                <span className="inline-block mt-0.5 px-1.5 py-0.2 text-[10px] font-mono bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 rounded border border-gray-200 dark:border-slate-700">
+                                                <span className="inline-block mt-1 px-1.5 py-0.2 text-[10px] font-mono bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-400 rounded border border-gray-200 dark:border-slate-700">
                                                     {code}
                                                 </span>
                                             )}

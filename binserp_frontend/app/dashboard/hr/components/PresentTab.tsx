@@ -95,8 +95,9 @@ export default function PresentTab() {
             const lowerTerm = searchTerm.toLowerCase();
             filtered = filtered.filter(
                 (record) =>
-                    record.employee?.name.toLowerCase().includes(lowerTerm) ||
-                    record.employee?.employeeId.toLowerCase().includes(lowerTerm)
+                    record.employee?.name?.toLowerCase().includes(lowerTerm) ||
+                    record.employee?.employeeId?.toLowerCase().includes(lowerTerm) ||
+                    record.employee?.department?.toLowerCase().includes(lowerTerm)
             );
         }
         setFilteredAttendance(filtered);
@@ -130,10 +131,12 @@ export default function PresentTab() {
                 }
             );
 
-            // Sort by date (newest first)
-            const sorted = (response.data.attendance || []).sort((a: any, b: any) =>
-                new Date(b.date).getTime() - new Date(a.date).getTime()
-            );
+            // Sort chronologically by check-in time (newest check-in first)
+            const sorted = (response.data.attendance || []).sort((a: any, b: any) => {
+                const timeA = a.checkIn?.time ? new Date(a.checkIn.time).getTime() : (a.date ? new Date(a.date).getTime() : 0);
+                const timeB = b.checkIn?.time ? new Date(b.checkIn.time).getTime() : (b.date ? new Date(b.date).getTime() : 0);
+                return timeB - timeA;
+            });
 
             setAttendance(sorted);
             setFilteredAttendance(sorted);
@@ -142,6 +145,30 @@ export default function PresentTab() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const getStatusInfo = (record: AttendanceRecord) => {
+        const hasCheckIn = Boolean(record.checkIn?.time);
+        const hasCheckOut = Boolean(record.checkOut?.time);
+
+        if (hasCheckIn && !hasCheckOut) {
+            return {
+                label: "Check-In Only",
+                badgeClass: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+            };
+        }
+        if (hasCheckIn && hasCheckOut) {
+            return {
+                label: "Completed",
+                badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+            };
+        }
+        return {
+            label: record.status || "Present",
+            badgeClass: record.status === 'Present'
+                ? "bg-green-100 text-green-700 border-green-200 dark:bg-green-950/40 dark:text-green-300"
+                : "bg-gray-100 text-gray-700 border-gray-200 dark:bg-slate-800 dark:text-gray-300"
+        };
     };
 
     const downloadPDF = () => {
@@ -202,21 +229,22 @@ export default function PresentTab() {
 
         drawHeader();
 
-        const tableBody = filteredAttendance.map(record => [
+        const tableBody = filteredAttendance.map((record, idx) => [
+            String(idx + 1),
             new Date(record.date).toLocaleDateString(),
             record.employee?.employeeId || '-',
             record.employee?.name || '-',
             record.employee?.department || '-',
             record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
             record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-            record.hoursWorked || '-',
-            record.status
+            record.hoursWorked ? `${record.hoursWorked}h` : '-',
+            getStatusInfo(record).label
         ]);
 
         autoTable(doc, {
             startY: 32,
             margin: { left: margin, right: margin },
-            head: [['Date', 'ID', 'Name', 'Dept', 'Check In', 'Check Out', 'Hours', 'Status']],
+            head: [['#', 'Date', 'ID', 'Name', 'Dept', 'Check In', 'Check Out', 'Hours', 'Status']],
             body: tableBody,
             theme: 'grid',
             styles: {
@@ -234,10 +262,10 @@ export default function PresentTab() {
                 cellPadding: 1.5,
             },
             didParseCell: (data) => {
-                if (data.section === 'body' && data.column.index === 7) {
+                if (data.section === 'body' && data.column.index === 8) {
                     const status = data.cell.raw;
-                    if (status === 'Present')  data.cell.styles.textColor = [22, 163, 74];
-                    else if (status === 'HalfDay') data.cell.styles.textColor = [217, 119, 6];
+                    if (status === 'Completed' || status === 'Present')  data.cell.styles.textColor = [22, 163, 74];
+                    else if (status === 'Check-In Only') data.cell.styles.textColor = [217, 119, 6];
                     else data.cell.styles.textColor = [220, 38, 38];
                 }
             },
@@ -262,20 +290,21 @@ export default function PresentTab() {
         const aoa: any[][] = [];
 
         // Branding Header
-        aoa.push([companyName || 'Company', '', '', '', `Generated: ${new Date().toLocaleDateString('en-IN')}`]);
+        aoa.push([companyName || 'Company', '', '', '', '', `Generated: ${new Date().toLocaleDateString('en-IN')}`]);
         if (companyAddress) aoa.push([companyAddress]);
         aoa.push([]); 
         
         // Title & Period
-        aoa.push(['ATTENDANCE REPORT', '', '', '', periodText]);
+        aoa.push(['ATTENDANCE REPORT', '', '', '', '', periodText]);
         aoa.push([`Total Records: ${filteredAttendance.length}`]);
         aoa.push([]);
 
         // Table Header
-        aoa.push(['Date', 'Employee ID', 'Name', 'Department', 'Check In', 'Check Out', 'Hours', 'Status']);
+        aoa.push(['#', 'Date', 'Employee ID', 'Name', 'Department', 'Check In', 'Check Out', 'Hours', 'Status']);
         
-        filteredAttendance.forEach(record => {
+        filteredAttendance.forEach((record, idx) => {
             aoa.push([
+                idx + 1,
                 new Date(record.date).toLocaleDateString(),
                 record.employee?.employeeId || '-',
                 record.employee?.name || '-',
@@ -283,7 +312,7 @@ export default function PresentTab() {
                 record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
                 record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
                 record.hoursWorked || '-',
-                record.status
+                getStatusInfo(record).label
             ]);
         });
 
@@ -293,6 +322,7 @@ export default function PresentTab() {
         const ws = XLSX.utils.aoa_to_sheet(aoa);
 
         ws['!cols'] = [
+            { wch: 6 },  // #
             { wch: 15 }, // Date
             { wch: 15 }, // ID
             { wch: 25 }, // Name
@@ -300,7 +330,7 @@ export default function PresentTab() {
             { wch: 15 }, // Check In
             { wch: 15 }, // Check Out
             { wch: 10 }, // Hours
-            { wch: 15 }  // Status
+            { wch: 18 }  // Status
         ];
 
         const wb = XLSX.utils.book_new();
@@ -316,7 +346,7 @@ export default function PresentTab() {
                         <UserCheck className="text-green-600" size={20} />
                         Attendance Records
                     </h3>
-                    <p className="dark:text-gray-400 text-gray-500 text-sm">View and export monthly attendance logs</p>
+                    <p className="dark:text-gray-400 text-gray-500 text-sm">View and export chronological attendance logs (ordered by Check-In)</p>
                 </div>
 
                 <div className="flex flex-col gap-3 lg:w-auto md:flex-row w-full">
@@ -368,7 +398,7 @@ export default function PresentTab() {
                             className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 px-3 py-2 rounded-lg shadow-sm text-sm appearance-none bg-white dark:bg-slate-700 dark:text-white pr-8 h-[38px]"
                         >
                             <option value="all">All Status</option>
-                            <option value="in_only">Checked In (No Out)</option>
+                            <option value="in_only">Check-In Only (Active)</option>
                             <option value="completed">Completed</option>
                         </select>
                         <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
@@ -381,7 +411,7 @@ export default function PresentTab() {
                         <Search className="-translate-y-1/2 absolute dark:text-gray-500 left-3 text-gray-400 top-1/2" size={16} />
                         <input
                             type="text"
-                            placeholder="Search by Name or ID..."
+                            placeholder="Search by Name, ID, Dept..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 pl-9 pr-4 py-2 rounded-lg shadow-sm text-sm w-full"
@@ -421,7 +451,7 @@ export default function PresentTab() {
                         <div className="bg-white dark:bg-slate-800 p-4 rounded-full shadow-sm">
                             <Clock size={32} className="opacity-40" />
                         </div>
-                        <p className="font-medium">{searchTerm ? "No employees found matching your search." : "No attendance records found for this month."}</p>
+                        <p className="font-medium">{searchTerm ? "No employees found matching your search." : "No attendance records found for this period."}</p>
                     </div>
                 ) : (
                     <>
@@ -430,6 +460,7 @@ export default function PresentTab() {
                             <table className="border-collapse text-left w-full">
                                 <thead>
                                     <tr className="bg-gray-50 border-b border-gray-200 dark:bg-slate-800/50 dark:border-slate-600 dark:text-gray-300 text-gray-600 text-sm uppercase">
+                                        <th className="font-semibold px-4 py-4 w-12 text-center">#</th>
                                         <th className="font-semibold px-6 py-4">Date</th>
                                         <th className="font-semibold px-6 py-4">Employee</th>
                                         <th className="font-semibold px-6 py-4">Department</th>
@@ -440,154 +471,164 @@ export default function PresentTab() {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white dark:bg-slate-800 divide-gray-100 divide-y">
-                                    {filteredAttendance.map((record) => (
-                                        <tr key={record._id} className="dark:hover:bg-slate-700 hover:bg-gray-50 transition-colors">
-                                            <td className="dark:text-gray-300 px-6 py-4 text-gray-600 text-sm">
-                                                {new Date(record.date).toLocaleDateString()}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div>
-                                                    <p className="dark:text-gray-100 font-semibold text-gray-800">{record.employee?.name || "Unknown"}</p>
-                                                    <p className="dark:text-gray-400 font-mono text-gray-500 text-xs">{record.employee?.employeeId}</p>
-                                                </div>
-                                            </td>
-                                            <td className="dark:text-gray-300 px-6 py-4 text-gray-600">
-                                                <span className="bg-blue-50 border border-blue-100 font-semibold px-2.5 py-1 rounded-md text-blue-700 text-xs">
-                                                    {record.employee?.department || "N/A"}
-                                                </span>
-                                            </td>
-                                            <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
-                                                <div className="flex flex-col gap-1">
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className="bg-green-50 dark:bg-green-950/40 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-green-700 dark:text-green-400 w-fit">
-                                                            <div className="bg-green-500 h-1.5 rounded-full w-1.5"></div>
-                                                            {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
-                                                        </div>
-                                                        {(record.checkIn?.method || (record.verificationMethod === "Face" ? "Face" : record.checkIn?.time ? "Manual" : null)) && (
-                                                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                                                (record.checkIn?.method === "Face" || record.verificationMethod === "Face")
-                                                                    ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
-                                                                    : "bg-gray-100 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:border-slate-700"
-                                                            }`}>
-                                                                {(record.checkIn?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
-                                                            </span>
-                                                        )}
+                                    {filteredAttendance.map((record, idx) => {
+                                        const statusInfo = getStatusInfo(record);
+                                        return (
+                                            <tr key={record._id} className="dark:hover:bg-slate-700 hover:bg-gray-50 transition-colors">
+                                                <td className="px-4 py-4 text-center font-mono text-xs text-gray-400 dark:text-gray-500 font-semibold">
+                                                    {idx + 1}
+                                                </td>
+                                                <td className="dark:text-gray-300 px-6 py-4 text-gray-600 text-sm whitespace-nowrap">
+                                                    {new Date(record.date).toLocaleDateString()}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div>
+                                                        <p className="dark:text-gray-100 font-semibold text-gray-800">{record.employee?.name || "Unknown"}</p>
+                                                        <p className="dark:text-gray-400 font-mono text-gray-500 text-xs">{record.employee?.employeeId}</p>
                                                     </div>
-                                                    {record.checkIn?.markedBy && <div className="text-[10px] text-gray-500 ml-1">by {record.checkIn.markedBy.name}</div>}
-                                                </div>
-                                            </td>
-                                            <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
-                                                {record.checkOut?.time ? (
+                                                </td>
+                                                <td className="dark:text-gray-300 px-6 py-4 text-gray-600">
+                                                    <span className="bg-blue-50 border border-blue-100 font-semibold px-2.5 py-1 rounded-md text-blue-700 text-xs dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
+                                                        {record.employee?.department || "N/A"}
+                                                    </span>
+                                                </td>
+                                                <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
                                                     <div className="flex flex-col gap-1">
                                                         <div className="flex items-center gap-1.5">
-                                                            <div className="bg-red-50 dark:bg-red-950/40 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-red-700 dark:text-red-400 w-fit">
-                                                                <div className="bg-red-500 h-1.5 rounded-full w-1.5"></div>
-                                                                {new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            <div className="bg-green-50 dark:bg-green-950/40 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-green-700 dark:text-green-400 w-fit">
+                                                                <div className="bg-green-500 h-1.5 rounded-full w-1.5"></div>
+                                                                {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
                                                             </div>
-                                                            {(record.checkOut?.method || (record.verificationMethod === "Face" ? "Face" : record.checkOut?.time ? "Manual" : null)) && (
+                                                            {(record.checkIn?.method || (record.verificationMethod === "Face" ? "Face" : record.checkIn?.time ? "Manual" : null)) && (
                                                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                                                                    (record.checkOut?.method === "Face" || record.verificationMethod === "Face")
+                                                                    (record.checkIn?.method === "Face" || record.verificationMethod === "Face")
                                                                         ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
                                                                         : "bg-gray-100 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:border-slate-700"
                                                                 }`}>
-                                                                    {(record.checkOut?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                                    {(record.checkIn?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        {record.checkOut?.markedBy && <div className="text-[10px] text-gray-500 ml-1">by {record.checkOut.markedBy.name}</div>}
+                                                        {record.checkIn?.markedBy && <div className="text-[10px] text-gray-500 ml-1">by {record.checkIn.markedBy.name}</div>}
                                                     </div>
-                                                ) : (
-                                                    <span className="dark:text-gray-500 italic text-gray-400 text-xs">Active</span>
-                                                )}
-                                            </td>
-                                            <td className="dark:text-gray-200 font-medium font-mono px-6 py-4 text-gray-700 text-sm">
-                                                {record.hoursWorked ? `${record.hoursWorked} h` : "-"}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${record.status === 'Present'
-                                                    ? 'bg-green-100 text-green-700 border-green-200'
-                                                    : 'bg-gray-100 text-gray-700 border-gray-200'
-                                                    }`}>
-                                                    {record.status}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                </td>
+                                                <td className="dark:text-gray-200 font-mono px-6 py-4 text-gray-700 text-sm">
+                                                    {record.checkOut?.time ? (
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <div className="bg-red-50 dark:bg-red-950/40 flex font-medium gap-1.5 items-center px-2 py-1 rounded text-red-700 dark:text-red-400 w-fit">
+                                                                    <div className="bg-red-500 h-1.5 rounded-full w-1.5"></div>
+                                                                    {new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                </div>
+                                                                {(record.checkOut?.method || (record.verificationMethod === "Face" ? "Face" : record.checkOut?.time ? "Manual" : null)) && (
+                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                                                                        (record.checkOut?.method === "Face" || record.verificationMethod === "Face")
+                                                                            ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800"
+                                                                            : "bg-gray-100 text-gray-600 border-gray-200 dark:bg-slate-800 dark:text-gray-300 dark:border-slate-700"
+                                                                    }`}>
+                                                                        {(record.checkOut?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            {record.checkOut?.markedBy && <div className="text-[10px] text-gray-500 ml-1">by {record.checkOut.markedBy.name}</div>}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="dark:text-amber-400 font-semibold text-amber-600 text-xs bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                                            Checked In
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="dark:text-gray-200 font-medium font-mono px-6 py-4 text-gray-700 text-sm">
+                                                    {record.hoursWorked ? `${record.hoursWorked} h` : "-"}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${statusInfo.badgeClass}`}>
+                                                        {statusInfo.label}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
 
                         {/* Mobile Card View */}
                         <div className="flex flex-col gap-3 md:hidden p-4">
-                            {filteredAttendance.map((record) => (
-                                <div key={record._id} className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-col gap-3 p-4 rounded-xl shadow-sm">
-                                    <div className="flex items-start justify-between">
-                                        <div>
-                                            <h4 className="dark:text-white font-bold text-gray-900">{record.employee?.name || "Unknown"}</h4>
-                                            <p className="dark:text-gray-400 font-mono text-gray-500 text-xs">{record.employee?.employeeId}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="dark:text-gray-400 mb-1 text-gray-500 text-xs">{new Date(record.date).toLocaleDateString()}</div>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${record.status === 'Present'
-                                                ? 'bg-green-50 text-green-700 border-green-100'
-                                                : 'bg-gray-50 text-gray-700 border-gray-100'
-                                                }`}>
-                                                {record.status}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex gap-2 items-center">
-                                        <span className="bg-blue-50 border border-blue-100 font-semibold px-2 py-0.5 rounded text-[10px] text-blue-700">
-                                            {record.employee?.department || "N/A"}
-                                        </span>
-                                        {record.hoursWorked && (
-                                            <span className="bg-amber-50 border border-amber-100 font-semibold px-2 py-0.5 rounded text-[10px] text-amber-700">
-                                                {record.hoursWorked} hrs
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="border-gray-50 border-t dark:border-slate-800/50 gap-3 grid grid-cols-2 mt-1 pt-3">
-                                        <div className="flex flex-col">
-                                            <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check In</span>
-                                            <div className="flex items-center gap-1 mt-0.5">
-                                                <span className="font-medium font-mono text-green-700 text-sm">
-                                                    {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                            {filteredAttendance.map((record, idx) => {
+                                const statusInfo = getStatusInfo(record);
+                                return (
+                                    <div key={record._id} className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 flex flex-col gap-3 p-4 rounded-xl shadow-sm">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-gray-400 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
+                                                    {idx + 1}
                                                 </span>
-                                                {(record.checkIn?.method || (record.verificationMethod === "Face" ? "Face" : record.checkIn?.time ? "Manual" : null)) && (
-                                                    <span className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
-                                                        (record.checkIn?.method === "Face" || record.verificationMethod === "Face")
-                                                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                                                            : "bg-gray-100 text-gray-600 border-gray-200"
-                                                    }`}>
-                                                        {(record.checkIn?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
-                                                    </span>
-                                                )}
+                                                <div>
+                                                    <h4 className="dark:text-white font-bold text-gray-900">{record.employee?.name || "Unknown"}</h4>
+                                                    <p className="dark:text-gray-400 font-mono text-gray-500 text-xs">{record.employee?.employeeId}</p>
+                                                </div>
                                             </div>
-                                            {record.checkIn?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkIn.markedBy.name}</span>}
-                                        </div>
-                                        <div className="flex flex-col text-right items-end">
-                                            <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check Out</span>
-                                            <div className="flex items-center gap-1 mt-0.5">
-                                                <span className="font-medium font-mono text-red-700 text-sm">
-                                                    {record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}
+                                            <div className="text-right">
+                                                <div className="dark:text-gray-400 mb-1 text-gray-500 text-xs">{new Date(record.date).toLocaleDateString()}</div>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${statusInfo.badgeClass}`}>
+                                                    {statusInfo.label}
                                                 </span>
-                                                {record.checkOut?.time && (
-                                                    <span className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
-                                                        (record.checkOut?.method === "Face" || record.verificationMethod === "Face")
-                                                            ? "bg-blue-50 text-blue-700 border-blue-200"
-                                                            : "bg-gray-100 text-gray-600 border-gray-200"
-                                                    }`}>
-                                                        {(record.checkOut?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
-                                                    </span>
-                                                )}
                                             </div>
-                                            {record.checkOut?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkOut.markedBy.name}</span>}
+                                        </div>
+
+                                        <div className="flex gap-2 items-center">
+                                            <span className="bg-blue-50 border border-blue-100 font-semibold px-2 py-0.5 rounded text-[10px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
+                                                {record.employee?.department || "N/A"}
+                                            </span>
+                                            {record.hoursWorked ? (
+                                                <span className="bg-amber-50 border border-amber-100 font-semibold px-2 py-0.5 rounded text-[10px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
+                                                    {record.hoursWorked} hrs
+                                                </span>
+                                            ) : null}
+                                        </div>
+
+                                        <div className="border-gray-50 border-t dark:border-slate-800/50 gap-3 grid grid-cols-2 mt-1 pt-3">
+                                            <div className="flex flex-col">
+                                                <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check In</span>
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                    <span className="font-medium font-mono text-green-700 text-sm">
+                                                        {record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "-"}
+                                                    </span>
+                                                    {(record.checkIn?.method || (record.verificationMethod === "Face" ? "Face" : record.checkIn?.time ? "Manual" : null)) && (
+                                                        <span className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
+                                                            (record.checkIn?.method === "Face" || record.verificationMethod === "Face")
+                                                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                                                : "bg-gray-100 text-gray-600 border-gray-200"
+                                                        }`}>
+                                                            {(record.checkIn?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {record.checkIn?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkIn.markedBy.name}</span>}
+                                            </div>
+                                            <div className="flex flex-col text-right items-end">
+                                                <span className="dark:text-gray-500 font-semibold text-[10px] text-gray-400 uppercase">Check Out</span>
+                                                <div className="flex items-center gap-1 mt-0.5">
+                                                    <span className="font-medium font-mono text-red-700 text-sm">
+                                                        {record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}
+                                                    </span>
+                                                    {record.checkOut?.time && (
+                                                        <span className={`text-[9px] font-bold px-1 py-0.2 rounded border ${
+                                                            (record.checkOut?.method === "Face" || record.verificationMethod === "Face")
+                                                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                                                : "bg-gray-100 text-gray-600 border-gray-200"
+                                                        }`}>
+                                                            {(record.checkOut?.method === "Face" || record.verificationMethod === "Face") ? "📸 Face" : "👤 Manual"}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {record.checkOut?.markedBy && <span className="text-[10px] text-gray-500 mt-0.5">by {record.checkOut.markedBy.name}</span>}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </>
                 )}

@@ -51,10 +51,7 @@ export default function ManualAttendanceTab() {
             
             const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 
-            // Map each employee to their current active or today's attendance record:
-            // 1. If an employee has an unclosed shift (checkIn exists, checkOut does not exist) -> active shift.
-            // 2. If an employee has a record for TODAY (checkIn or date is today) -> today's record.
-            // 3. Completed records from YESTERDAY or earlier are ignored for today's status so employee can Check In today.
+            // Map each employee to their current active or today's attendance record
             attData.forEach((att: any) => {
                 const empId = att.employee?._id || att.employee;
                 if (!empId) return;
@@ -91,16 +88,17 @@ export default function ManualAttendanceTab() {
         try {
             setActionLoading(employeeDbId);
             const token = localStorage.getItem('token');
-            await axios.post(`${API_BASE_URL}/api/hr/attendance`, {
+            const res = await axios.post(`${API_BASE_URL}/api/hr/attendance`, {
                 employeeId: employeeIdStr, 
                 type: type,
+                forceCheckOut: true,
                 location: 'Manual Gate Entry'
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
             // Refresh data after action
-            await fetchData();
+            await fetchData(false);
         } catch (error: any) {
             console.error(`Failed to ${type}:`, error);
             alert(error.response?.data?.message || `Failed to record ${type}`);
@@ -117,8 +115,10 @@ export default function ManualAttendanceTab() {
 
     const renderActionButtons = (emp: any) => {
         const att = attendanceMap[emp._id.toString()];
+        const hasCheckIn = Boolean(att?.checkIn?.time);
+        const hasCheckOut = Boolean(att?.checkOut?.time);
 
-        if (!att || !att.checkIn) {
+        if (!hasCheckIn) {
             // Not checked in at all
             return (
                 <button
@@ -132,25 +132,33 @@ export default function ManualAttendanceTab() {
             );
         }
 
-        if (att.checkIn && !att.checkOut) {
-            // Checked in, but not checked out
+        if (hasCheckIn && !hasCheckOut) {
+            // Checked in, but not checked out -> Show Check Out (and Undo Check-In if within 5 minutes)
             const checkInTime = new Date(att.checkIn.time).getTime();
             const diffMins = (currentTime.getTime() - checkInTime) / 60000;
 
             if (diffMins <= 5) {
-                // Within 5 minutes of checkIn -> Show Undo CheckIn
                 return (
-                    <button
-                        onClick={() => handleAttendance(emp.employeeId, emp._id, 'undoCheckIn')}
-                        disabled={actionLoading === emp._id}
-                        className="flex items-center justify-center gap-1.5 w-full py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:shadow-sm transition-all border border-amber-200 rounded-lg text-sm font-bold"
-                    >
-                        {actionLoading === emp._id ? <LoadingSpinner /> : <RotateCcw size={16} />}
-                        Undo Check-In
-                    </button>
+                    <div className="flex items-center gap-1.5 w-full">
+                        <button
+                            onClick={() => handleAttendance(emp.employeeId, emp._id, 'checkOut')}
+                            disabled={actionLoading === emp._id}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-red-50 text-red-700 hover:bg-red-100 hover:shadow-sm transition-all border border-red-200 rounded-lg text-sm font-bold"
+                        >
+                            {actionLoading === emp._id ? <LoadingSpinner /> : <Clock size={16} />}
+                            Check Out
+                        </button>
+                        <button
+                            onClick={() => handleAttendance(emp.employeeId, emp._id, 'undoCheckIn')}
+                            disabled={actionLoading === emp._id}
+                            title="Undo Check-In"
+                            className="p-2 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:shadow-sm transition-all border border-amber-200 rounded-lg text-sm font-bold shrink-0"
+                        >
+                            <RotateCcw size={16} />
+                        </button>
+                    </div>
                 );
             } else {
-                // Past 5 minutes -> Show CheckOut
                 return (
                     <button
                         onClick={() => handleAttendance(emp.employeeId, emp._id, 'checkOut')}
@@ -164,22 +172,28 @@ export default function ManualAttendanceTab() {
             }
         }
 
-        if (att.checkOut) {
+        if (hasCheckOut) {
             // Checked out
             const checkOutTime = new Date(att.checkOut.time).getTime();
             const diffMins = (currentTime.getTime() - checkOutTime) / 60000;
 
             if (diffMins <= 5) {
-                // Within 5 minutes of checkOut -> Show Undo CheckOut
+                // Within 5 minutes of checkOut -> Show Undo CheckOut alongside Completed badge
                 return (
-                    <button
-                        onClick={() => handleAttendance(emp.employeeId, emp._id, 'undoCheckOut')}
-                        disabled={actionLoading === emp._id}
-                        className="flex items-center justify-center gap-1.5 w-full py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:shadow-sm transition-all border border-amber-200 rounded-lg text-sm font-bold"
-                    >
-                        {actionLoading === emp._id ? <LoadingSpinner /> : <RotateCcw size={16} />}
-                        Undo Check-Out
-                    </button>
+                    <div className="flex items-center gap-1.5 w-full">
+                        <div className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-100 text-gray-500 border border-gray-200 rounded-lg text-sm font-bold cursor-not-allowed">
+                            <CheckCircle size={16} className="text-gray-400" />
+                            Completed
+                        </div>
+                        <button
+                            onClick={() => handleAttendance(emp.employeeId, emp._id, 'undoCheckOut')}
+                            disabled={actionLoading === emp._id}
+                            title="Undo Check-Out"
+                            className="p-2 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:shadow-sm transition-all border border-amber-200 rounded-lg text-sm font-bold shrink-0"
+                        >
+                            <RotateCcw size={16} />
+                        </button>
+                    </div>
                 );
             } else {
                 // Past 5 minutes -> Done for the day
@@ -264,7 +278,7 @@ export default function ManualAttendanceTab() {
                                         )}
                                     </div>
                                     
-                                    <div className="w-36 flex shrink-0">
+                                    <div className="w-44 flex shrink-0">
                                         {renderActionButtons(emp)}
                                     </div>
                                 </div>

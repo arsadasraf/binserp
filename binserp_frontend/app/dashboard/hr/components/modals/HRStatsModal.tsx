@@ -7,7 +7,7 @@ interface DisplayItem {
     empId: string;
     department: string;
     designation: string;
-    status: string; // "Present", "Absent", "Active", "Inactive"
+    status: string; // "Check-In Only", "Completed", "Present", "Absent"
     checkIn?: string;
     checkOut?: string;
     checkInBy?: string;
@@ -53,10 +53,46 @@ export default function HRStatsModal({
             );
         }
         if (statusFilter !== "all") {
-            result = result.filter((item) => item.status.toLowerCase() === statusFilter.toLowerCase());
+            const filterKey = statusFilter.toLowerCase();
+            result = result.filter((item) => {
+                const itemStatus = (item.status || "").toLowerCase();
+                if (filterKey === "check-in only" || filterKey === "checkin") {
+                    return itemStatus.includes("check-in") || itemStatus.includes("check in") || (Boolean(item.checkIn) && !item.checkOut);
+                }
+                if (filterKey === "completed") {
+                    return itemStatus.includes("complete") || (Boolean(item.checkIn) && Boolean(item.checkOut));
+                }
+                if (filterKey === "absent") {
+                    return itemStatus.includes("absent") || (!item.checkIn && !item.checkOut);
+                }
+                return itemStatus.includes(filterKey);
+            });
         }
         setFilteredData(result);
     }, [searchTerm, statusFilter, data]);
+
+    const renderStatusBadge = (status: string) => {
+        const s = (status || "").toLowerCase();
+        if (s.includes("check-in") || s.includes("check in") || s === "in_only") {
+            return (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
+                    Check-In Only
+                </span>
+            );
+        }
+        if (s.includes("complete") || s === "present") {
+            return (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
+                    {status}
+                </span>
+            );
+        }
+        return (
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
+                {status || "Absent"}
+            </span>
+        );
+    };
 
     if (!isOpen) return null;
 
@@ -91,8 +127,8 @@ export default function HRStatsModal({
                             className="w-full pl-9 pr-4 py-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-100"
                         />
                     </div>
-                    <div className="flex gap-2 w-full sm:w-auto">
-                        {["all", "present", "absent"].map((status) => (
+                    <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                        {["all", "check-in only", "completed", "absent"].map((status) => (
                             <button
                                 key={status}
                                 onClick={() => setStatusFilter(status)}
@@ -134,11 +170,7 @@ export default function HRStatsModal({
                                                     <p className="text-[10px] font-mono text-gray-400">{item.empId}</p>
                                                 </div>
                                             </div>
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                                                item.status === 'Present' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'
-                                            }`}>
-                                                {item.status}
-                                            </span>
+                                            {renderStatusBadge(item.status)}
                                         </div>
 
                                         <div className="space-y-1 mb-4 flex-1">
@@ -220,11 +252,7 @@ export default function HRStatsModal({
                                                     <p className="text-xs text-gray-400">{item.designation}</p>
                                                 </td>
                                                 <td className="py-3 px-4">
-                                                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
-                                                        item.status === 'Present' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'
-                                                    }`}>
-                                                        {item.status}
-                                                    </span>
+                                                    {renderStatusBadge(item.status)}
                                                 </td>
                                                 <td className="py-3 px-4">
                                                     <div className="flex flex-col gap-1">
