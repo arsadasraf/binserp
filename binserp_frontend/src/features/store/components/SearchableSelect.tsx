@@ -13,6 +13,7 @@ interface SearchableSelectProps {
     options: SearchableOption[];
     value: string;
     onChange: (value: string) => void;
+    displayLabel?: string;
     placeholder?: string;
     className?: string;
     innerClassName?: string;
@@ -26,6 +27,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     options, 
     value, 
     onChange, 
+    displayLabel,
     placeholder = "Select an option...", 
     className = "w-full", 
     innerClassName = "", 
@@ -157,7 +159,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
         ? String((value as any)._id || (value as any).id || (value as any).name || '') 
         : (value !== undefined && value !== null ? String(value) : '');
 
-    const selectedOption = uniqueOptions.find((o) => o.value === stringValue) || (stringValue ? { value: stringValue, label: stringValue } : null);
+    const matchedOption = uniqueOptions.find((o) => o.value === stringValue);
+    const selectedOption = matchedOption || (displayLabel ? { value: stringValue || displayLabel, label: displayLabel } : stringValue ? { value: stringValue, label: stringValue } : null);
     
     const filteredOptions = useMemo(() => {
         if (!searchTerm.trim()) return uniqueOptions;
@@ -199,7 +202,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                             ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-1 ring-rose-400/80 text-rose-900 dark:text-rose-200'
                             : isOpen 
                                 ? 'border-indigo-500 ring-2 ring-indigo-500/20' 
-                                : !selectedOption && !stringValue 
+                                : !selectedOption && !stringValue && !displayLabel
                                     ? 'border-gray-300 hover:border-gray-400' 
                                     : 'border-gray-300 hover:border-indigo-300'
                 }`}
@@ -207,8 +210,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     if (!disabled) setIsOpen(!isOpen);
                 }}
             >
-                <span className={`truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300' : !selectedOption ? 'text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
-                    {selectedOption ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label)) : placeholder}
+                <span className={`truncate font-medium ${hasError ? 'text-rose-700 dark:text-rose-300 font-semibold' : (!selectedOption && !displayLabel) ? 'text-gray-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                    {selectedOption ? (typeof selectedOption.label === 'string' ? selectedOption.label : String(selectedOption.label)) : (displayLabel || placeholder)}
                 </span>
                 <ChevronDown className={`w-3.5 h-3.5 ${hasError ? 'text-rose-500' : 'text-gray-400'} shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-600' : ''}`} />
             </div>

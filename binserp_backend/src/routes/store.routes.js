@@ -260,4 +260,21 @@ router.post("/mrp/explode-so", explodeSalesOrderMRP);
 router.post("/purchase/indent-from-mrp", createIndentFromMRP);
 router.post("/ppc/workorder-from-mrp", createWorkOrderFromMRP);
 
+// Rejection & Rework Hub (MRB) Routes
+import { 
+  getMRBPendingQueue, 
+  executeMRBDisposition, 
+  updateMRBDisposition,
+  completeReworkInspection, 
+  getMRBHistory, 
+  getScrapLedger 
+} from "../controllers/store/index.js";
+
+router.get("/mrb/pending", getMRBPendingQueue);
+router.post("/mrb/disposition", executeMRBDisposition);
+router.put("/mrb/disposition/:id", updateMRBDisposition);
+router.post("/mrb/rework-complete", completeReworkInspection);
+router.get("/mrb/history", getMRBHistory);
+router.get("/mrb/scrap-ledger", getScrapLedger);
+
 export default router;

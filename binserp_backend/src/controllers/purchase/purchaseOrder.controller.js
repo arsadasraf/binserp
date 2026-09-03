@@ -91,13 +91,28 @@ export const createPO = asyncHandler(async (req, res) => {
         hsnCode: item.hsnCode || item.hsn || '',
         pieceCount: Number(item.pieceCount || item.count || 0),
         quantity: qty,
+        unit: item.unit ? item.unit.trim() : 'KG',
+        rate: Number(item.rate || 0),
+        amount: Number(item.amount || (qty * Number(item.rate || 0))),
         receivedQuantity: recQty,
         pendingQuantity: pendQty,
         itemStatus: iStatus,
-        taxRate: item.taxRate != null ? Number(item.taxRate) : 18,
+        taxRate: item.taxRate != null ? Number(item.taxRate) : (req.body.taxRate != null ? Number(req.body.taxRate) : 18),
       };
     });
-    poData.totalAmount = req.body.totalAmount || poData.items.reduce((sum, item) => sum + (item.amount || 0), 0);
+
+    const subtotal = poData.items.reduce((sum, item) => sum + (Number(item.amount) || (Number(item.quantity || 0) * Number(item.rate || 0))), 0);
+    const transportCharge = Number(req.body.transportCharge || 0);
+    const packingCharge = Number(req.body.packingCharge || 0);
+    const taxableAmount = subtotal + transportCharge + packingCharge;
+    const taxRate = req.body.taxRate != null ? Number(req.body.taxRate) : 18;
+    const totalTax = taxableAmount * (taxRate / 100);
+    const grandTotal = taxableAmount + totalTax;
+
+    poData.subtotal = subtotal;
+    poData.totalTax = totalTax;
+    poData.grandTotal = req.body.grandTotal || grandTotal;
+    poData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
   } else if (material || component || materialName) {
     const qty = Number(quantity || 0);
     const recQty = Number(req.body.receivedQuantity || 0);
@@ -112,11 +127,23 @@ export const createPO = asyncHandler(async (req, res) => {
     poData.quantity = qty;
     poData.receivedQuantity = recQty;
     poData.pendingQuantity = pendQty;
-    poData.unit = unit;
+    poData.unit = unit || 'KG';
     poData.rate = rate;
     poData.amount = amount;
     poData.category = category;
-    poData.totalAmount = amount || (qty * rate);
+    
+    const subtotal = amount || (qty * (rate || 0));
+    const transportCharge = Number(req.body.transportCharge || 0);
+    const packingCharge = Number(req.body.packingCharge || 0);
+    const taxableAmount = subtotal + transportCharge + packingCharge;
+    const taxRate = req.body.taxRate != null ? Number(req.body.taxRate) : 18;
+    const totalTax = taxableAmount * (taxRate / 100);
+    const grandTotal = taxableAmount + totalTax;
+
+    poData.subtotal = subtotal;
+    poData.totalTax = totalTax;
+    poData.grandTotal = req.body.grandTotal || grandTotal;
+    poData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
     poData.items = [{
       material: validMatId,
       component: validCompId,
@@ -126,7 +153,7 @@ export const createPO = asyncHandler(async (req, res) => {
       receivedQuantity: recQty,
       pendingQuantity: pendQty,
       itemStatus: recQty >= qty ? "Completed" : recQty > 0 ? "Partially Received" : "Pending",
-      unit: unit || "PCS",
+      unit: unit || "KG",
       rate: rate || 0,
       taxRate: req.body.taxRate != null ? Number(req.body.taxRate) : 18,
       amount: amount || (qty * (rate || 0))
@@ -415,6 +442,53 @@ export const updatePO = asyncHandler(async (req, res) => {
   const updateData = { ...req.body };
   updateData.updatedBy = req.user?.id || req.user?._id;
   updateData.updatedByName = userName;
+
+  if (req.body.vendor) {
+    updateData.vendor = isValidObjectId(req.body.vendor) ? req.body.vendor : existingPO.vendor;
+  }
+
+  if (Array.isArray(req.body.items) && req.body.items.length > 0) {
+    updateData.items = req.body.items.map(item => {
+      const qty = Number(item.quantity || 0);
+      const recQty = Number(item.receivedQuantity || 0);
+      const pendQty = item.pendingQuantity !== undefined ? Number(item.pendingQuantity) : Math.max(0, qty - recQty);
+      const iStatus = recQty >= qty ? "Completed" : recQty > 0 ? "Partially Received" : "Pending";
+      const validMatId = isValidObjectId(item.material) ? item.material : undefined;
+      const validCompId = isValidObjectId(item.component) ? item.component : undefined;
+      const matName = item.materialName || (!validMatId && item.material ? String(item.material) : 'Item');
+
+      return {
+        ...item,
+        material: validMatId,
+        component: validCompId,
+        materialName: matName,
+        itemType: (item.itemType || 'rm').toLowerCase(),
+        description: item.description || item.itemDescription || item.remarks || item.specifications || '',
+        hsnCode: item.hsnCode || item.hsn || '',
+        quantity: qty,
+        unit: item.unit ? item.unit.trim() : 'KG',
+        rate: Number(item.rate || 0),
+        amount: Number(item.amount || (qty * Number(item.rate || 0))),
+        receivedQuantity: recQty,
+        pendingQuantity: pendQty,
+        itemStatus: iStatus,
+        taxRate: item.taxRate != null ? Number(item.taxRate) : (req.body.taxRate != null ? Number(req.body.taxRate) : 18),
+      };
+    });
+
+    const subtotal = updateData.items.reduce((sum, item) => sum + (Number(item.amount) || (Number(item.quantity || 0) * Number(item.rate || 0))), 0);
+    const transportCharge = Number(req.body.transportCharge !== undefined ? req.body.transportCharge : (existingPO.transportCharge || 0));
+    const packingCharge = Number(req.body.packingCharge !== undefined ? req.body.packingCharge : (existingPO.packingCharge || 0));
+    const taxableAmount = subtotal + transportCharge + packingCharge;
+    const taxRate = req.body.taxRate != null ? Number(req.body.taxRate) : (existingPO.taxRate != null ? Number(existingPO.taxRate) : 18);
+    const totalTax = taxableAmount * (taxRate / 100);
+    const grandTotal = taxableAmount + totalTax;
+
+    updateData.subtotal = subtotal;
+    updateData.totalTax = totalTax;
+    updateData.grandTotal = req.body.grandTotal || grandTotal;
+    updateData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
+  }
 
   if (req.body.status && req.body.status !== existingPO.status) {
     const newHistoryItem = {

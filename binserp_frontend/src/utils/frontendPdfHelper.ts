@@ -1321,17 +1321,21 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
         `;
     });
 
-    const totalTaxAmount = po.totalTax != null ? Number(po.totalTax) : (itemsSubtotal * (overallTaxRate / 100));
     const transportCharge = Number(po.transportCharge || 0);
     const transportType = po.transportType || 'Road Freight';
     const packingCharge = Number(po.packingCharge || 0);
     const packingType = po.packingType || 'Standard Packaging';
+    const logisticsCharges = transportCharge + packingCharge;
+    
+    // Taxable base amount (composite supply including logistics)
+    const taxableAmount = itemsSubtotal + logisticsCharges;
+    const totalTaxAmount = po.totalTax != null ? Number(po.totalTax) : (taxableAmount * (overallTaxRate / 100));
     
     const cgstVal = isInterState ? 0 : (po.cgstAmount != null ? Number(po.cgstAmount) : (totalTaxAmount / 2));
     const sgstVal = isInterState ? 0 : (po.sgstAmount != null ? Number(po.sgstAmount) : (totalTaxAmount / 2));
     const igstVal = isInterState ? (po.igstAmount != null ? Number(po.igstAmount) : totalTaxAmount) : 0;
 
-    const grandTotal = itemsSubtotal + totalTaxAmount + transportCharge + packingCharge;
+    const grandTotal = taxableAmount + totalTaxAmount;
 
     const htmlContent = `
         <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
@@ -1458,9 +1462,19 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                     <div style="font-weight: bold; color: #6b21a8; font-size: 10px; uppercase; margin-bottom: 6px; border-bottom: 1px border #e9d5ff; padding-bottom: 4px;">TAX & FINANCIAL BREAKDOWN</div>
                     <table style="width: 100%; font-size: 10px; line-height: 1.6;">
                         <tr>
-                            <td style="color: #475569;">Taxable Items Subtotal:</td>
+                            <td style="color: #475569;">Items Subtotal:</td>
                             <td style="font-weight: bold; text-align: right;">₹${itemsSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
+                        ${logisticsCharges > 0 ? `
+                        <tr>
+                            <td style="color: #475569;">Freight & Packaging:</td>
+                            <td style="font-weight: bold; text-align: right;">+ ₹${logisticsCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                        <tr style="border-top: 1px dashed #cbd5e1;">
+                            <td style="color: #581c87; font-weight: bold;">Taxable Base Amount:</td>
+                            <td style="font-weight: bold; text-align: right; color: #581c87;">₹${taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        </tr>
+                        ` : ''}
                         ${!isInterState ? `
                         <tr>
                             <td style="color: #0891b2;">Central GST (CGST @ ${cgstRate}%):</td>
@@ -1476,22 +1490,10 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                             <td style="font-weight: bold; text-align: right; color: #0891b2;">₹${igstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                         `}
-                        <tr>
+                        <tr style="border-top: 1px solid #cbd5e1;">
                             <td style="color: #475569; font-weight: bold;">Total GST Tax (${overallTaxRate}%):</td>
                             <td style="font-weight: bold; text-align: right;">₹${totalTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
-                        ${transportCharge > 0 ? `
-                        <tr>
-                            <td style="color: #0891b2;">Freight Charge:</td>
-                            <td style="font-weight: bold; text-align: right; color: #0891b2;">+ ₹${transportCharge.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                        ` : ''}
-                        ${packingCharge > 0 ? `
-                        <tr>
-                            <td style="color: #4f46e5;">Packing Charge:</td>
-                            <td style="font-weight: bold; text-align: right; color: #4f46e5;">+ ₹${packingCharge.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                        ` : ''}
                         <tr style="border-top: 2px solid #6b21a8; font-size: 12px;">
                             <td style="font-weight: 900; color: #581c87; padding-top: 6px;">Grand Total PO Value:</td>
                             <td style="font-weight: 900; text-align: right; color: #581c87; padding-top: 6px;">₹${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -2439,4 +2441,514 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
     `);
     printWindow.document.close();
 };
+
+/**
+ * Generate Quality MRB Corrective Action Sheet PDF
+ */
+export const generateMRBCorrectiveActionPDF = (ticket: any, companyInfo?: any) => {
+    const compName = companyInfo?.companyName || 'BINSERP MANUFACTURING ENTERPRISE';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || 'Industrial Area, Phase 2';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert("Pop-up blocked! Please allow pop-ups to print the MRB Report.");
+        return;
+    }
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>MRB_${ticket.ticketNumber || 'Report'}</title>
+            <style>
+                @page { size: A4 portrait; margin: 12mm; }
+                body { margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #0f172a; background: #fff; }
+                .border-box { border: 1.5px solid #1e293b; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #cbd5e1; padding: 6px 8px; font-size: 11px; }
+                th { background: #f1f5f9; text-transform: uppercase; font-size: 10px; font-weight: bold; }
+                .badge { display: inline-block; padding: 2px 8px; font-weight: bold; border-radius: 4px; font-size: 10px; text-transform: uppercase; }
+                .badge-danger { background: #ffe4e6; color: #9f1239; border: 1px solid #f43f5e; }
+                .badge-success { background: #dcfce7; color: #166534; border: 1px solid #22c55e; }
+                .badge-primary { background: #e0e7ff; color: #3730a3; border: 1px solid #6366f1; }
+                @media print { .no-print { display: none !important; } }
+            </style>
+        </head>
+        <body style="padding: 10px;">
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 999; background: #0f172a; color: #fff; padding: 8px 14px; border-radius: 6px; display: flex; gap: 8px; font-weight: bold;">
+                <button onclick="window.print()" style="background: #4f46e5; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Print / Save PDF</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+
+            <div class="border-box" style="padding: 15px;">
+                <!-- Header -->
+                <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px;">
+                    <div>
+                        <h2 style="margin: 0; font-size: 18px; font-weight: 900; color: #0f172a;">${compName}</h2>
+                        <div style="font-size: 10px; color: #475569; margin-top: 3px;">${compAddress} | GSTIN: ${compGst}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="font-size: 14px; font-weight: 900; color: #4338ca;">MRB CORRECTIVE ACTION REPORT</div>
+                        <div style="font-size: 11px; font-weight: bold; font-family: monospace;">TICKET #: ${ticket.ticketNumber}</div>
+                        <div style="font-size: 10px; color: #64748b;">Date: ${new Date(ticket.createdAt || Date.now()).toLocaleDateString('en-GB')}</div>
+                    </div>
+                </div>
+
+                <!-- Info Grid -->
+                <table>
+                    <tr>
+                        <td style="width: 25%; font-weight: bold; background: #f8fafc;">Inspection Phase:</td>
+                        <td style="width: 25%; font-weight: bold; color: #1e1b4b;">${ticket.sourceType || 'Quality Inspection'}</td>
+                        <td style="width: 25%; font-weight: bold; background: #f8fafc;">Source Document:</td>
+                        <td style="width: 25%; font-family: monospace; font-weight: bold;">${ticket.sourceDocNumber || 'Direct QC'}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; background: #f8fafc;">Material Name:</td>
+                        <td style="font-weight: bold;">${ticket.materialName}</td>
+                        <td style="font-weight: bold; background: #f8fafc;">Material Code / Type:</td>
+                        <td>${ticket.materialCode || 'N/A'} (${ticket.itemType || 'RM'})</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; background: #f8fafc;">Defective Quantity:</td>
+                        <td style="font-weight: 900; color: #be123c; font-size: 12px;">${ticket.rejectedQuantity} ${ticket.unit || 'KG'}</td>
+                        <td style="font-weight: bold; background: #f8fafc;">Origin / Supplier:</td>
+                        <td>${ticket.vendorName || ticket.workstation || 'Shop Floor'}</td>
+                    </tr>
+                </table>
+
+                <!-- Defect Diagnosis -->
+                <div style="margin-top: 15px;">
+                    <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; background: #f1f5f9; padding: 6px; border: 1px solid #cbd5e1; border-bottom: none;">
+                        1. Defect Diagnosis & Root Cause Classification
+                    </div>
+                    <table>
+                        <tr>
+                            <td style="width: 30%; font-weight: bold;">Defect Category:</td>
+                            <td style="font-weight: bold; color: #be123c;">${ticket.defectCategory || 'Dimensional Deviation'}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: bold;">Inspector Remarks / Failure Mode:</td>
+                            <td>${ticket.rejectionReason || 'Failure observed during inspection against quality drawing standards.'}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- Corrective Action Disposition -->
+                <div style="margin-top: 15px;">
+                    <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; background: #e0e7ff; color: #3730a3; padding: 6px; border: 1px solid #c7d2fe; border-bottom: none;">
+                        2. MRB Corrective Action Disposition
+                    </div>
+                    <table>
+                        <tr>
+                            <td style="width: 30%; font-weight: bold;">Action Pathway:</td>
+                            <td style="font-weight: 900; font-size: 12px; color: #4338ca;">${ticket.dispositionAction}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: bold;">Linked Official Document:</td>
+                            <td style="font-family: monospace; font-weight: bold;">${ticket.documentType || 'None'}: ${ticket.documentNumber || ticket.rtvDetails?.challanNumber || ticket.reworkDetails?.reworkJobNumber || 'N/A'}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: bold;">Disposition Date & Auditor:</td>
+                            <td>${ticket.dispositionDate ? new Date(ticket.dispositionDate).toLocaleString('en-GB') : 'Pending'} by <b>${ticket.dispositionByName || ticket.createdByName || 'Quality Authority'}</b></td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- Financial Loss & Valuation -->
+                <div style="margin-top: 15px;">
+                    <div style="font-weight: 900; font-size: 11px; text-transform: uppercase; background: #f1f5f9; padding: 6px; border: 1px solid #cbd5e1; border-bottom: none;">
+                        3. Valuation & Financial Impact
+                    </div>
+                    <table>
+                        <tr>
+                            <td style="width: 30%; font-weight: bold;">Unit Purchase Rate:</td>
+                            <td>₹${Number(ticket.unitRate || 0).toFixed(2)} / ${ticket.unit || 'KG'}</td>
+                        </tr>
+                        <tr>
+                            <td style="font-weight: bold;">Total Estimated Material Valuation:</td>
+                            <td style="font-weight: 900; color: #0f172a;">₹${((ticket.rejectedQuantity || 0) * (ticket.unitRate || 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- Signatures -->
+                <div style="margin-top: 40px; display: flex; justify-content: space-between; text-align: center;">
+                    <div style="width: 28%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        QC Inspector<br><span style="font-weight: normal; color: #64748b;">(${ticket.createdByName || 'Prepared By'})</span>
+                    </div>
+                    <div style="width: 28%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Quality Head / MRB Lead<br><span style="font-weight: normal; color: #64748b;">(Authorized Signatory)</span>
+                    </div>
+                    <div style="width: 28%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Store In-Charge / Plant Head<br><span style="font-weight: normal; color: #64748b;">(Acknowledge & Close)</span>
+                    </div>
+                </div>
+            </div>
+            <script>setTimeout(function() { window.print(); }, 400);</script>
+        </body>
+        </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+};
+
+/**
+ * Generate Return Invoice / Tax Return Bill & Debit Note PDF
+ */
+export const generateReturnInvoicePDF = (ticket: any, companyInfo?: any) => {
+    const compName = companyInfo?.companyName || 'BINSERP MANUFACTURING ENTERPRISE';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || 'Industrial Area, Phase 2';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || '27AAAAA0000A1Z5';
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert("Pop-up blocked! Please allow pop-ups to print the Return Bill.");
+        return;
+    }
+
+    const qty = Number(ticket.rejectedQuantity || 1);
+    const rate = Number(ticket.unitRate || 0);
+    const taxableBase = ticket.taxDetails?.taxableAmount || (qty * rate);
+    const cgst = ticket.taxDetails?.cgst || (taxableBase * 0.09);
+    const sgst = ticket.taxDetails?.sgst || (taxableBase * 0.09);
+    const igst = ticket.taxDetails?.igst || 0;
+    const grandTotal = ticket.taxDetails?.totalAmount || (taxableBase + cgst + sgst + igst);
+
+    const docNo = ticket.documentNumber || ticket.rtvDetails?.challanNumber || `RET-INV-${Date.now().toString().slice(-5)}`;
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${docNo}</title>
+            <style>
+                @page { size: A4 portrait; margin: 12mm; }
+                body { margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #0f172a; background: #fff; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #cbd5e1; padding: 7px 9px; font-size: 11px; }
+                th { background: #f8fafc; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+                @media print { .no-print { display: none !important; } }
+            </style>
+        </head>
+        <body style="padding: 10px;">
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 999; background: #0f172a; color: #fff; padding: 8px 14px; border-radius: 6px; display: flex; gap: 8px; font-weight: bold;">
+                <button onclick="window.print()" style="background: #e11d48; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Print Return Bill</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+
+            <div style="border: 2px solid #0f172a; padding: 15px;">
+                <!-- Header Title -->
+                <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px;">
+                    <div style="font-size: 16px; font-weight: 900; color: #be123c; text-transform: uppercase;">TAX RETURN INVOICE & DEBIT NOTE</div>
+                    <div style="font-size: 10px; color: #64748b; margin-top: 2px;">(Issued under GST Law for Return of Rejected / Substandard Materials)</div>
+                </div>
+
+                <!-- Company & Document Meta -->
+                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                    <div style="width: 50%;">
+                        <div style="font-size: 14px; font-weight: 900; color: #0f172a;">${compName}</div>
+                        <div style="font-size: 10px; color: #475569; margin-top: 2px;">${compAddress}</div>
+                        <div style="font-size: 10px; font-weight: bold; margin-top: 2px;">GSTIN: ${compGst}</div>
+                    </div>
+                    <div style="width: 45%; text-align: right;">
+                        <table>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Return Bill #:</td><td style="font-family: monospace; font-weight: 900; color: #be123c;">${docNo}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Debit Note #:</td><td style="font-family: monospace;">${ticket.rtvDetails?.debitNoteNumber || 'DN-AUTO'}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Date:</td><td>${new Date(ticket.documentDate || Date.now()).toLocaleDateString('en-GB')}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Ref GRN #:</td><td>${ticket.sourceDocNumber || 'N/A'}</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Vendor Bill-To -->
+                <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 8px; margin-bottom: 12px;">
+                    <div style="font-size: 10px; font-weight: bold; color: #64748b; text-transform: uppercase;">Returned To (Supplier / Vendor):</div>
+                    <div style="font-size: 13px; font-weight: 900; color: #0f172a; margin-top: 2px;">${ticket.vendorName || 'SUPPLIER'}</div>
+                    <div style="font-size: 10px; color: #475569; margin-top: 1px;">Vehicle #: ${ticket.rtvDetails?.vehicleNumber || 'Hand Delivery / Carrier'} | Dispatch By: ${ticket.rtvDetails?.dispatchedBy || 'Store In-Charge'}</div>
+                </div>
+
+                <!-- Items Table -->
+                <table style="margin-bottom: 12px;">
+                    <thead>
+                        <tr>
+                            <th style="width: 5%; text-align: center;">#</th>
+                            <th style="width: 45%;">Description of Returned Material</th>
+                            <th style="width: 15%; text-align: center;">HSN Code</th>
+                            <th style="width: 15%; text-align: center;">Returned Qty</th>
+                            <th style="width: 10%; text-align: right;">Unit Rate</th>
+                            <th style="width: 10%; text-align: right;">Taxable Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="text-align: center; font-weight: bold;">1</td>
+                            <td>
+                                <div style="font-weight: bold; font-size: 12px;">${ticket.materialName}</div>
+                                <div style="font-size: 10px; color: #64748b;">Code: ${ticket.materialCode || 'N/A'} | Reason: ${ticket.rejectionReason || 'Quality Rejection'}</div>
+                            </td>
+                            <td style="text-align: center; font-family: monospace;">7208 / RM</td>
+                            <td style="text-align: center; font-weight: 900; color: #be123c; font-size: 12px;">${qty} ${ticket.unit || 'KG'}</td>
+                            <td style="text-align: right; font-family: monospace;">₹${rate.toFixed(2)}</td>
+                            <td style="text-align: right; font-weight: bold; font-family: monospace;">₹${taxableBase.toFixed(2)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Tax & Grand Total -->
+                <div style="display: flex; justify-content: space-between;">
+                    <div style="width: 50%; font-size: 10px; color: #475569; border: 1px solid #cbd5e1; padding: 8px;">
+                        <b>Terms of Return:</b>
+                        <ol style="margin: 4px 0 0 14px; padding: 0;">
+                            <li>The debit note has been debited to your supplier ledger account.</li>
+                            <li>Material returned due to QC inspection failure at receiving bay.</li>
+                            <li>Please issue matching credit note within 15 days under GST rules.</li>
+                        </ol>
+                    </div>
+                    <div style="width: 45%;">
+                        <table>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Taxable Base:</td><td style="text-align: right; font-family: monospace;">₹${taxableBase.toFixed(2)}</td></tr>
+                            <tr><td style="background: #f8fafc;">CGST (9%):</td><td style="text-align: right; font-family: monospace;">₹${cgst.toFixed(2)}</td></tr>
+                            <tr><td style="background: #f8fafc;">SGST (9%):</td><td style="text-align: right; font-family: monospace;">₹${sgst.toFixed(2)}</td></tr>
+                            ${igst > 0 ? `<tr><td style="background: #f8fafc;">IGST (18%):</td><td style="text-align: right; font-family: monospace;">₹${igst.toFixed(2)}</td></tr>` : ''}
+                            <tr style="background: #ffe4e6;"><td style="font-weight: 900; font-size: 12px; color: #9f1239;">GRAND TOTAL (DEBIT):</td><td style="text-align: right; font-weight: 900; font-size: 13px; font-family: monospace; color: #9f1239;">₹${grandTotal.toFixed(2)}</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Signatures -->
+                <div style="margin-top: 35px; display: flex; justify-content: space-between; text-align: center;">
+                    <div style="width: 30%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Store Dispatcher
+                    </div>
+                    <div style="width: 30%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Carrier / Driver Signature
+                    </div>
+                    <div style="width: 30%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        For ${compName}<br><span style="font-weight: normal; color: #64748b;">(Authorized Signatory)</span>
+                    </div>
+                </div>
+            </div>
+            <script>setTimeout(function() { window.print(); }, 400);</script>
+        </body>
+        </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+};
+
+/**
+ * Generate Replacement Delivery Challan PDF
+ */
+export const generateReplacementDcPDF = (ticket: any, companyInfo?: any) => {
+    const compName = companyInfo?.companyName || 'BINSERP MANUFACTURING ENTERPRISE';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || 'Industrial Area, Phase 2';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || '27AAAAA0000A1Z5';
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert("Pop-up blocked! Please allow pop-ups to print the Replacement DC.");
+        return;
+    }
+
+    const docNo = ticket.documentNumber || `RPL-DC-${Date.now().toString().slice(-5)}`;
+    const qty = Number(ticket.rejectedQuantity || 1);
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${docNo}</title>
+            <style>
+                @page { size: A4 portrait; margin: 12mm; }
+                body { margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #0f172a; background: #fff; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #cbd5e1; padding: 7px 9px; font-size: 11px; }
+                th { background: #f8fafc; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+                @media print { .no-print { display: none !important; } }
+            </style>
+        </head>
+        <body style="padding: 10px;">
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 999; background: #0f172a; color: #fff; padding: 8px 14px; border-radius: 6px; display: flex; gap: 8px; font-weight: bold;">
+                <button onclick="window.print()" style="background: #2563eb; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Print Delivery Challan</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+
+            <div style="border: 2px solid #0f172a; padding: 15px;">
+                <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px;">
+                    <div style="font-size: 16px; font-weight: 900; color: #1e40af; text-transform: uppercase;">DELIVERY CHALLAN (WARRANTY REPLACEMENT)</div>
+                    <div style="font-size: 10px; font-weight: bold; color: #be123c; margin-top: 2px;">(MATERIAL SENT FOR FREE OF COST REPLACEMENT UNDER WARRANTY - NOT FOR SALE)</div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                    <div style="width: 50%;">
+                        <div style="font-size: 14px; font-weight: 900;">${compName}</div>
+                        <div style="font-size: 10px; color: #475569; margin-top: 2px;">${compAddress}</div>
+                        <div style="font-size: 10px; font-weight: bold;">GSTIN: ${compGst}</div>
+                    </div>
+                    <div style="width: 45%; text-align: right;">
+                        <table>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Challan #:</td><td style="font-family: monospace; font-weight: 900; color: #1e40af;">${docNo}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Date:</td><td>${new Date(ticket.documentDate || Date.now()).toLocaleDateString('en-GB')}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Ref Ticket #:</td><td>${ticket.ticketNumber}</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div style="background: #f8fafc; border: 1px solid #cbd5e1; padding: 8px; margin-bottom: 12px;">
+                    <div style="font-size: 10px; font-weight: bold; color: #64748b;">DISPATCHED TO SUPPLIER:</div>
+                    <div style="font-size: 13px; font-weight: 900; color: #0f172a;">${ticket.vendorName || 'SUPPLIER'}</div>
+                </div>
+
+                <table style="margin-bottom: 15px;">
+                    <thead>
+                        <tr>
+                            <th style="width: 8%; text-align: center;">#</th>
+                            <th style="width: 60%;">Item Description</th>
+                            <th style="width: 15%; text-align: center;">Dispatched Qty</th>
+                            <th style="width: 17%; text-align: center;">Defect Category</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="text-align: center; font-weight: bold;">1</td>
+                            <td>
+                                <div style="font-weight: bold; font-size: 12px;">${ticket.materialName}</div>
+                                <div style="font-size: 10px; color: #64748b;">Code: ${ticket.materialCode || 'N/A'} | Expected Replacement by: ${ticket.replacementDetails?.expectedDate ? new Date(ticket.replacementDetails.expectedDate).toLocaleDateString('en-GB') : '7 Days'}</div>
+                            </td>
+                            <td style="text-align: center; font-weight: 900; font-size: 13px; color: #1e40af;">${qty} ${ticket.unit || 'KG'}</td>
+                            <td style="text-align: center; font-weight: bold; color: #be123c;">${ticket.defectCategory || 'Defect'}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div style="border: 1px solid #cbd5e1; padding: 8px; font-size: 10px; color: #475569; margin-bottom: 30px;">
+                    <b>Special Instructions & Warranty Declaration:</b>
+                    <div>1. This delivery challan is issued under Section 55 of the CGST Rules for dispatch of defective goods for replacement.</div>
+                    <div>2. No commercial sale is involved in this outward shipment.</div>
+                    <div>3. The replacement material must be delivered accompanied by a zero-value inward delivery challan referencing this document number.</div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; text-align: center;">
+                    <div style="width: 30%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">Store Dispatcher</div>
+                    <div style="width: 30%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">Carrier Signature</div>
+                    <div style="width: 30%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">For ${compName}</div>
+                </div>
+            </div>
+            <script>setTimeout(function() { window.print(); }, 400);</script>
+        </body>
+        </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+};
+
+/**
+ * Generate Scrap Write-Off Certificate PDF
+ */
+export const generateScrapCertificatePDF = (ticket: any, companyInfo?: any) => {
+    const compName = companyInfo?.companyName || 'BINSERP MANUFACTURING ENTERPRISE';
+    const compAddress = companyInfo?.billingAddress || companyInfo?.address || 'Industrial Area, Phase 2';
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+        alert("Pop-up blocked! Please allow pop-ups to print the Scrap Certificate.");
+        return;
+    }
+
+    const docNo = ticket.documentNumber || `SCRAP-CERT-${Date.now().toString().slice(-5)}`;
+    const qty = Number(ticket.rejectedQuantity || ticket.reworkDetails?.reworkScrappedQuantity || 1);
+    const rate = Number(ticket.unitRate || 0);
+    const totalLoss = qty * rate;
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>${docNo}</title>
+            <style>
+                @page { size: A4 portrait; margin: 12mm; }
+                body { margin: 0; font-family: Arial, sans-serif; font-size: 11px; color: #0f172a; background: #fff; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #cbd5e1; padding: 7px 9px; font-size: 11px; }
+                th { background: #f8fafc; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+                @media print { .no-print { display: none !important; } }
+            </style>
+        </head>
+        <body style="padding: 10px;">
+            <div class="no-print" style="position: fixed; top: 10px; right: 10px; z-index: 999; background: #0f172a; color: #fff; padding: 8px 14px; border-radius: 6px; display: flex; gap: 8px; font-weight: bold;">
+                <button onclick="window.print()" style="background: #334155; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Print Scrap Certificate</button>
+                <button onclick="window.close()" style="background: #475569; color: #fff; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+
+            <div style="border: 2px solid #0f172a; padding: 15px;">
+                <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 8px; margin-bottom: 12px;">
+                    <div style="font-size: 16px; font-weight: 900; color: #0f172a; text-transform: uppercase;">CERTIFICATE OF SCRAP & MATERIAL WRITE-OFF</div>
+                    <div style="font-size: 10px; color: #64748b;">(Official Plant Authorization for Disposal of Non-Salvageable Material)</div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                    <div style="width: 50%;">
+                        <div style="font-size: 14px; font-weight: 900;">${compName}</div>
+                        <div style="font-size: 10px; color: #475569;">${compAddress}</div>
+                    </div>
+                    <div style="width: 45%; text-align: right;">
+                        <table>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Certificate #:</td><td style="font-family: monospace; font-weight: 900;">${docNo}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">Disposal Date:</td><td>${new Date(ticket.scrapDetails?.scrapDisposalDate || Date.now()).toLocaleDateString('en-GB')}</td></tr>
+                            <tr><td style="font-weight: bold; background: #f8fafc;">MRB Ticket #:</td><td>${ticket.ticketNumber}</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <table>
+                    <tr>
+                        <td style="width: 25%; font-weight: bold; background: #f8fafc;">Material Scrapped:</td>
+                        <td style="width: 35%; font-weight: bold;">${ticket.materialName} (${ticket.materialCode || 'N/A'})</td>
+                        <td style="width: 20%; font-weight: bold; background: #f8fafc;">Origin QC Phase:</td>
+                        <td style="width: 20%; font-weight: bold;">${ticket.sourceType || 'QC Inspection'}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; background: #f8fafc;">Scrap Quantity:</td>
+                        <td style="font-weight: 900; color: #be123c; font-size: 12px;">${qty} ${ticket.unit || 'KG'}</td>
+                        <td style="font-weight: bold; background: #f8fafc;">Scrap Yard Location:</td>
+                        <td>${ticket.scrapDetails?.scrapLocation || 'Scrap Bay A'}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; background: #f8fafc;">Defect Root Cause:</td>
+                        <td colspan="3">${ticket.defectCategory} - ${ticket.rejectionReason || 'Unrecoverable dimensional / machining damage.'}</td>
+                    </tr>
+                    <tr>
+                        <td style="font-weight: bold; background: #f8fafc;">Financial Loss Valuation:</td>
+                        <td colspan="3" style="font-weight: 900; font-size: 12px; color: #0f172a;">
+                            ₹${totalLoss.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Unit Cost: ₹${rate.toFixed(2)})
+                            ${ticket.scrapDetails?.salvageRealizedAmount ? ` | <span style="color: #166534;">Est. Salvage Recovery: ₹${ticket.scrapDetails.salvageRealizedAmount.toFixed(2)}</span>` : ''}
+                        </td>
+                    </tr>
+                </table>
+
+                <div style="margin-top: 40px; display: flex; justify-content: space-between; text-align: center;">
+                    <div style="width: 28%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Quality In-Charge<br><span style="font-weight: normal; color: #64748b;">(${ticket.createdByName || 'QC Lead'})</span>
+                    </div>
+                    <div style="width: 28%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Scrap Yard Officer<br><span style="font-weight: normal; color: #64748b;">(${ticket.scrapDetails?.scrapAuthorizedBy || 'Authorized'})</span>
+                    </div>
+                    <div style="width: 28%; border-top: 1px solid #0f172a; padding-top: 6px; font-size: 10px; font-weight: bold;">
+                        Plant Manager / Finance<br><span style="font-weight: normal; color: #64748b;">(Write-Off Sign-Off)</span>
+                    </div>
+                </div>
+            </div>
+            <script>setTimeout(function() { window.print(); }, 400);</script>
+        </body>
+        </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+};
+
 

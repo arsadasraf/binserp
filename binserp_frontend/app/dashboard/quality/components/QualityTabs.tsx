@@ -7,7 +7,7 @@ import { useHeader } from "@/src/context/HeaderContext";
 import { usePermission } from "@/src/hooks/usePermission";
 import { 
   ClipboardCheck, Activity as ActivityIcon, Settings, 
-  BarChart3, CheckSquare, Wrench 
+  BarChart3, CheckSquare, Wrench, ShieldAlert 
 } from "lucide-react";
 
 export const QUALITY_TABS = [
@@ -16,6 +16,7 @@ export const QUALITY_TABS = [
   { id: "process", label: "Process QC", icon: ActivityIcon, href: "/dashboard/quality/process" },
   { id: "jobwork-qc", label: "Job Work QC", icon: Wrench, href: "/dashboard/quality/jobwork-qc" },
   { id: "fg-qc", label: "FG QC & PDI", icon: CheckSquare, href: "/dashboard/quality/fg-qc" },
+  { id: "rejection-hub", label: "MRB & Rejection Hub", icon: ShieldAlert, href: "/dashboard/quality/rejection-hub" },
   { id: "master", label: "Master", icon: Settings, href: "/dashboard/quality/master" },
 ];
 

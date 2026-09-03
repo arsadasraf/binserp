@@ -62,3 +62,11 @@ export { getWipInventory } from './getWipInventory.controller.js';
 export { getStockTransactions } from './getStockTransactions.controller.js';
 export { getItemTransactionHistory } from './getItemTransactionHistory.controller.js';
 export { bulkImportMasters } from './masterBulkImport.controller.js';
+export { 
+  getMRBPendingQueue, 
+  executeMRBDisposition, 
+  updateMRBDisposition,
+  completeReworkInspection, 
+  getMRBHistory, 
+  getScrapLedger 
+} from './mrbDisposition.controller.js';

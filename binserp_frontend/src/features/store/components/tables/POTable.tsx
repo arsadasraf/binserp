@@ -251,6 +251,21 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         return counts;
     }, [data]);
 
+    const getPoCategory = (item: any): 'RM' | 'BO' | 'Consumable' => {
+        if (!item) return 'RM';
+        const cat = (item.category || '').toLowerCase();
+        if (cat.includes('bo') || cat.includes('bought')) return 'BO';
+        if (cat.includes('consumable')) return 'Consumable';
+        if (Array.isArray(item.items) && item.items.length > 0) {
+            const firstType = (item.items[0].itemType || item.items[0].category || '').toLowerCase();
+            if (firstType.includes('bo') || firstType.includes('bought')) return 'BO';
+            if (firstType.includes('consumable')) return 'Consumable';
+        }
+        return 'RM';
+    };
+
+    const [filterType, setFilterType] = useState<string>('All');
+
     const filteredData = useMemo(() => {
         if (!Array.isArray(data)) return [];
         return data.filter(item => {
@@ -271,9 +286,11 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                 matchVendor = vId?.toString() === filterVendor?.toString() || vName.toLowerCase().includes(filterVendor.toLowerCase());
             }
 
-            return matchSearch && matchStatus && matchVendor;
+            const matchType = filterType === 'All' || getPoCategory(item) === filterType;
+
+            return matchSearch && matchStatus && matchVendor && matchType;
         });
-    }, [data, searchTerm, filterStatus, filterVendor]);
+    }, [data, searchTerm, filterStatus, filterVendor, filterType]);
 
     const metrics = useMemo(() => {
         let totalItemsCount = 0;
@@ -317,6 +334,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             return {
                 'S.No': idx + 1,
                 'PO Number': po.poNumber || '-',
+                'Material Type': getPoCategory(po) === 'RM' ? 'Raw Material (RM)' : getPoCategory(po) === 'BO' ? 'Bought Out (BO)' : 'Consumable Item',
                 'PO Date': new Date(po.date || Date.now()).toLocaleDateString('en-GB'),
                 'Vendor Name': getVendorNameStr(po),
                 'Items Count': items.length || 1,
@@ -416,7 +434,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         <select
                             value={filterVendor}
                             onChange={(e) => setFilterVendor(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[220px] truncate"
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[200px] truncate"
                         >
                             <option value="All">All Vendors ({vendors.length})</option>
                             {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
@@ -424,6 +442,21 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     {v.name || v.companyName}
                                 </option>
                             ))}
+                        </select>
+                    </div>
+
+                    {/* Material Type Selector */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Type:</label>
+                        <select
+                            value={filterType}
+                            onChange={(e) => setFilterType(e.target.value)}
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20"
+                        >
+                            <option value="All">All Types</option>
+                            <option value="RM">Raw Material (RM)</option>
+                            <option value="BO">Bought Out (BO)</option>
+                            <option value="Consumable">Consumable Item</option>
                         </select>
                     </div>
                 </div>
@@ -470,15 +503,15 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     <span>
                         Showing <strong className="text-slate-900 dark:text-white font-bold">{filteredData.length}</strong> of <strong className="text-slate-900 dark:text-white font-bold">{data.length}</strong> Purchase Orders
                     </span>
-                    {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All') && (
+                    {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All' || filterType !== 'All') && (
                         <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">
                             (Filtered Results)
                         </span>
                     )}
                 </div>
-                {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All') && (
+                {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All' || filterType !== 'All') && (
                     <button
-                        onClick={() => { setSearchTerm(''); setFilterStatus('All'); setFilterVendor('All'); }}
+                        onClick={() => { setSearchTerm(''); setFilterStatus('All'); setFilterVendor('All'); setFilterType('All'); }}
                         className="text-purple-600 dark:text-purple-400 hover:underline font-bold text-[11px] cursor-pointer"
                     >
                         Clear Filters
@@ -499,6 +532,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             <thead>
                                 <tr className="border-b border-gray-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-[11px] uppercase font-bold text-gray-500 dark:text-slate-400 tracking-wider">
                                     <th className="px-6 py-3.5">PO Details</th>
+                                    <th className="px-4 py-3.5 w-36">Material Type</th>
                                     <th className="px-6 py-3.5">Vendor / Supplier</th>
                                     <th className="px-6 py-3.5">Items & Piece Count</th>
                                     <th className="px-6 py-3.5 text-right">Total Value</th>
@@ -512,6 +546,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     const materialName = getMaterialNameStr(item);
                                     const amount = Number(item.grandTotal || item.totalAmount || item.amount || 0);
                                     const poDate = new Date(item.date || item.createdAt || Date.now()).toLocaleDateString('en-GB');
+                                    const category = getPoCategory(item);
 
                                     const itemsList = Array.isArray(item.items) && item.items.length > 0 ? item.items : [];
                                     let rowPieceCount = 0;
@@ -539,6 +574,23 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                         </span>
                                                     )}
                                                 </div>
+                                            </td>
+
+                                            {/* Dedicated Material Type Column */}
+                                            <td className="px-4 py-4">
+                                                {category === 'BO' ? (
+                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs">
+                                                        Bought Out (BO)
+                                                    </span>
+                                                ) : category === 'Consumable' ? (
+                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800 shadow-2xs">
+                                                        Consumable
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-cyan-50 text-cyan-700 border border-cyan-200 dark:bg-cyan-950/50 dark:text-cyan-300 dark:border-cyan-800 shadow-2xs">
+                                                        Raw Material (RM)
+                                                    </span>
+                                                )}
                                             </td>
 
                                             <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
@@ -656,7 +708,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             {/* Sticky Table Footer Summary Row */}
                             <tfoot className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/90 font-bold text-xs text-slate-700 dark:text-slate-200">
                                 <tr>
-                                    <td className="px-6 py-3.5 text-slate-900 dark:text-white" colSpan={2}>
+                                    <td className="px-6 py-3.5 text-slate-900 dark:text-white" colSpan={3}>
                                         <div className="flex items-center gap-2">
                                             <span>Summary Total:</span>
                                             <span className="font-mono bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 px-2 py-0.5 rounded-full text-[11px]">
@@ -692,6 +744,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             const poDate = new Date(item.date || item.createdAt || Date.now()).toLocaleDateString('en-GB');
                             const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
                             const isWithin24h = remainingSecs > 0;
+                            const category = getPoCategory(item);
 
                             const itemsList = Array.isArray(item.items) && item.items.length > 0 ? item.items : [];
                             let rowPieceCount = 0;
@@ -705,9 +758,18 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 <div key={item._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col gap-3">
                                     <div className="flex justify-between items-start border-b border-gray-100 dark:border-slate-800 pb-2.5">
                                         <div>
-                                            <span onClick={() => setSelectedPoPreview(item)} className="text-xs font-mono font-extrabold text-purple-600 dark:text-purple-400 cursor-pointer block mb-0.5">
-                                                PO #{item.poNumber || '-'}
-                                            </span>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span onClick={() => setSelectedPoPreview(item)} className="text-xs font-mono font-extrabold text-purple-600 dark:text-purple-400 cursor-pointer">
+                                                    PO #{item.poNumber || '-'}
+                                                </span>
+                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide border ${
+                                                    category === 'BO' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800' :
+                                                    category === 'Consumable' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800' :
+                                                    'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/60 dark:text-cyan-300 dark:border-cyan-800'
+                                                }`}>
+                                                    {category === 'BO' ? 'Bought Out' : category === 'Consumable' ? 'Consumable' : 'Raw Material'}
+                                                </span>
+                                            </div>
                                             <h4 className="font-bold text-gray-900 dark:text-white text-sm">{vendorName}</h4>
                                             <div className="text-[11px] text-gray-500 dark:text-slate-400 font-medium">{poDate}</div>
                                         </div>
@@ -988,20 +1050,21 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                         });
                                     });
                                     const pendingQty = Math.max(0, totalOrderedQty - totalReceivedQty);
+                                    const primaryUnit = (selectedPoPreview.items?.[0]?.unit) || selectedPoPreview.unit || (selectedPoPreview.category === 'Raw Material' ? 'KG' : 'PCS');
 
                                     return (
                                         <div className="grid grid-cols-3 gap-3 text-center bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-100 dark:border-slate-800 font-mono">
                                             <div>
                                                 <span className="text-[10px] text-slate-400 font-sans block uppercase">Total Ordered</span>
-                                                <strong className="text-slate-900 dark:text-white text-sm font-extrabold">{totalOrderedQty} PCS</strong>
+                                                <strong className="text-slate-900 dark:text-white text-sm font-extrabold">{totalOrderedQty} {primaryUnit}</strong>
                                             </div>
                                             <div>
                                                 <span className="text-[10px] text-slate-400 font-sans block uppercase">Received via GRN</span>
-                                                <strong className="text-emerald-600 dark:text-emerald-400 text-sm font-extrabold">{totalReceivedQty} PCS</strong>
+                                                <strong className="text-emerald-600 dark:text-emerald-400 text-sm font-extrabold">{totalReceivedQty} {primaryUnit}</strong>
                                             </div>
                                             <div>
                                                 <span className="text-[10px] text-slate-400 font-sans block uppercase">Pending Balance</span>
-                                                <strong className={`text-sm font-extrabold ${pendingQty > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>{pendingQty} PCS</strong>
+                                                <strong className={`text-sm font-extrabold ${pendingQty > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>{pendingQty} {primaryUnit}</strong>
                                             </div>
                                         </div>
                                     );
@@ -1166,58 +1229,90 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
                                 <div className="bg-purple-50/60 dark:bg-purple-950/40 p-4 rounded-2xl border border-purple-200 dark:border-purple-800/50 space-y-2 text-xs">
                                     <h5 className="font-extrabold text-purple-700 dark:text-purple-300 uppercase text-[10px]">PAYABLE BREAKDOWN</h5>
-                                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                                        <span>Items Subtotal:</span>
-                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                                            ₹{(selectedPoPreview.subtotal || selectedPoPreview.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                        </span>
-                                    </div>
-
-                                    {/* Separate CGST/SGST or IGST Rows with explicit Rates */}
+                                    
                                     {(() => {
+                                        const subtotalVal = Number(selectedPoPreview.subtotal || 0) || (selectedPoPreview.items || []).reduce((s: number, it: any) => s + (Number(it.quantity || 0) * Number(it.rate || 0)), 0);
+                                        const transportVal = Number(selectedPoPreview.transportCharge || 0);
+                                        const packingVal = Number(selectedPoPreview.packingCharge || 0);
+                                        const logisticsVal = transportVal + packingVal;
+                                        const taxableVal = subtotalVal + logisticsVal;
                                         const prevTaxRate = selectedPoPreview.taxRate != null ? Number(selectedPoPreview.taxRate) : 18;
                                         const isInterState = selectedPoPreview.gstType === 'inter_state';
                                         const prevCgstRate = selectedPoPreview.cgstRate != null ? Number(selectedPoPreview.cgstRate) : (prevTaxRate / 2);
                                         const prevSgstRate = selectedPoPreview.sgstRate != null ? Number(selectedPoPreview.sgstRate) : (prevTaxRate / 2);
                                         const prevIgstRate = selectedPoPreview.igstRate != null ? Number(selectedPoPreview.igstRate) : prevTaxRate;
 
-                                        return isInterState ? (
-                                            <div className="flex justify-between text-cyan-700 dark:text-cyan-300 font-bold bg-cyan-100/50 dark:bg-cyan-950/40 px-2.5 py-1 rounded-lg">
-                                                <span>Integrated GST (IGST @ {prevIgstRate}%):</span>
-                                                <span className="font-mono">
-                                                    ₹{(Number(selectedPoPreview.igstAmount) || Number(selectedPoPreview.totalTax) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                                </span>
-                                            </div>
-                                        ) : (
+                                        const calculatedTax = taxableVal * (prevTaxRate / 100);
+                                        const totalTaxVal = selectedPoPreview.totalTax != null ? Number(selectedPoPreview.totalTax) : calculatedTax;
+                                        const grandTotalVal = Number(selectedPoPreview.grandTotal || selectedPoPreview.totalAmount || (taxableVal + totalTaxVal));
+
+                                        return (
                                             <>
-                                                <div className="flex justify-between text-cyan-700 dark:text-cyan-300 font-bold bg-cyan-100/50 dark:bg-cyan-950/40 px-2.5 py-1 rounded-lg">
-                                                    <span>Central GST (CGST @ {prevCgstRate}%):</span>
-                                                    <span className="font-mono">
-                                                        ₹{(Number(selectedPoPreview.cgstAmount) || (Number(selectedPoPreview.totalTax || 0) / 2)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                                                    <span>Items Subtotal:</span>
+                                                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                        ₹{subtotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </span>
                                                 </div>
-                                                <div className="flex justify-between text-indigo-700 dark:text-indigo-300 font-bold bg-indigo-100/50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg">
-                                                    <span>State GST (SGST @ {prevSgstRate}%):</span>
-                                                    <span className="font-mono">
-                                                        ₹{(Number(selectedPoPreview.sgstAmount) || (Number(selectedPoPreview.totalTax || 0) / 2)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+
+                                                {logisticsVal > 0 && (
+                                                    <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                                                        <span>Freight & Packaging:</span>
+                                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                            + ₹{logisticsVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    </div>
+                                                )}
+
+                                                {logisticsVal > 0 && (
+                                                    <div className="flex justify-between text-purple-700 dark:text-purple-300 font-bold border-t border-purple-200/50 dark:border-purple-800/40 pt-1 text-[11px]">
+                                                        <span>Taxable Base Amount:</span>
+                                                        <span className="font-mono">
+                                                            ₹{taxableVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    </div>
+                                                )}
+
+                                                {isInterState ? (
+                                                    <div className="flex justify-between text-cyan-700 dark:text-cyan-300 font-bold bg-cyan-100/50 dark:bg-cyan-950/40 px-2.5 py-1 rounded-lg">
+                                                        <span>Integrated GST (IGST @ {prevIgstRate}%):</span>
+                                                        <span className="font-mono">
+                                                            ₹{(Number(selectedPoPreview.igstAmount) || totalTaxVal).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex justify-between text-cyan-700 dark:text-cyan-300 font-bold bg-cyan-100/50 dark:bg-cyan-950/40 px-2.5 py-1 rounded-lg">
+                                                            <span>Central GST (CGST @ {prevCgstRate}%):</span>
+                                                            <span className="font-mono">
+                                                                ₹{(Number(selectedPoPreview.cgstAmount) || (totalTaxVal / 2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex justify-between text-indigo-700 dark:text-indigo-300 font-bold bg-indigo-100/50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-lg">
+                                                            <span>State GST (SGST @ {prevSgstRate}%):</span>
+                                                            <span className="font-mono">
+                                                                ₹{(Number(selectedPoPreview.sgstAmount) || (totalTaxVal / 2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                            </span>
+                                                        </div>
+                                                    </>
+                                                )}
+
+                                                <div className="flex justify-between text-slate-600 dark:text-slate-400 pt-1 border-t border-purple-200/60 dark:border-purple-800/60">
+                                                    <span>Total GST Tax ({prevTaxRate}%):</span>
+                                                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                        ₹{totalTaxVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex justify-between text-purple-900 dark:text-purple-200 pt-2 border-t border-purple-200 dark:border-purple-800 font-black text-sm">
+                                                    <span>Grand Total PO Value:</span>
+                                                    <span className="font-mono text-purple-700 dark:text-purple-300">
+                                                        ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                     </span>
                                                 </div>
                                             </>
                                         );
                                     })()}
-
-                                    <div className="flex justify-between text-slate-600 dark:text-slate-400 pt-1 border-t border-purple-200/60 dark:border-purple-800/60">
-                                        <span>Total GST Tax ({selectedPoPreview.taxRate != null ? selectedPoPreview.taxRate : 18}%):</span>
-                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                                            ₹{(selectedPoPreview.totalTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between text-purple-900 dark:text-purple-200 pt-2 border-t border-purple-200 dark:border-purple-800 font-black text-sm">
-                                        <span>Grand Total PO Value:</span>
-                                        <span className="font-mono text-purple-700 dark:text-purple-300">
-                                            ₹{Number(selectedPoPreview.grandTotal || selectedPoPreview.totalAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                                        </span>
-                                    </div>
                                 </div>
                             </div>
 
