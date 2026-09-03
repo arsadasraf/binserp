@@ -12,7 +12,7 @@ export const vendorSchema = new mongoose.Schema(
 
     vendorType: {
       type: String,
-      enum: ['Rm Vendor', 'Consumable Vendor', 'Manufacturing Vendor'],
+      enum: ['Rm Vendor', 'BO Vendor', 'Bought Out Vendor', 'Consumable Vendor', 'Manufacturing Vendor', 'Services Vendor', 'Service Vendor'],
       default: 'Rm Vendor'
     },
     address: String,

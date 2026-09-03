@@ -23,6 +23,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
       'Item Code': item.code || '-',
       'Type': item.type || '-',
       'Unit': item.unit || 'Nos',
+      'HSN Code': item.hsnCode || '-',
       'Min Stock': item.minimumStock || item.reorderLevel || 0,
       'Storage Location': item.location?.name || item.locationId?.name || (typeof item.location === 'string' ? item.location : '') || '-',
       'Revision No': item.revisionNumber || '-',
@@ -111,6 +112,16 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
       )
     },
     {
+      id: 'hsnCode',
+      label: 'HSN Code',
+      getValue: (item) => item.hsnCode || '-',
+      render: (item) => (
+        <span className="text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
+          {item.hsnCode || '-'}
+        </span>
+      )
+    },
+    {
       id: 'status',
       label: 'Status',
       getValue: (item) => (item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated') ? 'Deactivated' : 'Active',
@@ -194,7 +205,7 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
         data={data}
         onRowClick={onView}
         searchPlaceholder="Search finished goods..."
-        searchableKeys={['name', 'description', 'descriptions', 'type', 'revisionNumber']}
+        searchableKeys={['name', 'description', 'descriptions', 'type', 'revisionNumber', 'unit', 'hsnCode']}
         actionButton={
           <div className="flex flex-wrap items-center gap-2">
             <StoreMasterExcelActions

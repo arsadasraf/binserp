@@ -51,11 +51,9 @@ export default function RmBoItemForm({
     };
 
     const handleCategoryChange = (categoryId: string) => {
-        const selectedCategory = categories.find(cat => cat._id === categoryId);
         setFormData((prev: any) => ({
             ...prev,
             categoryId,
-            unit: selectedCategory?.unit || '',
         }));
     };
 

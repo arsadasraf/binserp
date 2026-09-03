@@ -94,8 +94,6 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
               company: companyId,
               name: rawCategory,
               code: generatedCatCode,
-              unit: item.unit || 'PCS',
-              hsnCode: item.hsnCode ? String(item.hsnCode).trim() : '',
               description: `${rawCategory} Category`
             });
           } catch (e) {
@@ -159,12 +157,16 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       }
 
       // 3. Upsert or Create Record in Dedicated Collection and sync to RmBoItem
+      const rawUnit = (item.unit || 'PCS').toString().trim();
+      const rawHsn = (item.hsnCode || item.hsn || '').toString().trim();
       const rmBoDoc = {
         company: companyId,
         name: itemName,
         itemType: determinedItemType,
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
+        unit: rawUnit,
+        hsnCode: rawHsn,
         categoryId: category?._id,
         ...(locationId ? { locationId } : {}),
         createdBy: userId,
@@ -215,7 +217,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         materialCode,
         materialName: itemName,
         itemType: determinedItemType,
-        unit: item.unit || category?.unit || 'PCS',
+        unit: rawUnit,
         currentStock: Number(item.openingStock ?? item.currentStock ?? 0),
         reorderLevel: Number(item.minStock ?? item.minimumStock ?? 0),
         reorderQuantity: Number(item.maxStock ?? 0),
@@ -263,7 +265,6 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
           company: companyId,
           name: "Raw Material",
           code: `CAT-${Math.floor(1000 + Math.random() * 9000)}`,
-          unit: "PCS",
           description: "Default Raw Material Category"
         });
       } catch (e) {
@@ -278,7 +279,6 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
           company: companyId,
           name: "Bought Out",
           code: `CAT-${Math.floor(1000 + Math.random() * 9000)}`,
-          unit: "PCS",
           description: "Default Bought Out Category"
         });
       } catch (e) {
@@ -673,8 +673,6 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         company: companyId,
         name: catName,
         code,
-        unit: item.unit || 'PCS',
-        hsnCode: item.hsnCode ? String(item.hsnCode).trim() : '',
         description: item.description || '',
         createdBy: userId,
         createdByName: userName,

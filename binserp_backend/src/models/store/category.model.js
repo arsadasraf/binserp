@@ -9,8 +9,6 @@ export const categorySchema = new mongoose.Schema(
     },
     name: { type: String, required: true },
     code: { type: String },
-    unit: { type: String, default: "PCS" },
-    hsnCode: { type: String },
     description: { type: String, default: "" },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

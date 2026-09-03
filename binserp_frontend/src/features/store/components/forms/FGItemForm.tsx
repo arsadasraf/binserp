@@ -145,14 +145,14 @@ export default function FGItemForm({
                 if (mat) {
                     foundName = mat.name || mat.materialName || '';
                     foundDesc = mat.descriptions || mat.description || '';
-                    foundUnit = mat.unit || mat.category?.unit || 'Nos';
+                    foundUnit = mat.unit || 'Nos';
                 }
             } else if (type === 'BoughtOut') {
                 const bo = effectiveBO.find((b: any) => (b._id || b.id) === value);
                 if (bo) {
                     foundName = bo.name || bo.materialName || '';
                     foundDesc = bo.descriptions || bo.description || '';
-                    foundUnit = bo.unit || bo.category?.unit || 'Nos';
+                    foundUnit = bo.unit || 'Nos';
                 }
             } else if (type === 'FGItem') {
                 const fg = fgItems.find((f: any) => (f._id || f.id) === value);
@@ -394,7 +394,7 @@ export default function FGItemForm({
                         <span>Storage & Inventory</span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                         <div>
                             <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                                 Storage Location
@@ -412,6 +412,7 @@ export default function FGItemForm({
                                 Unit <span className="text-red-500">*</span>
                             </label>
                             <input
+                                list="fg-common-units"
                                 type="text"
                                 name="unit"
                                 value={formData.unit || 'Nos'}
@@ -419,6 +420,29 @@ export default function FGItemForm({
                                 required
                                 className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white"
                                 placeholder="Nos"
+                            />
+                            <datalist id="fg-common-units">
+                                <option value="Nos" />
+                                <option value="PCS" />
+                                <option value="Set" />
+                                <option value="KG" />
+                                <option value="Mtr" />
+                                <option value="Box" />
+                                <option value="Pair" />
+                            </datalist>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                                HSN Code
+                            </label>
+                            <input
+                                type="text"
+                                name="hsnCode"
+                                value={formData.hsnCode || ''}
+                                onChange={handleChange}
+                                className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-gray-900 dark:text-white font-mono"
+                                placeholder="e.g. 8481"
                             />
                         </div>
 

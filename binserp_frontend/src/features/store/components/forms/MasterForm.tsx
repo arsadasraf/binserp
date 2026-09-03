@@ -65,14 +65,11 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
     }, [existingItems, currentName, currentId]);
     /**
      * Handles category selection for material
-     * Auto-fills unit from selected category
      */
     const handleCategoryChange = (categoryId: string) => {
-        const selectedCategory = categories.find(cat => cat._id === categoryId);
         setFormData({
             ...formData,
             categoryId,
-            unit: selectedCategory?.unit || '',
         });
     };
 
@@ -126,9 +123,9 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
             <div className="space-y-6">
                 <div className="bg-gray-50 rounded-xl p-5 border border-gray-200">
                     {renderSectionHeader(sectionTitle, sectionColor)}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         {/* Row 1: Name, Description, Minimum Stock */}
-                        <div>
+                        <div className="col-span-1 lg:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Name <span className="text-red-500">*</span>
                             </label>
@@ -180,13 +177,12 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             />
                         </div>
 
-                        {/* Row 2: Category, Location, Unit */}
+                        {/* Row 2: Category, Location, Unit, HSN Code */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Category {!isConsumable && <span className="text-red-500">*</span>}
+                                Category
                             </label>
                             <select
-                                required={!isConsumable}
                                 value={typeof formData.categoryId === 'object' ? (formData.categoryId as any)?._id : formData.categoryId || ""}
                                 onChange={(e) => handleCategoryChange(e.target.value)}
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
@@ -201,14 +197,14 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Location
+                                Storage Location
                             </label>
                             <select
                                 value={typeof formData.locationId === 'object' ? (formData.locationId as any)?._id : formData.locationId || ""}
                                 onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
                                 className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                             >
-                                <option value="">Select Location</option>
+                                <option value="">Select Location (Optional)</option>
                                 {locations.map((location) => (
                                     <option key={location._id} value={location._id}>
                                         {location.name}
@@ -218,19 +214,46 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Unit
+                                Unit <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                                list="master-common-units"
+                                type="text"
+                                required
+                                value={formData.unit ?? "PCS"}
+                                onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                                className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                                placeholder="e.g. PCS, KG, Nos, Mtr"
+                            />
+                            <datalist id="master-common-units">
+                                <option value="PCS" />
+                                <option value="KG" />
+                                <option value="Nos" />
+                                <option value="Mtr" />
+                                <option value="Ltr" />
+                                <option value="Set" />
+                                <option value="Box" />
+                                <option value="Pkt" />
+                                <option value="Roll" />
+                                <option value="Sheet" />
+                                <option value="Pair" />
+                            </datalist>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                HSN Code
                             </label>
                             <input
                                 type="text"
-                                value={formData.unit || ""}
-                                readOnly
-                                className="w-full px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed"
-                                placeholder="Auto-filled from category"
+                                value={formData.hsnCode || ""}
+                                onChange={(e) => setFormData({ ...formData, hsnCode: e.target.value })}
+                                className="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 font-mono text-sm"
+                                placeholder="e.g. 7204, 8481"
                             />
                         </div>
 
                         {/* Row 3: Document Attached & Previews */}
-                        <div className="md:col-span-3 pt-2">
+                        <div className="col-span-1 sm:col-span-2 lg:col-span-4 pt-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">
                                 Document Attached (Photos & PDFs, Max 2)
                             </label>
@@ -336,37 +359,6 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                         </div>
                     )}
 
-                    {/* Vendor Type Selection */}
-                    {masterTab === "vendor" && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Type</label>
-                            <select
-                                value={formData.vendorType || "Rm Vendor"}
-                                onChange={(e) => setFormData({ ...formData, vendorType: e.target.value as any })}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                            >
-                                <option value="Rm Vendor">Rm Vendor</option>
-                                <option value="Consumable Vendor">Consumable Vendor</option>
-                                <option value="Manufacturing Vendor">Manufacturing Vendor</option>
-                            </select>
-                        </div>
-                    )}
-
-                    {/* Customer Type Selection */}
-                    {masterTab === "customer" && (
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Customer Type</label>
-                            <select
-                                value={formData.customerType || "Manufacturing Sales"}
-                                onChange={(e) => setFormData({ ...formData, customerType: e.target.value as any })}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-                            >
-                                <option value="Manufacturing Sales">Manufacturing Sales</option>
-                                <option value="Labor-Job Sales">Labor-Job Sales</option>
-                            </select>
-                        </div>
-                    )}
-
                     {/* Common Name Field */}
                     <div className={(masterTab === "vendor" || masterTab === "customer") ? "md:col-span-1" : ""}>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Name <span className="text-red-500">*</span></label>
@@ -408,6 +400,43 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                     )}
 
 
+                    {/* Vendor Type Selection */}
+                    {masterTab === "vendor" && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Vendor Type <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={formData.vendorType || "Rm Vendor"}
+                                onChange={(e) => setFormData({ ...formData, vendorType: e.target.value })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            >
+                                <option value="Rm Vendor">RM Vendor (Raw Material)</option>
+                                <option value="BO Vendor">BO Vendor (Bought Out)</option>
+                                <option value="Consumable Vendor">Consumable Vendor</option>
+                                <option value="Manufacturing Vendor">Manufacturing Vendor</option>
+                                <option value="Services Vendor">Services Vendor (Job Work / Services)</option>
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Customer Type Selection */}
+                    {masterTab === "customer" && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Customer Type <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={formData.customerType || "Manufacturing Sales"}
+                                onChange={(e) => setFormData({ ...formData, customerType: e.target.value as any })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            >
+                                <option value="Manufacturing Sales">Manufacturing Sales</option>
+                                <option value="Labor-Job Sales">Labor-Job Sales</option>
+                            </select>
+                        </div>
+                    )}
+
                     {/* GST Number Field for Customer & Vendor */}
                     {(masterTab === "customer" || masterTab === "vendor") && (
                         <div>
@@ -416,46 +445,24 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 type="text"
                                 value={formData.gst || ""}
                                 onChange={(e) => setFormData({ ...formData, gst: e.target.value })}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
                                 placeholder="e.g. 29AAAAA0000A1Z5"
                             />
                         </div>
                     )}
 
-                    {/* Category Specific: Description, HSN Code & Unit */}
+                    {/* Category Specific: Description */}
                     {masterTab === "category" && (
-                        <>
-                            <div className="md:col-span-2 lg:col-span-4">
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                                <textarea
-                                    value={formData.description || ""}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    placeholder="Enter Description"
-                                    rows={2}
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
-                                <input
-                                    type="text"
-                                    value={formData.hsnCode || ""}
-                                    onChange={(e) => setFormData({ ...formData, hsnCode: e.target.value })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    placeholder="Enter HSN Code"
-                                />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
-                                <input
-                                    type="text"
-                                    value={formData.unit || ""}
-                                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                                    placeholder="e.g. KG, PCS"
-                                />
-                            </div>
-                        </>
+                        <div className="md:col-span-2 lg:col-span-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                            <textarea
+                                value={formData.description || ""}
+                                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                placeholder="Enter Description"
+                                rows={2}
+                            />
+                        </div>
                     )}
 
                     {/* Location/Inhouse Specific: Description */}
@@ -510,11 +517,22 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
                                 <input
+                                    list="master-common-units"
                                     type="text"
-                                    value={formData.unit || ""}
-                                    readOnly
-                                    className="w-full px-4 py-2.5 bg-gray-100 border border-gray-300 rounded-lg text-gray-500 cursor-not-allowed"
-                                    placeholder="Auto-filled"
+                                    value={formData.unit ?? "PCS"}
+                                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900"
+                                    placeholder="e.g. PCS, Nos, KG"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
+                                <input
+                                    type="text"
+                                    value={formData.hsnCode || ""}
+                                    onChange={(e) => setFormData({ ...formData, hsnCode: e.target.value })}
+                                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900 font-mono text-sm"
+                                    placeholder="e.g. 7204, 8481"
                                 />
                             </div>
                         </>

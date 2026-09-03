@@ -51,30 +51,30 @@ export const createRmBoItem = async (req, res) => {
     const Inventory = req.getModel('Inventory', inventorySchema);
 
     const companyId = getCompanyId(req);
-    let { name, descriptions, minimumStock, categoryId, locationId, unit, itemType } = req.body;
+    let { name, descriptions, minimumStock, categoryId, locationId, unit, hsnCode, itemType } = req.body;
     const finalItemType = (itemType === 'Bought Out' || itemType === 'BO' || itemType === 'bought-out' || itemType === 'bo-item') ? 'Bought Out' : 'Raw Material';
 
     if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Name is required" });
     }
     const cleanName = name.toString().trim();
+    const itemUnit = (unit || 'PCS').toString().trim();
+    const itemHsn = (hsnCode || '').toString().trim();
 
     const isValidObjectId = (id) => typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id);
 
-    // 1. Resolve or auto-create Category
+    // 1. Resolve or auto-create Category (optional)
     let resolvedCategoryId = null;
-    let categoryUnit = unit || 'PCS';
 
     if (categoryId) {
       if (isValidObjectId(categoryId)) {
         const existingCat = await Category.findOne({ _id: categoryId, company: companyId });
         if (existingCat) {
           resolvedCategoryId = existingCat._id;
-          categoryUnit = existingCat.unit || categoryUnit;
         }
       }
       
-      if (!resolvedCategoryId) {
+      if (!resolvedCategoryId && categoryId.toString().trim()) {
         const catName = categoryId.toString().trim();
         let cat = await Category.findOne({
           company: companyId,
@@ -91,7 +91,6 @@ export const createRmBoItem = async (req, res) => {
               company: companyId,
               name: catName,
               code: genCode,
-              unit: unit || 'PCS',
               description: `${catName} Category`
             });
           } catch {
@@ -101,27 +100,8 @@ export const createRmBoItem = async (req, res) => {
 
         if (cat) {
           resolvedCategoryId = cat._id;
-          categoryUnit = cat.unit || categoryUnit;
         }
       }
-    }
-
-    if (!resolvedCategoryId) {
-      let defaultCat = await Category.findOne({ company: companyId, name: { $regex: /^Raw Material$/i } });
-      if (!defaultCat) {
-        defaultCat = await Category.findOne({ company: companyId });
-      }
-      if (!defaultCat) {
-        defaultCat = await Category.create({
-          company: companyId,
-          name: 'Raw Material',
-          code: 'CAT-RM',
-          unit: 'PCS',
-          description: 'Default Raw Material Category'
-        });
-      }
-      resolvedCategoryId = defaultCat._id;
-      categoryUnit = defaultCat.unit || categoryUnit;
     }
 
     // 2. Resolve or auto-create Location (optional)
@@ -182,7 +162,9 @@ export const createRmBoItem = async (req, res) => {
       itemType: finalItemType,
       descriptions: descriptions || '', 
       minimumStock: Number(minimumStock || 0), 
-      categoryId: resolvedCategoryId, 
+      unit: itemUnit,
+      hsnCode: itemHsn,
+      ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}), 
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}), 
       photos: photoUrls, 
       company: companyId 
@@ -199,7 +181,7 @@ export const createRmBoItem = async (req, res) => {
             company: companyId,
             materialCode: matCode,
             materialName: cleanName,
-            unit: categoryUnit,
+            unit: itemUnit,
             itemType: finalItemType,
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),

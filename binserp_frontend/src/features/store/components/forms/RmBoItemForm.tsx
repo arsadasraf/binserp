@@ -51,11 +51,9 @@ export default function RmBoItemForm({
     };
 
     const handleCategoryChange = (categoryId: string) => {
-        const selectedCategory = categories.find(cat => cat._id === categoryId);
         setFormData((prev: any) => ({
             ...prev,
             categoryId,
-            unit: selectedCategory?.unit || '',
         }));
     };
 
@@ -122,6 +120,18 @@ export default function RmBoItemForm({
                                         onChange={handleChange}
                                         className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none" 
                                         placeholder="e.g. KG, Nos, PCS, Mtr" 
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1.5">HSN Code</label>
+                                    <input 
+                                        type="text" 
+                                        name="hsnCode" 
+                                        value={formData.hsnCode || ''} 
+                                        onChange={handleChange}
+                                        className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 transition-all outline-none font-mono" 
+                                        placeholder="e.g. 7204, 8481" 
                                     />
                                 </div>
 

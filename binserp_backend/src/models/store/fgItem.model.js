@@ -52,6 +52,12 @@ export const fgItemSchema = new mongoose.Schema(
     unit: {
       type: String,
       default: "Nos",
+      trim: true,
+    },
+    hsnCode: {
+      type: String,
+      default: "",
+      trim: true,
     },
     quantity: {
       type: Number,

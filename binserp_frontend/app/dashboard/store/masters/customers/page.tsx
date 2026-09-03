@@ -122,6 +122,7 @@ export default function CustomersPage() {
       const payload = {
         ...formData,
         name: cleanName,
+        customerType: formData.customerType || "Manufacturing Sales",
         address: formData.billingAddress || formData.address || "",
         city: formData.billingCity || formData.city || "",
         state: formData.billingState || formData.state || "",

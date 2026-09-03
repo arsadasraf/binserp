@@ -112,10 +112,20 @@ export default function MaterialTable({
     {
       id: 'unit',
       label: 'Unit',
-      getValue: (item) => item.unit || item.categoryId?.unit || '-',
+      getValue: (item) => item.unit || '-',
       render: (item) => (
         <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-          {item.unit || item.categoryId?.unit || '-'}
+          {item.unit || '-'}
+        </span>
+      )
+    },
+    {
+      id: 'hsnCode',
+      label: 'HSN Code',
+      getValue: (item) => item.hsnCode || '-',
+      render: (item) => (
+        <span className="text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
+          {item.hsnCode || '-'}
         </span>
       )
     },
@@ -222,7 +232,7 @@ export default function MaterialTable({
       data={data}
       onRowClick={onView}
       searchPlaceholder={`Search ${displayLabel.toLowerCase()}s...`}
-      searchableKeys={['name', 'descriptions', 'category', 'unit']}
+      searchableKeys={['name', 'descriptions', 'category', 'unit', 'hsnCode']}
       actionButton={
         <div className="flex flex-wrap items-center gap-2">
           <StoreMasterExcelActions

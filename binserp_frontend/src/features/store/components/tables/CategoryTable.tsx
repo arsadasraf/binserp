@@ -55,24 +55,6 @@ export default function CategoryTable({ data, onEdit, onDelete, onView, onAdd }:
       )
     },
     {
-      id: 'unit',
-      label: 'Default Unit',
-      render: (item) => (
-        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-          {item.unit || '-'}
-        </span>
-      )
-    },
-    {
-      id: 'hsnCode',
-      label: 'HSN / SAC',
-      render: (item) => (
-        <span className="text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
-          {item.hsnCode || '-'}
-        </span>
-      )
-    },
-    {
       id: 'actions',
       label: 'Actions',
       render: (item) => (
@@ -111,7 +93,7 @@ export default function CategoryTable({ data, onEdit, onDelete, onView, onAdd }:
       data={data}
       onRowClick={onView}
       searchPlaceholder="Search categories..."
-      searchableKeys={['name', 'description', 'unit', 'hsnCode']}
+      searchableKeys={['name', 'description']}
       actionButton={
         <div className="flex flex-wrap items-center gap-2">
           <StoreMasterExcelActions

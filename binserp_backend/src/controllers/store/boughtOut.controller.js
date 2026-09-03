@@ -23,12 +23,14 @@ export const createBoughtOut = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, descriptions, minimumStock, categoryId, locationId, unit } = req.body;
+    let { name, code, descriptions, minimumStock, categoryId, locationId, unit, hsnCode } = req.body;
 
     if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Bought Out Item Name is required" });
     }
     const cleanName = name.toString().trim();
+    const itemUnit = (unit || 'PCS').toString().trim();
+    const itemHsn = (hsnCode || '').toString().trim();
 
     // Pre-validate uniqueness
     const uniqueness = await validateMasterUniqueness({
@@ -42,20 +44,18 @@ export const createBoughtOut = async (req, res) => {
       return res.status(400).json({ message: uniqueness.message });
     }
 
-    // 1. Resolve or auto-create Category
+    // 1. Resolve or auto-create Category (optional)
     let resolvedCategoryId = null;
-    let categoryUnit = unit || 'PCS';
 
     if (categoryId) {
       if (isValidObjectId(categoryId)) {
         const existingCat = await Category.findOne({ _id: categoryId, company: companyId });
         if (existingCat) {
           resolvedCategoryId = existingCat._id;
-          categoryUnit = existingCat.unit || categoryUnit;
         }
       }
       
-      if (!resolvedCategoryId) {
+      if (!resolvedCategoryId && categoryId.toString().trim()) {
         const catName = categoryId.toString().trim();
         let cat = await Category.findOne({
           company: companyId,
@@ -72,7 +72,6 @@ export const createBoughtOut = async (req, res) => {
               company: companyId,
               name: catName,
               code: genCode,
-              unit: unit || 'PCS',
               description: `${catName} Category`,
               createdBy: userId,
               createdByName: userName,
@@ -86,31 +85,8 @@ export const createBoughtOut = async (req, res) => {
 
         if (cat) {
           resolvedCategoryId = cat._id;
-          categoryUnit = cat.unit || categoryUnit;
         }
       }
-    }
-
-    if (!resolvedCategoryId) {
-      let defaultCat = await Category.findOne({ company: companyId, name: { $regex: /^Bought Out$/i } });
-      if (!defaultCat) {
-        defaultCat = await Category.findOne({ company: companyId });
-      }
-      if (!defaultCat) {
-        defaultCat = await Category.create({
-          company: companyId,
-          name: 'Bought Out',
-          code: 'CAT-BO',
-          unit: 'PCS',
-          description: 'Default Bought Out Category',
-          createdBy: userId,
-          createdByName: userName,
-          updatedBy: userId,
-          updatedByName: userName
-        });
-      }
-      resolvedCategoryId = defaultCat._id;
-      categoryUnit = defaultCat.unit || categoryUnit;
     }
 
     // 2. Resolve or auto-create Location
@@ -178,7 +154,9 @@ export const createBoughtOut = async (req, res) => {
       code: generatedCode,
       descriptions: descriptions || '',
       minimumStock: Number(minimumStock || 0),
-      categoryId: resolvedCategoryId,
+      unit: itemUnit,
+      hsnCode: itemHsn,
+      ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
       photos: photoUrls,
       createdBy: userId,
@@ -198,7 +176,9 @@ export const createBoughtOut = async (req, res) => {
             itemType: 'Bought Out',
             descriptions: descriptions || '',
             minimumStock: Number(minimumStock || 0),
-            categoryId: resolvedCategoryId,
+            unit: itemUnit,
+            hsnCode: itemHsn,
+            ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
             ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
             photos: photoUrls,
             createdBy: userId,
@@ -223,7 +203,7 @@ export const createBoughtOut = async (req, res) => {
             materialCode: generatedCode,
             materialName: cleanName,
             itemType: 'Bought Out',
-            unit: categoryUnit,
+            unit: itemUnit,
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),
             reorderQuantity: 0,
@@ -380,7 +360,6 @@ export const updateBoughtOut = async (req, res) => {
           company: companyId,
           name: catName,
           code: `CAT-${Math.floor(100 + Math.random() * 900)}`,
-          unit: req.body.unit || 'PCS',
           description: `${catName} Category`
         });
       }
@@ -473,6 +452,25 @@ export const updateBoughtOut = async (req, res) => {
       { $set: { ...req.body, itemType: 'Bought Out' } },
       { upsert: true }
     );
+
+    // Sync to Inventory
+    if (req.body.unit || req.body.name || req.body.minimumStock !== undefined) {
+      try {
+        const Inventory = req.getModel('Inventory', inventorySchema);
+        await Inventory.findOneAndUpdate(
+          { company: companyId, materialId: id },
+          {
+            $set: {
+              ...(req.body.unit ? { unit: req.body.unit.toString().trim() } : {}),
+              ...(req.body.name ? { materialName: req.body.name.toString().trim() } : {}),
+              ...(req.body.minimumStock !== undefined ? { reorderLevel: Number(req.body.minimumStock) } : {})
+            }
+          }
+        );
+      } catch (invErr) {
+        console.error("Inventory sync error on updateBoughtOut:", invErr);
+      }
+    }
 
     res.status(200).json({ message: "Bought Out Item updated successfully", boughtOut, rmBoItem: boughtOut });
   } catch (error) {

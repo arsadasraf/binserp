@@ -46,6 +46,7 @@ export interface StoreFormData {
     country?: string;
     district?: string;
     customerType?: 'Manufacturing Sales' | 'Labor-Job Sales';
+    vendorType?: 'Rm Vendor' | 'BO Vendor' | 'Bought Out Vendor' | 'Consumable Vendor' | 'Manufacturing Vendor' | 'Services Vendor' | 'Service Vendor' | string;
     website?: string;
     billingAddress?: string;  // For customer
     billingCity?: string;
@@ -82,8 +83,6 @@ export interface StoreFormData {
         [key: string]: any;
     }>; // For FG items
     bankDetails?: BankDetails;  // For vendor and customer
-    vendorType?: string;
-
     [key: string]: any;
 
     // Transaction fields
@@ -204,8 +203,7 @@ export interface Category {
     _id: string;
     name: string;
     code?: string;
-    unit?: string;
-    hsnCode?: string;
+    description?: string;
 }
 
 export interface RmBoItem {
@@ -215,10 +213,15 @@ export interface RmBoItem {
     descriptions?: string;
     minimumStock?: number;
     photos?: string[];
-    categoryId: string | Category;  // Can be ID or populated Category object
+    unit?: string;
+    hsnCode?: string;
+    categoryId?: string | Category;  // Can be ID or populated Category object
     locationId?: string | Location; // Can be ID or populated Location object
     category?: Category;  // Populated category data (alternative field)
     location?: Location;  // Populated location data
+    itemType?: string;
+    status?: string;
+    isActive?: boolean;
 }
 
 export interface Process {

@@ -16,10 +16,12 @@ export const rmBoItemSchema = new mongoose.Schema(
     },
     descriptions: { type: String },
     minimumStock: { type: Number },
+    unit: { type: String, default: "PCS", trim: true },
+    hsnCode: { type: String, default: "", trim: true },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
+      required: false,
     },
     locationId: {
       type: mongoose.Schema.Types.ObjectId,

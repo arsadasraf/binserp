@@ -55,11 +55,9 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
      * Auto-fills unit from selected category
      */
     const handleCategoryChange = (categoryId: string) => {
-        const selectedCategory = categories.find(cat => cat._id === categoryId);
         setFormData({
             ...formData,
             categoryId,
-            unit: selectedCategory?.unit || '',
         });
     };
 

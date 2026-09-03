@@ -122,6 +122,7 @@ export default function VendorsPage() {
       const payload = {
         ...formData,
         name: cleanName,
+        vendorType: formData.vendorType || "Rm Vendor",
         address: formData.billingAddress || formData.address || "",
         city: formData.billingCity || formData.city || "",
         state: formData.billingState || formData.state || "",

@@ -23,6 +23,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
       'Consumable Code': item.code || '-',
       'Category': item.category || (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || '-',
       'Unit': item.unit || '-',
+      'HSN Code': item.hsnCode || '-',
       'Min Stock': item.minimumStock ?? item.minStock ?? 0,
       'Storage Location': item.storageLocation || (typeof item.locationId === 'object' ? item.locationId?.name : (typeof item.location === 'object' ? item.location?.name : item.location)) || '-',
       'Description': item.descriptions || item.description || '-'
@@ -89,10 +90,20 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
     {
       id: 'unit',
       label: 'Unit',
-      getValue: (item) => item.unit || item.categoryId?.unit || 'PCS',
+      getValue: (item) => item.unit || 'PCS',
       render: (item) => (
         <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-          {item.unit || item.categoryId?.unit || 'PCS'}
+          {item.unit || 'PCS'}
+        </span>
+      )
+    },
+    {
+      id: 'hsnCode',
+      label: 'HSN Code',
+      getValue: (item) => item.hsnCode || '-',
+      render: (item) => (
+        <span className="text-xs font-mono font-medium text-slate-600 dark:text-slate-400">
+          {item.hsnCode || '-'}
         </span>
       )
     },
@@ -201,7 +212,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
         data={data}
         onRowClick={onView}
         searchPlaceholder="Search consumable items..."
-        searchableKeys={['name', 'descriptions', 'category', 'unit']}
+        searchableKeys={['name', 'descriptions', 'category', 'unit', 'hsnCode']}
         actionButton={
           <div className="flex flex-wrap items-center gap-2">
             <StoreMasterExcelActions

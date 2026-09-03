@@ -21,6 +21,7 @@ export default function CustomerTable({ data, onEdit, onDelete, onView, onAdd, o
       'S.No': idx + 1,
       'Customer Name': item.name || '-',
       'Customer Code': item.code || '-',
+      'Customer Type': item.customerType || 'Manufacturing Sales',
       'Contact Person': item.contactPerson || '-',
       'Phone': item.phone || '-',
       'Email': item.email || '-',
@@ -52,6 +53,22 @@ export default function CustomerTable({ data, onEdit, onDelete, onView, onAdd, o
       }
     },
     { id: 'code', label: 'Code', render: (item) => item.code || '-' },
+    { 
+      id: 'customerType', 
+      label: 'Customer Type', 
+      render: (item) => {
+        const type = item.customerType || 'Manufacturing Sales';
+        const badgeStyle = type === 'Labor-Job Sales'
+          ? "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+          : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800";
+
+        return (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${badgeStyle}`}>
+            {type}
+          </span>
+        );
+      }
+    },
     { id: 'contactPerson', label: 'Contact Person', render: (item) => item.contactPerson || '-' },
     { id: 'phone', label: 'Phone', render: (item) => item.phone || '-' },
     { id: 'email', label: 'Email', render: (item) => item.email || '-' },
@@ -136,7 +153,7 @@ export default function CustomerTable({ data, onEdit, onDelete, onView, onAdd, o
       data={data}
       onRowClick={onView}
       searchPlaceholder="Search customers..."
-      searchableKeys={['name', 'code', 'contactPerson', 'email']}
+      searchableKeys={['name', 'code', 'customerType', 'contactPerson', 'email']}
       actionButton={
         <div className="flex flex-wrap items-center gap-2">
           <StoreMasterExcelActions

@@ -386,7 +386,7 @@ export default function MasterDetailPreviewModal({
                                         <div className="flex justify-between py-1">
                                             <span className="text-slate-500 dark:text-slate-400">Default Unit:</span>
                                             <span className="font-bold text-slate-800 dark:text-slate-200">
-                                                {item.unit || (typeof item.categoryId === 'object' ? item.categoryId?.unit : 'PCS')}
+                                                {item.unit || 'PCS'}
                                             </span>
                                         </div>
                                     </div>
@@ -412,7 +412,7 @@ export default function MasterDetailPreviewModal({
                                         <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                             <span className="text-slate-500 dark:text-slate-400">HSN Code:</span>
                                             <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                                                {typeof item.categoryId === 'object' ? item.categoryId?.hsnCode : (item.hsnCode || '-')}
+                                                {item.hsnCode || '-'}
                                             </span>
                                         </div>
                                         <div className="flex justify-between py-1">
@@ -530,6 +530,10 @@ export default function MasterDetailPreviewModal({
                                         <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.revisionNumber || '-'}</span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                        <span className="text-slate-500 dark:text-slate-400">HSN Code:</span>
+                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.hsnCode || '-'}</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                         <span className="text-slate-500 dark:text-slate-400">Reorder Level / Min Stock:</span>
                                         <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.reorderLevel !== undefined ? `${item.reorderLevel} ${item.unit || 'Nos'}` : '-'}</span>
                                     </div>
@@ -625,13 +629,13 @@ export default function MasterDetailPreviewModal({
                                             <span className="font-bold text-slate-800 dark:text-slate-200">{item.type}</span>
                                         </div>
                                     )}
-                                    {item.unit && (
+                                    {tabKey !== 'category' && tabKey !== 'categories' && item.unit && (
                                         <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                             <span className="text-slate-500 dark:text-slate-400">Standard Unit:</span>
                                             <span className="font-bold text-slate-800 dark:text-slate-200">{item.unit}</span>
                                         </div>
                                     )}
-                                    {item.hsnCode && (
+                                    {tabKey !== 'category' && tabKey !== 'categories' && item.hsnCode && (
                                         <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                             <span className="text-slate-500 dark:text-slate-400">HSN Code:</span>
                                             <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{item.hsnCode}</span>

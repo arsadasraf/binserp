@@ -21,6 +21,7 @@ export default function VendorTable({ data, onEdit, onDelete, onView, onAdd, onT
       'S.No': idx + 1,
       'Vendor Name': item.name || '-',
       'Vendor Code': item.code || '-',
+      'Vendor Type': item.vendorType || 'Rm Vendor',
       'Contact Person': item.contactPerson || '-',
       'Phone': item.phone || '-',
       'Email': item.email || '-',
@@ -52,6 +53,29 @@ export default function VendorTable({ data, onEdit, onDelete, onView, onAdd, onT
       }
     },
     { id: 'code', label: 'Code', render: (item) => item.code || '-' },
+    { 
+      id: 'vendorType', 
+      label: 'Vendor Type', 
+      render: (item) => {
+        const type = item.vendorType || 'Rm Vendor';
+        let badgeStyle = "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800";
+        if (type === 'BO Vendor' || type === 'Bought Out Vendor') {
+          badgeStyle = "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800";
+        } else if (type === 'Consumable Vendor') {
+          badgeStyle = "bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800";
+        } else if (type === 'Manufacturing Vendor') {
+          badgeStyle = "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800";
+        } else if (type === 'Services Vendor' || type === 'Service Vendor') {
+          badgeStyle = "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800";
+        }
+
+        return (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${badgeStyle}`}>
+            {type}
+          </span>
+        );
+      }
+    },
     { id: 'contactPerson', label: 'Contact Person', render: (item) => item.contactPerson || '-' },
     { id: 'phone', label: 'Phone', render: (item) => item.phone || '-' },
     { id: 'email', label: 'Email', render: (item) => item.email || '-' },
@@ -136,7 +160,7 @@ export default function VendorTable({ data, onEdit, onDelete, onView, onAdd, onT
       data={data}
       onRowClick={onView}
       searchPlaceholder="Search vendors..."
-      searchableKeys={['name', 'code', 'contactPerson', 'email']}
+      searchableKeys={['name', 'code', 'vendorType', 'contactPerson', 'email']}
       actionButton={
         <div className="flex flex-wrap items-center gap-2">
           <StoreMasterExcelActions

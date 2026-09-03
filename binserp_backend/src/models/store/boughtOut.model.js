@@ -12,10 +12,12 @@ export const boughtOutSchema = new mongoose.Schema(
     code: { type: String },
     descriptions: { type: String },
     minimumStock: { type: Number, default: 0 },
+    unit: { type: String, default: "PCS", trim: true },
+    hsnCode: { type: String, default: "", trim: true },
     categoryId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
-      required: true,
+      required: false,
     },
     locationId: {
       type: mongoose.Schema.Types.ObjectId,

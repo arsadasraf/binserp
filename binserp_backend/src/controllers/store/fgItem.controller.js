@@ -14,7 +14,7 @@ export const createFGItem = async (req, res) => {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel } = req.body;
+    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode } = req.body;
 
     if (!name || !type) {
       return res.status(400).json({ message: "Name and Type are required" });
@@ -95,7 +95,8 @@ export const createFGItem = async (req, res) => {
       type,
       description: description || "",
       location: validLocation,
-      unit: unit || "Nos",
+      unit: (unit || "Nos").toString().trim(),
+      hsnCode: (hsnCode || "").toString().trim(),
       reorderLevel: isNaN(Number(reorderLevel)) ? 0 : Number(reorderLevel),
       bom: cleanedBom,
       revisionNumber: revisionNumber || "",
@@ -258,9 +259,11 @@ export const updateFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     
-    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel } = req.body;
+    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode } = req.body;
 
-    let updateData = { name, code, type, description, unit, revisionNumber };
+    let updateData = { name, code, type, description, revisionNumber };
+    if (unit !== undefined) updateData.unit = (unit || "Nos").toString().trim();
+    if (hsnCode !== undefined) updateData.hsnCode = (hsnCode || "").toString().trim();
 
     if (reorderLevel !== undefined) {
       updateData.reorderLevel = isNaN(Number(reorderLevel)) ? 0 : Number(reorderLevel);
