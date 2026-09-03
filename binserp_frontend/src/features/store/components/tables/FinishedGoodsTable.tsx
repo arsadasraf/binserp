@@ -67,13 +67,28 @@ export default function FinishedGoodsTable({ data, onEdit, onDelete, onView, onA
     },
     {
       id: 'description',
-      label: 'Description',
-      getValue: (item) => item.description || item.descriptions || '-',
-      render: (item) => (
-        <span className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 max-w-[280px] block" title={item.description || item.descriptions || ''}>
-          {item.description || item.descriptions || '-'}
-        </span>
-      )
+      label: 'Description & Revision',
+      getValue: (item) => {
+        const desc = item.description || item.descriptions || '';
+        const rev = item.revisionNumber ? `Rev ${item.revisionNumber}` : '';
+        return rev ? `${rev} - ${desc}` : (desc || '-');
+      },
+      render: (item) => {
+        const desc = item.description || item.descriptions || '-';
+        const rev = item.revisionNumber ? String(item.revisionNumber).trim() : '';
+        return (
+          <div className="space-y-1 max-w-[300px]">
+            {rev && (
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                Rev: {rev}
+              </span>
+            )}
+            <span className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 block" title={desc !== '-' ? desc : ''}>
+              {desc}
+            </span>
+          </div>
+        );
+      }
     },
     {
       id: 'type',

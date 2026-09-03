@@ -34,7 +34,7 @@ export default function BoStockPage() {
   }
 
   return (
-    <div>
+    <div className="h-[calc(100dvh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
       <InventoryTab
         storeData={storeData}
         token={token}

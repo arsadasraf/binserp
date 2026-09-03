@@ -5,7 +5,7 @@ interface ModalProps {
     onClose: () => void;
     title?: string;
     children: React.ReactNode;
-    maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl" | "full";
+    maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "6xl" | "7xl" | "full";
 }
 
 export default function Modal({
@@ -45,11 +45,12 @@ export default function Modal({
         "4xl": "max-w-4xl",
         "5xl": "max-w-5xl",
         "6xl": "max-w-6xl",
+        "7xl": "max-w-7xl",
         full: "max-w-full mx-4",
     }[maxWidth];
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity duration-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm transition-opacity duration-300">
             <div
                 className="absolute inset-0"
                 onClick={onClose}
@@ -57,15 +58,15 @@ export default function Modal({
             />
             <div
                 ref={modalRef}
-                className={`bg-white rounded-2xl shadow-2xl w-full ${maxWidthClass} max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-100 animate-in fade-in zoom-in-95`}
+                className={`bg-white dark:bg-slate-900 border border-transparent dark:border-slate-800 rounded-2xl shadow-2xl w-full ${maxWidthClass} max-h-[95dvh] flex flex-col transform transition-all duration-300 scale-100 animate-in fade-in zoom-in-95`}
                 role="dialog"
                 aria-modal="true"
             >
-                <div className="flex items-center justify-between p-6 border-b border-gray-100 sticky top-0 bg-white z-10">
-                    {title && <h3 className="text-xl font-bold text-gray-900">{title}</h3>}
+                <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-100 dark:border-slate-800 sticky top-0 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md z-10 shrink-0">
+                    {title && <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white truncate">{title}</h3>}
                     <button
                         onClick={onClose}
-                        className="text-gray-400 hover:text-gray-600 transition-colors p-2 rounded-full hover:bg-gray-100"
+                        className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer active:scale-95"
                         aria-label="Close"
                     >
                         <svg
@@ -83,7 +84,7 @@ export default function Modal({
                         </svg>
                     </button>
                 </div>
-                <div className="p-6">{children}</div>
+                <div className="p-3 sm:p-6 overflow-y-auto flex-1">{children}</div>
             </div>
         </div>
     );

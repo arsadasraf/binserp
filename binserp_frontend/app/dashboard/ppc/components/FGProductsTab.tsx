@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
-import { Package, Search, Factory, Edit, FileText } from "lucide-react";
+import { Package, Search, Factory, Edit, Download, Eye } from "lucide-react";
 import { useGetPPCProductsStatusQuery } from "@/src/store/services/ppcService";
 import RoutingBuilderModal from "./RoutingBuilderModal";
+import FGItemRouteDetailsModal from "./routing/FGItemRouteDetailsModal";
+import { generateProcessRoutePDF } from "@/src/utils/generateProcessRoutePDF";
 
 export default function FGProductsTab() {
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedItem, setSelectedItem] = useState<any | null>(null);
+    const [viewingItem, setViewingItem] = useState<any | null>(null);
+    const [editingItem, setEditingItem] = useState<any | null>(null);
     const [filterType, setFilterType] = useState("All");
     const [filterRoute, setFilterRoute] = useState("All");
 
@@ -84,16 +87,16 @@ export default function FGProductsTab() {
                                 filteredItems.map((item: any) => (
                                     <tr 
                                         key={item._id} 
-                                        className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
-                                        onClick={() => setSelectedItem(item)}
+                                        className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer group"
+                                        onClick={() => setViewingItem(item)}
                                     >
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                                                <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
                                                     <Package size={20} />
                                                 </div>
                                                 <div>
-                                                    <div className="font-semibold text-gray-900 dark:text-white">
+                                                    <div className="font-semibold text-gray-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                                                         {item.name}
                                                     </div>
                                                     <div className="text-xs text-gray-500">{item.code || "No Code"}</div>
@@ -108,28 +111,76 @@ export default function FGProductsTab() {
                                         <td className="px-6 py-4 text-gray-600 dark:text-gray-400">
                                             {item.bom?.length || 0} items
                                         </td>
-                                        <td className="px-6 py-4 text-center">
-                                            {item.isRoutingAttached ? (
-                                                <span className="px-3 py-1 bg-green-100 text-green-700 border border-green-200 rounded-full text-xs font-bold">
-                                                    Yes
-                                                </span>
+                                        <td className="px-6 py-4">
+                                            {item.isRoutingAttached && item.ppcProduct?.routing?.length > 0 ? (
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="px-2.5 py-0.5 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-full text-xs font-bold flex items-center gap-1">
+                                                            <span>{item.ppcProduct.routing.length} Steps</span>
+                                                        </span>
+                                                        
+                                                        {item.ppcProduct.routing.some((r: any) => r.qcRequired) && (
+                                                            <span className="p-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-md text-[10px] font-bold" title="Quality Control Inspection Gate Active">
+                                                                QC
+                                                            </span>
+                                                        )}
+
+                                                        {item.ppcProduct.routing.some((r: any) => (r.photos?.length > 0 || r.documents?.length > 0)) && (
+                                                            <span className="p-1 bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 rounded-md text-[10px] font-bold" title="PDF Drawings / Setup Photos Attached">
+                                                                Docs
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                                                        <span>
+                                                            {item.ppcProduct.routing.filter((r: any) => r.processType !== 'Outside' && !r.isOutsourced).length} In-House
+                                                        </span>
+                                                        {item.ppcProduct.routing.filter((r: any) => r.processType === 'Outside' || r.isOutsourced).length > 0 && (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span className="text-amber-600 dark:text-amber-400 font-medium">
+                                                                    {item.ppcProduct.routing.filter((r: any) => r.processType === 'Outside' || r.isOutsourced).length} Outside
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             ) : (
-                                                <span className="px-3 py-1 bg-gray-100 text-gray-500 border border-gray-200 rounded-full text-xs font-bold">
-                                                    No
-                                                </span>
+                                                <div className="text-center">
+                                                    <span className="px-2.5 py-1 bg-gray-100 dark:bg-gray-800 text-gray-400 border border-gray-200 dark:border-gray-700 rounded-full text-xs font-medium">
+                                                        No Routing
+                                                    </span>
+                                                </div>
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedItem(item);
-                                                }}
-                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-semibold transition-colors"
-                                            >
-                                                {item.isRoutingAttached ? <Edit size={14} /> : <Factory size={14} />}
-                                                {item.isRoutingAttached ? "Edit Routing" : "Add Routing"}
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        generateProcessRoutePDF({ item });
+                                                    }}
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-750 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+                                                    title="Download Route Sheet PDF"
+                                                >
+                                                    <Download size={13} className="text-indigo-600" />
+                                                    <span>PDF</span>
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingItem(item);
+                                                    }}
+                                                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+                                                >
+                                                    {item.isRoutingAttached ? <Edit size={13} /> : <Factory size={13} />}
+                                                    <span>{item.isRoutingAttached ? "Edit" : "Add Route"}</span>
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))
@@ -139,10 +190,22 @@ export default function FGProductsTab() {
                 </div>
             </div>
 
-            {selectedItem && (
+            {viewingItem && (
+                <FGItemRouteDetailsModal
+                    item={viewingItem}
+                    onClose={() => setViewingItem(null)}
+                    onEdit={() => {
+                        const itemToEdit = viewingItem;
+                        setViewingItem(null);
+                        setEditingItem(itemToEdit);
+                    }}
+                />
+            )}
+
+            {editingItem && (
                 <RoutingBuilderModal 
-                    fgItem={selectedItem} 
-                    onClose={() => setSelectedItem(null)} 
+                    fgItem={editingItem} 
+                    onClose={() => setEditingItem(null)} 
                 />
             )}
         </div>

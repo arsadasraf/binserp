@@ -58,5 +58,5 @@ export const rawMaterialSchema = new mongoose.Schema(
 );
 
 // Indexes
-rawMaterialSchema.index({ company: 1, name: 1 }, { unique: true });
+rawMaterialSchema.index({ company: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 rawMaterialSchema.index({ company: 1, code: 1 });

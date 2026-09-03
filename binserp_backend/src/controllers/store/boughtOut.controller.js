@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { boughtOutSchema, categorySchema, locationSchema, inventorySchema, rmBoItemSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -28,6 +29,18 @@ export const createBoughtOut = async (req, res) => {
       return res.status(400).json({ message: "Bought Out Item Name is required" });
     }
     const cleanName = name.toString().trim();
+
+    // Pre-validate uniqueness
+    const uniqueness = await validateMasterUniqueness({
+      Model: BoughtOut,
+      companyId,
+      name: cleanName,
+      code,
+      masterLabel: "Bought Out Item"
+    });
+    if (uniqueness.isDuplicate) {
+      return res.status(400).json({ message: uniqueness.message });
+    }
 
     // 1. Resolve or auto-create Category
     let resolvedCategoryId = null;
@@ -230,7 +243,9 @@ export const createBoughtOut = async (req, res) => {
   } catch (error) {
     console.error("Create Bought Out Error:", error);
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Bought Out Item name already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Bought Out Item", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }
@@ -420,6 +435,21 @@ export const updateBoughtOut = async (req, res) => {
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
 
+    // Pre-validate uniqueness if name or code is being updated
+    if (req.body.name || req.body.code) {
+      const uniqueness = await validateMasterUniqueness({
+        Model: BoughtOut,
+        companyId,
+        excludeId: id,
+        name: req.body.name,
+        code: req.body.code,
+        masterLabel: "Bought Out Item"
+      });
+      if (uniqueness.isDuplicate) {
+        return res.status(400).json({ message: uniqueness.message });
+      }
+    }
+
     let boughtOut = await BoughtOut.findOneAndUpdate(
       { _id: id, company: companyId },
       { $set: req.body },
@@ -447,7 +477,9 @@ export const updateBoughtOut = async (req, res) => {
     res.status(200).json({ message: "Bought Out Item updated successfully", boughtOut, rmBoItem: boughtOut });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Bought Out Item name already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Bought Out Item", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }

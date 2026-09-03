@@ -9,6 +9,7 @@ import {
 } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -26,12 +27,24 @@ export const createConsumableItem = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, descriptions, minimumStock, categoryId, locationId, unit } = req.body;
+    let { name, code, descriptions, minimumStock, categoryId, locationId, unit } = req.body;
 
     if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Name is required" });
     }
     const cleanName = name.toString().trim();
+
+    // Pre-validate uniqueness
+    const uniqueness = await validateMasterUniqueness({
+      Model: ConsumableItem,
+      companyId,
+      name: cleanName,
+      code,
+      masterLabel: "Consumable Item"
+    });
+    if (uniqueness.isDuplicate) {
+      return res.status(400).json({ message: uniqueness.message });
+    }
 
     // 1. Resolve or auto-create Category
     let resolvedCategoryId = null;
@@ -197,7 +210,9 @@ export const createConsumableItem = async (req, res) => {
     res.status(201).json({ message: "Consumable Item created successfully", consumableItem });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Consumable Item name already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Consumable Item", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }
@@ -404,6 +419,21 @@ export const updateConsumableItem = async (req, res) => {
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
 
+    // Pre-validate uniqueness if name or code is being updated
+    if (req.body.name || req.body.code) {
+      const uniqueness = await validateMasterUniqueness({
+        Model: ConsumableItem,
+        companyId,
+        excludeId: id,
+        name: req.body.name,
+        code: req.body.code,
+        masterLabel: "Consumable Item"
+      });
+      if (uniqueness.isDuplicate) {
+        return res.status(400).json({ message: uniqueness.message });
+      }
+    }
+
     const consumableItem = await ConsumableItem.findOneAndUpdate(
       { _id: id, company: companyId },
       { $set: req.body },
@@ -414,7 +444,9 @@ export const updateConsumableItem = async (req, res) => {
     res.status(200).json({ message: "Consumable Item updated successfully", consumableItem });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Item name already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Consumable Item", cleanName: req.body?.name })
+      });
     }
     console.error("Update Consumable Error:", error);
     res.status(500).json({ message: error.message || "Failed to update Consumable Item" });

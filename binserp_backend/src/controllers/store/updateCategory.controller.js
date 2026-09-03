@@ -5,6 +5,7 @@ import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -51,6 +52,22 @@ export const updateCategory = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     const { userId, userName } = getUserAudit(req);
+
+    // Pre-validate uniqueness if name or code is being updated
+    if (req.body.name || req.body.code) {
+      const uniqueness = await validateMasterUniqueness({
+        Model: Category,
+        companyId,
+        excludeId: id,
+        name: req.body.name,
+        code: req.body.code,
+        masterLabel: "Category"
+      });
+      if (uniqueness.isDuplicate) {
+        return res.status(400).json({ message: uniqueness.message });
+      }
+    }
+
     const category = await Category.findOneAndUpdate(
       { _id: id, company: companyId },
       { ...req.body, updatedBy: userId, updatedByName: userName },
@@ -59,6 +76,11 @@ export const updateCategory = async (req, res) => {
     if (!category) return res.status(404).json({ message: "Category not found" });
     res.status(200).json({ message: "Category updated successfully", category });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Category", cleanName: req.body?.name })
+      });
+    }
     res.status(500).json({ message: error.message });
   }
 };

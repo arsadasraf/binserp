@@ -5,6 +5,7 @@ import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -51,8 +52,21 @@ export const createCustomer = async (req, res) => {
     const companyId = getCompanyId(req);
     let { code, name, bankDetails, ...otherData } = req.body;
 
-    if (!name) {
+    if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Customer name is required" });
+    }
+    const cleanName = name.toString().trim();
+
+    // Pre-validate uniqueness
+    const uniqueness = await validateMasterUniqueness({
+      Model: Customer,
+      companyId,
+      name: cleanName,
+      code,
+      masterLabel: "Customer"
+    });
+    if (uniqueness.isDuplicate) {
+      return res.status(400).json({ message: uniqueness.message });
     }
 
     if (!code) {
@@ -86,7 +100,7 @@ export const createCustomer = async (req, res) => {
 
     const customer = await Customer.create({
       ...otherData,
-      name,
+      name: cleanName,
       code,
       bankDetails: formattedBankDetails,
       company: companyId,
@@ -99,7 +113,9 @@ export const createCustomer = async (req, res) => {
   } catch (error) {
     console.error("Create Customer Error:", error);
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Customer code already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Customer", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }

@@ -33,4 +33,5 @@ export const categorySchema = new mongoose.Schema(
 );
 
 // Indexes
+categorySchema.index({ company: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 categorySchema.index({ company: 1, code: 1 }, { unique: true });

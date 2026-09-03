@@ -473,7 +473,16 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         }
       }
 
-      const query = { company: companyId, name: { $regex: new RegExp(`^${itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } };
+      const cleanRev = (item.revisionNumber || '').toString().trim();
+      const escapedName = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const query = {
+        company: companyId,
+        name: { $regex: new RegExp(`^${escapedName}$`, 'i') },
+        ...(cleanRev
+          ? { revisionNumber: { $regex: new RegExp(`^${cleanRev.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+          : { $or: [{ revisionNumber: { $exists: false } }, { revisionNumber: null }, { revisionNumber: "" }] }
+        )
+      };
       const doc = {
         company: companyId,
         name: itemName,
@@ -481,7 +490,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         type: validType,
         unit: item.unit || 'Nos',
         reorderLevel: Number(item.reorderLevel || 0),
-        revisionNumber: item.revisionNumber || '',
+        revisionNumber: cleanRev,
         description: item.description || '',
         ...(locationId ? { location: locationId } : {}),
         ...(resolvedBOM.length > 0 ? { bom: resolvedBOM } : {}),

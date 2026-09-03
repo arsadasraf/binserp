@@ -76,4 +76,5 @@ export const vendorSchema = new mongoose.Schema(
 );
 
 // Indexes
+vendorSchema.index({ company: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 vendorSchema.index({ company: 1, code: 1 }, { unique: true });

@@ -71,4 +71,5 @@ export const customerSchema = new mongoose.Schema(
 );
 
 // Indexes
+customerSchema.index({ company: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 customerSchema.index({ company: 1, code: 1 }, { unique: true });

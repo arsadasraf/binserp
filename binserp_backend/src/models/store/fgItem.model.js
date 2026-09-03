@@ -76,6 +76,8 @@ export const fgItemSchema = new mongoose.Schema(
     },
     revisionNumber: {
       type: String,
+      default: "",
+      trim: true,
     },
     photos: {
       type: [String],
@@ -106,5 +108,8 @@ fgItemSchema.virtual("availableQuantity").get(function () {
   return Math.max(0, (this.quantity || 0) - (this.allocatedQuantity || 0));
 });
 
-// Indexes
-// Removed unique code index as code was removed.
+// Indexes: Compound uniqueness on Name and Revision per Company
+fgItemSchema.index(
+  { company: 1, name: 1, revisionNumber: 1 },
+  { unique: true, collation: { locale: 'en', strength: 2 } }
+);

@@ -5,6 +5,7 @@ import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -51,8 +52,21 @@ export const createVendor = async (req, res) => {
     const companyId = getCompanyId(req);
     let { name, code, bankDetails, ...otherData } = req.body;
 
-    if (!name) {
+    if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Vendor name is required" });
+    }
+    const cleanName = name.toString().trim();
+
+    // Pre-validate uniqueness
+    const uniqueness = await validateMasterUniqueness({
+      Model: Vendor,
+      companyId,
+      name: cleanName,
+      code,
+      masterLabel: "Vendor"
+    });
+    if (uniqueness.isDuplicate) {
+      return res.status(400).json({ message: uniqueness.message });
     }
 
     // Auto-generate code if not provided
@@ -87,7 +101,7 @@ export const createVendor = async (req, res) => {
 
     const vendor = await Vendor.create({
       ...otherData,
-      name,
+      name: cleanName,
       code,
       bankDetails: formattedBankDetails,
       company: companyId,
@@ -101,7 +115,9 @@ export const createVendor = async (req, res) => {
   } catch (error) {
     console.error("Create Vendor Error:", error);
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Vendor code already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Vendor", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }

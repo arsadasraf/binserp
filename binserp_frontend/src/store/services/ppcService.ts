@@ -293,6 +293,22 @@ export const ppcService = binsApi.injectEndpoints({
       }),
       invalidatesTags: ["PPCProduct", "FGItem" as any],
     }),
+    uploadRoutingAttachment: builder.mutation<any, FormData>({
+      query: (body) => ({
+        url: "/api/ppc/routing/upload-attachment",
+        method: "POST",
+        body,
+      }),
+    }),
+    getJobWorkSuppliers: builder.query<any[], void>({
+      query: () => "/api/store/job-work-supplier",
+      transformResponse: (response: any) => response.jobWorkSuppliers || response.data || [],
+      providesTags: ["StoreMasters"],
+    }),
+    getQualityMasters: builder.query<any[], void>({
+      query: () => "/api/quality/master",
+      transformResponse: (response: any) => response.data || response.masters || [],
+    }),
     createProcess: builder.mutation<any, any>({
       query: (body) => ({ url: "/api/ppc/process", method: "POST", body }),
       invalidatesTags: ["Processes"],
@@ -479,7 +495,9 @@ export const {
   // Machine Schedule
   useGetMachineScheduleQuery,
   // Processes
-  useGetProcessesQuery, useGetPPCProductsStatusQuery, useSavePPCProductMutation, useCreateProcessMutation, useUpdateProcessMutation, useDeleteProcessMutation,
+  useGetProcessesQuery, useGetPPCProductsStatusQuery, useSavePPCProductMutation, 
+  useUploadRoutingAttachmentMutation, useGetJobWorkSuppliersQuery, useGetQualityMastersQuery,
+  useCreateProcessMutation, useUpdateProcessMutation, useDeleteProcessMutation,
   // Shifts
   useGetShiftsQuery, useCreateShiftMutation, useUpdateShiftMutation, useDeleteShiftMutation,
   // Manpower

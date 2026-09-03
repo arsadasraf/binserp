@@ -5,6 +5,7 @@ import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -51,6 +52,22 @@ export const updateVendor = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     const { userId, userName } = getUserAudit(req);
+
+    // Pre-validate uniqueness if name or code is being updated
+    if (req.body.name || req.body.code) {
+      const uniqueness = await validateMasterUniqueness({
+        Model: Vendor,
+        companyId,
+        excludeId: id,
+        name: req.body.name,
+        code: req.body.code,
+        masterLabel: "Vendor"
+      });
+      if (uniqueness.isDuplicate) {
+        return res.status(400).json({ message: uniqueness.message });
+      }
+    }
+
     let updateData = { ...req.body, updatedBy: userId, updatedByName: userName };
     if (req.body.bankDetails) {
       updateData.bankDetails = {
@@ -71,6 +88,11 @@ export const updateVendor = async (req, res) => {
     if (!vendor) return res.status(404).json({ message: "Vendor not found" });
     res.status(200).json({ message: "Vendor updated successfully", vendor });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Vendor", cleanName: req.body?.name })
+      });
+    }
     res.status(500).json({ message: error.message });
   }
 };

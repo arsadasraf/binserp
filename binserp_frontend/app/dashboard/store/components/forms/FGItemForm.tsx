@@ -230,8 +230,17 @@ export default function FGItemForm({
                                         </select>
                                         <SearchableSelect 
                                             options={item.itemType === 'Material' ? 
-                                                (materials || []).map(m => ({ value: m._id, label: `${m.name || ''} ${m.code ? `(${m.code})` : ''}` })) : 
-                                                (fgItems || []).filter(f => f._id !== formData._id).map(f => ({ value: f._id, label: `${f.name || ''} (${f.type || ''})` }))
+                                                (materials || []).map(m => {
+                                                    const name = (m.name || m.materialName || '').trim();
+                                                    const desc = (m.descriptions || m.description || '').trim();
+                                                    return { value: m._id, label: desc ? `${name} — ${desc}` : name };
+                                                }) : 
+                                                (fgItems || []).filter(f => f._id !== formData._id).map(f => {
+                                                    const name = (f.name || '').trim();
+                                                    const desc = (f.description || f.descriptions || '').trim();
+                                                    const typeTag = f.type ? ` [${f.type}]` : '';
+                                                    return { value: f._id, label: desc ? `${name}${typeTag} — ${desc}` : `${name}${typeTag}` };
+                                                })
                                             }
                                             value={typeof item.item === 'object' ? item.item?._id : item.item || ''}
                                             onChange={(val: any) => updateBOMItem(idx, 'item', val)}

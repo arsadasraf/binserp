@@ -45,11 +45,24 @@ interface MasterFormProps {
     masterTab: MasterType;
     categories?: Category[];
     locations?: Location[];
-
+    existingItems?: any[];
     processes?: Process[]; // Added
 }
 
-export default function MasterForm({ formData, setFormData, masterTab, categories = [], locations = [], processes = [] }: MasterFormProps) {
+export default function MasterForm({ formData, setFormData, masterTab, categories = [], locations = [], existingItems = [], processes = [] }: MasterFormProps) {
+    // Real-time duplicate name detection
+    const currentName = (formData.name || '').trim().toLowerCase();
+    const currentId = (formData as any)._id || (formData as any).id;
+
+    const duplicateItem = React.useMemo(() => {
+        if (!currentName || !existingItems || existingItems.length === 0) return null;
+        return existingItems.find((item: any) => {
+            const itemId = item._id || item.id;
+            if (currentId && itemId === currentId) return false;
+            const itemName = (item.name || '').trim().toLowerCase();
+            return itemName === currentName;
+        });
+    }, [existingItems, currentName, currentId]);
     /**
      * Handles category selection for material
      * Auto-fills unit from selected category
@@ -124,9 +137,19 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                                 required
                                 value={formData.name || ""}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 outline-none ${
+                                    duplicateItem 
+                                        ? 'border-rose-400 focus:ring-rose-400' 
+                                        : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+                                }`}
                                 placeholder={placeholderText}
                             />
+                            {duplicateItem && (
+                                <div className="mt-1.5 flex items-start gap-1 text-xs text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-200">
+                                    <span className="font-semibold shrink-0">Duplicate:</span>
+                                    <span>An item named &ldquo;{formData.name}&rdquo; already exists in this master.</span>
+                                </div>
+                            )}
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -352,9 +375,19 @@ export default function MasterForm({ formData, setFormData, masterTab, categorie
                             required
                             value={formData.name || ""}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                            className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 outline-none ${
+                                duplicateItem 
+                                    ? 'border-rose-400 focus:ring-rose-400' 
+                                    : 'border-gray-300 focus:ring-indigo-500 focus:border-indigo-500'
+                            }`}
                             placeholder="Enter Name"
                         />
+                        {duplicateItem && (
+                            <div className="mt-1.5 flex items-start gap-1 text-xs text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-200">
+                                <span className="font-semibold shrink-0">Duplicate:</span>
+                                <span>An entry named &ldquo;{formData.name}&rdquo; already exists in this master.</span>
+                            </div>
+                        )}
                     </div>
 
                     {/* Code Field (Hidden for Inhouse, Customer, Vendor, Location, RM/BO Items, & Category) */}

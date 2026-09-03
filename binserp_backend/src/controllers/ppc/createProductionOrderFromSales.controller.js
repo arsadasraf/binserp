@@ -1,9 +1,10 @@
-import { productionOrderSchema } from "../../models/ppc/index.js";
+import { productionOrderSchema, ppcProductSchema } from "../../models/ppc/index.js";
 import { fgItemSchema, inventorySchema } from "../../models/store/index.js";
 import { customerSchema } from "../../models/store/index.js";
 
 export const generateProductionOrderForSalesOrder = async (req, salesOrder, planDetails) => {
   const ProductionOrder = req.getModel("ProductionOrder", productionOrderSchema);
+  const PPCProduct = req.getModel("PPCProduct", ppcProductSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const Customer = req.getModel("Customer", customerSchema);
   
@@ -45,13 +46,38 @@ export const generateProductionOrderForSalesOrder = async (req, salesOrder, plan
           unit: b.unit
         }));
 
-        // FG Items might not have process directly, or maybe they do? We will capture it if present.
-        const processSnapshot = (fgItem.routing || []).map(r => ({
+        // Retrieve rich routing from PPCProduct
+        const ppcProduct = await PPCProduct.findOne({ company: companyId, fgItem: fgItem._id })
+          .populate('routing.process')
+          .populate('routing.machine')
+          .lean();
+
+        const routingSteps = (ppcProduct && ppcProduct.routing && ppcProduct.routing.length > 0)
+          ? ppcProduct.routing
+          : (fgItem.routing || []);
+
+        const processSnapshot = routingSteps.map(r => ({
+          sequence: r.sequence || 10,
+          stepName: r.stepName || (r.process && r.process.processName) || 'Step',
           processName: r.processName || (r.process && r.process.processName) || 'Unnamed Process',
-          standardTime: r.standardTime,
-          description: r.description,
-          machine: r.machine,
-          isJobWork: r.isOutsourced || r.isJobWork || false
+          processType: r.processType || (r.isOutsourced ? "Outside" : "Inside"),
+          standardTime: r.cycleTime || r.standardTime || 0,
+          setupTime: r.setupTime || 0,
+          cycleTime: r.cycleTime || 0,
+          description: r.description || r.outsideInstructions || '',
+          machine: r.machine?._id || r.machine,
+          workstation: r.workstation?._id || r.workstation,
+          supplier: r.supplier?._id || r.supplier,
+          supplierName: r.supplierName || '',
+          leadTimeDays: r.leadTimeDays || 1,
+          jobWorkRate: r.jobWorkRate || 0,
+          isJobWork: r.processType === "Outside" || r.isOutsourced || false,
+          photos: r.photos || [],
+          documents: r.documents || [],
+          qcRequired: Boolean(r.qcRequired),
+          qcStage: r.qcStage || "In-Process",
+          inspectionParameters: r.inspectionParameters || [],
+          bomRequirements: r.bomRequirements || []
         }));
 
         fgItems.push({

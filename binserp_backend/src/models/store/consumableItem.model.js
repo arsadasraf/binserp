@@ -60,4 +60,4 @@ export const consumableItemSchema = new mongoose.Schema(
 );
 
 // Indexes
-consumableItemSchema.index({ company: 1, name: 1 }, { unique: true });
+consumableItemSchema.index({ company: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });

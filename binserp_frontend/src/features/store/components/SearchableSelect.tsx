@@ -2,11 +2,15 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Check, ChevronDown, Plus } from 'lucide-react';
 
-interface SearchableOption {
+export interface SearchableOption {
     value: string;
     label: string;
     description?: string;
     code?: string;
+    badge?: string;
+    subBadge?: string;
+    disabled?: boolean;
+    hint?: string;
 }
 
 interface SearchableSelectProps {
@@ -120,7 +124,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     value: String(o.value),
                     label: o.label || '',
                     description: o.description,
-                    code: o.code
+                    code: o.code,
+                    badge: o.badge,
+                    subBadge: o.subBadge,
+                    disabled: o.disabled,
+                    hint: o.hint
                 });
             }
         });
@@ -259,18 +267,22 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     <div className="overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800 flex-1 custom-scrollbar min-h-[60px]">
                         {filteredOptions.length > 0 ? (
                             filteredOptions.map((o) => {
-                                const isSelected = value === o.value;
+                                    const isSelected = value === o.value;
                                 const { name, code } = formatOptionLabel(o.label);
                                 const itemDesc = o.description || '';
+                                const isDisabled = o.disabled;
                                 return (
                                     <div
                                         key={o.value}
-                                        className={`px-3.5 py-2.5 text-xs cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                                            isSelected 
-                                                ? 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-950 dark:text-indigo-200 font-bold' 
-                                                : 'text-gray-700 dark:text-slate-200 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/40 hover:text-indigo-900 dark:hover:text-indigo-300'
+                                        className={`px-3.5 py-2.5 text-xs flex items-center justify-between gap-2 transition-colors ${
+                                            isDisabled 
+                                                ? 'opacity-60 cursor-not-allowed bg-gray-50/50 dark:bg-slate-800/50'
+                                                : isSelected 
+                                                    ? 'cursor-pointer bg-indigo-50 dark:bg-indigo-950/70 text-indigo-950 dark:text-indigo-200 font-bold' 
+                                                    : 'cursor-pointer text-gray-700 dark:text-slate-200 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/40 hover:text-indigo-900 dark:hover:text-indigo-300'
                                         }`}
                                         onMouseDown={(e) => {
+                                            if (isDisabled) return;
                                             e.preventDefault();
                                             onChange(o.value);
                                             setIsOpen(false);
@@ -278,7 +290,30 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                         }}
                                     >
                                         <div className="flex-1 min-w-0">
-                                            <div className="font-semibold text-slate-900 dark:text-white truncate">{name}</div>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span className="font-semibold text-slate-900 dark:text-white truncate">{name}</span>
+                                                {o.badge && (
+                                                    <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-md border ${
+                                                        o.badge === 'Assembly' 
+                                                            ? 'bg-purple-100 dark:bg-purple-950/70 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800' 
+                                                            : o.badge === 'Sub Assembly'
+                                                            ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                                            : 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
+                                                    }`}>
+                                                        {o.badge}
+                                                    </span>
+                                                )}
+                                                {o.subBadge && (
+                                                    <span className="px-1.5 py-0.5 text-[10px] font-mono font-bold rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                        {o.subBadge}
+                                                    </span>
+                                                )}
+                                                {o.hint && (
+                                                    <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/60">
+                                                        {o.hint}
+                                                    </span>
+                                                )}
+                                            </div>
                                             {itemDesc && (
                                                 <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 break-words line-clamp-2 font-normal">
                                                     {itemDesc}

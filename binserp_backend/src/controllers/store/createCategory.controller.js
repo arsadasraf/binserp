@@ -5,6 +5,7 @@ import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -52,14 +53,32 @@ export const createCategory = async (req, res) => {
     const { userId, userName } = getUserAudit(req);
     let { code, name } = req.body;
 
+    if (!name || !name.toString().trim()) {
+      return res.status(400).json({ message: "Category name is required" });
+    }
+    const cleanName = name.toString().trim();
+
+    // Pre-validate uniqueness
+    const uniqueness = await validateMasterUniqueness({
+      Model: Category,
+      companyId,
+      name: cleanName,
+      code,
+      masterLabel: "Category"
+    });
+    if (uniqueness.isDuplicate) {
+      return res.status(400).json({ message: uniqueness.message });
+    }
+
     if (!code) {
-      const prefix = name ? name.trim().substring(0, 3).toUpperCase() : 'CAT';
+      const prefix = cleanName.substring(0, 3).toUpperCase();
       const random = Math.floor(1000 + Math.random() * 9000);
       code = `CAT-${prefix}-${random}`;
     }
 
     const category = await Category.create({
       ...req.body,
+      name: cleanName,
       code,
       company: companyId,
       createdBy: userId,
@@ -69,6 +88,11 @@ export const createCategory = async (req, res) => {
     });
     res.status(201).json({ message: "Category created successfully", category });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Category", cleanName: req.body?.name })
+      });
+    }
     res.status(500).json({ message: error.message });
   }
 };

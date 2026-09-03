@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { rawMaterialSchema, categorySchema, locationSchema, inventorySchema, rmBoItemSchema } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -28,6 +29,18 @@ export const createRawMaterial = async (req, res) => {
       return res.status(400).json({ message: "Raw Material Name is required" });
     }
     const cleanName = name.toString().trim();
+
+    // Pre-validate uniqueness
+    const uniqueness = await validateMasterUniqueness({
+      Model: RawMaterial,
+      companyId,
+      name: cleanName,
+      code,
+      masterLabel: "Raw Material"
+    });
+    if (uniqueness.isDuplicate) {
+      return res.status(400).json({ message: uniqueness.message });
+    }
 
     // 1. Resolve or auto-create Category
     let resolvedCategoryId = null;
@@ -230,7 +243,9 @@ export const createRawMaterial = async (req, res) => {
   } catch (error) {
     console.error("Create Raw Material Error:", error);
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Raw Material name already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Raw Material", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }
@@ -421,6 +436,21 @@ export const updateRawMaterial = async (req, res) => {
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
 
+    // Pre-validate uniqueness if name or code is being updated
+    if (req.body.name || req.body.code) {
+      const uniqueness = await validateMasterUniqueness({
+        Model: RawMaterial,
+        companyId,
+        excludeId: id,
+        name: req.body.name,
+        code: req.body.code,
+        masterLabel: "Raw Material"
+      });
+      if (uniqueness.isDuplicate) {
+        return res.status(400).json({ message: uniqueness.message });
+      }
+    }
+
     let rawMaterial = await RawMaterial.findOneAndUpdate(
       { _id: id, company: companyId },
       { $set: req.body },
@@ -448,7 +478,9 @@ export const updateRawMaterial = async (req, res) => {
     res.status(200).json({ message: "Raw Material updated successfully", rawMaterial, rmBoItem: rawMaterial });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(400).json({ message: "Raw Material name already exists" });
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Raw Material", cleanName: req.body?.name })
+      });
     }
     res.status(500).json({ message: error.message });
   }

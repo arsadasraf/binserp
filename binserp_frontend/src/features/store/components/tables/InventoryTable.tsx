@@ -6,12 +6,25 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { InventoryItem } from "@/src/features/store/types/store.types";
-import { Package, Factory, Download, Search, Edit2, FileSpreadsheet, ChevronDown, FileDown, RotateCcw, RefreshCw } from 'lucide-react';
+import { Package, Factory, Download, Search, Edit2, FileSpreadsheet, ChevronDown, ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
 import { apiPost } from '@/src/lib/api';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+
+const getPageNumbers = (current: number, total: number): (number | string)[] => {
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  if (current <= 3) {
+    return [1, 2, 3, 4, '...', total];
+  }
+  if (current >= total - 2) {
+    return [1, '...', total - 3, total - 2, total - 1, total];
+  }
+  return [1, '...', current - 1, current, current + 1, '...', total];
+};
 
 interface InventoryTableProps {
     data: InventoryItem[];
@@ -253,6 +266,33 @@ export default function InventoryTable({
     const filteredData = useMemo(() => applyFiltersAndSort(data, false), [data, filters, searchQuery, sortConfig]);
     const filteredInHouseData = useMemo(() => applyFiltersAndSort(inHouseData, true), [inHouseData, filters, searchQuery, sortConfig]);
 
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
+
+    // Active dataset based on subtab
+    const activeData = activeSubTab === 'inhouse' ? filteredInHouseData : filteredData;
+    const totalCount = activeData.length;
+    const totalPages = Math.ceil(totalCount / pageSize) || 1;
+
+    // Paginated datasets for high-performance rendering
+    const paginatedData = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return filteredData.slice(start, start + pageSize);
+    }, [filteredData, currentPage, pageSize]);
+
+    const paginatedInHouseData = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return filteredInHouseData.slice(start, start + pageSize);
+    }, [filteredInHouseData, currentPage, pageSize]);
+
+    const startEntry = totalCount === 0 ? 0 : ((currentPage - 1) * pageSize) + 1;
+    const endEntry = Math.min(currentPage * pageSize, totalCount);
+
+    // Reset pagination when filters, search, or subtab change
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery, filters, sortConfig, activeSubTab]);
+
     const isFilterOrSortActive = Object.keys(filters).length > 0 || sortConfig !== null || searchQuery !== '';
     const activeFilterCount = Object.keys(filters).length;
 
@@ -278,13 +318,13 @@ export default function InventoryTable({
     };
 
     return (
-        <div className="w-full bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden">
+        <div className="w-full h-full bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden">
             {/* Top Toolbar */}
-            <div className="p-3.5 sm:p-4 border-b border-gray-200 dark:border-gray-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3 bg-gray-50/50 dark:bg-gray-900/50">
+            <div className="p-3.5 sm:p-4 border-b border-gray-200 dark:border-gray-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3 bg-gray-50/50 dark:bg-gray-900/50 shrink-0">
                 {/* Left side: Count & Reset Filters */}
                 <div className="flex items-center flex-wrap gap-2.5">
                     <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
-                        Showing <span className="font-bold text-gray-900 dark:text-gray-100">{activeSubTab === 'inhouse' ? filteredInHouseData.length : filteredData.length}</span> items
+                        Showing <span className="font-bold text-gray-900 dark:text-gray-100">{startEntry}</span>–<span className="font-bold text-gray-900 dark:text-gray-100">{endEntry}</span> of <span className="font-bold text-indigo-600 dark:text-indigo-400">{totalCount}</span> items
                     </span>
 
                     {/* Reset Filters Chip */}
@@ -326,11 +366,11 @@ export default function InventoryTable({
                             type="button"
                             onClick={handleRefresh}
                             disabled={isRefreshing}
-                            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 border border-slate-200/60 dark:border-slate-700 shadow-sm"
+                            className="px-2.5 sm:px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shrink-0 border border-slate-200/60 dark:border-slate-700 shadow-sm"
                             title="Refresh latest inventory data"
                         >
                             <RefreshCw size={13} className={isRefreshing ? "animate-spin text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"} />
-                            <span>Refresh Data</span>
+                            <span className="hidden sm:inline">Refresh Data</span>
                         </button>
                     )}
 
@@ -338,16 +378,16 @@ export default function InventoryTable({
                     {onCreateGRN && (
                         <button
                             onClick={onCreateGRN}
-                            className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm transition-all font-bold text-xs active:scale-95 whitespace-nowrap cursor-pointer"
+                            className="flex items-center gap-1.5 px-3 sm:px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-sm transition-all font-bold text-xs active:scale-95 whitespace-nowrap cursor-pointer shrink-0"
                             title="Create a new Goods Receipt Note (GRN)"
                         >
                             <Package size={15} />
-                            <span>Create GRN</span>
+                            <span className="hidden xs:inline">Create </span><span>GRN</span>
                         </button>
                     )}
 
                     {/* Single Excel Actions Dropdown Button (Desktop only) */}
-                    <div className="relative hidden md:block" ref={excelMenuRef}>
+                    <div className="relative hidden md:block shrink-0" ref={excelMenuRef}>
                         <button
                             onClick={() => setIsExcelMenuOpen(!isExcelMenuOpen)}
                             className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer whitespace-nowrap"
@@ -435,7 +475,7 @@ export default function InventoryTable({
                 // Inventory Table (RM/BO & Consumables)
                 <>
                     {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto min-h-[400px]">
+                    <div className="hidden md:block overflow-x-auto flex-1 relative">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-10">
                                 <tr>
@@ -526,14 +566,14 @@ export default function InventoryTable({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
-                                {filteredData.length === 0 ? (
+                                {paginatedData.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                             No inventory items match the current filters.
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredData.map((item, index) => (
+                                    paginatedData.map((item, index) => (
                                         <tr
                                             key={`${item._id}-${index}`}
                                             onClick={() => onItemClick && onItemClick(item)}
@@ -599,11 +639,11 @@ export default function InventoryTable({
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex flex-col gap-3 p-3 sm:p-4 pb-28 sm:pb-20">
-                        {filteredData.length === 0 ? (
+                    <div className="md:hidden flex-1 overflow-y-auto flex flex-col gap-3 p-3 sm:p-4 pb-20">
+                        {paginatedData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No inventory items found.</div>
                         ) : (
-                            filteredData.map((item, index) => (
+                            paginatedData.map((item, index) => (
                                 <div
                                     key={`${item._id}-${index}`}
                                     onClick={() => onItemClick && onItemClick(item)}
@@ -676,7 +716,7 @@ export default function InventoryTable({
                 // InHouse Table (FG Components)
                 <>
                     {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto min-h-[400px]">
+                    <div className="hidden md:block overflow-x-auto flex-1 relative">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-10">
                                 <tr>
@@ -767,14 +807,14 @@ export default function InventoryTable({
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
-                                {filteredInHouseData.length === 0 ? (
+                                {paginatedInHouseData.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                             No In-House components found matching current filters.
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredInHouseData.map((item, index) => (
+                                    paginatedInHouseData.map((item, index) => (
                                         <tr
                                             key={`${item._id}-${index}`}
                                             onClick={() => onItemClick && onItemClick(item)}
@@ -837,11 +877,11 @@ export default function InventoryTable({
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex flex-col gap-3 p-3 sm:p-4 pb-28 sm:pb-20">
-                        {filteredInHouseData.length === 0 ? (
+                    <div className="md:hidden flex-1 overflow-y-auto flex flex-col gap-3 p-3 sm:p-4 pb-20">
+                        {paginatedInHouseData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No In-House components found.</div>
                         ) : (
-                            filteredInHouseData.map((item, index) => (
+                            paginatedInHouseData.map((item, index) => (
                                 <div
                                     key={`${item._id}-${index}`}
                                     onClick={() => onItemClick && onItemClick(item)}
@@ -913,6 +953,140 @@ export default function InventoryTable({
                     </div>
                 </>
             )}
+
+            {/* Unified Bottom Sticky Pagination Toolbar */}
+            <div className="px-3 py-2 sm:px-4 sm:py-3 border-t border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 select-none z-10">
+                {/* Mobile View (< sm) */}
+                <div className="flex sm:hidden items-center justify-between gap-2 text-xs">
+                    <div className="text-gray-500 dark:text-slate-400 font-semibold truncate text-[11px]">
+                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">{startEntry}–{endEntry}</span> / {totalCount}
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                        <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage <= 1}
+                            type="button"
+                            className="p-1.5 px-2.5 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-white dark:disabled:hover:bg-slate-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                            title="Previous Page"
+                        >
+                            <ChevronLeft size={14} />
+                            <span>Prev</span>
+                        </button>
+
+                        <span className="px-2 py-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold rounded-md text-[11px]">
+                            {currentPage}/{totalPages}
+                        </span>
+
+                        <button
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={currentPage >= totalPages}
+                            type="button"
+                            className="p-1.5 px-2.5 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-white dark:disabled:hover:bg-slate-800 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer active:scale-95"
+                            title="Next Page"
+                        >
+                            <span>Next</span>
+                            <ChevronRight size={14} />
+                        </button>
+
+                        <select
+                            value={pageSize}
+                            onChange={(e) => {
+                                setPageSize(Number(e.target.value));
+                                setCurrentPage(1);
+                            }}
+                            className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 text-[11px] font-bold rounded-lg px-1.5 py-1.5 shadow-2xs focus:outline-none cursor-pointer ml-1"
+                            title="Rows per page"
+                        >
+                            <option value={10}>10</option>
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                        </select>
+                    </div>
+                </div>
+
+                {/* Desktop View (>= sm) */}
+                <div className="hidden sm:flex items-center justify-between gap-3 text-xs">
+                    {/* Left: Entries Info */}
+                    <div className="text-gray-500 dark:text-slate-400 font-medium">
+                        Showing <span className="font-bold text-gray-900 dark:text-white">{startEntry}</span> to <span className="font-bold text-gray-900 dark:text-white">{endEntry}</span> of <span className="font-bold text-indigo-600 dark:text-indigo-400">{totalCount}</span> items
+                    </div>
+
+                    {/* Center: Pagination Buttons */}
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage <= 1}
+                            type="button"
+                            className="px-2.5 py-1.5 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-white dark:disabled:hover:bg-slate-800 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Previous Page"
+                        >
+                            <ChevronLeft size={15} />
+                            <span className="hidden sm:inline">Prev</span>
+                        </button>
+
+                        {/* Dynamic Page Number Buttons */}
+                        <div className="flex items-center gap-1">
+                            {getPageNumbers(currentPage, totalPages).map((pageNum, idx) => {
+                                if (pageNum === '...') {
+                                    return (
+                                        <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-gray-400 dark:text-slate-500 font-bold">
+                                            ...
+                                        </span>
+                                    );
+                                }
+                                const isCurrent = currentPage === pageNum;
+                                return (
+                                    <button
+                                        key={`page-${pageNum}`}
+                                        type="button"
+                                        onClick={() => setCurrentPage(Number(pageNum))}
+                                        className={`min-w-[30px] h-7.5 px-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                            isCurrent
+                                                ? 'bg-indigo-600 text-white shadow-xs'
+                                                : 'border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        {pageNum}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <button
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={currentPage >= totalPages}
+                            type="button"
+                            className="px-2.5 py-1.5 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 bg-white dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-white dark:disabled:hover:bg-slate-800 disabled:cursor-not-allowed rounded-lg font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                            title="Next Page"
+                        >
+                            <span className="hidden sm:inline">Next</span>
+                            <ChevronRight size={15} />
+                        </button>
+                    </div>
+
+                    {/* Right: Page Size Selector */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-gray-500 dark:text-slate-400 font-medium hidden sm:inline">Per page:</span>
+                        <select
+                            value={pageSize}
+                            onChange={(e) => {
+                                setPageSize(Number(e.target.value));
+                                setCurrentPage(1);
+                            }}
+                            className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 text-xs font-semibold rounded-lg px-2.5 py-1.5 shadow-2xs focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                            title="Rows per page"
+                        >
+                            <option value={10}>10 / page</option>
+                            <option value={25}>25 / page</option>
+                            <option value={50}>50 / page</option>
+                            <option value={100}>100 / page</option>
+                            <option value={250}>250 / page</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
 
             <MasterExcelImportModal
                 isOpen={isImportModalOpen}

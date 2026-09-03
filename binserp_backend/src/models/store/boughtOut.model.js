@@ -58,5 +58,5 @@ export const boughtOutSchema = new mongoose.Schema(
 );
 
 // Indexes
-boughtOutSchema.index({ company: 1, name: 1 }, { unique: true });
+boughtOutSchema.index({ company: 1, name: 1 }, { unique: true, collation: { locale: 'en', strength: 2 } });
 boughtOutSchema.index({ company: 1, code: 1 });

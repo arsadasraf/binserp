@@ -4,6 +4,7 @@ import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../mod
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -49,6 +50,22 @@ export const updateJobWorkSupplier = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { id } = req.params;
+
+    // Pre-validate uniqueness if name or code is being updated
+    if (req.body.name || req.body.code) {
+      const uniqueness = await validateMasterUniqueness({
+        Model: JobWorkSupplier,
+        companyId,
+        excludeId: id,
+        name: req.body.name,
+        code: req.body.code,
+        masterLabel: "Job-Work Supplier"
+      });
+      if (uniqueness.isDuplicate) {
+        return res.status(400).json({ message: uniqueness.message });
+      }
+    }
+
     let updateData = { ...req.body };
     if (req.body.bankDetails) {
       updateData.bankDetails = {
@@ -67,6 +84,11 @@ export const updateJobWorkSupplier = async (req, res) => {
     if (!supplier) return res.status(404).json({ message: "Supplier not found" });
     res.status(200).json({ message: "Supplier updated successfully", supplier });
   } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: formatDuplicateKeyError(error, { masterLabel: "Job-Work Supplier", cleanName: req.body?.name })
+      });
+    }
     res.status(500).json({ message: error.message });
   }
 };

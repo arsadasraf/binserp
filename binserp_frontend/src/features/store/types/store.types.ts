@@ -68,6 +68,8 @@ export interface StoreFormData {
     categoryId?: string;  // For material master
 
     locationId?: string;  // For material master
+    location?: any; // For FG items / storage location
+    reorderLevel?: number | string; // For FG items
     itemType?: string; // For RM vs BO item distinction
     type?: string; // For PPC Master Products and Location type
     revisionNumber?: string; // For FG items
@@ -81,6 +83,8 @@ export interface StoreFormData {
     }>; // For FG items
     bankDetails?: BankDetails;  // For vendor and customer
     vendorType?: string;
+
+    [key: string]: any;
 
     // Transaction fields
     grnNumber?: string;

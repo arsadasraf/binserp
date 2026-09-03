@@ -1,346 +1,652 @@
+"use client";
+
 import React, { useState, useEffect } from "react";
-import { X, Plus, Trash2, Edit2, Check, Package, Factory, LayoutList, GripVertical } from "lucide-react";
-import { useSavePPCProductMutation, useGetProcessesQuery } from "@/src/store/services/ppcService";
+import {
+  X,
+  Plus,
+  Trash2,
+  Check,
+  Package,
+  Factory,
+  LayoutList,
+  Layers,
+  Clock,
+  ShieldCheck,
+  Paperclip,
+  Truck
+} from "lucide-react";
+import {
+  useSavePPCProductMutation,
+  useGetProcessesQuery,
+  useGetMachinesQuery,
+  useGetWorkstationsQuery,
+  useGetJobWorkSuppliersQuery,
+  useGetQualityMastersQuery,
+} from "@/src/store/services/ppcService";
+import { storeService } from "@/src/store/services/storeService";
 import LoadingSpinner from "@/src/components/LoadingSpinner";
+import RoutingStepCard from "./routing/RoutingStepCard";
+import RoutingMediaModal from "./routing/RoutingMediaModal";
 
 interface RoutingBuilderModalProps {
-    fgItem: any;
-    onClose: () => void;
+  fgItem: any;
+  onClose: () => void;
 }
 
 export default function RoutingBuilderModal({ fgItem, onClose }: RoutingBuilderModalProps) {
-    const [savePPCProduct, { isLoading: isSaving }] = useSavePPCProductMutation();
-    const { data: processes = [], isLoading: isLoadingProcesses } = useGetProcessesQuery();
+  const [savePPCProduct, { isLoading: isSaving }] = useSavePPCProductMutation();
 
-    // The working copy of the FGItem's BOM (so we can edit it here)
-    const [bom, setBom] = useState<any[]>([]);
-    
-    // The routing array
-    const [routing, setRouting] = useState<any[]>([]);
+  // Queries for masters
+  const { data: processes = [], isLoading: isLoadingProcesses } = useGetProcessesQuery();
+  const { data: machines = [] } = useGetMachinesQuery();
+  const { data: workstations = [] } = useGetWorkstationsQuery();
+  const { data: suppliers = [] } = useGetJobWorkSuppliersQuery();
+  const { data: qualityMasters = [] } = useGetQualityMastersQuery();
 
-    useEffect(() => {
-        if (fgItem) {
-            // Initialize working BOM
-            setBom(fgItem.bom || []);
-            // Initialize routing if it exists
-            setRouting(fgItem.ppcProduct?.routing || []);
-        }
-    }, [fgItem]);
+  // Store raw materials for adding to base BOM
+  const { data: rawMaterials = [] } = storeService.useGetStoreDataQuery("raw-material");
+  const { data: boughtOuts = [] } = storeService.useGetStoreDataQuery("bought-out");
 
-    const handleSave = async () => {
-        try {
-            // Validate routing
-            const invalidSteps = routing.some(r => !r.process || r.process === "");
-            if (invalidSteps) {
-                alert("Please select a process for all routing steps.");
-                return;
-            }
+  // State
+  const [bom, setBom] = useState<any[]>([]);
+  const [routing, setRouting] = useState<any[]>([]);
+  const [selectedAddType, setSelectedAddType] = useState<"RawMaterial" | "BoughtOut">("RawMaterial");
+  const [selectedAddItem, setSelectedAddItem] = useState<string>("");
+  const [showAddBomModal, setShowAddBomModal] = useState(false);
+  const [newBomQty, setNewBomQty] = useState<number>(1);
+  const [newBomUnit, setNewBomUnit] = useState<string>("Nos");
 
-            // Clean up populated objects to just string IDs for backend and filter out invalid/null items
-            const cleanedBom = bom
-                .filter(b => {
-                    const id = typeof b.item === 'object' && b.item !== null ? b.item._id : b.item;
-                    return id && id !== "";
-                })
-                .map(b => ({
-                    ...b,
-                    item: typeof b.item === 'object' && b.item !== null ? b.item._id : b.item
-                }));
+  // Media preview modal state
+  const [mediaPreview, setMediaPreview] = useState<{
+    isOpen: boolean;
+    url: string;
+    title: string;
+    type: "image" | "pdf";
+  }>({
+    isOpen: false,
+    url: "",
+    title: "",
+    type: "image",
+  });
 
-            const cleanedRouting = routing.map(r => ({
-                ...r,
-                process: typeof r.process === 'object' && r.process !== null ? r.process._id : r.process,
-                bomRequirements: r.bomRequirements
-                    .filter((req: any) => {
-                        const id = typeof req.item === 'object' && req.item !== null ? req.item._id : req.item;
-                        return id && id !== "";
-                    })
-                    .map((req: any) => ({
-                        ...req,
-                        item: typeof req.item === 'object' && req.item !== null ? req.item._id : req.item
-                    }))
-            }));
-
-            await savePPCProduct({
-                fgItemId: fgItem._id,
-                routing: cleanedRouting,
-                updatedBom: cleanedBom
-            }).unwrap();
-            onClose();
-        } catch (error: any) {
-            console.error("Failed to save routing", error);
-            alert(error?.data?.message || error?.message || "Failed to save routing.");
-        }
-    };
-
-    const addProcess = () => {
-        setRouting([...routing, {
+  useEffect(() => {
+    if (fgItem) {
+      setBom(fgItem.bom || []);
+      const existingRouting = fgItem.ppcProduct?.routing || [];
+      if (existingRouting.length > 0) {
+        setRouting(
+          existingRouting.map((step: any, idx: number) => ({
+            ...step,
+            sequence: step.sequence || (idx + 1) * 10,
+            processType: step.processType || (step.isOutsourced ? "Outside" : "Inside"),
+            photos: step.photos || [],
+            documents: step.documents || [],
+            bomRequirements: step.bomRequirements || [],
+            inspectionParameters: step.inspectionParameters || [],
+            qcRequired: Boolean(step.qcRequired),
+            qcStage: step.qcStage || "In-Process",
+          }))
+        );
+      } else {
+        setRouting([
+          {
+            sequence: 10,
+            stepName: "",
             process: "",
+            processType: "Inside",
+            isOutsourced: false,
             setupTime: 0,
             cycleTime: 0,
-            bomRequirements: []
-        }]);
+            bomRequirements: [],
+            photos: [],
+            documents: [],
+            qcRequired: false,
+            qcStage: "In-Process",
+            inspectionParameters: [],
+          },
+        ]);
+      }
+    }
+  }, [fgItem]);
+
+  // Metrics
+  const totalSteps = routing.length;
+  const inHouseCount = routing.filter((r) => r.processType !== "Outside" && !r.isOutsourced).length;
+  const outsideCount = routing.filter((r) => r.processType === "Outside" || r.isOutsourced).length;
+  const totalCycleTime = routing.reduce((acc, r) => acc + (Number(r.cycleTime) || 0), 0);
+  const totalQCCount = routing.filter((r) => r.qcRequired).length;
+  const totalDocCount = routing.reduce(
+    (acc, r) => acc + ((r.photos?.length || 0) + (r.documents?.length || 0)),
+    0
+  );
+
+  // Reorder steps
+  const moveStepUp = (index: number) => {
+    if (index === 0) return;
+    const newRouting = [...routing];
+    const temp = newRouting[index - 1];
+    newRouting[index - 1] = newRouting[index];
+    newRouting[index] = temp;
+    newRouting.forEach((s, idx) => (s.sequence = (idx + 1) * 10));
+    setRouting(newRouting);
+  };
+
+  const moveStepDown = (index: number) => {
+    if (index === routing.length - 1) return;
+    const newRouting = [...routing];
+    const temp = newRouting[index + 1];
+    newRouting[index + 1] = newRouting[index];
+    newRouting[index] = temp;
+    newRouting.forEach((s, idx) => (s.sequence = (idx + 1) * 10));
+    setRouting(newRouting);
+  };
+
+  const addStep = () => {
+    setRouting([
+      ...routing,
+      {
+        sequence: (routing.length + 1) * 10,
+        stepName: "",
+        process: "",
+        processType: "Inside",
+        isOutsourced: false,
+        setupTime: 0,
+        cycleTime: 0,
+        bomRequirements: [],
+        photos: [],
+        documents: [],
+        qcRequired: false,
+        qcStage: "In-Process",
+        inspectionParameters: [],
+      },
+    ]);
+  };
+
+  const removeStep = (index: number) => {
+    const updated = routing.filter((_, i) => i !== index);
+    updated.forEach((s, idx) => (s.sequence = (idx + 1) * 10));
+    setRouting(updated);
+  };
+
+  const updateStep = (index: number, updatedStep: any) => {
+    const newRouting = [...routing];
+    newRouting[index] = updatedStep;
+    setRouting(newRouting);
+  };
+
+  // Add Item to Base BOM
+  const handleAddBomItem = () => {
+    if (!selectedAddItem) return;
+
+    let itemObject: any = null;
+    let name = "";
+    let code = "";
+
+    if (selectedAddType === "RawMaterial") {
+      itemObject = rawMaterials.find((r: any) => r._id === selectedAddItem);
+      name = itemObject?.name || "Raw Material";
+      code = itemObject?.code || "";
+    } else {
+      itemObject = boughtOuts.find((b: any) => b._id === selectedAddItem);
+      name = itemObject?.name || "Bought Out";
+      code = itemObject?.code || "";
+    }
+
+    const newBomEntry = {
+      itemType: selectedAddType,
+      item: selectedAddItem,
+      itemName: name,
+      itemCode: code,
+      quantity: Number(newBomQty) || 1,
+      unit: newBomUnit || "Nos",
     };
 
-    const removeProcess = (index: number) => {
-        setRouting(routing.filter((_, i) => i !== index));
-    };
+    setBom([...bom, newBomEntry]);
+    setSelectedAddItem("");
+    setShowAddBomModal(false);
+  };
 
-    const updateProcess = (index: number, field: string, value: any) => {
-        const updated = [...routing];
-        updated[index] = { ...updated[index], [field]: value };
-        setRouting(updated);
-    };
+  const removeBomItem = (index: number) => {
+    setBom(bom.filter((_, i) => i !== index));
+  };
 
-    const toggleBOMRequirement = (processIndex: number, bomItem: any) => {
-        const process = routing[processIndex];
-        const reqs = [...process.bomRequirements];
-        
-        // Ensure bomItem has item id properly stringified for comparison
-        const itemId = bomItem.item?._id || bomItem.item;
-        
-        const existingIndex = reqs.findIndex((r: any) => (r.item?._id || r.item) === itemId);
+  // Save full routing and BOM
+  const handleSave = async () => {
+    try {
+      if (routing.length === 0) {
+        alert("Please add at least one process step.");
+        return;
+      }
 
-        if (existingIndex >= 0) {
-            reqs.splice(existingIndex, 1);
-        } else {
-            reqs.push({
-                item: itemId,
-                itemType: bomItem.itemType,
-                itemName: bomItem.item?.name || bomItem.itemName,
-                quantity: bomItem.quantity,
-                unit: bomItem.unit || "Nos"
-            });
-        }
-        updateProcess(processIndex, "bomRequirements", reqs);
-    };
+      const invalidStep = routing.find((r) => !r.process);
+      if (invalidStep) {
+        alert("Please select a process for all routing steps.");
+        return;
+      }
 
-    const updateBOMRequirementQuantity = (processIndex: number, reqIndex: number, quantity: number) => {
-        const reqs = [...routing[processIndex].bomRequirements];
-        reqs[reqIndex] = { ...reqs[reqIndex], quantity };
-        updateProcess(processIndex, "bomRequirements", reqs);
-    };
+      // Format BOM
+      const cleanedBom = bom.map((b) => ({
+        itemType: b.itemType || "Material",
+        item: typeof b.item === "object" && b.item !== null ? b.item._id : b.item,
+        itemName: b.itemName || b.item?.name || "Item",
+        quantity: Number(b.quantity) || 1,
+        unit: b.unit || "Nos",
+      }));
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col border border-gray-100 dark:border-gray-800">
-                
-                {/* Header */}
-                <div className="flex justify-between items-start p-6 border-b border-gray-100 dark:border-gray-800">
-                    <div>
-                        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                            <Factory className="text-indigo-600" />
-                            Route Builder: {fgItem.name}
-                        </h2>
-                        <p className="text-sm text-gray-500 mt-1">
-                            Define the manufacturing sequence and assign BOM materials to specific processes.
-                        </p>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="p-2 bg-gray-50 dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 rounded-full transition-colors"
-                    >
-                        <X size={20} />
-                    </button>
-                </div>
+      // Format Routing
+      const cleanedRouting = routing.map((r, idx) => ({
+        sequence: Number(r.sequence) || (idx + 1) * 10,
+        stepName: r.stepName || "",
+        process: typeof r.process === "object" && r.process !== null ? r.process._id : r.process,
+        processName: r.processName || "",
+        processType: r.processType || (r.isOutsourced ? "Outside" : "Inside"),
+        isOutsourced: r.processType === "Outside" || r.isOutsourced === true,
+        workstation:
+          typeof r.workstation === "object" && r.workstation !== null
+            ? r.workstation._id
+            : r.workstation || undefined,
+        machine:
+          typeof r.machine === "object" && r.machine !== null
+            ? r.machine._id
+            : r.machine || undefined,
+        setupTime: Number(r.setupTime) || 0,
+        cycleTime: Number(r.cycleTime) || 0,
+        supplier:
+          typeof r.supplier === "object" && r.supplier !== null
+            ? r.supplier._id
+            : r.supplier || undefined,
+        supplierName: r.supplierName || "",
+        leadTimeDays: Number(r.leadTimeDays) || 1,
+        jobWorkRate: Number(r.jobWorkRate) || 0,
+        outsideInstructions: r.outsideInstructions || "",
+        photos: r.photos || [],
+        documents: r.documents || [],
+        qcRequired: Boolean(r.qcRequired),
+        qcStage: r.qcStage || "In-Process",
+        qualityMaster:
+          typeof r.qualityMaster === "object" && r.qualityMaster !== null
+            ? r.qualityMaster._id
+            : r.qualityMaster || undefined,
+        isMandatoryPass: r.isMandatoryPass !== false,
+        inspectionParameters: r.inspectionParameters || [],
+        bomRequirements: (r.bomRequirements || []).map((req: any) => ({
+          item: typeof req.item === "object" && req.item !== null ? req.item._id : req.item,
+          itemType: req.itemType || "Material",
+          itemName: req.itemName || "Item",
+          quantity: Number(req.quantity) || 1,
+          unit: req.unit || "Nos",
+          scrapPercentage: Number(req.scrapPercentage) || 0,
+          notes: req.notes || "",
+        })),
+        description: r.description || "",
+      }));
 
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto p-6 flex flex-col lg:flex-row gap-6">
-                    
-                    {/* Left Column: BOM Editor */}
-                    <div className="w-full lg:w-1/3 flex flex-col gap-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                                <Package size={18} className="text-amber-500" />
-                                Base BOM
-                            </h3>
-                        </div>
-                        
-                        <div className="bg-amber-50/50 dark:bg-gray-800/50 border border-amber-100 dark:border-gray-700 rounded-xl p-4">
-                            <p className="text-xs text-gray-500 mb-3">
-                                You can edit the required quantity for these items here. Changes will overwrite the primary Store BOM upon saving.
-                            </p>
-                            
-                            {bom.length === 0 ? (
-                                <div className="text-sm text-gray-400 text-center py-4">No BOM components attached.</div>
-                            ) : (
-                                <div className="space-y-2">
-                                    {bom.map((b, idx) => (
-                                        <div key={idx} className="flex items-center justify-between bg-white dark:bg-gray-800 p-2 rounded-lg border border-gray-100 dark:border-gray-700 shadow-sm">
-                                            <div className="flex flex-col">
-                                                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{b.item?.name || b.itemName || 'Unknown'}</span>
-                                                <span className="text-[10px] text-amber-600 uppercase font-bold tracking-wider">{b.itemType}</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <input 
-                                                    type="number"
-                                                    value={b.quantity}
-                                                    onChange={(e) => {
-                                                        const newBom = [...bom];
-                                                        newBom[idx] = { ...newBom[idx], quantity: Number(e.target.value) };
-                                                        setBom(newBom);
-                                                    }}
-                                                    className="w-16 px-2 py-1 text-sm border border-gray-200 dark:border-gray-600 rounded focus:ring-1 focus:ring-amber-500 dark:bg-gray-900"
-                                                />
-                                                <span className="text-xs text-gray-500">{b.unit || 'Nos'}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </div>
+      await savePPCProduct({
+        fgItemId: fgItem._id,
+        routing: cleanedRouting,
+        updatedBom: cleanedBom,
+      }).unwrap();
 
-                    {/* Right Column: Routing Sequence */}
-                    <div className="w-full lg:w-2/3 flex flex-col gap-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                                <LayoutList size={18} className="text-indigo-500" />
-                                Process Sequence
-                            </h3>
-                            <button
-                                onClick={addProcess}
-                                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
-                            >
-                                <Plus size={16} /> Add Step
-                            </button>
-                        </div>
+      onClose();
+    } catch (error: any) {
+      console.error("Failed to save PPC routing:", error);
+      alert(error?.data?.message || error?.message || "Failed to save process routing.");
+    }
+  };
 
-                        {isLoadingProcesses ? <LoadingSpinner /> : routing.length === 0 ? (
-                            <div className="flex-1 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl flex flex-col items-center justify-center text-gray-400 p-8">
-                                <Factory size={48} className="mb-4 text-gray-300 dark:text-gray-600" />
-                                <p>No process steps defined.</p>
-                                <p className="text-sm">Click "Add Step" to begin building the route.</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-4">
-                                {routing.map((route, rIdx) => (
-                                    <div key={rIdx} className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm">
-                                        
-                                        {/* Process Step Header */}
-                                        <div className="bg-gray-50 dark:bg-gray-800/80 p-3 border-b border-gray-200 dark:border-gray-700 flex flex-wrap items-center gap-4">
-                                            <div className="flex items-center gap-2">
-                                                <span className="w-6 h-6 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 flex items-center justify-center text-xs font-bold">{rIdx + 1}</span>
-                                            </div>
-                                            
-                                            <div className="flex-1 min-w-[200px]">
-                                                <select
-                                                    value={typeof route.process === 'object' ? route.process._id : route.process}
-                                                    onChange={(e) => updateProcess(rIdx, "process", e.target.value)}
-                                                    className="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white dark:bg-gray-900"
-                                                >
-                                                    <option value="">Select Process...</option>
-                                                    {processes.map((p: any) => (
-                                                        <option key={p._id} value={p._id}>{p.processName}</option>
-                                                    ))}
-                                                </select>
-                                            </div>
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-5 animate-in fade-in duration-150">
+      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-7xl max-h-[94vh] overflow-hidden flex flex-col border border-gray-200 dark:border-gray-800">
+        {/* 1. CLEAN COMPACT HEADER WITH INLINE METRICS */}
+        <div className="px-6 py-3.5 border-b border-gray-150 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-850/80 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-bold text-gray-900 dark:text-white truncate">
+              {fgItem.name}
+            </h2>
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+              {fgItem.type || "Component"}
+            </span>
+            {fgItem.code && (
+              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-gray-200/80 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                {fgItem.code}
+              </span>
+            )}
+          </div>
 
-                                            <div className="flex items-center gap-2">
-                                                <div className="flex flex-col">
-                                                    <label className="text-[10px] text-gray-500 font-medium">Setup (m)</label>
-                                                    <input 
-                                                        type="number" 
-                                                        value={route.setupTime} 
-                                                        onChange={(e) => updateProcess(rIdx, "setupTime", Number(e.target.value))}
-                                                        className="w-16 px-2 py-1 text-sm border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-900"
-                                                    />
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <label className="text-[10px] text-gray-500 font-medium">Cycle (m)</label>
-                                                    <input 
-                                                        type="number" 
-                                                        value={route.cycleTime} 
-                                                        onChange={(e) => updateProcess(rIdx, "cycleTime", Number(e.target.value))}
-                                                        className="w-16 px-2 py-1 text-sm border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-900"
-                                                    />
-                                                </div>
-                                            </div>
-                                            
-                                            <button
-                                                onClick={() => removeProcess(rIdx)}
-                                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors ml-auto"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </div>
+          {/* Inline Summary Chips */}
+          <div className="hidden md:flex items-center gap-2 text-xs font-semibold">
+            <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-750 text-gray-700 dark:text-gray-300 flex items-center gap-1.5 shadow-2xs">
+              <span className="text-indigo-600 font-bold">{totalSteps}</span> Steps
+              <span className="text-gray-400 font-normal">({inHouseCount} In • {outsideCount} Out)</span>
+            </span>
 
-                                        {/* BOM Allocation for this Process */}
-                                        <div className="p-4">
-                                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Allocated Materials</h4>
-                                            
-                                            <div className="flex flex-wrap gap-2 mb-4">
-                                                {bom.map((b, bIdx) => {
-                                                    const itemId = b.item?._id || b.item;
-                                                    const isAllocated = route.bomRequirements?.some((r: any) => (r.item?._id || r.item) === itemId);
-                                                    
-                                                    return (
-                                                        <button
-                                                            key={bIdx}
-                                                            onClick={() => toggleBOMRequirement(rIdx, b)}
-                                                            className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors flex items-center gap-1.5 ${
-                                                                isAllocated 
-                                                                    ? "bg-indigo-50 border-indigo-200 text-indigo-700" 
-                                                                    : "bg-white border-gray-200 text-gray-500 hover:border-indigo-300"
-                                                            }`}
-                                                        >
-                                                            {isAllocated ? <Check size={12} /> : <Plus size={12} />}
-                                                            {b.item?.name || b.itemName || 'Unknown'}
-                                                        </button>
-                                                    )
-                                                })}
-                                            </div>
+            <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-750 text-gray-700 dark:text-gray-300 flex items-center gap-1.5 shadow-2xs">
+              <Clock size={13} className="text-blue-500" />
+              <span>{totalCycleTime.toFixed(1)}m Cycle</span>
+            </span>
 
-                                            {/* Quantities for allocated items */}
-                                            {route.bomRequirements?.length > 0 && (
-                                                <div className="bg-gray-50/50 dark:bg-gray-900/50 rounded-lg border border-gray-100 dark:border-gray-800 p-3 space-y-2">
-                                                    {route.bomRequirements.map((req: any, reqIdx: number) => (
-                                                        <div key={reqIdx} className="flex items-center justify-between text-sm">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400"></div>
-                                                                <span className="font-medium text-gray-700 dark:text-gray-300">{req.itemName}</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <input 
-                                                                    type="number"
-                                                                    value={req.quantity}
-                                                                    onChange={(e) => updateBOMRequirementQuantity(rIdx, reqIdx, Number(e.target.value))}
-                                                                    className="w-16 px-2 py-1 text-xs border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-900"
-                                                                />
-                                                                <span className="text-xs text-gray-500">{req.unit}</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+            {totalQCCount > 0 && (
+              <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 flex items-center gap-1 shadow-2xs">
+                <ShieldCheck size={13} />
+                <span>{totalQCCount} QC</span>
+              </span>
+            )}
 
-                </div>
+            {totalDocCount > 0 && (
+              <span className="px-2.5 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 flex items-center gap-1 shadow-2xs">
+                <Paperclip size={13} />
+                <span>{totalDocCount} Files</span>
+              </span>
+            )}
+          </div>
 
-                {/* Footer */}
-                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 flex justify-end gap-3">
-                    <button
-                        onClick={onClose}
-                        className="px-5 py-2 font-medium text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        disabled={isSaving}
-                        className="px-6 py-2 font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
-                    >
-                        {isSaving ? <LoadingSpinner /> : <Check size={18} />}
-                        Save Routing & BOM
-                    </button>
-                </div>
-
-            </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-150 dark:hover:bg-gray-800 transition-colors"
+          >
+            <X size={18} />
+          </button>
         </div>
-    );
+
+        {/* 2. MAIN BODY (BOM COLUMN + ROUTING COLUMN) */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col lg:flex-row gap-5 bg-gray-50/40 dark:bg-gray-950/40">
+          {/* LEFT: BASE BOM MATERIALS */}
+          <div className="w-full lg:w-4/12 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Package size={16} className="text-amber-500" />
+                <h3 className="font-bold text-gray-900 dark:text-white text-sm">
+                  Base BOM ({bom.length})
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAddBomModal(true)}
+                className="px-2 py-1 text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center gap-1 transition-colors"
+              >
+                <Plus size={12} /> Add Item
+              </button>
+            </div>
+
+            <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-3 shadow-2xs space-y-2">
+              {bom.length === 0 ? (
+                <div className="py-8 text-center text-gray-400 text-xs">
+                  No materials in Base BOM.
+                  <br />
+                  Click "+ Add Item" to add parts.
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-[64vh] overflow-y-auto pr-1">
+                  {bom.map((b, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 bg-gray-50 dark:bg-gray-850 rounded-lg border border-gray-150 dark:border-gray-750 flex items-center justify-between gap-2 shadow-2xs"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-xs text-gray-900 dark:text-white truncate">
+                          {b.item?.name || b.itemName || "Item"}
+                        </div>
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-1 py-0.2 rounded">
+                          {b.itemType || "Material"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-0.5">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.1"
+                            value={b.quantity}
+                            onChange={(e) => {
+                              const newBom = [...bom];
+                              newBom[idx] = { ...newBom[idx], quantity: Number(e.target.value) };
+                              setBom(newBom);
+                            }}
+                            className="w-11 text-xs font-bold text-center bg-transparent focus:outline-none"
+                          />
+                          <span className="text-[10px] text-gray-400">{b.unit || "Nos"}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeBomItem(idx)}
+                          className="text-gray-400 hover:text-red-500 p-0.5"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* RIGHT: PROCESS ROUTING SEQUENCE */}
+          <div className="w-full lg:w-8/12 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <LayoutList size={16} className="text-indigo-600" />
+                <h3 className="font-bold text-gray-900 dark:text-white text-sm">
+                  Process Steps ({routing.length})
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={addStep}
+                className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1 shadow-xs transition-all"
+              >
+                <Plus size={13} /> Add Step
+              </button>
+            </div>
+
+            {isLoadingProcesses ? (
+              <div className="py-20 text-center">
+                <LoadingSpinner size="lg" />
+              </div>
+            ) : routing.length === 0 ? (
+              <div className="py-16 border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-2xl text-center text-gray-400 flex flex-col items-center justify-center p-6 bg-white dark:bg-gray-900">
+                <Factory size={40} className="text-gray-300 dark:text-gray-600 mb-2" />
+                <p className="font-semibold text-xs text-gray-600 dark:text-gray-400">
+                  No steps defined.
+                </p>
+                <button
+                  type="button"
+                  onClick={addStep}
+                  className="mt-3 px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1"
+                >
+                  <Plus size={13} /> Add Step
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {routing.map((step, sIdx) => (
+                  <RoutingStepCard
+                    key={sIdx}
+                    step={step}
+                    index={sIdx}
+                    totalSteps={routing.length}
+                    processes={processes}
+                    machines={machines}
+                    workstations={workstations}
+                    suppliers={suppliers}
+                    qualityMasters={qualityMasters}
+                    baseBom={bom}
+                    onUpdate={updateStep}
+                    onRemove={removeStep}
+                    onMoveUp={moveStepUp}
+                    onMoveDown={moveStepDown}
+                    onOpenMedia={(url, title, type) =>
+                      setMediaPreview({ isOpen: true, url, title, type })
+                    }
+                  />
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addStep}
+                  className="w-full py-2.5 border border-dashed border-gray-300 dark:border-gray-700 hover:border-indigo-400 rounded-xl text-xs font-bold text-gray-500 hover:text-indigo-600 flex items-center justify-center gap-1.5 bg-white/40 dark:bg-gray-900/40 transition-all"
+                >
+                  <Plus size={14} /> Add Step
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 3. CLEAN COMPACT FOOTER */}
+        <div className="px-6 py-3 border-t border-gray-150 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-850/80 flex items-center justify-between gap-4">
+          <span className="text-xs text-gray-500">
+            {routing.length} operation steps configured
+          </span>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-250 dark:border-gray-700 rounded-lg hover:bg-gray-50 transition-colors shadow-2xs"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={handleSave}
+              className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg flex items-center gap-1.5 shadow-sm disabled:opacity-50 transition-all"
+            >
+              {isSaving ? <LoadingSpinner size="sm" /> : <Check size={15} />}
+              <span>{isSaving ? "Saving..." : "Save Route & BOM"}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* COMPACT ADD ITEM TO BOM POPUP */}
+      {showAddBomModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm border border-gray-200 dark:border-gray-800 p-5 space-y-3">
+            <div className="flex justify-between items-center border-b border-gray-100 dark:border-gray-800 pb-2">
+              <h4 className="font-bold text-sm text-gray-900 dark:text-white">
+                Add Item to BOM
+              </h4>
+              <button
+                type="button"
+                onClick={() => setShowAddBomModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedAddType("RawMaterial");
+                  setSelectedAddItem("");
+                }}
+                className={`py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                  selectedAddType === "RawMaterial"
+                    ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    : "border-gray-200 dark:border-gray-700 text-gray-600"
+                }`}
+              >
+                Raw Material
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedAddType("BoughtOut");
+                  setSelectedAddItem("");
+                }}
+                className={`py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                  selectedAddType === "BoughtOut"
+                    ? "bg-indigo-50 border-indigo-500 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                    : "border-gray-200 dark:border-gray-700 text-gray-600"
+                }`}
+              >
+                Bought-Out
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold text-gray-500 mb-1">Item</label>
+              <select
+                value={selectedAddItem}
+                onChange={(e) => setSelectedAddItem(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-850 text-gray-900 dark:text-gray-100"
+              >
+                <option value="">Select item...</option>
+                {selectedAddType === "RawMaterial"
+                  ? rawMaterials.map((rm: any) => (
+                      <option key={rm._id} value={rm._id}>
+                        {rm.name} ({rm.code || "RM"})
+                      </option>
+                    ))
+                  : boughtOuts.map((bo: any) => (
+                      <option key={bo._id} value={bo._id}>
+                        {bo.name} ({bo.code || "BO"})
+                      </option>
+                    ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1">Qty</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.1"
+                  value={newBomQty}
+                  onChange={(e) => setNewBomQty(Number(e.target.value))}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-850"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-500 mb-1">Unit</label>
+                <input
+                  type="text"
+                  value={newBomUnit}
+                  onChange={(e) => setNewBomUnit(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-850"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={() => setShowAddBomModal(false)}
+                className="px-3 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!selectedAddItem}
+                onClick={handleAddBomItem}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MEDIA PREVIEW MODAL */}
+      <RoutingMediaModal
+        isOpen={mediaPreview.isOpen}
+        mediaUrl={mediaPreview.url}
+        mediaTitle={mediaPreview.title}
+        mediaType={mediaPreview.type}
+        onClose={() => setMediaPreview({ ...mediaPreview, isOpen: false })}
+      />
+    </div>
+  );
 }

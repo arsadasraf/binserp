@@ -90,7 +90,8 @@ import {
   getMaintenanceRecords,
   updateMaintenanceRecord,
   getPPCProductsStatus,
-  savePPCProduct
+  savePPCProduct,
+  uploadRoutingAttachment
 } from "../controllers/ppc/index.js";
 import { moveProductionToManufacturing } from "../controllers/ppc/moveToManufacturing.controller.js";
 import { getMRPPPCIntakeBucket } from "../controllers/purchase/index.js";
@@ -103,6 +104,9 @@ router.use(verifyJWT);
 
 // Restrict Master routes for Executives
 router.use(["/machine", "/process", "/machine-category", "/machine-location", "/manpower-master", "/skill", "/shift"], restrictExecutive);
+
+// Upload Attachment for Routing Steps (PDF drawings/SOPs and Photos)
+router.post("/routing/upload-attachment", upload.single("file"), uploadRoutingAttachment);
 
 // Order Routes
 router.route("/order").post(upload.array("photos", 5), createOrder).get(getAllOrders);

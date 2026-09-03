@@ -140,17 +140,56 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         return list;
     }, [boughtOuts, materials]);
 
-    // Map RM master data to inventory format
+    // Fast O(1) Lookup Maps for combinedInventoryList
+    const inventoryLookups = useMemo(() => {
+        const byId = new Map<string, any>();
+        const byCode = new Map<string, any>();
+        const byName = new Map<string, any>();
+
+        combinedInventoryList.forEach((d: any) => {
+            if (!d) return;
+            const dId = String(d._id);
+            byId.set(dId, d);
+            
+            const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
+            if (dMatId) {
+                byId.set(String(dMatId), d);
+            }
+
+            if (d.materialCode) {
+                byCode.set(String(d.materialCode).toUpperCase().trim(), d);
+            }
+            if (d.materialName) {
+                byName.set(String(d.materialName).toLowerCase().trim(), d);
+            }
+        });
+
+        return {
+            findItem: (item: any) => {
+                if (!item) return undefined;
+                const id = String(item._id);
+                if (byId.has(id)) return byId.get(id);
+
+                if (item.code) {
+                    const codeMatch = byCode.get(String(item.code).toUpperCase().trim());
+                    if (codeMatch) return codeMatch;
+                }
+
+                if (item.name) {
+                    const nameMatch = byName.get(String(item.name).toLowerCase().trim());
+                    if (nameMatch) return nameMatch;
+                }
+
+                return undefined;
+            }
+        };
+    }, [combinedInventoryList]);
+
+    // Map RM master data to inventory format (O(N) with Map lookup)
     const mappedRmInventory = useMemo(() => {
         if (!effectiveRmList || effectiveRmList.length === 0) return [];
         return effectiveRmList.map((m: any) => {
-            const invItem = combinedInventoryList.find((d: any) => {
-                const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
-                const matchesId = String(dMatId) === String(m._id) || String(d._id) === String(m._id);
-                const matchesCode = m.code && d.materialCode && d.materialCode.toUpperCase() === m.code.toUpperCase();
-                const matchesName = m.name && d.materialName && d.materialName.toLowerCase().trim() === m.name.toLowerCase().trim();
-                return matchesId || matchesCode || matchesName;
-            });
+            const invItem = inventoryLookups.findItem(m);
 
             return {
                 ...m,
@@ -184,19 +223,13 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 }
             };
         });
-    }, [effectiveRmList, combinedInventoryList]);
+    }, [effectiveRmList, inventoryLookups]);
 
-    // Map BO master data to inventory format
+    // Map BO master data to inventory format (O(N) with Map lookup)
     const mappedBoInventory = useMemo(() => {
         if (!effectiveBoList || effectiveBoList.length === 0) return [];
         return effectiveBoList.map((m: any) => {
-            const invItem = combinedInventoryList.find((d: any) => {
-                const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
-                const matchesId = String(dMatId) === String(m._id) || String(d._id) === String(m._id);
-                const matchesCode = m.code && d.materialCode && d.materialCode.toUpperCase() === m.code.toUpperCase();
-                const matchesName = m.name && d.materialName && d.materialName.toLowerCase().trim() === m.name.toLowerCase().trim();
-                return matchesId || matchesCode || matchesName;
-            });
+            const invItem = inventoryLookups.findItem(m);
 
             return {
                 ...m,
@@ -230,19 +263,13 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 }
             };
         });
-    }, [effectiveBoList, combinedInventoryList]);
+    }, [effectiveBoList, inventoryLookups]);
 
-    // Map Consumable master data to inventory format
+    // Map Consumable master data to inventory format (O(N) with Map lookup)
     const mappedConsumableInventory = useMemo(() => {
         if (!consumables || consumables.length === 0) return [];
         return consumables.map((c: any) => {
-            const invItem = combinedInventoryList.find((d: any) => {
-                const dMatId = typeof d.materialId === 'object' && d.materialId ? d.materialId._id : d.materialId;
-                const matchesId = String(dMatId) === String(c._id) || String(d._id) === String(c._id);
-                const matchesCode = c.code && d.materialCode && d.materialCode.toUpperCase() === c.code.toUpperCase();
-                const matchesName = c.name && d.materialName && d.materialName.toLowerCase().trim() === c.name.toLowerCase().trim();
-                return matchesId || matchesCode || matchesName;
-            });
+            const invItem = inventoryLookups.findItem(c);
 
             const currentStock = invItem 
                 ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) 
@@ -282,7 +309,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 }
             };
         });
-    }, [consumables, combinedInventoryList]);
+    }, [consumables, inventoryLookups]);
 
     // Active materials for GRN modal
     const activeGrnMaterials = useMemo(() => {
@@ -351,9 +378,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
     };
 
     return (
-        <div className="">
+        <div className="h-full flex flex-col">
             {/* Content Container */}
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm min-h-[400px] overflow-hidden p-1">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm h-full flex flex-col overflow-hidden p-1">
                 {activeSubTab === 'ledger' ? (
                     <div className="p-3">
                         <StockTransactionLedgerTable token={token} />
