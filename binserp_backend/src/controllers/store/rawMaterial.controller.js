@@ -3,6 +3,7 @@ import { rawMaterialSchema, categorySchema, locationSchema, inventorySchema, rmB
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
+import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -389,27 +390,29 @@ export const updateRawMaterial = async (req, res) => {
       req.body.locationId = loc._id;
     }
 
-    // Handle Photos
-    let existingPhotos = [];
-    if (req.body.existingPhotos) {
-      existingPhotos = Array.isArray(req.body.existingPhotos) ? req.body.existingPhotos : [req.body.existingPhotos];
-    } else if (req.body.photos && typeof req.body.photos === 'string') {
-      existingPhotos = [req.body.photos];
-    }
-
-    const newPhotoUrls = [];
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        const uploadResult = await uploadOnS3(file.path, "raw-materials/photos", companyId);
-        if (uploadResult) newPhotoUrls.push(uploadResult.secure_url);
+    // Handle Photos if provided in request
+    if (req.body.existingPhotos !== undefined || (req.files && req.files.length > 0) || req.body.photos !== undefined) {
+      let existingPhotos = [];
+      if (req.body.existingPhotos) {
+        existingPhotos = Array.isArray(req.body.existingPhotos) ? req.body.existingPhotos : [req.body.existingPhotos];
+      } else if (req.body.photos && typeof req.body.photos === 'string') {
+        existingPhotos = [req.body.photos];
       }
-    }
 
-    const finalPhotos = [...existingPhotos, ...newPhotoUrls];
-    if (finalPhotos.length > 2) {
-      return res.status(400).json({ message: "Maximum 2 photos allowed" });
+      const newPhotoUrls = [];
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          const uploadResult = await uploadOnS3(file.path, "raw-materials/photos", companyId);
+          if (uploadResult) newPhotoUrls.push(uploadResult.secure_url);
+        }
+      }
+
+      const finalPhotos = [...existingPhotos, ...newPhotoUrls];
+      if (finalPhotos.length > 2) {
+        return res.status(400).json({ message: "Maximum 2 photos allowed" });
+      }
+      req.body.photos = finalPhotos;
     }
-    req.body.photos = finalPhotos;
 
     const { userId, userName } = getUserAudit(req);
     req.body.updatedBy = userId;
@@ -430,6 +433,24 @@ export const updateRawMaterial = async (req, res) => {
       }
     }
 
+    // Lifecycle check: if deactivating/inactivating
+    const isDeactivating = req.body.status === 'Inactive' || req.body.status === 'Deactivated' || req.body.isActive === false;
+    if (isDeactivating) {
+      const currentDoc = await RawMaterial.findOne({ _id: id, company: companyId }).lean()
+        || await RmBoItem.findOne({ _id: id, company: companyId }).lean();
+      const checkResult = await checkItemStockForDeactivation({
+        req,
+        companyId,
+        itemId: id,
+        itemName: currentDoc?.name || req.body.name,
+        itemCode: currentDoc?.code || req.body.code,
+        itemType: 'rm'
+      });
+      if (!checkResult.canDeactivate) {
+        return res.status(400).json({ message: checkResult.message });
+      }
+    }
+
     let rawMaterial = await RawMaterial.findOneAndUpdate(
       { _id: id, company: companyId },
       { $set: req.body },
@@ -447,30 +468,34 @@ export const updateRawMaterial = async (req, res) => {
 
     if (!rawMaterial) return res.status(404).json({ message: "Raw Material not found" });
 
-    // Sync to legacy RmBoItem
-    await RmBoItem.findOneAndUpdate(
-      { _id: id },
-      { $set: { ...req.body, itemType: 'Raw Material' } },
-      { upsert: true }
-    );
+    // Sync to legacy RmBoItem if it exists
+    try {
+      await RmBoItem.findOneAndUpdate(
+        { _id: id, company: companyId },
+        { $set: { ...req.body, itemType: 'Raw Material' } }
+      );
+    } catch (e) {
+      console.warn("RmBoItem backward compatibility sync error:", e.message);
+    }
 
     // Sync to Inventory
-    if (req.body.unit || req.body.name || req.body.minimumStock !== undefined) {
-      try {
-        const Inventory = req.getModel('Inventory', inventorySchema);
+    try {
+      const Inventory = req.getModel('Inventory', inventorySchema);
+      const invUpdates = {};
+      if (req.body.status !== undefined) invUpdates.status = req.body.status;
+      if (req.body.isActive !== undefined) invUpdates.isActive = req.body.isActive;
+      if (req.body.unit) invUpdates.unit = req.body.unit.toString().trim();
+      if (req.body.name) invUpdates.materialName = req.body.name.toString().trim();
+      if (req.body.minimumStock !== undefined) invUpdates.reorderLevel = Number(req.body.minimumStock);
+
+      if (Object.keys(invUpdates).length > 0) {
         await Inventory.findOneAndUpdate(
           { company: companyId, materialId: id },
-          {
-            $set: {
-              ...(req.body.unit ? { unit: req.body.unit.toString().trim() } : {}),
-              ...(req.body.name ? { materialName: req.body.name.toString().trim() } : {}),
-              ...(req.body.minimumStock !== undefined ? { reorderLevel: Number(req.body.minimumStock) } : {})
-            }
-          }
+          { $set: invUpdates }
         );
-      } catch (invErr) {
-        console.error("Inventory sync error on updateRawMaterial:", invErr);
       }
+    } catch (invErr) {
+      console.warn("Inventory sync error on updateRawMaterial:", invErr.message);
     }
 
     res.status(200).json({ message: "Raw Material updated successfully", rawMaterial, rmBoItem: rawMaterial });
@@ -496,10 +521,36 @@ export const deleteRawMaterial = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
-    const inv = await Inventory.findOne({ materialId: id, company: companyId });
-    if (inv && (inv.currentStock > 0 || inv.qcPendingStock > 0)) {
+    const existing = await RawMaterial.findOne({ _id: id, company: companyId }).lean()
+      || await RmBoItem.findOne({ _id: id, company: companyId }).lean();
+    if (!existing) {
+      return res.status(404).json({ message: "Raw Material not found" });
+    }
+
+    // 1. Transaction Check: Items with transactions CANNOT be deleted
+    const txCheck = await checkItemHasTransactions({
+      req,
+      companyId,
+      itemId: id,
+      itemName: existing.name,
+      itemCode: existing.code
+    });
+    if (txCheck.hasTransactions) {
+      return res.status(400).json({ message: txCheck.message });
+    }
+
+    // 2. Stock Check: Cannot delete if stock exists in main store or WIP
+    const stockCheck = await checkItemStockForDeactivation({
+      req,
+      companyId,
+      itemId: id,
+      itemName: existing.name,
+      itemCode: existing.code,
+      itemType: 'rm'
+    });
+    if (!stockCheck.canDeactivate) {
       return res.status(400).json({ 
-        message: `Cannot delete "${inv.materialName}": It has active store stock of ${inv.currentStock} ${inv.unit}. Please issue or transfer the stock first.` 
+        message: `Cannot delete "${existing.name}": Stock is still present. Main Store: ${stockCheck.mainStoreStock} ${stockCheck.unit}, WIP Floor: ${stockCheck.wipStock} ${stockCheck.unit}. Please clear all stock first.` 
       });
     }
 

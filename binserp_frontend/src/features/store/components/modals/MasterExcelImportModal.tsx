@@ -28,6 +28,8 @@ interface MasterExcelImportModalProps {
 export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onSuccess }: MasterExcelImportModalProps) {
     const [file, setFile] = useState<File | null>(null);
     const [parsing, setParsing] = useState(false);
+    const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+    const [existingDuplicates, setExistingDuplicates] = useState<string[]>([]);
     const [parsedResult, setParsedResult] = useState<ParsedMasterExcelResult | null>(null);
     const [viewTab, setViewTab] = useState<'valid' | 'invalid'>('valid');
     const [overwrite, setOverwrite] = useState(false);
@@ -42,6 +44,7 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
         if (!selectedFile) return;
         setFile(selectedFile);
         setParsing(true);
+        setExistingDuplicates([]);
         try {
             const result = await parseMasterExcelFile(selectedFile, masterTab);
             setParsedResult(result);
@@ -49,6 +52,39 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
                 setViewTab('invalid');
             } else {
                 setViewTab('valid');
+            }
+
+            // Perform real-time duplicate pre-check against database by Item Name
+            const namesToCheck = result.validRows
+                .map((r: any) => r.name || r.materialName || r.componentName || '')
+                .filter(Boolean);
+
+            if (namesToCheck.length > 0) {
+                setCheckingDuplicates(true);
+                try {
+                    const token = localStorage.getItem('token');
+                    const dupRes = await fetch(`${API_BASE_URL}/api/store/masters/check-duplicates`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            masterTab,
+                            itemNames: namesToCheck
+                        })
+                    });
+
+                    if (dupRes.ok) {
+                        const dupData = await dupRes.json();
+                        const existingList = dupData?.data?.existingNames || [];
+                        setExistingDuplicates(existingList);
+                    }
+                } catch (dupErr) {
+                    console.warn("Duplicate pre-check warning:", dupErr);
+                } finally {
+                    setCheckingDuplicates(false);
+                }
             }
         } catch (error: any) {
             console.error("Failed to parse Excel file:", error);
@@ -72,6 +108,21 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
             return;
         }
 
+        let willOverwrite = overwrite;
+
+        // Duplicate item name alert gatekeeper
+        if (existingDuplicates.length > 0 && !overwrite) {
+            const confirmed = confirm(
+                `⚠️ Warning: ${existingDuplicates.length} item(s) in this file already exist in your system:\n\n• ${existingDuplicates.slice(0, 5).join('\n• ')}${existingDuplicates.length > 5 ? `\n...and ${existingDuplicates.length - 5} more` : ''}\n\nDuplicate item names are not permitted. Would you like to UPDATE the existing items with the values from this Excel file instead?`
+            );
+            if (confirmed) {
+                setOverwrite(true);
+                willOverwrite = true;
+            } else {
+                return;
+            }
+        }
+
         setSubmitting(true);
         try {
             const token = localStorage.getItem('token');
@@ -84,18 +135,20 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
                 body: JSON.stringify({
                     masterTab,
                     items: parsedResult.validRows,
-                    overwrite
+                    overwrite: willOverwrite
                 })
             });
 
             if (res.ok) {
                 const data = await res.json();
-                alert(`Successfully imported ${data.insertedCount || parsedResult.validRows.length} items! ${data.updatedCount ? `(${data.updatedCount} updated)` : ''}`);
+                const totalInserted = data?.data?.insertedCount ?? parsedResult.validRows.length;
+                const totalUpdated = data?.data?.updatedCount ?? 0;
+                alert(`Successfully imported ${totalInserted} items! ${totalUpdated > 0 ? `(${totalUpdated} updated)` : ''}`);
                 onSuccess();
                 onClose();
             } else {
                 const errJson = await res.json();
-                alert(`Bulk import failed: ${errJson.message || 'Server error'}`);
+                alert(`Bulk import prevented: ${errJson.message || 'Server error'}`);
             }
         } catch (error) {
             console.error("Bulk import submission error:", error);
@@ -108,6 +161,7 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
     const resetModal = () => {
         setFile(null);
         setParsedResult(null);
+        setExistingDuplicates([]);
     };
 
     return (
@@ -211,6 +265,44 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
                                 </button>
                             </div>
 
+                            {/* Duplicate Warning Banner */}
+                            {(checkingDuplicates || existingDuplicates.length > 0 || (parsedResult.inFileNameDuplicates && parsedResult.inFileNameDuplicates.length > 0)) && (
+                                <div className={`p-4 rounded-2xl border text-xs flex items-start gap-3 animate-in fade-in duration-200 ${
+                                    checkingDuplicates
+                                        ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-800 dark:text-sky-300'
+                                        : 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                                }`}>
+                                    {checkingDuplicates ? (
+                                        <RefreshCw className="animate-spin text-sky-600 shrink-0 mt-0.5" size={18} />
+                                    ) : (
+                                        <AlertTriangle className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" size={18} />
+                                    )}
+                                    <div className="flex-1 space-y-1">
+                                        <div className="font-extrabold text-sm">
+                                            {checkingDuplicates ? "Checking for duplicate item names in database..." : "Duplicate Item Names Detected"}
+                                        </div>
+                                        {existingDuplicates.length > 0 && (
+                                            <p className="leading-relaxed">
+                                                <b>{existingDuplicates.length} item(s) already exist in your system:</b>{" "}
+                                                <span className="font-semibold underline select-text">
+                                                    {existingDuplicates.slice(0, 6).join(', ')}{existingDuplicates.length > 6 ? ` and ${existingDuplicates.length - 6} more` : ''}
+                                                </span>.
+                                                <span className="block mt-1 text-slate-600 dark:text-slate-300">
+                                                    {overwrite 
+                                                        ? "✓ Existing items will be safely updated with the values from this Excel file." 
+                                                        : "⚠️ Duplicate item names cannot be created. Enable \"Update existing items if name matches\" below to overwrite, or remove them from your file."}
+                                                </span>
+                                            </p>
+                                        )}
+                                        {parsedResult.inFileNameDuplicates && parsedResult.inFileNameDuplicates.length > 0 && (
+                                            <p className="text-rose-700 dark:text-rose-300 font-semibold pt-1">
+                                                In-file duplicate names: {parsedResult.inFileNameDuplicates.join(', ')} (flagged in Invalid Rows).
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* View Tabs */}
                             <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-700 pb-2">
                                 <div className="flex gap-2">
@@ -247,7 +339,9 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
                                         onChange={(e) => setOverwrite(e.target.checked)}
                                         className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
                                     />
-                                    <span>Update existing items if code matches</span>
+                                    <span className={existingDuplicates.length > 0 && !overwrite ? "text-amber-700 dark:text-amber-400 font-extrabold" : ""}>
+                                        Update existing items if name matches {existingDuplicates.length > 0 ? `(${existingDuplicates.length} found)` : ''}
+                                    </span>
                                 </label>
                             </div>
 
@@ -272,11 +366,22 @@ export default function MasterExcelImportModal({ isOpen, masterTab, onClose, onS
                                                 {parsedResult.validRows.map((row: any, rIdx: number) => (
                                                     <tr key={rIdx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                                         <td className="p-3 text-center text-slate-400 font-mono">{rIdx + 1}</td>
-                                                        {config.columns.map(col => (
-                                                            <td key={col.key} className="p-3 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
-                                                                {row[col.key] !== undefined && row[col.key] !== null ? String(row[col.key]) : '-'}
-                                                            </td>
-                                                        ))}
+                                                        {config.columns.map(col => {
+                                                            const isNameCol = col.key === 'name' || col.key === 'materialName' || col.key === 'componentName';
+                                                            const rowName = (row.name || row.materialName || row.componentName || '').toString().trim();
+                                                            const isExisting = isNameCol && existingDuplicates.some(d => d.toLowerCase() === rowName.toLowerCase());
+
+                                                            return (
+                                                                <td key={col.key} className="p-3 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                                                                    {row[col.key] !== undefined && row[col.key] !== null ? String(row[col.key]) : '-'}
+                                                                    {isExisting && (
+                                                                        <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 inline-flex items-center gap-1">
+                                                                            Already in System
+                                                                        </span>
+                                                                    )}
+                                                                </td>
+                                                            );
+                                                        })}
                                                     </tr>
                                                 ))}
                                             </tbody>

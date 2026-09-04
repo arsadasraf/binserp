@@ -4,12 +4,12 @@ import {
   categorySchema,
   locationSchema,
   inventorySchema,
-  grnSchema,
   materialIssueSchema,
 } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
+import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -361,36 +361,39 @@ export const updateConsumableItem = async (req, res) => {
       delete req.body.locationId;
     }
 
-    let existingPhotos = [];
-    if (req.body.photos) {
-      if (Array.isArray(req.body.photos)) {
-        existingPhotos = req.body.photos;
-      } else {
-        existingPhotos = [req.body.photos];
-      }
-    }
-
-    const newPhotoUrls = [];
-    if (req.files && req.files.length > 0) {
-      try {
-        for (const file of req.files) {
-          const uploadResult = await uploadOnS3(file.path, "consumables/photos", companyId);
-          if (uploadResult) {
-            newPhotoUrls.push(uploadResult.secure_url);
-          }
+    // Handle Photos if provided in request
+    if (req.body.photos !== undefined || (req.files && req.files.length > 0)) {
+      let existingPhotos = [];
+      if (req.body.photos) {
+        if (Array.isArray(req.body.photos)) {
+          existingPhotos = req.body.photos;
+        } else {
+          existingPhotos = [req.body.photos];
         }
-      } catch (uploadError) {
-        console.error("Photo upload error:", uploadError);
       }
+
+      const newPhotoUrls = [];
+      if (req.files && req.files.length > 0) {
+        try {
+          for (const file of req.files) {
+            const uploadResult = await uploadOnS3(file.path, "consumables/photos", companyId);
+            if (uploadResult) {
+              newPhotoUrls.push(uploadResult.secure_url);
+            }
+          }
+        } catch (uploadError) {
+          console.error("Photo upload error:", uploadError);
+        }
+      }
+
+      const finalPhotos = [...existingPhotos, ...newPhotoUrls];
+
+      if (finalPhotos.length > 2) {
+        return res.status(400).json({ message: "Maximum 2 photos allowed" });
+      }
+
+      req.body.photos = finalPhotos;
     }
-
-    const finalPhotos = [...existingPhotos, ...newPhotoUrls];
-
-    if (finalPhotos.length > 2) {
-      return res.status(400).json({ message: "Maximum 2 photos allowed" });
-    }
-
-    req.body.photos = finalPhotos;
 
     const { userId, userName } = getUserAudit(req);
     req.body.updatedBy = userId;
@@ -411,6 +414,23 @@ export const updateConsumableItem = async (req, res) => {
       }
     }
 
+    // Lifecycle check: if deactivating/inactivating
+    const isDeactivating = req.body.status === 'Inactive' || req.body.status === 'Deactivated' || req.body.isActive === false;
+    if (isDeactivating) {
+      const currentDoc = await ConsumableItem.findOne({ _id: id, company: companyId }).lean();
+      const checkResult = await checkItemStockForDeactivation({
+        req,
+        companyId,
+        itemId: id,
+        itemName: currentDoc?.name || req.body.name,
+        itemCode: currentDoc?.code || req.body.code,
+        itemType: 'consumable'
+      });
+      if (!checkResult.canDeactivate) {
+        return res.status(400).json({ message: checkResult.message });
+      }
+    }
+
     const consumableItem = await ConsumableItem.findOneAndUpdate(
       { _id: id, company: companyId },
       { $set: req.body },
@@ -420,22 +440,23 @@ export const updateConsumableItem = async (req, res) => {
     if (!consumableItem) return res.status(404).json({ message: "Consumable Item not found" });
 
     // Sync to Inventory
-    if (req.body.unit || req.body.name || req.body.minimumStock !== undefined) {
-      try {
-        const Inventory = req.getModel('Inventory', inventorySchema);
+    try {
+      const Inventory = req.getModel('Inventory', inventorySchema);
+      const invUpdates = {};
+      if (req.body.status !== undefined) invUpdates.status = req.body.status;
+      if (req.body.isActive !== undefined) invUpdates.isActive = req.body.isActive;
+      if (req.body.unit) invUpdates.unit = req.body.unit.toString().trim();
+      if (req.body.name) invUpdates.materialName = req.body.name.toString().trim();
+      if (req.body.minimumStock !== undefined) invUpdates.reorderLevel = Number(req.body.minimumStock);
+
+      if (Object.keys(invUpdates).length > 0) {
         await Inventory.findOneAndUpdate(
           { company: companyId, materialId: id },
-          {
-            $set: {
-              ...(req.body.unit ? { unit: req.body.unit.toString().trim() } : {}),
-              ...(req.body.name ? { materialName: req.body.name.toString().trim() } : {}),
-              ...(req.body.minimumStock !== undefined ? { reorderLevel: Number(req.body.minimumStock) } : {})
-            }
-          }
+          { $set: invUpdates }
         );
-      } catch (invErr) {
-        console.error("Inventory sync error on updateConsumableItem:", invErr);
       }
+    } catch (invErr) {
+      console.warn("Inventory sync error on updateConsumable:", invErr.message);
     }
 
     res.status(200).json({ message: "Consumable Item updated successfully", consumableItem });
@@ -458,19 +479,37 @@ export const deleteConsumableItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
-    const inv = await Inventory.findOne({ 
-      company: companyId,
-      $or: [{ materialId: id }, { _id: id }]
+    const existing = await ConsumableItem.findOne({ _id: id, company: companyId }).lean();
+    if (!existing) return res.status(404).json({ message: "Consumable Item not found" });
+
+    // 1. Transaction Check: Items with transactions CANNOT be deleted
+    const txCheck = await checkItemHasTransactions({
+      req,
+      companyId,
+      itemId: id,
+      itemName: existing.name,
+      itemCode: existing.code
     });
-    if (inv && (inv.currentStock > 0 || inv.qcPendingStock > 0)) {
+    if (txCheck.hasTransactions) {
+      return res.status(400).json({ message: txCheck.message });
+    }
+
+    // 2. Stock Check: Cannot delete if stock exists in main store
+    const stockCheck = await checkItemStockForDeactivation({
+      req,
+      companyId,
+      itemId: id,
+      itemName: existing.name,
+      itemCode: existing.code,
+      itemType: 'consumable'
+    });
+    if (!stockCheck.canDeactivate) {
       return res.status(400).json({ 
-        message: `Cannot delete "${inv.materialName}": It has active store stock of ${inv.currentStock} ${inv.unit}. Please issue or transfer the stock first.` 
+        message: `Cannot delete "${existing.name}": Stock is still present (${stockCheck.mainStoreStock} ${stockCheck.unit}). Please clear all stock first.` 
       });
     }
 
-    const consumableItem = await ConsumableItem.findOneAndDelete({ _id: id, company: companyId });
-    if (!consumableItem) return res.status(404).json({ message: "Consumable Item not found" });
-
+    await ConsumableItem.findOneAndDelete({ _id: id, company: companyId });
     await Inventory.findOneAndDelete({ materialId: id, company: companyId });
 
     res.status(200).json({ message: "Consumable Item deleted successfully" });

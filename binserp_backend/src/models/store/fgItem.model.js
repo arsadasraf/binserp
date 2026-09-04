@@ -44,6 +44,11 @@ export const fgItemSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    status: {
+      type: String,
+      enum: ['Active', 'Inactive', 'Deactivated'],
+      default: 'Active',
+    },
 
     location: {
       type: mongoose.Schema.Types.ObjectId,

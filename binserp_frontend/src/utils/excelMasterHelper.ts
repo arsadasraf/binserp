@@ -28,8 +28,11 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         filename: 'Template_Raw_Materials.xlsx',
         columns: [
             { label: 'Material Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
+            { label: 'Item Code', key: 'code', sample: 'RM-001' },
             { label: 'Category Name*', key: 'category', required: true, sample: 'Raw Material' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
+            { label: 'HSN Code', key: 'hsnCode', sample: '7228' },
+            { label: 'Status', key: 'status', sample: 'Active' },
             { label: 'Minimum Stock', key: 'minStock', sample: 20 },
             { label: 'Storage Location', key: 'storageLocation', sample: 'Rack A1' },
             { label: 'Description', key: 'description', sample: 'High tensile steel rod grade EN8' }
@@ -40,8 +43,11 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         filename: 'Template_Bought_Out_Items.xlsx',
         columns: [
             { label: 'Item Name*', key: 'name', required: true, sample: 'Ball Bearing 6204' },
+            { label: 'Item Code', key: 'code', sample: 'BO-001' },
             { label: 'Category Name*', key: 'category', required: true, sample: 'Bought Out' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
+            { label: 'HSN Code', key: 'hsnCode', sample: '8482' },
+            { label: 'Status', key: 'status', sample: 'Active' },
             { label: 'Minimum Stock', key: 'minStock', sample: 50 },
             { label: 'Storage Location', key: 'storageLocation', sample: 'Bin B3' },
             { label: 'Description', key: 'description', sample: 'Deep groove ball bearing SKF' }
@@ -52,9 +58,12 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         filename: 'Template_Raw_Material_Bought_Out_Items.xlsx',
         columns: [
             { label: 'Material Name*', key: 'name', required: true, sample: 'Steel Rod 12mm' },
+            { label: 'Item Code', key: 'code', sample: 'MAT-001' },
             { label: 'Item Type (Raw Material/Bought Out)', key: 'itemType', sample: 'Raw Material' },
             { label: 'Category Name*', key: 'category', required: true, sample: 'Raw Material' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'PCS' },
+            { label: 'HSN Code', key: 'hsnCode', sample: '7228' },
+            { label: 'Status', key: 'status', sample: 'Active' },
             { label: 'Minimum Stock', key: 'minStock', sample: 20 },
             { label: 'Storage Location', key: 'storageLocation', sample: 'Rack A1' },
             { label: 'Description', key: 'description', sample: 'High tensile steel rod grade EN8' }
@@ -65,8 +74,11 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         filename: 'Template_Consumable_Items.xlsx',
         columns: [
             { label: 'Consumable Name*', key: 'name', required: true, sample: 'Hydraulic Oil ISO 68' },
+            { label: 'Consumable Code', key: 'code', sample: 'CNS-001' },
             { label: 'Category Name*', key: 'category', required: true, sample: 'Lubricants & Oils' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'Ltr' },
+            { label: 'HSN Code', key: 'hsnCode', sample: '2710' },
+            { label: 'Status', key: 'status', sample: 'Active' },
             { label: 'Minimum Stock', key: 'minStock', sample: 50 },
             { label: 'Storage Location', key: 'storageLocation', sample: 'Oil Store / Drum 2' },
             { label: 'Description', key: 'description', sample: 'High performance anti-wear hydraulic oil' }
@@ -82,6 +94,8 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
             { label: 'Revision Number', key: 'revisionNumber', sample: 'Rev 1.0' },
             { label: 'Item Type* (Assembly/Sub Assembly/Component)', key: 'type', required: true, sample: 'Assembly' },
             { label: 'Unit*', key: 'unit', required: true, sample: 'Nos' },
+            { label: 'HSN Code', key: 'hsnCode', sample: '8501' },
+            { label: 'Status', key: 'status', sample: 'Active' },
             { label: 'Storage Location', key: 'location', sample: 'Main Store' },
             { label: 'Reorder Level', key: 'reorderLevel', sample: 10 },
             
@@ -139,6 +153,7 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         columns: [
             { label: 'Vendor Name*', key: 'name', required: true, sample: 'Apex Industrial Supplies' },
             { label: 'Vendor Code', key: 'code', sample: 'VEND-001' },
+            { label: 'Vendor Type', key: 'vendorType', sample: 'Rm Vendor, BO Vendor, Services Vendor' },
             { label: 'Contact Person', key: 'contactPerson', sample: 'Rahul Sharma' },
             { label: 'Phone Number', key: 'phone', sample: '9876543210' },
             { label: 'Email', key: 'email', sample: 'apex@supplies.com' },
@@ -184,8 +199,6 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         columns: [
             { label: 'Category Name*', key: 'name', required: true, sample: 'Electrical Components' },
             { label: 'Category Code', key: 'code', sample: 'CAT-ELEC' },
-            { label: 'Default Unit', key: 'unit', sample: 'PCS' },
-            { label: 'HSN Code', key: 'hsnCode', sample: '8501' },
             { label: 'Description', key: 'description', sample: 'All electrical and motor parts' }
         ]
     },
@@ -378,6 +391,7 @@ export const STORE_COLUMN_ALIASES: Record<string, string[]> = {
     'rate': ['standard rate', 'standard rate (inr)', 'rate', 'unit rate', 'price', 'unit price', 'cost'],
 
     // Vendors, Customers & Suppliers
+    'vendorType': ['vendor type', 'supplier type', 'type of vendor', 'vendor category', 'vendor types'],
     'contactPerson': ['contact person', 'contact name', 'person name', 'contact'],
     'phone': ['phone number', 'phone', 'mobile', 'mobile number', 'contact number', 'telephone'],
     'email': ['email', 'email address', 'mail', 'email id'],
@@ -389,8 +403,11 @@ export const STORE_COLUMN_ALIASES: Record<string, string[]> = {
     'pincode': ['pincode', 'pin code', 'postal code', 'zip', 'zip code', 'billing pincode', 'billing pin code'],
     'customerType': ['customer type', 'type of customer', 'client type'],
 
+    // Status & Active state
+    'status': ['status', 'item status', 'active status', 'is active', 'state', 'current status'],
+
     // Category & Location
-    'hsnCode': ['hsn code', 'hsn', 'hsn / sac', 'sac code'],
+    'hsnCode': ['hsn code', 'hsn', 'hsn / sac', 'sac code', 'sac', 'hsn/sac', 'hsncode'],
 
     // PO, RFQ & Quotation
     'vendorName': ['vendor name', 'supplier name', 'vendor'],
@@ -411,6 +428,7 @@ export interface ParsedMasterExcelResult {
     validRows: any[];
     invalidRows: { rowNumber: number; data: any; errors: string[] }[];
     totalCount: number;
+    inFileNameDuplicates: string[];
 }
 
 /**
@@ -454,7 +472,7 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                 const rawSheetData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
                 if (!Array.isArray(rawSheetData) || rawSheetData.length === 0) {
-                    return resolve({ validRows: [], invalidRows: [], totalCount: 0 });
+                    return resolve({ validRows: [], invalidRows: [], totalCount: 0, inFileNameDuplicates: [] });
                 }
 
                 // Find the header row (the first row containing non-empty text)
@@ -468,7 +486,7 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                 }
 
                 if (headerRowIndex >= rawSheetData.length) {
-                    return resolve({ validRows: [], invalidRows: [], totalCount: 0 });
+                    return resolve({ validRows: [], invalidRows: [], totalCount: 0, inFileNameDuplicates: [] });
                 }
 
                 const uploadedHeaders: string[] = rawSheetData[headerRowIndex].map((h: any) => String(h ?? '').trim());
@@ -556,6 +574,8 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
 
                 const validRows: any[] = [];
                 const invalidRows: { rowNumber: number; data: any; errors: string[] }[] = [];
+                const inFileNameDuplicates: string[] = [];
+                const seenItemNamesInFile = new Map<string, number>();
                 let totalNonEmptyRows = 0;
 
                 // State to forward-fill FG metadata across secondary BOM rows
@@ -621,6 +641,24 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                             mappedItem.revisionNumber = mappedItem.revisionNumber || lastParentFG.revisionNumber;
                             mappedItem.reorderLevel = mappedItem.reorderLevel !== undefined ? mappedItem.reorderLevel : lastParentFG.reorderLevel;
                             mappedItem.description = mappedItem.description || lastParentFG.description;
+                        }
+                    }
+
+                    // Check for duplicate item name within the uploaded Excel sheet
+                    const rawItemName = (mappedItem.name || mappedItem.materialName || mappedItem.componentName || '').toString().trim();
+                    const cleanItemName = rawItemName.toLowerCase();
+                    if (cleanItemName) {
+                        const isFGContinuation = key === 'fg-items' && lastParentFG && lastParentFG.name.toLowerCase() === cleanItemName;
+                        if (!isFGContinuation) {
+                            if (seenItemNamesInFile.has(cleanItemName)) {
+                                const firstRow = seenItemNamesInFile.get(cleanItemName);
+                                errors.push(`Duplicate item name "${rawItemName}" (already defined on row ${firstRow})`);
+                                if (!inFileNameDuplicates.includes(rawItemName)) {
+                                    inFileNameDuplicates.push(rawItemName);
+                                }
+                            } else {
+                                seenItemNamesInFile.set(cleanItemName, rowNumber);
+                            }
                         }
                     }
 
@@ -735,14 +773,16 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                     return resolve({
                         validRows: aggregatedValidRows,
                         invalidRows,
-                        totalCount: totalNonEmptyRows
+                        totalCount: totalNonEmptyRows,
+                        inFileNameDuplicates
                     });
                 }
 
                 resolve({
                     validRows,
                     invalidRows,
-                    totalCount: totalNonEmptyRows
+                    totalCount: totalNonEmptyRows,
+                    inFileNameDuplicates
                 });
             } catch (err) {
                 console.error("Excel parse error:", err);

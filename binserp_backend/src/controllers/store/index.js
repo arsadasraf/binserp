@@ -61,7 +61,7 @@ export { getStorePrefixSettings, updateStorePrefixSettings } from './storePrefix
 export { getWipInventory } from './getWipInventory.controller.js';
 export { getStockTransactions } from './getStockTransactions.controller.js';
 export { getItemTransactionHistory } from './getItemTransactionHistory.controller.js';
-export { bulkImportMasters } from './masterBulkImport.controller.js';
+export { bulkImportMasters, checkMasterDuplicates } from './masterBulkImport.controller.js';
 export { 
   getMRBPendingQueue, 
   executeMRBDisposition, 

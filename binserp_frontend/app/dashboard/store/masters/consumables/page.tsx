@@ -42,12 +42,19 @@ export default function ConsumablesPage() {
   // UI feedback states
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [rowNotice, setRowNotice] = useState<{ itemId: string; message: string; type: 'error' | 'success' } | null>(null);
 
   useEffect(() => {
     if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
+    const timer = setTimeout(() => setToast(null), 6000);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!rowNotice) return;
+    const timer = setTimeout(() => setRowNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [rowNotice]);
 
   const handleEdit = (consumable: any) => {
     setEditingItem(consumable);
@@ -58,7 +65,7 @@ export default function ConsumablesPage() {
 
   const handleToggleStatus = async (item: any) => {
     const isCurrentlyInactive = item.isActive === false || item.status === 'Inactive' || item.status === 'Deactivated';
-    const newStatus = isCurrentlyInactive ? 'Active' : 'Inactive';
+    const newStatus = isCurrentlyInactive ? 'Active' : 'Deactivated';
     const newActive = isCurrentlyInactive;
     try {
       await updateRecord({
@@ -66,10 +73,14 @@ export default function ConsumablesPage() {
         id: item._id,
         body: { status: newStatus, isActive: newActive }
       }).unwrap();
-      setToast({ type: 'success', message: `Consumable Item status updated to ${newStatus}` });
+      const successMsg = `Consumable "${item.name || 'Item'}" is now ${newStatus}.`;
+      setRowNotice({ itemId: item._id, message: successMsg, type: 'success' });
+      setToast({ type: 'success', message: successMsg });
     } catch (err: any) {
-      console.error("Failed to update status", err);
-      setToast({ type: 'error', message: `Failed to update status: ${extractErrorMessage(err)}` });
+      const errMsg = extractErrorMessage(err, "Failed to update status");
+      console.warn("Status toggle prevented:", errMsg);
+      setRowNotice({ itemId: item._id, message: errMsg, type: 'error' });
+      setToast({ type: 'error', message: errMsg });
     }
   };
 
@@ -81,13 +92,15 @@ export default function ConsumablesPage() {
         setToast({ type: 'success', message: `Consumable "${target?.name || 'Item'}" deleted successfully.` });
       } catch (error: any) {
         const errMsg = extractErrorMessage(error, "Failed to delete item");
-        if (target && (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction"))) {
-          if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
-            handleToggleStatus(target);
+        if (target) {
+          setRowNotice({ itemId: id, message: errMsg, type: 'error' });
+          if (errMsg.toLowerCase().includes("stock") || errMsg.toLowerCase().includes("active") || errMsg.toLowerCase().includes("transaction")) {
+            if (confirm(`${errMsg}\n\nWould you like to DEACTIVATE this item instead?`)) {
+              handleToggleStatus(target);
+            }
           }
-        } else {
-          setToast({ type: 'error', message: `Error deleting Consumable Item: ${errMsg}` });
         }
+        setToast({ type: 'error', message: `Error deleting Consumable Item: ${errMsg}` });
       }
     }
   };
@@ -152,23 +165,59 @@ export default function ConsumablesPage() {
 
   return (
     <div className="space-y-4 relative">
-      {/* Floating Toast Notification */}
-      {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg border backdrop-blur-md transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 ${
-          toast.type === 'success'
-            ? 'bg-emerald-50/95 dark:bg-emerald-950/90 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100'
-            : 'bg-rose-50/95 dark:bg-rose-950/90 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-100'
-        }`}>
-          {toast.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
-          )}
+      {/* Centered Error / Alert Modal */}
+      {toast && toast.type === 'error' && (
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setToast(null)}
+        >
+          <div 
+            className="relative max-w-md w-full p-5 sm:p-6 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-rose-200 dark:border-rose-900/60 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3.5">
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/60 rounded-xl text-rose-600 dark:text-rose-400 shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0 pt-0.5">
+                <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 mb-1">
+                  Action Blocked
+                </h4>
+                <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed select-text">
+                  {toast.message}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setToast(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setToast(null)}
+                className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Top-Center Success Notification Pill */}
+      {toast && toast.type === 'success' && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-xl border backdrop-blur-md bg-emerald-50/95 dark:bg-emerald-950/95 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100 animate-in fade-in slide-in-from-top-4 duration-300">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <span className="text-xs sm:text-sm font-medium">{toast.message}</span>
           <button
             type="button"
             onClick={() => setToast(null)}
-            className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded-lg transition-colors ml-2"
+            className="p-1 hover:bg-black/5 dark:hover:bg-white/10 rounded-lg transition-colors ml-2 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -188,6 +237,8 @@ export default function ConsumablesPage() {
           onDelete={handleDelete}
           onToggleStatus={handleToggleStatus}
           onView={(item) => setPreviewItem(item)}
+          rowNotice={rowNotice}
+          onClearRowNotice={() => setRowNotice(null)}
         />
       </div>
 

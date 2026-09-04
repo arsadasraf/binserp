@@ -12,6 +12,74 @@ const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
 };
 
+/**
+ * Pre-check for duplicate item names before importing via Excel.
+ * Checks against existing records in the system for the current company.
+ */
+export const checkMasterDuplicates = asyncHandler(async (req, res) => {
+  const { masterTab, itemNames } = req.body;
+  const companyId = getCompanyId(req);
+
+  if (!companyId) {
+    throw new ApiError(400, "Company ID could not be determined from request context.");
+  }
+
+  if (!Array.isArray(itemNames) || itemNames.length === 0) {
+    return res.status(200).json(new ApiResponse(200, { existingNames: [], hasDuplicates: false }, "No item names provided"));
+  }
+
+  const cleanNames = [...new Set(itemNames.map(n => String(n || '').trim()).filter(Boolean))];
+  if (cleanNames.length === 0) {
+    return res.status(200).json(new ApiResponse(200, { existingNames: [], hasDuplicates: false }, "No item names to check"));
+  }
+
+  let Model;
+  let nameField = 'name';
+
+  const tab = (masterTab || '').toLowerCase();
+  if (tab === 'raw-material' || tab === 'raw-materials' || tab === 'rm-item' || tab === 'rm-items') {
+    Model = req.getModel('RawMaterial', rawMaterialSchema);
+  } else if (tab === 'bought-out' || tab === 'bought-outs' || tab === 'bo-item' || tab === 'bo-items') {
+    Model = req.getModel('BoughtOut', boughtOutSchema);
+  } else if (tab === 'consumable-item' || tab === 'consumables' || tab === 'consumable') {
+    Model = req.getModel('ConsumableItem', consumableItemSchema);
+  } else if (tab === 'fg-items' || tab === 'fg-item' || tab === 'finished-goods') {
+    Model = req.getModel('FGItem', fgItemSchema);
+  } else if (tab === 'category' || tab === 'categories') {
+    Model = req.getModel('Category', categorySchema);
+  } else if (tab === 'vendor' || tab === 'vendors') {
+    Model = req.getModel('Vendor', vendorSchema);
+  } else if (tab === 'customer' || tab === 'customers') {
+    Model = req.getModel('Customer', customerSchema);
+  } else if (tab === 'location' || tab === 'locations') {
+    Model = req.getModel('Location', locationSchema);
+  } else if (tab === 'inhouse-items') {
+    Model = req.getModel('Component', componentSchema);
+    nameField = 'componentName';
+  } else {
+    Model = req.getModel('RawMaterial', rawMaterialSchema);
+  }
+
+  // Case-insensitive match against cleanNames
+  const regexQueries = cleanNames.map(name => ({
+    [nameField]: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+  }));
+
+  const existingDocs = await Model.find(
+    { company: companyId, $or: regexQueries },
+    { [nameField]: 1 }
+  ).lean();
+
+  const existingNames = existingDocs.map(d => d[nameField]);
+
+  res.status(200).json(
+    new ApiResponse(200, {
+      existingNames,
+      hasDuplicates: existingNames.length > 0
+    }, existingNames.length > 0 ? `${existingNames.length} duplicate item(s) found in system.` : "No duplicates found.")
+  );
+});
+
 export const bulkImportMasters = asyncHandler(async (req, res) => {
   const { masterTab, items, overwrite } = req.body;
   const companyId = getCompanyId(req);
@@ -27,6 +95,56 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
 
   let insertedCount = 0;
   let updatedCount = 0;
+
+  // Pre-validate duplicate item names when overwrite is false
+  if (!overwrite) {
+    const rawNames = items.map(it => (it.name || it.materialName || it.componentName || '').toString().trim()).filter(Boolean);
+    const cleanNames = [...new Set(rawNames)];
+
+    if (cleanNames.length > 0) {
+      let Model;
+      let nameField = 'name';
+      const tab = (masterTab || '').toLowerCase();
+      if (tab === 'raw-material' || tab === 'raw-materials' || tab === 'rm-item' || tab === 'rm-items' || tab === 'rm-bo-item' || tab === 'materials') {
+        Model = req.getModel('RawMaterial', rawMaterialSchema);
+      } else if (tab === 'bought-out' || tab === 'bought-outs' || tab === 'bo-item' || tab === 'bo-items') {
+        Model = req.getModel('BoughtOut', boughtOutSchema);
+      } else if (tab === 'consumable-item' || tab === 'consumables' || tab === 'consumable') {
+        Model = req.getModel('ConsumableItem', consumableItemSchema);
+      } else if (tab === 'fg-items' || tab === 'fg-item' || tab === 'finished-goods') {
+        Model = req.getModel('FGItem', fgItemSchema);
+      } else if (tab === 'category' || tab === 'categories') {
+        Model = req.getModel('Category', categorySchema);
+      } else if (tab === 'vendor' || tab === 'vendors') {
+        Model = req.getModel('Vendor', vendorSchema);
+      } else if (tab === 'customer' || tab === 'customers') {
+        Model = req.getModel('Customer', customerSchema);
+      } else if (tab === 'location' || tab === 'locations') {
+        Model = req.getModel('Location', locationSchema);
+      } else if (tab === 'inhouse-items') {
+        Model = req.getModel('Component', componentSchema);
+        nameField = 'componentName';
+      }
+
+      if (Model) {
+        const regexQueries = cleanNames.map(name => ({
+          [nameField]: { $regex: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') }
+        }));
+        const existingDocs = await Model.find(
+          { company: companyId, $or: regexQueries },
+          { [nameField]: 1 }
+        ).lean();
+
+        if (existingDocs.length > 0) {
+          const dupNames = existingDocs.map(d => d[nameField]);
+          throw new ApiError(
+            400,
+            `Cannot import: The following ${dupNames.length} item(s) already exist in your system: "${dupNames.slice(0, 5).join('", "')}"${dupNames.length > 5 ? ` and ${dupNames.length - 5} more` : ''}. Duplicate item names are not permitted. Please remove them or check "Update existing items" to overwrite.`
+          );
+        }
+      }
+    }
+  }
 
   if (
     masterTab === 'rm-bo-item' || masterTab === 'materials' || masterTab === 'rm-item' || masterTab === 'raw-materials' || masterTab === 'raw-material' ||
@@ -159,9 +277,19 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       // 3. Upsert or Create Record in Dedicated Collection and sync to RmBoItem
       const rawUnit = (item.unit || 'PCS').toString().trim();
       const rawHsn = (item.hsnCode || item.hsn || '').toString().trim();
+      const rawStatus = (item.status || 'Active').toString().trim();
+      const finalStatus = (rawStatus.toLowerCase() === 'deactivated' || rawStatus.toLowerCase() === 'inactive' || item.isActive === false) ? 'Deactivated' : 'Active';
+      const finalActive = finalStatus === 'Active';
+
+      const defaultPrefix = isConsumable ? 'CON' : (determinedItemType === 'Bought Out' ? 'BO' : 'RM');
+      const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
+
       const rmBoDoc = {
         company: companyId,
         name: itemName,
+        code: materialCode,
+        status: finalStatus,
+        isActive: finalActive,
         itemType: determinedItemType,
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
@@ -210,14 +338,14 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       }
 
       // 4. Upsert or Create Inventory Record
-      const defaultPrefix = isConsumable ? 'CON' : (determinedItemType === 'Bought Out' ? 'BO' : 'RM');
-      const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
       const invDoc = {
         company: companyId,
         materialCode,
         materialName: itemName,
         itemType: determinedItemType,
         unit: rawUnit,
+        status: finalStatus,
+        isActive: finalActive,
         currentStock: Number(item.openingStock ?? item.currentStock ?? 0),
         reorderLevel: Number(item.minStock ?? item.minimumStock ?? 0),
         reorderQuantity: Number(item.maxStock ?? 0),
@@ -483,12 +611,20 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
           : { $or: [{ revisionNumber: { $exists: false } }, { revisionNumber: null }, { revisionNumber: "" }] }
         )
       };
+      const rawStatus = (item.status || 'Active').toString().trim();
+      const finalStatus = (rawStatus.toLowerCase() === 'deactivated' || rawStatus.toLowerCase() === 'inactive' || item.isActive === false) ? 'Deactivated' : 'Active';
+      const finalActive = finalStatus === 'Active';
+      const rawHsn = (item.hsnCode || item.hsn || '').toString().trim();
+
       const doc = {
         company: companyId,
         name: itemName,
         code: finalCode,
         type: validType,
         unit: item.unit || 'Nos',
+        hsnCode: rawHsn,
+        status: finalStatus,
+        isActive: finalActive,
         reorderLevel: Number(item.reorderLevel || 0),
         revisionNumber: cleanRev,
         description: item.description || '',

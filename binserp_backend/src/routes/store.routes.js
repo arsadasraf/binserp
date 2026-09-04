@@ -69,7 +69,8 @@ import {
   getWipInventory,
   getStockTransactions,
   getItemTransactionHistory,
-  bulkImportMasters
+  bulkImportMasters,
+  checkMasterDuplicates
 } from "../controllers/store/index.js";
 
 import {
@@ -93,9 +94,10 @@ const router = express.Router();
 router.use(verifyJWT);
 
 // Restrict Master routes for Executives
-router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/raw-material", "/bought-out", "/consumable-item", "/consumables", "/company-info", "/fg-item", "/masters/bulk-import"], restrictExecutive);
+router.use(["/vendor", "/job-work-supplier", "/customer", "/location", "/category", "/rm-bo-item", "/raw-material", "/bought-out", "/consumable-item", "/consumables", "/company-info", "/fg-item", "/masters/bulk-import", "/masters/check-duplicates"], restrictExecutive);
 
 router.post("/masters/bulk-import", bulkImportMasters);
+router.post("/masters/check-duplicates", checkMasterDuplicates);
 
 
 // GRN routes (with PDF and photos upload support)

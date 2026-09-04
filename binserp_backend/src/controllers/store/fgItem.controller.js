@@ -4,6 +4,7 @@ import { salesOrderSchema } from "../../models/sales/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
 import { validateMasterUniqueness, formatDuplicateKeyError } from "../../utils/duplicateValidator.helper.js";
+import { checkItemHasTransactions, checkItemStockForDeactivation } from "../../utils/itemLifecycleValidator.helper.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -331,6 +332,23 @@ export const updateFGItem = async (req, res) => {
       }
     }
 
+    // Lifecycle check: if deactivating/inactivating
+    const isDeactivating = req.body.status === 'Inactive' || req.body.status === 'Deactivated' || req.body.isActive === false;
+    if (isDeactivating) {
+      const currentDoc = await FGItem.findOne({ _id: id, company: companyId }).lean();
+      const checkResult = await checkItemStockForDeactivation({
+        req,
+        companyId,
+        itemId: id,
+        itemName: currentDoc?.name || req.body.name,
+        itemCode: currentDoc?.code || req.body.code,
+        itemType: 'fg'
+      });
+      if (!checkResult.canDeactivate) {
+        return res.status(400).json({ message: checkResult.message });
+      }
+    }
+
     // Clean up undefined fields
     Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
 
@@ -360,9 +378,37 @@ export const deleteFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
-    const fgItem = await FGItem.findOneAndDelete({ _id: id, company: companyId });
-    if (!fgItem) return res.status(404).json({ message: "FG Item not found" });
+    const existing = await FGItem.findOne({ _id: id, company: companyId }).lean();
+    if (!existing) return res.status(404).json({ message: "FG Item not found" });
 
+    // 1. Transaction Check: Items with transactions CANNOT be deleted
+    const txCheck = await checkItemHasTransactions({
+      req,
+      companyId,
+      itemId: id,
+      itemName: existing.name,
+      itemCode: existing.code
+    });
+    if (txCheck.hasTransactions) {
+      return res.status(400).json({ message: txCheck.message });
+    }
+
+    // 2. Stock Check: Cannot delete if stock exists
+    const stockCheck = await checkItemStockForDeactivation({
+      req,
+      companyId,
+      itemId: id,
+      itemName: existing.name,
+      itemCode: existing.code,
+      itemType: 'fg'
+    });
+    if (!stockCheck.canDeactivate) {
+      return res.status(400).json({ 
+        message: `Cannot delete "${existing.name}": Stock is still present (Warehouse Stock: ${stockCheck.mainStoreStock} ${stockCheck.unit}, WIP: ${stockCheck.wipStock} ${stockCheck.unit}). Please clear all inventory first.` 
+      });
+    }
+
+    await FGItem.findOneAndDelete({ _id: id, company: companyId });
     res.status(200).json({ message: "FG Item deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });

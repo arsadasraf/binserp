@@ -2,9 +2,10 @@
 
 import React from 'react';
 import DataTable, { ColumnDef } from '@/src/components/ui/DataTable';
-import { Edit2, Trash2, Plus, Eye, Package, Power, CheckCircle2 } from 'lucide-react';
+import { Edit2, Trash2, Plus, Eye, Package, Power, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import StoreMasterExcelActions from '../StoreMasterExcelActions';
+import { RowNotice } from './MaterialTable';
 
 interface ConsumableTableProps {
   data: any[];
@@ -13,9 +14,20 @@ interface ConsumableTableProps {
   onView?: (item: any) => void;
   onAdd?: () => void;
   onToggleStatus?: (item: any) => void;
+  rowNotice?: RowNotice | null;
+  onClearRowNotice?: () => void;
 }
 
-export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd, onToggleStatus }: ConsumableTableProps) {
+export default function ConsumableTable({ 
+  data, 
+  onEdit, 
+  onDelete, 
+  onView, 
+  onAdd, 
+  onToggleStatus,
+  rowNotice = null,
+  onClearRowNotice
+}: ConsumableTableProps) {
   const exportToExcel = () => {
     const exportData = (data || []).map((item, idx) => ({
       'S.No': idx + 1,
@@ -24,6 +36,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
       'Category': item.category || (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || '-',
       'Unit': item.unit || '-',
       'HSN Code': item.hsnCode || '-',
+      'Status': item.status || (item.isActive === false ? 'Deactivated' : 'Active'),
       'Min Stock': item.minimumStock ?? item.minStock ?? 0,
       'Storage Location': item.storageLocation || (typeof item.locationId === 'object' ? item.locationId?.name : (typeof item.location === 'object' ? item.location?.name : item.location)) || '-',
       'Description': item.descriptions || item.description || '-'
@@ -182,7 +195,7 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
                     ? 'text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
                     : 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50'
                 }`}
-                title={isInactive ? "Reactivate Consumable" : "Deactivate Consumable (Has Stock / Transactions)"}
+                title={isInactive ? "Reactivate Consumable" : "Deactivate Consumable (Requires 0 stock)"}
               >
                 {isInactive ? <CheckCircle2 size={15} /> : <Power size={15} />}
               </button>
@@ -197,6 +210,49 @@ export default function ConsumableTable({ data, onEdit, onDelete, onView, onAdd,
               >
                 <Trash2 size={15} />
               </button>
+            )}
+
+            {/* Popover Alert Message anchored right near the button */}
+            {rowNotice && rowNotice.itemId === item._id && (
+              <div 
+                className={`absolute right-0 top-full mt-2 z-50 w-72 sm:w-84 p-3 rounded-xl shadow-2xl border backdrop-blur-md flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200 text-left ${
+                  rowNotice.type === 'success'
+                    ? 'bg-emerald-900/95 dark:bg-emerald-950/95 border-emerald-600/80 text-white'
+                    : 'bg-rose-900/95 dark:bg-rose-950/95 border-rose-600/80 text-white'
+                }`}
+                style={{ minWidth: '270px', maxWidth: '340px' }}
+              >
+                {/* Speech Bubble Arrow pointing to the buttons */}
+                <div 
+                  className={`absolute -top-1.5 right-4 w-3 h-3 rotate-45 ${
+                    rowNotice.type === 'success'
+                      ? 'bg-emerald-900 dark:bg-emerald-950 border-l border-t border-emerald-600/80'
+                      : 'bg-rose-900 dark:bg-rose-950 border-l border-t border-rose-600/80'
+                  }`} 
+                />
+
+                {rowNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-300 shrink-0 mt-0.5" />
+                )}
+
+                <div className="flex-1 text-xs leading-snug">
+                  <div className="font-semibold text-rose-200 mb-0.5">
+                    {rowNotice.type === 'success' ? 'Status Updated' : 'Cannot Deactivate / Delete'}
+                  </div>
+                  <div className="text-white select-text break-words leading-relaxed">{rowNotice.message}</div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onClearRowNotice?.()}
+                  className="p-1 text-rose-300 hover:text-white rounded-md hover:bg-white/10 transition-colors shrink-0"
+                  title="Close"
+                >
+                  <X size={14} />
+                </button>
+              </div>
             )}
           </div>
         );
