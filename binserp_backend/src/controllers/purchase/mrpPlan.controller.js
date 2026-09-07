@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { mrpPlanSchema } from "../../models/purchase/index.js";
+import { mrpPlanSchema, purchaseOrderSchema } from "../../models/purchase/index.js";
 import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema } from "../../models/store/index.js";
 import { incomingPOSchema } from "../../models/sales/index.js";
 import { userSchema } from "../../models/user/index.js";
@@ -332,6 +332,7 @@ export const createMRPPlan = async (req, res) => {
 export const getAllMRPPlans = async (req, res) => {
   try {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
     req.getModel("User", userSchema);
 
     const companyId = getCompanyId(req);
@@ -353,12 +354,61 @@ export const getAllMRPPlans = async (req, res) => {
 
     const mrpPlans = await MRPPlan.find(query)
       .populate("createdBy", "name username email")
+      .populate("updatedBy", "name username email")
       .sort({ createdAt: -1 });
+
+    const planIds = mrpPlans.map(p => p._id);
+    const planNumbers = mrpPlans.map(p => p.mrpNumber).filter(Boolean);
+
+    // Batch query linked POs for all plans
+    const linkedPOs = await PurchaseOrder.find({
+      company: companyId,
+      $or: [
+        { mrpPlanId: { $in: planIds } },
+        { mrpNumber: { $in: planNumbers } }
+      ]
+    }).select("mrpPlanId mrpNumber poNumber status").lean().catch(() => []);
+
+    const poPlanIdMap = new Map();
+    const poPlanNumMap = new Map();
+    (linkedPOs || []).forEach(po => {
+      if (po.mrpPlanId) {
+        const idStr = String(po.mrpPlanId);
+        poPlanIdMap.set(idStr, (poPlanIdMap.get(idStr) || 0) + 1);
+      }
+      if (po.mrpNumber) {
+        poPlanNumMap.set(po.mrpNumber, (poPlanNumMap.get(po.mrpNumber) || 0) + 1);
+      }
+    });
+
+    const enrichedPlans = mrpPlans.map(p => {
+      const planObj = p.toObject ? p.toObject() : p;
+      const poCount = (poPlanIdMap.get(String(p._id)) || 0) + (poPlanNumMap.get(p.mrpNumber) || 0);
+      const hasActiveReqs = (p.rmRequirements || []).some(r => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
+        (p.boRequirements || []).some(b => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
+        (p.fgItems || []).some(f => (f.receivedQuantity && f.receivedQuantity > 0));
+      const isProductionActive = p.status !== 'Planned' || p.ppcStatus === 'Sent';
+      
+      const hasTransactions = poCount > 0 || hasActiveReqs || isProductionActive;
+      const createdAtMs = new Date(p.createdAt || Date.now()).getTime();
+      const is24hExpired = (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+
+      return {
+        ...planObj,
+        linkedPOCount: poCount,
+        hasTransactions,
+        is24hExpired,
+        canEdit: !is24hExpired && !hasTransactions,
+        canDelete: !is24hExpired && !hasTransactions,
+        createdByName: p.createdByName || p.createdBy?.name || p.createdBy?.username || p.createdBy?.email || "Planner",
+        updatedByName: p.updatedByName || p.updatedBy?.name || p.updatedBy?.username || p.updatedBy?.email || ""
+      };
+    });
 
     res.status(200).json({
       success: true,
-      count: mrpPlans.length,
-      mrpPlans,
+      count: enrichedPlans.length,
+      mrpPlans: enrichedPlans,
     });
   } catch (error) {
     console.error("Error fetching MRP plans:", error);
@@ -369,6 +419,7 @@ export const getAllMRPPlans = async (req, res) => {
 export const getMRPPlanById = async (req, res) => {
   try {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
     req.getModel("User", userSchema);
 
     const companyId = getCompanyId(req);
@@ -376,6 +427,8 @@ export const getMRPPlanById = async (req, res) => {
 
     const mrpPlan = await MRPPlan.findOne({ _id: id, company: companyId })
       .populate("createdBy", "name username email")
+      .populate("updatedBy", "name username email")
+      .populate("editHistory.updatedBy", "name username email")
       .populate("fgItems.fgItem")
       .populate("rmRequirements.material")
       .populate("boRequirements.material");
@@ -384,9 +437,34 @@ export const getMRPPlanById = async (req, res) => {
       return res.status(404).json({ message: "MRP Plan not found" });
     }
 
+    const linkedPOCount = await PurchaseOrder.countDocuments({
+      company: companyId,
+      $or: [{ mrpPlanId: id }, { mrpNumber: mrpPlan.mrpNumber }]
+    }).catch(() => 0);
+
+    const hasActiveReqs = (mrpPlan.rmRequirements || []).some(r => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
+      (mrpPlan.boRequirements || []).some(b => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
+      (mrpPlan.fgItems || []).some(f => (f.receivedQuantity && f.receivedQuantity > 0));
+    const isProductionActive = mrpPlan.status !== 'Planned' || mrpPlan.ppcStatus === 'Sent';
+
+    const hasTransactions = linkedPOCount > 0 || hasActiveReqs || isProductionActive;
+    const createdAtMs = new Date(mrpPlan.createdAt || Date.now()).getTime();
+    const is24hExpired = (Date.now() - createdAtMs) > (24 * 60 * 60 * 1000);
+
+    const planObj = mrpPlan.toObject ? mrpPlan.toObject() : mrpPlan;
+
     res.status(200).json({
       success: true,
-      mrpPlan,
+      mrpPlan: {
+        ...planObj,
+        linkedPOCount,
+        hasTransactions,
+        is24hExpired,
+        canEdit: !is24hExpired && !hasTransactions,
+        canDelete: !is24hExpired && !hasTransactions,
+        createdByName: mrpPlan.createdByName || mrpPlan.createdBy?.name || mrpPlan.createdBy?.username || mrpPlan.createdBy?.email || "Planner",
+        updatedByName: mrpPlan.updatedByName || mrpPlan.updatedBy?.name || mrpPlan.updatedBy?.username || mrpPlan.updatedBy?.email || ""
+      },
     });
   } catch (error) {
     console.error("Error fetching MRP plan:", error);
@@ -397,21 +475,289 @@ export const getMRPPlanById = async (req, res) => {
 export const deleteMRPPlan = async (req, res) => {
   try {
     const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
     const companyId = getCompanyId(req);
     const { id } = req.params;
 
-    const deleted = await MRPPlan.findOneAndDelete({ _id: id, company: companyId });
-    if (!deleted) {
+    const plan = await MRPPlan.findOne({ _id: id, company: companyId });
+    if (!plan) {
       return res.status(404).json({ message: "MRP Plan not found" });
     }
 
+    // 1. Check 24-Hour window
+    const createdAtMs = new Date(plan.createdAt).getTime();
+    if ((Date.now() - createdAtMs) > (24 * 60 * 60 * 1000)) {
+      return res.status(403).json({
+        success: false,
+        message: `MRP Plan ${plan.mrpNumber} is older than 24 hours and can no longer be deleted.`
+      });
+    }
+
+    // 2. Check for linked transactions
+    const linkedPOCount = await PurchaseOrder.countDocuments({
+      company: companyId,
+      $or: [{ mrpPlanId: id }, { mrpNumber: plan.mrpNumber }]
+    }).catch(() => 0);
+
+    const hasActiveRequirements = 
+      (plan.rmRequirements || []).some(r => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
+      (plan.boRequirements || []).some(b => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
+      (plan.fgItems || []).some(f => (f.receivedQuantity && f.receivedQuantity > 0));
+
+    const isProductionStarted = plan.status !== 'Planned' || plan.ppcStatus === 'Sent';
+
+    if (linkedPOCount > 0 || hasActiveRequirements || isProductionStarted) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete MRP Plan ${plan.mrpNumber}: Active transactions (${linkedPOCount > 0 ? `${linkedPOCount} Purchase Order(s)` : 'downstream procurement or production operations'}) are linked to this plan.`
+      });
+    }
+
+    // 3. Unlock linked IncomingPO if any
+    if (plan.customerPo) {
+      try {
+        const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
+        await IncomingPO.updateOne(
+          { _id: plan.customerPo },
+          { $set: { status: "Released", mrpPlan: null, mrpNumber: null } }
+        );
+      } catch (poErr) {
+        console.warn("Could not unlock linked IncomingPO:", poErr);
+      }
+    }
+
+    await MRPPlan.deleteOne({ _id: id });
+
     res.status(200).json({
       success: true,
-      message: "MRP Plan deleted successfully",
+      message: `MRP Plan ${plan.mrpNumber} deleted successfully`,
     });
   } catch (error) {
     console.error("Error deleting MRP plan:", error);
     res.status(500).json({ message: error.message || "Failed to delete MRP plan" });
+  }
+};
+
+export const updateMRPPlan = async (req, res) => {
+  try {
+    const MRPPlan = req.getModel("MRPPlan", mrpPlanSchema);
+    const PurchaseOrder = req.getModel("PurchaseOrder", purchaseOrderSchema);
+    const companyId = getCompanyId(req);
+    const { id } = req.params;
+    const userName = req.user?.name || req.user?.username || req.user?.email || 'Planner';
+
+    const plan = await MRPPlan.findOne({ _id: id, company: companyId });
+    if (!plan) {
+      return res.status(404).json({ message: "MRP Plan not found" });
+    }
+
+    // 1. Check 24-Hour window
+    const createdAtMs = new Date(plan.createdAt).getTime();
+    if ((Date.now() - createdAtMs) > (24 * 60 * 60 * 1000)) {
+      return res.status(403).json({
+        success: false,
+        message: `MRP Plan ${plan.mrpNumber} is older than 24 hours and can no longer be edited.`
+      });
+    }
+
+    // 2. Check for linked transactions
+    const linkedPOCount = await PurchaseOrder.countDocuments({
+      company: companyId,
+      $or: [{ mrpPlanId: id }, { mrpNumber: plan.mrpNumber }]
+    }).catch(() => 0);
+
+    const hasActiveRequirements = 
+      (plan.rmRequirements || []).some(r => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
+      (plan.boRequirements || []).some(b => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
+      (plan.fgItems || []).some(f => (f.receivedQuantity && f.receivedQuantity > 0));
+
+    const isProductionStarted = plan.status !== 'Planned' || plan.ppcStatus === 'Sent';
+
+    if (linkedPOCount > 0 || hasActiveRequirements || isProductionStarted) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot edit MRP Plan ${plan.mrpNumber}: Active transactions (${linkedPOCount > 0 ? `${linkedPOCount} Purchase Order(s)` : 'downstream procurement or production operations'}) have already been initiated.`
+      });
+    }
+
+    const { customerName, customerPoNumber, targetDate, remarks, fgItems } = req.body;
+
+    if (customerName !== undefined) plan.customerName = customerName;
+    if (customerPoNumber !== undefined) plan.customerPoNumber = customerPoNumber;
+    if (targetDate !== undefined) plan.targetDate = targetDate ? new Date(targetDate) : plan.targetDate;
+    if (remarks !== undefined) plan.remarks = remarks;
+
+    // Recalculate BOM requirements if fgItems were provided and modified
+    if (Array.isArray(fgItems) && fgItems.length > 0) {
+      const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
+      const BOM = req.getModel("BOM", bomSchema);
+      const FGItem = req.getModel("FGItem", fgItemSchema);
+
+      const allRmBoItems = await RmBoItem.find({ company: companyId }).populate("categoryId");
+      const allBOMs = await BOM.find({ company: companyId });
+      const allFGItems = await FGItem.find({ company: companyId });
+
+      const findBOM = (pName, pCode, bId, fgId) => {
+        if (bId) {
+          const found = allBOMs.find((b) => b._id && b._id.toString() === bId.toString());
+          if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+          const foundByNum = allBOMs.find((b) => b.bomNumber && b.bomNumber.toString().toLowerCase() === bId.toString().toLowerCase());
+          if (foundByNum && Array.isArray(foundByNum.items) && foundByNum.items.length > 0) return foundByNum;
+        }
+        if (fgId) {
+          const foundFG = allFGItems.find((f) => f._id && f._id.toString() === fgId.toString());
+          if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+            return {
+              _id: foundFG._id,
+              bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+              productName: foundFG.name,
+              productCode: foundFG.code,
+              items: foundFG.bom.map((b) => ({
+                materialName: b.itemName || b.name || "Material",
+                materialCode: b.itemCode || b.code || "",
+                quantity: Number(b.quantity) || 1,
+                unit: b.unit || "PCS",
+                itemType: b.itemType || "Material",
+              })),
+            };
+          }
+        }
+        if (pName) {
+          const cleanPName = pName.trim().toLowerCase();
+          const found = allBOMs.find((b) => b.productName && b.productName.trim().toLowerCase() === cleanPName);
+          if (found && Array.isArray(found.items) && found.items.length > 0) return found;
+          const foundFG = allFGItems.find((f) => f.name && f.name.trim().toLowerCase() === cleanPName);
+          if (foundFG && Array.isArray(foundFG.bom) && foundFG.bom.length > 0) {
+            return {
+              _id: foundFG._id,
+              bomNumber: `BOM-${foundFG.code || foundFG.name}`,
+              productName: foundFG.name,
+              productCode: foundFG.code,
+              items: foundFG.bom.map((b) => ({
+                materialName: b.itemName || b.name || "Material",
+                materialCode: b.itemCode || b.code || "",
+                quantity: Number(b.quantity) || 1,
+                unit: b.unit || "PCS",
+                itemType: b.itemType || "Material",
+              })),
+            };
+          }
+        }
+        return null;
+      };
+
+      const enrichedFgItems = [];
+      const rmMap = new Map();
+      const boMap = new Map();
+      const subAssemblyMap = new Map();
+      const consumableMap = new Map();
+
+      for (const fg of fgItems) {
+        const targetBOM = findBOM(fg.fgItemName, fg.fgItemCode, fg.bomId || fg.bomNumber, fg.fgItem || fg._id);
+        const bomNum = targetBOM ? (targetBOM.bomNumber || `BOM-${targetBOM.productName}`) : "BOM-Active";
+        const bomId = targetBOM ? targetBOM._id : undefined;
+
+        enrichedFgItems.push({
+          fgItem: fg.fgItem && mongoose.Types.ObjectId.isValid(fg.fgItem) ? fg.fgItem : undefined,
+          fgItemName: fg.fgItemName || "Unnamed FG",
+          fgItemCode: fg.fgItemCode || "",
+          description: fg.description || "",
+          quantity: Number(fg.quantity) || 1,
+          receivedQuantity: 0,
+          unit: fg.unit || "PCS",
+          bomId,
+          bomNumber: bomNum,
+          targetDate: fg.targetDate ? new Date(fg.targetDate) : undefined,
+        });
+
+        if (targetBOM && Array.isArray(targetBOM.items)) {
+          for (const item of targetBOM.items) {
+            const bomItemQty = Number(item.quantity) || 1;
+            const totalRequired = bomItemQty * (Number(fg.quantity) || 1);
+            const rawName = (item.materialName || item.componentName || item.itemName || "Unnamed Material").trim();
+            const rawType = (item.itemType || item.category || "").toLowerCase();
+
+            let matchedRmBo = allRmBoItems.find((r) => r.name && r.name.trim().toLowerCase() === rawName.toLowerCase());
+            let itemCategory = "Raw Material";
+            if (matchedRmBo) {
+              const catName = matchedRmBo.categoryId?.name?.toLowerCase() || "";
+              if (catName.includes("bought") || catName.includes("bo")) itemCategory = "Bought Out";
+              else if (catName.includes("consumable")) itemCategory = "Consumable";
+              else if (catName.includes("sub") || catName.includes("assembly")) itemCategory = "Sub Assembly";
+            } else {
+              if (rawType.includes("bought") || rawType.includes("bo")) itemCategory = "Bought Out";
+              else if (rawType.includes("consumable")) itemCategory = "Consumable";
+              else if (rawType.includes("sub") || rawType.includes("assembly")) itemCategory = "Sub Assembly";
+            }
+
+            const targetMap = itemCategory === "Bought Out" ? boMap : itemCategory === "Consumable" ? consumableMap : itemCategory === "Sub Assembly" ? subAssemblyMap : rmMap;
+            const current = targetMap.get(rawName) || {
+              material: matchedRmBo ? matchedRmBo._id : undefined,
+              materialName: rawName,
+              materialCode: matchedRmBo ? matchedRmBo.code : item.materialCode || "",
+              category: itemCategory,
+              itemType: itemCategory === "Raw Material" ? "RM" : itemCategory === "Bought Out" ? "BO" : itemCategory,
+              requiredQuantity: 0,
+              currentStock: matchedRmBo ? (matchedRmBo.closingStock || matchedRmBo.currentStock || 0) : 0,
+              unit: item.unit || (matchedRmBo ? matchedRmBo.unit : "PCS"),
+              sourceFGNames: [],
+            };
+            current.requiredQuantity += totalRequired;
+            if (!current.sourceFGNames.includes(fg.fgItemName)) current.sourceFGNames.push(fg.fgItemName);
+            targetMap.set(rawName, current);
+          }
+        }
+      }
+
+      const buildReqArray = (map) => {
+        return Array.from(map.values()).map((val) => {
+          const shortage = Math.max(0, val.requiredQuantity - (val.currentStock || 0));
+          return {
+            material: val.material,
+            materialName: val.materialName,
+            materialCode: val.materialCode || "",
+            category: val.category,
+            itemType: val.itemType,
+            requiredQuantity: val.requiredQuantity,
+            currentStock: val.currentStock || 0,
+            shortage,
+            unit: val.unit || "PCS",
+            sourceFGName: val.sourceFGNames.join(", "),
+            sourceFGNames: val.sourceFGNames,
+            status: "Pending",
+          };
+        });
+      };
+
+      plan.fgItems = enrichedFgItems;
+      plan.rmRequirements = buildReqArray(rmMap);
+      plan.boRequirements = buildReqArray(boMap);
+      plan.subAssemblyRequirements = buildReqArray(subAssemblyMap);
+      plan.consumableRequirements = buildReqArray(consumableMap);
+    }
+
+    plan.updatedBy = req.user?.id || req.user?._id;
+    plan.updatedByName = userName;
+    plan.updatedAt = new Date();
+    if (!Array.isArray(plan.editHistory)) plan.editHistory = [];
+    plan.editHistory.push({
+      updatedBy: req.user?.id || req.user?._id,
+      updatedByName: userName,
+      updatedAt: new Date(),
+      action: "Edited MRP Demand Plan",
+      remarks: remarks || "Updated Finished Goods / Plan Parameters"
+    });
+
+    await plan.save();
+
+    res.status(200).json({
+      success: true,
+      message: `MRP Plan ${plan.mrpNumber} updated successfully`,
+      mrpPlan: plan
+    });
+  } catch (error) {
+    console.error("Error updating MRP plan:", error);
+    res.status(500).json({ message: error.message || "Failed to update MRP plan" });
   }
 };
 

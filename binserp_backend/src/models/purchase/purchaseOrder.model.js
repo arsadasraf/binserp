@@ -44,6 +44,11 @@ export const purchaseOrderSchema = new mongoose.Schema(
     },
     quotationNumber: String,
     rfqNumber: String,
+    mrpPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MrpProcurementPlan",
+    },
+    mrpNumber: String,
     transportType: String,
     transportCharge: { type: Number, default: 0 },
     packingType: String,

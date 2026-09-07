@@ -70,3 +70,5 @@ export {
   getMRBHistory, 
   getScrapLedger 
 } from './mrbDisposition.controller.js';
+export { searchStoreItems } from './itemSearch.controller.js';
+

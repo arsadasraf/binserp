@@ -72,10 +72,25 @@ export default function ConsumableTable({
               <span className="font-bold text-slate-900 dark:text-white block">
                 {item.name || '-'}
               </span>
+              {item.code && (
+                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                  {item.code}
+                </span>
+              )}
             </div>
           </div>
         );
       }
+    },
+    {
+      id: 'code',
+      label: 'Code',
+      getValue: (item) => item.code || '-',
+      render: (item) => (
+        <span className="text-xs font-mono font-semibold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded border border-teal-200 dark:border-teal-800/80">
+          {item.code || '-'}
+        </span>
+      )
     },
     {
       id: 'descriptions',
@@ -268,7 +283,7 @@ export default function ConsumableTable({
         data={data}
         onRowClick={onView}
         searchPlaceholder="Search consumable items..."
-        searchableKeys={['name', 'descriptions', 'category', 'unit', 'hsnCode']}
+        searchableKeys={['name', 'code', 'descriptions', 'category', 'unit', 'hsnCode']}
         actionButton={
           <div className="flex flex-wrap items-center gap-2">
             <StoreMasterExcelActions

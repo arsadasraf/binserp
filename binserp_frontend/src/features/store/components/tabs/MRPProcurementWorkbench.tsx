@@ -222,22 +222,27 @@ export default function MRPProcurementWorkbench({
       const poItems = selectedItems.map((it: any) => {
         const qty = Number(it.netShortage || it.requiredQuantity) || 1;
         const rate = Number(it.bestVendor?.rate || it.estimatedRate || 0);
-        const taxRate = 18;
-        const lineSub = qty * rate;
-        const lineTax = (lineSub * taxRate) / 100;
+        const lineSub = qty * rate; // pure amount without tax
+
+        // Resolve itemType
+        let resolvedItemType: 'rm' | 'bo' | 'consumable' = 'rm';
+        const rawType = (it.itemType || '').toLowerCase();
+        if (rawType.includes('bo') || rawType.includes('bought')) {
+          resolvedItemType = 'bo';
+        } else if (rawType.includes('consumable')) {
+          resolvedItemType = 'consumable';
+        }
 
         return {
           material: it.materialId || '',
           materialName: it.materialName,
           materialCode: it.materialCode || '',
-          itemType: (it.itemType || 'rm').toLowerCase().includes('bo') ? 'bo' : 'rm',
+          itemType: resolvedItemType,
           category: it.category || '',
           quantity: qty,
-          unit: it.unit || 'PCS',
+          unit: it.unit || (resolvedItemType === 'rm' ? 'KG' : 'PCS'),
           rate: rate,
-          taxRate: taxRate,
-          taxAmount: lineTax,
-          amount: lineSub + lineTax,
+          amount: lineSub,
           description: `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`
         };
       });
@@ -247,6 +252,9 @@ export default function MRPProcurementWorkbench({
       onOpenPoModal({
         vendor: firstVendorId,
         items: poItems,
+        mrpPlanId: selectedPlan?._id,
+        mrpNumber: selectedPlan?.mrpNumber,
+        selectedItemKeys: selectedItems.map((i: any) => i.materialKey),
         remarks: `Generated from MRP Procurement Workbench (${selectedPlan?.mrpNumber || 'MRP'})`
       });
     }
@@ -1142,6 +1150,16 @@ export default function MRPProcurementWorkbench({
                   >
                     <ShoppingCart size={12} />
                     <span>📝 Create Outward PO ({selectedKeys.size})</span>
+                  </button>
+
+                  <button
+                    onClick={handleBulkGeneratePO}
+                    disabled={selectedKeys.size === 0 || submittingPO}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+                    title="1-Click Auto Generate Purchase Orders grouped by vendor"
+                  >
+                    <Sparkles size={12} className="text-amber-400 dark:text-amber-600" />
+                    <span>{submittingPO ? "Generating..." : `⚡ Auto PO (${selectedKeys.size})`}</span>
                   </button>
 
                   {/* Dual Action: Send to PPC Intake Bucket (Only for Components, Sub-Assemblies, Assemblies) */}

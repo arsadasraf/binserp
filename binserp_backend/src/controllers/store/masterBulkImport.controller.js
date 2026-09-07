@@ -342,7 +342,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         company: companyId,
         materialCode,
         materialName: itemName,
-        itemType: determinedItemType,
+        itemType: isConsumable ? 'Consumable' : determinedItemType,
         unit: rawUnit,
         status: finalStatus,
         isActive: finalActive,

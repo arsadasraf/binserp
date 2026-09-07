@@ -79,6 +79,8 @@ export default function POModal({
     // Bottom single GST tax rate applied to entire PO
     const [taxRate, setTaxRate] = useState<number>(18);
     const [gstType, setGstType] = useState<'intra_state' | 'inter_state'>('intra_state');
+    const [mrpNumber, setMrpNumber] = useState<string>('');
+    const [mrpPlanId, setMrpPlanId] = useState<string>('');
 
     // 3 distinct inventory feeds
     const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
@@ -147,8 +149,8 @@ export default function POModal({
                 const pl = Array.isArray(plRes?.data) ? plRes.data : (Array.isArray(plRes) ? plRes : []);
                 setFetchedPriceLists(pl);
 
-                // If not editing, generate fresh PO number using outward prefix setting
-                if (!initialData) {
+                // If not editing an existing PO, generate fresh PO number using outward prefix setting
+                if (!initialData || !initialData.poNumber) {
                     const settings = prefixRes?.settings || {};
                     const prefix = settings.outwardPoPrefix || settings.outgoingPoPrefix || settings.poPrefix || 'PO-OUT';
                     const now = new Date();
@@ -176,7 +178,9 @@ export default function POModal({
 
             if (initialData) {
                 // Populate existing PO cleanly without resetting to empty
-                setPoNumber(initialData.poNumber || '');
+                if (initialData.poNumber) {
+                    setPoNumber(initialData.poNumber);
+                }
                 setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
                 
                 const vId = typeof initialData.vendor === 'object' ? (initialData.vendor as any)?._id : (initialData.vendor || '');
@@ -191,6 +195,8 @@ export default function POModal({
                 setTransportCharge(initialData.transportCharge || 0);
                 setPackingType(initialData.packingType || 'Standard Packaging');
                 setPackingCharge(initialData.packingCharge || 0);
+                setMrpNumber((initialData as any).mrpNumber || (initialData as any).planNumber || '');
+                setMrpPlanId((initialData as any).mrpPlanId || '');
 
                 // Detect PO Category from items or category field
                 let detectedCategory: POItemCategoryType = 'rm';
@@ -269,6 +275,8 @@ export default function POModal({
                 setVendorName('');
                 setRemarks('');
                 setStatus('Released');
+                setMrpNumber('');
+                setMrpPlanId('');
                 setGstType('intra_state');
                 setTaxRate(18);
                 setTransportType('Road Freight');
@@ -341,22 +349,31 @@ export default function POModal({
         }));
     }, [consumablesList]);
 
+    const inHouseOptions = useMemo(() => {
+        return (inHouseItems || []).map((item: any) => ({
+            value: (item._id || item.id)?.toString(),
+            label: `${item.name || item.componentName || 'Component'}${item.code || item.componentCode ? ` (${item.code || item.componentCode})` : ''}${item.description || item.descriptions ? ` — ${item.description || item.descriptions}` : ''}`
+        })).filter((o: any) => o.value);
+    }, [inHouseItems]);
+
     const currentOptionsToUse = useMemo(() => {
         if (poCategory === 'bo') return boOptions;
         if (poCategory === 'consumable') return consumableOptions;
+        if (inHouseOptions.length > 0) return [...rmOptions, ...inHouseOptions];
         return rmOptions;
-    }, [poCategory, rmOptions, boOptions, consumableOptions]);
+    }, [poCategory, rmOptions, boOptions, consumableOptions, inHouseOptions]);
 
     const handleMaterialSelect = (index: number, selectedId: string) => {
         const currentEntry = materialEntries[index];
 
         let foundItem: any = null;
         if (poCategory === 'rm') {
-            foundItem = rawMaterialsList.find(m => m._id === selectedId);
+            foundItem = rawMaterialsList.find(m => (m._id || m.id)?.toString() === selectedId) ||
+                        (inHouseItems || []).find((m: any) => (m._id || m.id)?.toString() === selectedId);
         } else if (poCategory === 'bo') {
-            foundItem = boughtOutsList.find(m => m._id === selectedId);
+            foundItem = boughtOutsList.find(m => (m._id || m.id)?.toString() === selectedId);
         } else if (poCategory === 'consumable') {
-            foundItem = consumablesList.find(m => m._id === selectedId);
+            foundItem = consumablesList.find(m => (m._id || m.id)?.toString() === selectedId);
         }
 
         const activePriceLists = (priceLists && priceLists.length > 0) ? priceLists : fetchedPriceLists;
@@ -369,7 +386,7 @@ export default function POModal({
         const autoCat = typeof foundItem?.category === 'object' ? foundItem?.category?.name : (foundItem?.category || currentEntry.category || '');
         const autoDesc = foundItem?.description || foundItem?.descriptions || foundItem?.specifications || currentEntry.description || '';
         const autoHsn = foundItem?.hsnCode || foundItem?.hsn || foundItem?.sacCode || currentEntry.hsnCode || '';
-        const autoName = foundItem?.name || currentEntry.materialName || '';
+        const autoName = foundItem?.name || foundItem?.componentName || selectedId || currentEntry.materialName || '';
 
         setMaterialEntries(prev => {
             const updated = [...prev];
@@ -634,6 +651,9 @@ export default function POModal({
         const errors: string[] = [];
         let firstInvalidIndex: number | null = null;
 
+        if (!poNumber || !poNumber.trim()) {
+            errors.push("PO Number is required.");
+        }
         if (!date) {
             errors.push("PO Date is required.");
         }
@@ -690,6 +710,8 @@ export default function POModal({
             date,
             vendor,
             vendorName: selectedVendorObj?.name || vendorName,
+            mrpNumber: mrpNumber || undefined,
+            mrpPlanId: mrpPlanId || undefined,
             category: poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable',
             status,
             remarks,
@@ -847,14 +869,22 @@ export default function POModal({
                             <div>
                                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
                                     <Hash size={13} className="text-cyan-600" />
-                                    Outward PO Number
+                                    Outward PO Number <span className="text-rose-500">*</span>
                                 </label>
                                 <input
                                     type="text"
                                     value={poNumber}
-                                    readOnly
-                                    className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 font-mono text-xs font-bold select-all cursor-not-allowed"
+                                    onChange={(e) => setPoNumber(e.target.value)}
+                                    placeholder="e.g. PO-OUT/2026/001"
+                                    className={`w-full px-3 py-2 bg-white dark:bg-slate-800 border rounded-xl text-slate-900 dark:text-slate-100 font-mono text-xs font-bold outline-none transition-all ${
+                                        hasAttemptedSubmit && !poNumber.trim()
+                                            ? 'border-rose-500 bg-rose-50/40 dark:bg-rose-950/30 ring-2 ring-rose-400'
+                                            : 'border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-cyan-500'
+                                    }`}
                                 />
+                                {hasAttemptedSubmit && !poNumber.trim() && (
+                                    <p className="text-[11px] font-semibold text-rose-600 mt-1">PO Number is required.</p>
+                                )}
                             </div>
 
                             <div>
@@ -1156,6 +1186,7 @@ export default function POModal({
                                                                 value={entry.material || ''}
                                                                 displayLabel={entry.materialName || undefined}
                                                                 onChange={(val: any) => handleMaterialSelect(index, val)}
+                                                                allowCustom={true}
                                                                 hasError={Boolean(rowErrors.materialName || isDuplicate)}
                                                                 placeholder={`Select or search ${poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable'}...`}
                                                             />
@@ -1348,6 +1379,7 @@ export default function POModal({
                                                 value={entry.material || ''}
                                                 displayLabel={entry.materialName || undefined}
                                                 onChange={(val: any) => handleMaterialSelect(index, val)}
+                                                allowCustom={true}
                                                 hasError={Boolean(rowErrors.materialName || isDuplicate)}
                                                 placeholder={`Select ${poCategory.toUpperCase()}...`}
                                             />

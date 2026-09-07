@@ -5,6 +5,7 @@ import {
   locationSchema,
   inventorySchema,
   materialIssueSchema,
+  grnSchema,
 } from "../../models/store/index.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { getUserAudit } from "../../utils/userAudit.helper.js";
@@ -142,8 +143,12 @@ export const createConsumableItem = async (req, res) => {
       }
     }
 
+    const generatedMatCode = `CON-${Math.floor(10000 + Math.random() * 90000)}`;
+    const finalCode = (code && code.toString().trim()) ? code.toString().trim() : generatedMatCode;
+
     const consumableItem = await ConsumableItem.create({
       name: cleanName,
+      code: finalCode,
       descriptions: descriptions || '',
       minimumStock: Number(minimumStock || 0),
       ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
@@ -160,13 +165,12 @@ export const createConsumableItem = async (req, res) => {
 
     // Auto-create / Sync corresponding Inventory record
     try {
-      const generatedMatCode = `CON-${Math.floor(10000 + Math.random() * 90000)}`;
       await Inventory.findOneAndUpdate(
         { company: companyId, materialId: consumableItem._id },
         {
           $setOnInsert: {
             company: companyId,
-            materialCode: generatedMatCode,
+            materialCode: finalCode,
             materialName: cleanName,
             itemType: 'Consumable',
             unit: itemUnit,
@@ -201,7 +205,6 @@ export const getAllConsumableItems = async (req, res) => {
   try {
     const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
-    const GRN = req.getModel('GRN', grnSchema);
     req.getModel('Category', categorySchema);
     req.getModel('Location', locationSchema);
 
@@ -212,44 +215,38 @@ export const getAllConsumableItems = async (req, res) => {
       .sort({ name: 1 })
       .lean();
 
-    const updatedItems = await Promise.all(consumableItems.map(async (c) => {
-      try {
-        let inv = await Inventory.findOne({
-          company: companyId,
-          $or: [
-            { materialId: c._id },
-            { materialCode: c.code || '' },
-            { materialName: c.name }
-          ]
-        }).lean();
+    const inventories = await Inventory.find({ company: companyId }).lean();
+    const invMap = new Map();
+    inventories.forEach(inv => {
+      if (inv.materialId) invMap.set(String(inv.materialId), inv);
+      if (inv.materialCode) invMap.set(String(inv.materialCode).toUpperCase().trim(), inv);
+      if (inv.materialName) invMap.set(inv.materialName.toLowerCase().trim(), inv);
+    });
 
-        let currentStock = inv?.currentStock !== undefined 
-          ? inv.currentStock 
-          : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
-        let qcPendingStock = inv?.qcPendingStock || 0;
-        const hasTransactions = currentStock > 0 || qcPendingStock > 0 || Boolean(c.hasTransactions);
+    const updatedItems = consumableItems.map((c) => {
+      const idKey = String(c._id);
+      const codeKey = c.code ? String(c.code).toUpperCase().trim() : '';
+      const nameKey = c.name ? c.name.toLowerCase().trim() : '';
 
-        return {
-          ...c,
-          quantity: currentStock,
-          currentStock: currentStock,
-          qcPendingStock: qcPendingStock,
-          hasTransactions,
-          status: c.status || (c.isActive === false ? 'Inactive' : 'Active'),
-          isActive: c.isActive !== false && c.status !== 'Inactive' && c.status !== 'Deactivated'
-        };
-      } catch (itemErr) {
-        return {
-          ...c,
-          quantity: c.currentStock || c.quantity || 0,
-          currentStock: c.currentStock || c.quantity || 0,
-          qcPendingStock: 0,
-          hasTransactions: (c.currentStock || c.quantity || 0) > 0,
-          status: c.status || (c.isActive === false ? 'Inactive' : 'Active'),
-          isActive: c.isActive !== false && c.status !== 'Inactive' && c.status !== 'Deactivated'
-        };
-      }
-    }));
+      const inv = invMap.get(idKey) || (codeKey && invMap.get(codeKey)) || (nameKey && invMap.get(nameKey));
+
+      const currentStock = inv?.currentStock !== undefined 
+        ? inv.currentStock 
+        : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
+      const qcPendingStock = inv?.qcPendingStock || 0;
+      const hasTransactions = currentStock > 0 || qcPendingStock > 0 || Boolean(c.hasTransactions);
+
+      return {
+        ...c,
+        code: c.code || inv?.materialCode || '',
+        quantity: currentStock,
+        currentStock: currentStock,
+        qcPendingStock: qcPendingStock,
+        hasTransactions,
+        status: c.status || (c.isActive === false ? 'Inactive' : 'Active'),
+        isActive: c.isActive !== false && c.status !== 'Inactive' && c.status !== 'Deactivated'
+      };
+    });
 
     res.status(200).json({ consumableItems: updatedItems, count: updatedItems.length });
   } catch (error) {

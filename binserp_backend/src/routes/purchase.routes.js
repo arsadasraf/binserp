@@ -29,6 +29,7 @@ import {
   getAllMRPPlans,
   getMRPPlanById,
   deleteMRPPlan,
+  updateMRPPlan,
   updateMRPPlanStatus,
   updateMRPRequirementItemStatus,
   getMRPProcurementWorkbench,
@@ -91,6 +92,7 @@ router.route("/mrp/update-item-status")
 
 router.route("/mrp/plan/:id")
   .get(getMRPPlanById)
+  .put(updateMRPPlan)
   .delete(deleteMRPPlan);
 
 router.route("/mrp/plan/:id/status")

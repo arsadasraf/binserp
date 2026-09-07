@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { Category, Location } from "@/src/features/store/types/store.types";
 import { X, Plus, Trash2, Box, Layers, ShoppingBag, Paperclip, FileText, Upload, AlertTriangle } from 'lucide-react';
-import SearchableSelect from '../SearchableSelect';
+import SearchableSelect, { SearchableOption } from '../SearchableSelect';
 
 interface FGItemFormProps {
     formData: any;
@@ -179,68 +179,93 @@ export default function FGItemForm({
         setFormData((prev: any) => ({ ...prev, bom: newBOM }));
     };
 
-    // Construct options with Name and Description ONLY, plus badges for FG Items (Type & Revision)
-    const getOptionsForType = (currentType: string, currentLineIdx?: number) => {
-        if (currentType === 'RawMaterial' || currentType === 'Material') {
-            return effectiveRM.map((m: any) => {
-                const val = (m._id || m.id)?.toString();
-                const name = (m.name || m.materialName || '').trim();
-                const desc = (m.descriptions || m.description || '').trim();
-                const alreadyLine = (formData.bom || []).findIndex((b: any, i: number) => 
-                    i !== currentLineIdx && 
-                    (b.itemType === 'RawMaterial' || b.itemType === 'Material') && 
-                    (typeof b.item === 'object' ? b.item?._id : b.item)?.toString() === val
-                );
+    // Pre-calculate line numbers of items already in BOM in a single O(BOM) pass
+    const usedItemLineMap = useMemo(() => {
+        const map = new Map<string, number>();
+        (formData.bom || []).forEach((b: any, i: number) => {
+            const rawId = typeof b.item === 'object' && b.item !== null ? (b.item?._id || b.item?.id) : b.item;
+            if (rawId) {
+                const normType = (b.itemType === 'Material' || b.itemType === 'RawMaterial') ? 'RawMaterial' : b.itemType;
+                const key = `${normType}:${String(rawId)}`;
+                if (!map.has(key)) map.set(key, i + 1);
+            }
+        });
+        return map;
+    }, [formData.bom]);
+
+    // Pre-compute base options for RM, BO, and FG once instead of recomputing for each row
+    const baseRMOptions = useMemo(() => {
+        return (effectiveRM || []).map((m: any) => {
+            const val = (m._id || m.id)?.toString();
+            if (!val) return null;
+            const name = (m.name || m.materialName || '').trim();
+            const desc = (m.descriptions || m.description || '').trim();
+            return {
+                value: val,
+                label: desc ? `${name} — ${desc}` : name,
+                description: desc || undefined,
+                code: m.code || undefined,
+                badge: 'Raw Material'
+            };
+        }).filter(Boolean) as SearchableOption[];
+    }, [effectiveRM]);
+
+    const baseBOOptions = useMemo(() => {
+        return (effectiveBO || []).map((b: any) => {
+            const val = (b._id || b.id)?.toString();
+            if (!val) return null;
+            const name = (b.name || b.materialName || '').trim();
+            const desc = (b.descriptions || b.description || '').trim();
+            return {
+                value: val,
+                label: desc ? `${name} — ${desc}` : name,
+                description: desc || undefined,
+                code: b.code || undefined,
+                badge: 'Bought Out'
+            };
+        }).filter(Boolean) as SearchableOption[];
+    }, [effectiveBO]);
+
+    const baseFGOptions = useMemo(() => {
+        const currentId = formData._id?.toString();
+        return (fgItems || [])
+            .filter((f: any) => (f._id || f.id)?.toString() !== currentId)
+            .map((f: any) => {
+                const val = (f._id || f.id)?.toString();
+                if (!val) return null;
+                const name = (f.name || '').trim();
+                const desc = (f.description || f.descriptions || '').trim();
+                const type = f.type || 'Component';
+                const rev = f.revisionNumber ? `Rev: ${f.revisionNumber}` : 'No Rev';
                 return {
                     value: val,
-                    label: desc ? `${name} — ${desc}` : name,
+                    label: name,
                     description: desc || undefined,
-                    hint: alreadyLine >= 0 ? `Line #${alreadyLine + 1}` : undefined
+                    badge: type,
+                    subBadge: rev
                 };
-            }).filter(o => o.value);
-        } else if (currentType === 'BoughtOut') {
-            return effectiveBO.map((b: any) => {
-                const val = (b._id || b.id)?.toString();
-                const name = (b.name || b.materialName || '').trim();
-                const desc = (b.descriptions || b.description || '').trim();
-                const alreadyLine = (formData.bom || []).findIndex((b: any, i: number) => 
-                    i !== currentLineIdx && 
-                    b.itemType === 'BoughtOut' && 
-                    (typeof b.item === 'object' ? b.item?._id : b.item)?.toString() === val
-                );
-                return {
-                    value: val,
-                    label: desc ? `${name} — ${desc}` : name,
-                    description: desc || undefined,
-                    hint: alreadyLine >= 0 ? `Line #${alreadyLine + 1}` : undefined
-                };
-            }).filter(o => o.value);
-        } else if (currentType === 'FGItem') {
-            return fgItems
-                .filter((f: any) => (f._id || f.id)?.toString() !== formData._id?.toString())
-                .map((f: any) => {
-                    const val = (f._id || f.id)?.toString();
-                    const name = (f.name || '').trim();
-                    const desc = (f.description || f.descriptions || '').trim();
-                    const type = f.type || 'Component';
-                    const rev = f.revisionNumber ? `Rev: ${f.revisionNumber}` : 'No Rev';
-                    const alreadyLine = (formData.bom || []).findIndex((b: any, i: number) => 
-                        i !== currentLineIdx && 
-                        b.itemType === 'FGItem' && 
-                        (typeof b.item === 'object' ? b.item?._id : b.item)?.toString() === val
-                    );
-                    return {
-                        value: val,
-                        label: name,
-                        description: desc || undefined,
-                        badge: type,
-                        subBadge: rev,
-                        hint: alreadyLine >= 0 ? `Line #${alreadyLine + 1}` : undefined
-                    };
-                }).filter(o => o.value);
+            }).filter(Boolean) as SearchableOption[];
+    }, [fgItems, formData._id]);
+
+    // Construct options with O(1) duplicate hint lookups
+    const getOptionsForType = useCallback((currentType: string, currentLineIdx?: number) => {
+        const normType = (currentType === 'Material' || currentType === 'RawMaterial') ? 'RawMaterial' : currentType;
+        let baseList: SearchableOption[] = [];
+        if (normType === 'RawMaterial') {
+            baseList = baseRMOptions;
+        } else if (normType === 'BoughtOut') {
+            baseList = baseBOOptions;
+        } else if (normType === 'FGItem') {
+            baseList = baseFGOptions;
         }
-        return [];
-    };
+
+        return baseList.map(o => {
+            const key = `${normType}:${o.value}`;
+            const existingLine = usedItemLineMap.get(key);
+            const isOtherLine = existingLine !== undefined && (currentLineIdx === undefined || existingLine !== (currentLineIdx + 1));
+            return isOtherLine ? { ...o, hint: `Line #${existingLine}` } : o;
+        });
+    }, [baseRMOptions, baseBOOptions, baseFGOptions, usedItemLineMap]);
 
     // Helper to get description for selected BOM item
     const getSelectedItemDescription = (bItem: any) => {

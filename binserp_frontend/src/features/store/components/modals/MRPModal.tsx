@@ -17,7 +17,7 @@ import {
     Boxes,
     Check
 } from 'lucide-react';
-import { apiGet, apiPost } from '@/src/lib/api';
+import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import Swal from 'sweetalert2';
 
 interface MRPModalProps {
@@ -25,6 +25,7 @@ interface MRPModalProps {
     onClose: () => void;
     onSuccess: () => void;
     token: string;
+    initialData?: any;
 }
 
 interface FGRow {
@@ -39,7 +40,7 @@ interface FGRow {
     bomNumber?: string;
 }
 
-export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModalProps) {
+export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData }: MRPModalProps) {
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
@@ -98,31 +99,56 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
 
     useEffect(() => {
         if (isOpen) {
-            const now = new Date();
-            const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-            const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-            setMrpNumber(`MRP-${dateStr}-${randomSuffix}`);
-            setSelectedCustomerId('');
-            setCustomerName('');
-            setCustomerSearch('');
-            setSelectedPOId('');
-            setCustomerPoNumber('');
-            setPoSearch('');
-            setRemarks('');
+            if (initialData) {
+                setMrpNumber(initialData.mrpNumber || '');
+                setSelectedCustomerId(initialData.customer || '');
+                setCustomerName(initialData.customerName || '');
+                setCustomerSearch(initialData.customerName || '');
+                setSelectedPOId(initialData.customerPo || '');
+                setCustomerPoNumber(initialData.customerPoNumber || '');
+                setPoSearch(initialData.customerPoNumber || '');
+                setRemarks(initialData.remarks || '');
+                setTargetDate(initialData.targetDate ? new Date(initialData.targetDate).toISOString().split('T')[0] : '');
+                if (Array.isArray(initialData.fgItems) && initialData.fgItems.length > 0) {
+                    setFgRows(initialData.fgItems.map((f: any) => ({
+                        fgItem: f.fgItem?._id || f.fgItem || '',
+                        fgItemName: f.fgItemName || f.fgItem?.name || '',
+                        fgItemCode: f.fgItemCode || f.fgItem?.code || '',
+                        description: f.description || '',
+                        quantity: Number(f.quantity) || 1,
+                        unit: f.unit || 'PCS',
+                        targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
+                        bomId: f.bomId || '',
+                        bomNumber: f.bomNumber || ''
+                    })));
+                }
+            } else {
+                const now = new Date();
+                const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+                const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+                setMrpNumber(`MRP-${dateStr}-${randomSuffix}`);
+                setSelectedCustomerId('');
+                setCustomerName('');
+                setCustomerSearch('');
+                setSelectedPOId('');
+                setCustomerPoNumber('');
+                setPoSearch('');
+                setRemarks('');
 
-            // Default target date: 7 days in future
-            const future = new Date();
-            future.setDate(future.getDate() + 7);
-            const defaultDate = future.toISOString().split('T')[0];
-            setTargetDate(defaultDate);
+                // Default target date: 7 days in future
+                const future = new Date();
+                future.setDate(future.getDate() + 7);
+                const defaultDate = future.toISOString().split('T')[0];
+                setTargetDate(defaultDate);
 
-            setFgRows([
-                { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', targetDate: defaultDate }
-            ]);
+                setFgRows([
+                    { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', targetDate: defaultDate }
+                ]);
+            }
 
             loadDropdownMasters();
         }
-    }, [isOpen]);
+    }, [isOpen, initialData]);
 
     const loadDropdownMasters = async () => {
         setLoading(true);
@@ -431,14 +457,23 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
                 fgItems: validItems
             };
 
-            const res = await apiPost('/api/purchase/mrp/plan', payload, token);
-
-            Swal.fire({
-                icon: 'success',
-                title: 'MRP Demand Plan Created!',
-                text: `MRP #${mrpNumber} generated with unified RM/BO BOM explosion and PO status updated to 'MRP Done'.`,
-                timer: 3000
-            });
+            if (initialData && (initialData._id || initialData.id)) {
+                await apiPut(`/api/purchase/mrp/plan/${initialData._id || initialData.id}`, payload, token);
+                Swal.fire({
+                    icon: 'success',
+                    title: 'MRP Demand Plan Updated!',
+                    text: `MRP #${mrpNumber} has been updated successfully.`,
+                    timer: 2500
+                });
+            } else {
+                const res = await apiPost('/api/purchase/mrp/plan', payload, token);
+                Swal.fire({
+                    icon: 'success',
+                    title: 'MRP Demand Plan Created!',
+                    text: `MRP #${mrpNumber} generated with unified RM/BO BOM explosion and PO status updated to 'MRP Done'.`,
+                    timer: 3000
+                });
+            }
 
             onSuccess();
             onClose();
@@ -466,7 +501,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token }: MRPModal
                             <Layers className="text-indigo-200" size={22} />
                         </div>
                         <div>
-                            <h2 className="text-lg sm:text-xl font-black">Create MRP Demand Plan</h2>
+                            <h2 className="text-lg sm:text-xl font-black">
+                                {initialData ? `Edit MRP Demand Plan (${initialData.mrpNumber || mrpNumber})` : 'Create MRP Demand Plan'}
+                            </h2>
                             <p className="text-xs text-indigo-200 mt-0.5">
                                 Select Customer / Open PO or enter manual FG requirements to explode nested BOM
                             </p>

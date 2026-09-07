@@ -882,9 +882,25 @@ export default function POTable({ data, vendors = [], companyInfo, onEdit, onDel
                                         {selectedPoPreview.vendor?.pan && <span>• <b>PAN:</b> {selectedPoPreview.vendor.pan}</span>}
                                         {selectedPoPreview.vendor?.contactPerson && <span>• <b>Contact:</b> {selectedPoPreview.vendor.contactPerson}</span>}
                                     </div>
-                                    <div className="flex items-center gap-3 pt-1 text-[11px] text-slate-500">
-                                        <span><b>PO Date:</b> {new Date(selectedPoPreview.date || Date.now()).toLocaleDateString('en-GB')}</span>
-                                        {selectedPoPreview.quotationNumber && <span>• <b>Ref Quote:</b> {selectedPoPreview.quotationNumber}</span>}
+                                    <div className="flex flex-col gap-1 pt-1 text-[11px] text-slate-500">
+                                        <div className="flex items-center gap-3">
+                                            <span><b>PO Date:</b> {new Date(selectedPoPreview.date || Date.now()).toLocaleDateString('en-GB')}</span>
+                                            {selectedPoPreview.quotationNumber && <span>• <b>Ref Quote:</b> {selectedPoPreview.quotationNumber}</span>}
+                                        </div>
+                                        {(() => {
+                                            const previewMrp = selectedPoPreview.mrpNumber || 
+                                                               (typeof selectedPoPreview.mrpPlanId === 'object' ? (selectedPoPreview.mrpPlanId?.mrpNumber || selectedPoPreview.mrpPlanId?.planNumber) : null) || 
+                                                               (typeof selectedPoPreview.mrpPlan === 'object' ? selectedPoPreview.mrpPlan?.mrpNumber : null) || 
+                                                               (`${selectedPoPreview.notes || ''} ${selectedPoPreview.remarks || ''} ${selectedPoPreview.description || ''}`).match(/\bMRP[-/A-Za-z0-9_]+\b/i)?.[0];
+                                            return previewMrp ? (
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="font-bold text-slate-600 dark:text-slate-400">MRP No:</span>
+                                                    <span className="bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 px-2 py-0.5 rounded font-mono font-extrabold text-[11px] border border-purple-300 dark:border-purple-800">
+                                                        {previewMrp}
+                                                    </span>
+                                                </div>
+                                            ) : null;
+                                        })()}
                                     </div>
                                 </div>
                             </div>
@@ -1118,7 +1134,17 @@ export default function POTable({ data, vendors = [], companyInfo, onEdit, onDel
                                                 const unit = it.unit || it.uom || 'PCS';
                                                 const rate = Number(it.rate || it.unitPrice || 0);
                                                 const lineNet = qty * rate; // Actual amount without tax
-                                                const itemDesc = it.description || it.itemDescription || it.remarks || it.specifications || it.material?.description || (idx === 0 ? (selectedPoPreview.description || selectedPoPreview.remarks) : '') || '';
+                                                const rawItemDesc = it.description || it.itemDescription || it.remarks || it.specifications || it.material?.description || (idx === 0 ? (selectedPoPreview.description || selectedPoPreview.remarks) : '') || '';
+                                                let itemDesc = rawItemDesc;
+                                                const previewMrp = selectedPoPreview.mrpNumber || 
+                                                                   (typeof selectedPoPreview.mrpPlanId === 'object' ? (selectedPoPreview.mrpPlanId?.mrpNumber || selectedPoPreview.mrpPlanId?.planNumber) : null) || 
+                                                                   (typeof selectedPoPreview.mrpPlan === 'object' ? selectedPoPreview.mrpPlan?.mrpNumber : null) || 
+                                                                   (`${selectedPoPreview.notes || ''} ${selectedPoPreview.remarks || ''} ${selectedPoPreview.description || ''}`).match(/\bMRP[-/A-Za-z0-9_]+\b/i)?.[0];
+                                                if (itemDesc && previewMrp) {
+                                                    itemDesc = itemDesc.replace(new RegExp(`(?:Generated from\\s+)?MRP\\s*(?:Requirement for|Consolidated:|Plan:?)?\\s*${previewMrp}`, 'gi'), '').trim();
+                                                    itemDesc = itemDesc.replace(/(?:Generated from\\s+)?MRP\s*(?:Requirement for|Consolidated:|Plan:?)\s*MRP[-A-Za-z0-9_/]*/gi, '').trim();
+                                                    itemDesc = itemDesc.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
+                                                }
 
                                                 return (
                                                     <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">

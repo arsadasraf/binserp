@@ -1256,6 +1256,14 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
     const vendorPhone = vendorObj?.phone || vendorObj?.contactNumber || vendorObj?.mobile || po.vendorPhone || '';
     const vendorEmail = vendorObj?.email || po.vendorEmail || '';
 
+    // Resolve MRP Number (if generated for specific MRP)
+    const rawMrpString = `${po.mrpNumber || ''} ${typeof po.mrpPlanId === 'object' ? po.mrpPlanId?.mrpNumber || po.mrpPlanId?.planNumber || '' : ''} ${typeof po.mrpPlan === 'object' ? po.mrpPlan?.mrpNumber || '' : ''} ${po.notes || ''} ${po.remarks || ''} ${po.description || ''} ${po.items?.[0]?.description || ''}`;
+    const mrpMatch = rawMrpString.match(/\bMRP[-/A-Za-z0-9_]+\b/i);
+    const resolvedMrp = po.mrpNumber || 
+                        (typeof po.mrpPlanId === 'object' ? (po.mrpPlanId?.mrpNumber || po.mrpPlanId?.planNumber) : null) || 
+                        (typeof po.mrpPlan === 'object' ? po.mrpPlan?.mrpNumber : null) || 
+                        (mrpMatch ? mrpMatch[0] : null);
+
     // Resolve Company Details
     const compName = companyInfo?.companyName || companyInfo?.legalName || companyInfo?.tradeName || companyInfo?.name || 'COMPANY NAME';
     let compLogo = companyInfo?.logo || companyInfo?.logoUrl || companyInfo?.companyLogo || companyInfo?.image || '';
@@ -1297,7 +1305,13 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
         const qty = Number(item.quantity || 1);
         const rate = Number(item.rate || item.unitPrice || 0);
         const lineNet = qty * rate; // Actual amount without tax
-        const itemDesc = item.description || item.itemDescription || item.remarks || item.specifications || item.material?.description || (idx === 0 ? (po.description || po.remarks) : '') || '';
+        const rawItemDesc = item.description || item.itemDescription || item.remarks || item.specifications || item.material?.description || (idx === 0 ? (po.description || po.remarks) : '') || '';
+        let itemDesc = rawItemDesc;
+        if (itemDesc && resolvedMrp) {
+            itemDesc = itemDesc.replace(new RegExp(`(?:Generated from\\s+)?MRP\\s*(?:Requirement for|Consolidated:|Plan:?)?\\s*${resolvedMrp}`, 'gi'), '').trim();
+            itemDesc = itemDesc.replace(/(?:Generated from\\s+)?MRP\s*(?:Requirement for|Consolidated:|Plan:?)\s*MRP[-A-Za-z0-9_/]*/gi, '').trim();
+            itemDesc = itemDesc.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
+        }
         const itemHsn = item.hsnCode || item.hsn || '-';
         const pieceCount = Number(item.pieceCount || item.count || 0);
 
@@ -1337,6 +1351,13 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
 
     const grandTotal = taxableAmount + totalTaxAmount;
 
+    let cleanedRemarks = po.remarks || '';
+    if (cleanedRemarks && resolvedMrp) {
+        cleanedRemarks = cleanedRemarks.replace(new RegExp(`(?:Generated from\\s+)?MRP\\s*(?:Requirement for|Consolidated:|Plan:?)?\\s*${resolvedMrp}`, 'gi'), '').trim();
+        cleanedRemarks = cleanedRemarks.replace(/(?:Generated from\\s+)?MRP\s*(?:Requirement for|Consolidated:|Plan:?)\s*MRP[-A-Za-z0-9_/]*/gi, '').trim();
+        cleanedRemarks = cleanedRemarks.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
+    }
+
     const htmlContent = `
         <div class="page" style="padding: 25px; max-width: 900px; margin: 0 auto; background: #fff; border: 1px solid #ddd; font-family: Arial, sans-serif; font-size: 11px; color: #111;">
             
@@ -1362,21 +1383,25 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                 ` : ''}
             </div>
 
-            <!-- Title Bar -->
-            <div style="text-align: center; background: #f3e8ff; border: 1px solid #d8b4fe; font-weight: 900; font-size: 14px; padding: 8px; text-transform: uppercase; letter-spacing: 1px; color: #581c87; margin-bottom: 14px; border-radius: 4px;">
-                PURCHASE ORDER
+            <!-- Title -->
+            <div style="text-align: center; margin-bottom: 14px;">
+                <span style="font-size: 14px; font-weight: 900; color: #1e1b4b; letter-spacing: 1px; text-transform: uppercase; border-bottom: 2px solid #6b21a8; padding-bottom: 2px;">
+                    PURCHASE ORDER
+                </span>
             </div>
 
-            <!-- Address & PO Details -->
+            <!-- Vendor and PO Meta Grid -->
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 11px;">
                 <tr>
-                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #f8fafc;">
-                        <div style="font-weight: bold; color: #6b21a8; font-size: 9px; text-transform: uppercase; margin-bottom: 4px;">VENDOR / SUPPLIER</div>
-                        <div style="font-size: 14px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">${vendorName}</div>
-                        ${vendorContactPerson ? `<div style="font-size: 10px; color: #1e293b; margin-bottom: 3px;"><b>Contact Person:</b> ${vendorContactPerson}</div>` : ''}
-                        <div style="line-height: 1.4; color: #334155; font-size: 10px;">
-                            ${vendorAddress ? vendorAddress + '<br>' : ''}
-                            ${vendorCityState ? vendorCityState + '<br>' : ''}
+                    <td style="width: 55%; vertical-align: top; border: 1px solid #94a3b8; padding: 12px; background: #fafafa;">
+                        <div style="font-weight: 900; color: #6b21a8; font-size: 12px; text-transform: uppercase; margin-bottom: 4px;">
+                            ${vendorName}
+                        </div>
+                        ${vendorContactPerson ? `<div style="color: #334155; font-size: 10px; margin-bottom: 4px;"><b>Attn:</b> ${vendorContactPerson}</div>` : ''}
+                        ${vendorAddress ? `<div style="color: #475569; font-size: 10px; line-height: 1.4; margin-bottom: 4px;">${vendorAddress}</div>` : ''}
+                        ${vendorCityState ? `<div style="color: #475569; font-size: 10px; margin-bottom: 6px;">${vendorCityState}</div>` : ''}
+                        
+                        <div style="font-size: 10px; color: #475569; line-height: 1.5;">
                             ${vendorPhone ? '<b>Ph:</b> ' + vendorPhone + '<br>' : ''}
                             ${vendorEmail ? '<b>Email:</b> ' + vendorEmail + '<br>' : ''}
                         </div>
@@ -1388,29 +1413,31 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
                     <td style="width: 45%; vertical-align: top; border: 1px solid #94a3b8; border-left: none; padding: 12px; background: #ffffff;">
                         <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
                             <tr>
-                                <td style="padding: 4px 0; color: #64748b;"><b>PO Number:</b></td>
+                                <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>PO Number:</b></td>
                                 <td style="padding: 4px 0; font-weight: 900; font-size: 13px; color: #6b21a8;">${po.poNumber || '-'}</td>
                             </tr>
                             <tr>
-                                <td style="padding: 4px 0; color: #64748b;"><b>PO Date:</b></td>
+                                <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>PO Date:</b></td>
                                 <td style="padding: 4px 0; font-weight: bold;">${new Date(po.date || po.createdAt || Date.now()).toLocaleDateString('en-GB')}</td>
                             </tr>
+                            ${resolvedMrp ? `
+                                <tr>
+                                    <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>MRP No:</b></td>
+                                    <td style="padding: 4px 0; font-weight: 800; font-size: 12px; color: #6b21a8; font-family: monospace;">${resolvedMrp}</td>
+                                </tr>
+                            ` : ''}
                             ${po.quotationNumber ? `
                                 <tr>
-                                    <td style="padding: 4px 0; color: #64748b;"><b>Ref Quotation:</b></td>
+                                    <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>Ref Quotation:</b></td>
                                     <td style="padding: 4px 0; font-weight: bold; color: #0e7490;">${po.quotationNumber}</td>
                                 </tr>
                             ` : ''}
                             ${po.rfqNumber ? `
                                 <tr>
-                                    <td style="padding: 4px 0; color: #64748b;"><b>Ref RFQ:</b></td>
+                                    <td style="padding: 4px 0; color: #64748b; white-space: nowrap;"><b>Ref RFQ:</b></td>
                                     <td style="padding: 4px 0; font-weight: bold; color: #0284c7;">${po.rfqNumber}</td>
                                 </tr>
                             ` : ''}
-                            <tr>
-                                <td style="padding: 4px 0; color: #64748b;"><b>PO Status:</b></td>
-                                <td style="padding: 4px 0; font-weight: bold; color: #16a34a;">${po.status || 'Released'}</td>
-                            </tr>
                         </table>
                     </td>
                 </tr>
@@ -1503,10 +1530,10 @@ export const generateFrontendPoPDF = (data: { po: any; vendor?: any; companyInfo
             </div>
 
             <!-- Special Instructions & Terms -->
-            ${po.remarks ? `
+            ${cleanedRemarks ? `
                 <div style="border: 1px solid #cbd5e1; padding: 10px; background: #fafafa; margin-bottom: 14px; font-size: 9.5px; line-height: 1.4; border-radius: 4px;">
                     <b style="color: #6b21a8;">Terms & Special Instructions:</b><br>
-                    ${po.remarks}
+                    ${cleanedRemarks}
                 </div>
             ` : ''}
 

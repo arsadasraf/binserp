@@ -70,7 +70,8 @@ import {
   getStockTransactions,
   getItemTransactionHistory,
   bulkImportMasters,
-  checkMasterDuplicates
+  checkMasterDuplicates,
+  searchStoreItems
 } from "../controllers/store/index.js";
 
 import {
@@ -116,6 +117,9 @@ router.put("/material-issue/:id", updateMaterialIssue);
 router.post("/bom", createBOM);
 router.get("/bom", getAllBOMs);
 router.put("/bom/:id", updateBOM);
+
+// Fast Keyword Search route
+router.get("/items/search", searchStoreItems);
 
 // Inventory routes
 router.post("/inventory", createInventory);

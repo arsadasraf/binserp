@@ -18,6 +18,7 @@ export const createPO = asyncHandler(async (req, res) => {
 
   const {
     poNumber, date, vendor, vendorName, quotation, quotationNumber, rfqNumber,
+    mrpPlanId, mrpNumber,
     items, material, component, materialName, quantity, unit, rate, amount, category, status,
     transportType, transportCharge, packingType, packingCharge, subtotal, totalTax, grandTotal, remarks, description,
     gstType, cgstAmount, sgstAmount, igstAmount
@@ -42,6 +43,8 @@ export const createPO = asyncHandler(async (req, res) => {
     quotation: isValidObjectId(quotation) ? quotation : undefined,
     quotationNumber,
     rfqNumber,
+    mrpPlanId: isValidObjectId(mrpPlanId) ? mrpPlanId : undefined,
+    mrpNumber: mrpNumber || undefined,
     description: description || '',
     transportType: transportType || 'Road Freight',
     transportCharge: transportCharge != null ? Number(transportCharge) : 0,

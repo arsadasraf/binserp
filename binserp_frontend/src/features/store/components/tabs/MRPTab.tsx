@@ -37,6 +37,47 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<any | null>(null);
+  const [currentTime, setCurrentTime] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getPlanLockStatus = (plan: any) => {
+    const createdAtMs = new Date(plan.createdAt || Date.now()).getTime();
+    const remainingMs = Math.max(0, (createdAtMs + 24 * 3600 * 1000) - currentTime);
+    const is24hExpired = remainingMs <= 0;
+    const hours = Math.floor(remainingMs / 3600000);
+    const minutes = Math.floor((remainingMs % 3600000) / 60000);
+    const seconds = Math.floor((remainingMs % 60000) / 1000);
+    const countdownText = `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s left`;
+
+    const hasTransactions = Boolean(
+      plan.hasTransactions || 
+      (plan.linkedPOCount && plan.linkedPOCount > 0) || 
+      (plan.rmRequirements || []).some((r: any) => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
+      (plan.boRequirements || []).some((b: any) => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
+      (plan.fgItems || []).some((f: any) => f.receivedQuantity && f.receivedQuantity > 0) ||
+      plan.status !== 'Planned' || 
+      plan.ppcStatus === 'Sent'
+    );
+
+    const canEdit = !is24hExpired && !hasTransactions;
+    const canDelete = !is24hExpired && !hasTransactions;
+
+    return {
+      remainingMs,
+      is24hExpired,
+      countdownText,
+      hasTransactions,
+      canEdit,
+      canDelete,
+      linkedPOCount: plan.linkedPOCount || 0
+    };
+  };
+
   const [selectedPlanForDetails, setSelectedPlanForDetails] = useState<any | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 
@@ -53,6 +94,8 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   // Store data for PO modal
   const [vendors, setVendors] = useState<any[]>([]);
   const [allMaterials, setAllMaterials] = useState<any[]>([]);
+  const [inHouseItems, setInHouseItems] = useState<any[]>([]);
+  const [priceLists, setPriceLists] = useState<any[]>([]);
 
   const token = propToken || (typeof window !== 'undefined' ? localStorage.getItem('token') || '' : '');
 
@@ -60,11 +103,13 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     if (!token) return;
     setLoading(true);
     try {
-      const [mrpRes, venRes, rmRes, boRes] = await Promise.all([
+      const [mrpRes, venRes, rmRes, boRes, fgRes, plRes] = await Promise.all([
         apiGet('/api/purchase/mrp/plans', token).catch(() => ({ mrpPlans: [] })),
         apiGet('/api/store/vendor', token).catch(() => []),
         apiGet('/api/store/raw-material', token).catch(() => []),
-        apiGet('/api/store/bought-out', token).catch(() => [])
+        apiGet('/api/store/bought-out', token).catch(() => []),
+        apiGet('/api/store/fg-item', token).catch(() => []),
+        apiGet('/api/purchase/price-list', token).catch(() => ({ data: [] }))
       ]);
 
       const plans = mrpRes.mrpPlans || [];
@@ -80,7 +125,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       setVendors(vList);
       const rmList = Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []);
       const boList = Array.isArray(boRes) ? boRes : (boRes?.boughtOuts || []);
-      setAllMaterials([...rmList, ...boList]);
+      const fgList = Array.isArray(fgRes) ? fgRes : (fgRes?.fgItems || []);
+      const plList = Array.isArray(plRes?.data) ? plRes.data : (Array.isArray(plRes) ? plRes : []);
+      setAllMaterials([...rmList, ...boList, ...fgList]);
+      setInHouseItems(fgList);
+      setPriceLists(plList);
     } catch (err: any) {
       console.error('Failed to fetch MRP data:', err);
       if (onError) onError(err.message || 'Failed to fetch MRP plans');
@@ -182,10 +231,27 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
   const handlePOSubmit = async (formData: any) => {
     try {
       await apiPost('/api/purchase/po', formData, token);
+
+      // If generated from an MRP plan, update the plan items status to "PO Raised"
+      const mrpPlanId = poInitialData?.mrpPlanId || selectedDemandPlan?._id;
+      if (mrpPlanId && formData.items && formData.items.length > 0) {
+        try {
+          await apiPut(`/api/purchase/mrp/plan/${mrpPlanId}/item-status`, {
+            items: formData.items.map((it: any) => ({
+              materialName: it.materialName,
+              status: "PO Raised"
+            })),
+            status: "PO Raised"
+          }, token);
+        } catch (e) {
+          console.warn("Could not sync item status to MRP Plan:", e);
+        }
+      }
+
       Swal.fire({
         icon: 'success',
         title: 'Purchase Order Created!',
-        text: `PO created successfully.`,
+        text: `PO ${formData.poNumber || ''} created successfully.`,
         timer: 2500
       });
       setIsPoModalOpen(false);
@@ -196,33 +262,53 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     }
   };
 
-  // Delete MRP Demand Plan with Safety Check
+  // Delete MRP Demand Plan with 24-Hour & Transaction Guard Check
   const handleDeletePlan = async (planId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const plan = mrpPlans.find((p) => p._id === planId) || selectedDemandPlan;
     if (!plan) return;
 
-    const isInProduction = plan.status === 'In Production' || plan.status === 'Partially Completed';
-    const isSentToPPC = plan.ppcStatus === 'Sent' || plan.status === 'In Production';
+    const lockStatus = getPlanLockStatus(plan);
 
-    let warningHtml = `<p class="text-xs text-slate-600 dark:text-slate-300">Are you sure you want to delete MRP Plan <strong>${plan.mrpNumber}</strong>?</p>`;
+    if (lockStatus.is24hExpired) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Deletion Locked (24h Expired)',
+        text: `MRP Plan ${plan.mrpNumber} was created more than 24 hours ago and can no longer be deleted.`,
+      });
+      return;
+    }
 
-    if (isInProduction || isSentToPPC) {
-      warningHtml = `
-        <div class="text-left space-y-2 text-xs">
-          <div class="p-2.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl text-amber-900 dark:text-amber-200">
-            <strong>⚠️ Caution: Active Production / PPC Link</strong>
-            <p class="mt-1">This MRP Demand Plan is currently <strong>${plan.status}</strong> and has active manufacturing operations routed to PPC or procurement.</p>
+    if (lockStatus.hasTransactions) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Deletion Locked (Transactions Active)',
+        html: `
+          <div class="text-left space-y-2 text-xs">
+            <p>Cannot delete MRP Plan <strong>${plan.mrpNumber}</strong> because transactions have already been generated:</p>
+            <ul class="list-disc pl-4 space-y-1 text-slate-600 dark:text-slate-300">
+              ${lockStatus.linkedPOCount > 0 ? `<li><strong>${lockStatus.linkedPOCount}</strong> Purchase Order(s) linked to this plan</li>` : ''}
+              ${plan.status !== 'Planned' ? `<li>Plan status has advanced to <strong>${plan.status}</strong></li>` : ''}
+              ${plan.ppcStatus === 'Sent' ? `<li>Manufacturing requirements routed to <strong>PPC</strong></li>` : ''}
+            </ul>
+            <p class="text-rose-600 font-bold mt-2">Plans with downstream transactions cannot be deleted to maintain data integrity.</p>
           </div>
-          <p class="text-rose-600 font-bold">Deleting this plan will remove all associated material breakdowns and may desynchronize active production jobs!</p>
-        </div>
-      `;
+        `
+      });
+      return;
     }
 
     const result = await Swal.fire({
-      title: isInProduction ? 'Warning: Plan in Production!' : 'Delete MRP Plan?',
-      html: warningHtml,
-      icon: isInProduction ? 'warning' : 'question',
+      title: 'Delete MRP Plan?',
+      html: `
+        <div class="text-left text-xs space-y-2">
+          <p class="text-slate-600 dark:text-slate-300">Are you sure you want to delete MRP Plan <strong>${plan.mrpNumber}</strong>?</p>
+          <div class="p-2.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-800 dark:text-emerald-300">
+            ⏳ <strong>24h Window Active:</strong> ${lockStatus.countdownText}
+          </div>
+        </div>
+      `,
+      icon: 'question',
       showCancelButton: true,
       confirmButtonColor: '#ef4444',
       cancelButtonColor: '#64748b',
@@ -352,7 +438,10 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   </button>
 
                   <button
-                    onClick={() => setIsCreateModalOpen(true)}
+                    onClick={() => {
+                      setEditingPlan(null);
+                      setIsCreateModalOpen(true);
+                    }}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                   >
                     <Plus size={14} /> Create MRP Plan
@@ -465,12 +554,12 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         <tr>
                           <th className="p-3.5">MRP Number</th>
                           <th className="p-3.5">Customer & Order Ref</th>
-                          <th className="p-3.5 text-center">Plan Date</th>
+                          <th className="p-3.5 text-center">Plan Date & User</th>
+                          <th className="p-3.5 text-center">24h Window / Lock Status</th>
                           <th className="p-3.5">Finished Goods (FG) Demand</th>
                           <th className="p-3.5 text-center">Total Order vs GRN Received</th>
-                          <th className="p-3.5 text-center">Procurement Status</th>
                           <th className="p-3.5 text-center">Plan Status</th>
-                          <th className="p-3.5 text-right">Action</th>
+                          <th className="p-3.5 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -483,11 +572,8 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           const totalReceived = fgItems.reduce((s: number, f: any) => s + (Number(f.receivedQuantity) || 0), 0);
                           const progressPct = totalTarget > 0 ? Math.min(100, Math.round((totalReceived / totalTarget) * 100)) : 0;
 
-                          const allChildMats = [...(plan.rmRequirements || []), ...(plan.boRequirements || [])];
-                          const shortagesCount = allChildMats.filter((m: any) => m.shortage > 0).length;
-                          const isProcurementFulfilled = shortagesCount === 0;
-
                           const formattedDate = plan.createdAt ? new Date(plan.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : "-";
+                          const lockStatus = getPlanLockStatus(plan);
 
                           return (
                             <tr 
@@ -510,9 +596,34 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 )}
                               </td>
 
-                              {/* Plan Date */}
-                              <td className="p-3.5 text-center font-medium text-slate-600 dark:text-slate-400">
-                                {formattedDate}
+                              {/* Plan Date & Audit (Created by / Edited by) */}
+                              <td className="p-3.5 text-center">
+                                <span className="font-medium text-slate-700 dark:text-slate-300 block">{formattedDate}</span>
+                                <div className="text-[10px] text-slate-500 mt-0.5">
+                                  By: <strong className="text-slate-700 dark:text-slate-200">{plan.createdByName || "Planner"}</strong>
+                                </div>
+                                {plan.updatedByName && (
+                                  <div className="text-[9.5px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
+                                    Edited: {plan.updatedByName}
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* 24h Countdown Window / Lock Status */}
+                              <td className="p-3.5 text-center min-w-[170px]">
+                                {lockStatus.hasTransactions ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200" title="Locked: Downstream transactions created against this MRP">
+                                    <ShieldCheck size={11} className="text-blue-600" /> Locked (Txns Active)
+                                  </span>
+                                ) : lockStatus.is24hExpired ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200" title="Locked: 24-hour edit/delete window has expired">
+                                    <Clock size={11} /> 24h Expired
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 shadow-2xs">
+                                    <Clock size={11} className="animate-spin text-emerald-600" /> ⏳ {lockStatus.countdownText}
+                                  </span>
+                                )}
                               </td>
 
                               {/* FG Demand Summary */}
@@ -527,7 +638,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                               </td>
 
                               {/* Target vs Received Progress */}
-                              <td className="p-3.5 text-center min-w-[160px]">
+                              <td className="p-3.5 text-center min-w-[150px]">
                                 <div className="flex justify-between items-center text-[10px] font-bold mb-1">
                                   <span className="text-teal-600">{totalReceived} / {totalTarget} Units</span>
                                   <span className="text-slate-400">{progressPct}%</span>
@@ -542,19 +653,6 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 </div>
                               </td>
 
-                              {/* Procurement Status */}
-                              <td className="p-3.5 text-center">
-                                {isProcurementFulfilled ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
-                                    <CheckCircle2 size={11} /> Fulfilled
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200">
-                                    <Clock size={11} /> {shortagesCount} Shortages
-                                  </span>
-                                )}
-                              </td>
-
                               {/* Plan Status */}
                               <td className="p-3.5 text-center">
                                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
@@ -567,18 +665,55 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                 </span>
                               </td>
 
-                              {/* Action: Open FG Explorer */}
+                              {/* Action Buttons: View, Edit, Delete */}
                               <td className="p-3.5 text-right">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedDemandPlan(plan);
-                                  }}
-                                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1 ml-auto cursor-pointer"
-                                >
-                                  <span>View FG Items</span>
-                                  <ChevronRight size={13} />
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => setSelectedDemandPlan(plan)}
+                                    className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1 cursor-pointer"
+                                    title="View FG Breakdown"
+                                  >
+                                    <span>View</span>
+                                    <ChevronRight size={13} />
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      if (!lockStatus.canEdit) {
+                                        Swal.fire({
+                                          icon: 'info',
+                                          title: 'Editing Locked',
+                                          text: lockStatus.hasTransactions
+                                            ? `Cannot edit MRP Plan ${plan.mrpNumber}: Downstream transactions have already been initiated.`
+                                            : `Cannot edit MRP Plan ${plan.mrpNumber}: The 24-hour edit window has expired.`
+                                        });
+                                        return;
+                                      }
+                                      setEditingPlan(plan);
+                                      setIsCreateModalOpen(true);
+                                    }}
+                                    className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                                      lockStatus.canEdit
+                                        ? 'border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950'
+                                        : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 cursor-not-allowed opacity-50'
+                                    }`}
+                                    title={lockStatus.canEdit ? "Edit MRP Plan" : "Edit locked"}
+                                  >
+                                    <Edit2 size={13} />
+                                  </button>
+
+                                  <button
+                                    onClick={(e) => handleDeletePlan(plan._id, e)}
+                                    className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                                      lockStatus.canDelete
+                                        ? 'border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900/60 dark:text-rose-400 dark:hover:bg-rose-950'
+                                        : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 cursor-not-allowed opacity-50'
+                                    }`}
+                                    title={lockStatus.canDelete ? "Delete MRP Plan" : "Deletion locked"}
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -621,11 +756,37 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         <span className="text-[10px] text-slate-400 font-mono">PO: {selectedDemandPlan.customerPoNumber}</span>
                       )}
                     </div>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1 flex-wrap">
+                      <span>Created by: <strong className="text-slate-700 dark:text-slate-200">{selectedDemandPlan.createdByName || "Planner"}</strong></span>
+                      {selectedDemandPlan.updatedByName && (
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">
+                          • Last Edited by: <strong className="font-bold">{selectedDemandPlan.updatedByName}</strong>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Plan Header Actions */}
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap w-full sm:w-auto justify-end">
+                  {/* Countdown or Locked Status Badge in Details Header */}
+                  {(() => {
+                    const lockStatus = getPlanLockStatus(selectedDemandPlan);
+                    return lockStatus.hasTransactions ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-blue-50 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200">
+                        <ShieldCheck size={12} className="text-blue-600" /> Locked (Txns Active)
+                      </span>
+                    ) : lockStatus.is24hExpired ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10.5px] font-bold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border border-slate-200">
+                        <Clock size={12} /> 24h Expired
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10.5px] font-mono font-extrabold bg-emerald-50 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                        <Clock size={12} className="animate-spin text-emerald-600" /> ⏳ {lockStatus.countdownText}
+                      </span>
+                    );
+                  })()}
+
                   <button
                     onClick={() => {
                       setDrawerPlanId(selectedDemandPlan._id);
@@ -645,13 +806,55 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                     <span>Details & GRN</span>
                   </button>
 
-                  <button
-                    onClick={(e) => handleDeletePlan(selectedDemandPlan._id, e)}
-                    className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950 rounded-lg transition-colors cursor-pointer"
-                    title="Delete Plan"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {/* Edit Plan Button */}
+                  {(() => {
+                    const lockStatus = getPlanLockStatus(selectedDemandPlan);
+                    return (
+                      <button
+                        onClick={() => {
+                          if (!lockStatus.canEdit) {
+                            Swal.fire({
+                              icon: 'info',
+                              title: 'Editing Locked',
+                              text: lockStatus.hasTransactions
+                                ? `Cannot edit MRP Plan ${selectedDemandPlan.mrpNumber}: Downstream transactions have already been initiated.`
+                                : `Cannot edit MRP Plan ${selectedDemandPlan.mrpNumber}: The 24-hour edit window has expired.`
+                            });
+                            return;
+                          }
+                          setEditingPlan(selectedDemandPlan);
+                          setIsCreateModalOpen(true);
+                        }}
+                        className={`px-3 py-1.5 rounded-xl border font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer ${
+                          lockStatus.canEdit
+                            ? 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300'
+                            : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 cursor-not-allowed opacity-50'
+                        }`}
+                        title={lockStatus.canEdit ? "Edit MRP Plan" : "Editing locked"}
+                      >
+                        <Edit2 size={13} />
+                        <span>Edit</span>
+                      </button>
+                    );
+                  })()}
+
+                  {/* Delete Plan Button */}
+                  {(() => {
+                    const lockStatus = getPlanLockStatus(selectedDemandPlan);
+                    return (
+                      <button
+                        onClick={(e) => handleDeletePlan(selectedDemandPlan._id, e)}
+                        className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                          lockStatus.canDelete
+                            ? 'border-rose-200 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950'
+                            : 'border-slate-200 text-slate-300 dark:border-slate-800 dark:text-slate-600 cursor-not-allowed opacity-50'
+                        }`}
+                        title={lockStatus.canDelete ? "Delete Plan" : "Deletion locked"}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -788,13 +991,21 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
         />
       )}
 
-      {/* MRP Create Modal */}
+      {/* MRP Create / Edit Modal */}
       {isCreateModalOpen && (
         <MRPModal
           isOpen={isCreateModalOpen}
-          onClose={() => setIsCreateModalOpen(false)}
-          onSuccess={fetchData}
+          onClose={() => {
+            setIsCreateModalOpen(false);
+            setEditingPlan(null);
+          }}
+          onSuccess={() => {
+            fetchData();
+            setIsCreateModalOpen(false);
+            setEditingPlan(null);
+          }}
           token={token}
+          initialData={editingPlan}
         />
       )}
 
@@ -832,6 +1043,8 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
           onSubmit={handlePOSubmit}
           materials={allMaterials as any}
           vendors={vendors as any}
+          inHouseItems={inHouseItems as any}
+          priceLists={priceLists as any}
           initialData={poInitialData}
         />
       )}

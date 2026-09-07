@@ -267,49 +267,97 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
 
     // Map Consumable master data to inventory format (O(N) with Map lookup)
     const mappedConsumableInventory = useMemo(() => {
-        if (!consumables || consumables.length === 0) return [];
-        return consumables.map((c: any) => {
-            const invItem = inventoryLookups.findItem(c);
+        const list: any[] = [];
+        const seenIds = new Set<string>();
 
-            const currentStock = invItem 
-                ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) 
-                : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
+        if (Array.isArray(consumables) && consumables.length > 0) {
+            consumables.forEach((c: any) => {
+                if (!c) return;
+                const invItem = inventoryLookups.findItem(c);
+                const idKey = String(c._id);
+                seenIds.add(idKey);
+                if (invItem?._id) seenIds.add(String(invItem._id));
 
-            const qcPending = invItem?.qcPendingStock || 0;
+                const currentStock = invItem 
+                    ? (invItem.currentStock !== undefined ? invItem.currentStock : (invItem.quantity || 0)) 
+                    : (c.currentStock !== undefined ? c.currentStock : (c.quantity || 0));
 
-            return {
-                ...c,
-                _id: invItem?._id || c._id,
-                materialId: c,
-                materialName: c.name,
-                materialCode: c.code || invItem?.materialCode || 'N/A',
-                itemType: 'Consumable',
-                description: c.descriptions || c.description || invItem?.description || '-',
-                descriptions: c.descriptions || c.description || invItem?.description || '-',
-                currentStock,
-                qcPendingStock: qcPending,
-                reorderLevel: c.minimumStock !== undefined ? c.minimumStock : (invItem?.reorderLevel || 0),
-                unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
-                category: c.categoryId,
-                location: c.locationId,
-                monthlyData: invItem?.monthlyData ? {
-                    openingStock: invItem.monthlyData.openingStock || 0,
-                    totalInwardQuantity: invItem.monthlyData.totalInwardQuantity || invItem.monthlyData.received || 0,
-                    totalOutwardQuantity: invItem.monthlyData.totalOutwardQuantity || invItem.monthlyData.issued || 0,
-                    received: invItem.monthlyData.received || invItem.monthlyData.totalInwardQuantity || 0,
-                    issued: invItem.monthlyData.issued || invItem.monthlyData.totalOutwardQuantity || 0,
-                    closingStock: invItem.monthlyData.closingStock || currentStock || 0
-                } : {
-                    openingStock: 0,
-                    totalInwardQuantity: 0,
-                    totalOutwardQuantity: 0,
-                    received: 0,
-                    issued: 0,
-                    closingStock: currentStock || 0
+                const qcPending = invItem?.qcPendingStock || 0;
+
+                list.push({
+                    ...c,
+                    _id: invItem?._id || c._id,
+                    materialId: c,
+                    materialName: c.name,
+                    materialCode: c.code || invItem?.materialCode || 'N/A',
+                    itemType: 'Consumable',
+                    description: c.descriptions || c.description || invItem?.description || '-',
+                    descriptions: c.descriptions || c.description || invItem?.description || '-',
+                    currentStock,
+                    qcPendingStock: qcPending,
+                    reorderLevel: c.minimumStock !== undefined ? c.minimumStock : (invItem?.reorderLevel || 0),
+                    unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                    category: c.categoryId,
+                    location: c.locationId,
+                    monthlyData: invItem?.monthlyData ? {
+                        openingStock: invItem.monthlyData.openingStock || 0,
+                        totalInwardQuantity: invItem.monthlyData.totalInwardQuantity || invItem.monthlyData.received || 0,
+                        totalOutwardQuantity: invItem.monthlyData.totalOutwardQuantity || invItem.monthlyData.issued || 0,
+                        received: invItem.monthlyData.received || invItem.monthlyData.totalInwardQuantity || 0,
+                        issued: invItem.monthlyData.issued || invItem.monthlyData.totalOutwardQuantity || 0,
+                        closingStock: invItem.monthlyData.closingStock || currentStock || 0
+                    } : {
+                        openingStock: 0,
+                        totalInwardQuantity: 0,
+                        totalOutwardQuantity: 0,
+                        received: 0,
+                        issued: 0,
+                        closingStock: currentStock || 0
+                    }
+                });
+            });
+        }
+
+        // Also add any inventory items tagged as Consumable that weren't in the consumables master list
+        if (Array.isArray(combinedInventoryList)) {
+            combinedInventoryList.forEach((inv: any) => {
+                if (!inv) return;
+                const type = (inv.itemType || '').toString().trim().toLowerCase();
+                if (type === 'consumable' || type === 'consumables') {
+                    const invId = String(inv._id);
+                    const matId = inv.materialId ? String(typeof inv.materialId === 'object' ? inv.materialId._id : inv.materialId) : null;
+                    if (!seenIds.has(invId) && (!matId || !seenIds.has(matId))) {
+                        seenIds.add(invId);
+                        if (matId) seenIds.add(matId);
+                        list.push({
+                            ...inv,
+                            materialName: inv.materialName || inv.name,
+                            materialCode: inv.materialCode || inv.code || 'N/A',
+                            itemType: 'Consumable',
+                            description: inv.descriptions || inv.description || '-',
+                            descriptions: inv.descriptions || inv.description || '-',
+                            currentStock: inv.currentStock !== undefined ? inv.currentStock : (inv.quantity || 0),
+                            qcPendingStock: inv.qcPendingStock || 0,
+                            reorderLevel: inv.reorderLevel || 0,
+                            unit: inv.unit || 'PCS',
+                            category: inv.categoryId || inv.category,
+                            location: inv.locationId || inv.location,
+                            monthlyData: inv.monthlyData || {
+                                openingStock: 0,
+                                totalInwardQuantity: 0,
+                                totalOutwardQuantity: 0,
+                                received: 0,
+                                issued: 0,
+                                closingStock: inv.currentStock || 0
+                            }
+                        });
+                    }
                 }
-            };
-        });
-    }, [consumables, inventoryLookups]);
+            });
+        }
+
+        return list;
+    }, [consumables, combinedInventoryList, inventoryLookups]);
 
     // Active materials for GRN modal
     const activeGrnMaterials = useMemo(() => {

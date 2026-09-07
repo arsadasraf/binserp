@@ -184,6 +184,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const code = comp.code || comp.componentCode || "";
     const qty = Number(comp.quantity ?? comp.currentStock ?? 0);
     const info = {
+      materialId: comp._id,
       name,
       code,
       currentStock: qty,
@@ -201,6 +202,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const code = fg.code || fg.itemCode || "";
     const qty = Number(fg.stock ?? fg.currentStock ?? fg.quantity ?? 0);
     const info = {
+      materialId: fg._id,
       name,
       code,
       currentStock: qty,
@@ -215,6 +217,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   // Populate RM Stock
   rmStock.forEach(rm => {
     const info = {
+      materialId: rm._id,
       name: rm.name,
       code: rm.code,
       currentStock: Number(rm.currentStock || 0),
@@ -230,6 +233,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
   // Populate BO Stock
   boStock.forEach(bo => {
     const info = {
+      materialId: bo._id,
       name: bo.name,
       code: bo.code,
       currentStock: Number(bo.currentStock || 0),
@@ -247,6 +251,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const catName = item.categoryId?.name || "";
     const isRM = (item.itemType || "").toLowerCase() === "raw material" || catName.toLowerCase().includes("raw");
     const info = {
+      materialId: item._id,
       name: item.name,
       code: item.code,
       currentStock: Number(item.currentStock || item.minimumStock || 0),
@@ -408,6 +413,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     const netShortage = Math.max(0, reqQty - currentLiveStock - inTransitInfo.totalInTransit);
 
     return {
+      materialId: stockInfo.materialId || undefined,
       materialKey: cKey || nKey || cleanKey(name),
       materialName: name,
       materialCode: code || stockInfo.code || "",
@@ -684,9 +690,15 @@ export const bulkGeneratePOFromMRP = asyncHandler(async (req, res) => {
     const taxAmount = (subTotal * taxRate) / 100;
     const grandTotal = subTotal + taxAmount;
 
+    const firstMrpSource = vItems[0]?.mrpSources?.[0];
+    const firstMrpNumber = vItems[0]?.sourceMRPs?.[0] || firstMrpSource?.mrpNumber;
+    const firstMrpPlanId = firstMrpSource?.mrpPlanId;
+
     const newPO = await PurchaseOrder.create({
       company: companyId,
       poNumber,
+      mrpNumber: firstMrpNumber || undefined,
+      mrpPlanId: firstMrpPlanId || undefined,
       vendor: vendorId,
       vendorName,
       vendorAddress: vendorDoc?.billingAddress || vendorDoc?.address || "",

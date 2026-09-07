@@ -85,6 +85,14 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
             <p className="text-xs text-indigo-200 mt-0.5">
               Customer: <strong>{mrpPlan.customerName || "Internal Production"}</strong>
               {mrpPlan.customerPoNumber && <span> • PO: <strong>{mrpPlan.customerPoNumber}</strong></span>}
+              <span className="ml-2 pl-2 border-l border-indigo-400/40">
+                Created by: <strong>{mrpPlan.createdByName || "Planner"}</strong>
+                {mrpPlan.updatedByName && (
+                  <span className="text-amber-300 ml-2">
+                    • Edited by: <strong>{mrpPlan.updatedByName}</strong>
+                  </span>
+                )}
+              </span>
             </p>
           </div>
 

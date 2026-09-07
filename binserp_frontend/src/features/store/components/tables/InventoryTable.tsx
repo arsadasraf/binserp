@@ -100,8 +100,9 @@ export default function InventoryTable({
             const currentDate = new Date();
             const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
 
-            const endpoint = activeSubTab === 'bo' ? '/api/store/monthly-inventory/rm' : '/api/store/monthly-inventory/fg';
-            const payload = activeSubTab === 'bo' ? {
+            const isRmOrBoOrConsumable = activeSubTab === 'bo' || activeSubTab === 'rm' || activeSubTab === 'consumable';
+            const endpoint = isRmOrBoOrConsumable ? '/api/store/monthly-inventory/rm' : '/api/store/monthly-inventory/fg';
+            const payload = isRmOrBoOrConsumable ? {
                 materialId: item.material || item._id,
                 month: currentMonthStr,
                 openingStock: editingStockValue

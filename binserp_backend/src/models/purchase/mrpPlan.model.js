@@ -149,6 +149,23 @@ export const mrpPlanSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    updatedByName: {
+      type: String,
+      default: "",
+    },
+    editHistory: [
+      {
+        updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        updatedByName: String,
+        updatedAt: { type: Date, default: Date.now },
+        action: { type: String, default: "Edited" },
+        remarks: String,
+      },
+    ],
   },
   { timestamps: true }
 );
