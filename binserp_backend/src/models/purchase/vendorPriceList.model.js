@@ -28,6 +28,10 @@ export const vendorPriceListSchema = new mongoose.Schema(
     },
     validFrom: Date,
     validUntil: Date,
+    isPreferred: {
+      type: Boolean,
+      default: false,
+    },
     remarks: String,
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

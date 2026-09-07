@@ -167,6 +167,7 @@ export default function FGItemForm({
             newBOM[idx].itemName = foundName;
             newBOM[idx].itemDescription = foundDesc;
             newBOM[idx].itemClassification = foundClassification;
+            newBOM[idx].fgType = foundClassification;
             newBOM[idx].itemRevision = foundRevision;
             newBOM[idx].unit = foundUnit;
         }
@@ -236,12 +237,13 @@ export default function FGItemForm({
                 const name = (f.name || '').trim();
                 const desc = (f.description || f.descriptions || '').trim();
                 const type = f.type || 'Component';
+                const isSubAssy = type === 'Sub Assembly';
                 const rev = f.revisionNumber ? `Rev: ${f.revisionNumber}` : 'No Rev';
                 return {
                     value: val,
                     label: name,
                     description: desc || undefined,
-                    badge: type,
+                    badge: isSubAssy ? 'FG Sub-Assembly' : `FG ${type}`,
                     subBadge: rev
                 };
             }).filter(Boolean) as SearchableOption[];
@@ -292,7 +294,9 @@ export default function FGItemForm({
 
     // Helper to get classification type for selected BOM item (if FG)
     const getSelectedItemClassification = (bItem: any) => {
+        if (bItem.fgType) return bItem.fgType;
         if (bItem.itemClassification) return bItem.itemClassification;
+        if (typeof bItem.item === 'object' && bItem.item !== null && bItem.item.type) return bItem.item.type;
         const itemId = typeof bItem.item === 'object' && bItem.item !== null ? (bItem.item._id || bItem.item.id) : bItem.item;
         if (!itemId) return '';
         const found = fgItems.find((f: any) => (f._id || f.id)?.toString() === itemId.toString());
@@ -662,6 +666,19 @@ export default function FGItemForm({
                                                     FG / Sub-Assy
                                                 </button>
                                             </div>
+
+                                            {/* Prominent FG Type / Sub-Assembly Badge */}
+                                            {currentType === 'FGItem' && (
+                                                <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-extrabold border ${
+                                                    selectedClassification === 'Sub Assembly'
+                                                        ? 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-300'
+                                                        : selectedClassification === 'Assembly'
+                                                        ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-300'
+                                                        : 'bg-sky-100 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-300'
+                                                }`}>
+                                                    {selectedClassification === 'Sub Assembly' ? '🧩 FG Sub-Assembly' : selectedClassification === 'Assembly' ? '🏆 FG Assembly' : '⚙️ FG Component'}
+                                                </span>
+                                            )}
                                         </div>
 
                                         <button
@@ -734,7 +751,7 @@ export default function FGItemForm({
                                                         ? 'bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
                                                         : 'bg-sky-100 dark:bg-sky-950/70 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
                                                 }`}>
-                                                    Type: {selectedClassification}
+                                                    {selectedClassification === 'Sub Assembly' ? '🧩 FG Sub-Assembly' : `Type: ${selectedClassification}`}
                                                 </span>
                                             )}
                                             <span className="px-2 py-0.5 text-[10px] font-mono font-bold rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">

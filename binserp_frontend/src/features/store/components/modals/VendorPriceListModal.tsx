@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react";
 import { X, Save, AlertCircle, Layers, Tag } from "lucide-react";
 import SearchableSelect from "../SearchableSelect";
 import { apiGet } from "@/src/lib/api";
+import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
 
 interface VendorPriceListModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ interface VendorPriceListModalProps {
   rawMaterials?: any[];
   boughtOuts?: any[];
   consumables?: any[];
+  vendors?: any[];
 }
 
 export default function VendorPriceListModal({
@@ -20,26 +22,31 @@ export default function VendorPriceListModal({
   onClose,
   onSubmit,
   initialData,
+  materials: propMaterials,
   rawMaterials: propRawMaterials,
   boughtOuts: propBoughtOuts,
   consumables: propConsumables,
+  vendors: propVendors,
 }: VendorPriceListModalProps) {
   const [itemType, setItemType] = useState<'rm' | 'bo' | 'consumable'>('rm');
   const [formData, setFormData] = useState({
     material: "",
+    vendor: "",
     price: "",
     taxRate: "18",
+    isPreferred: false,
     remarks: "",
   });
 
   const [rawMaterialsList, setRawMaterialsList] = useState<any[]>([]);
   const [boughtOutsList, setBoughtOutsList] = useState<any[]>([]);
   const [consumablesList, setConsumablesList] = useState<any[]>([]);
+  const [vendorsList, setVendorsList] = useState<any[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Fetch 3 separate inventory feeds if not passed
+  // Fetch feeds if not passed
   useEffect(() => {
     if (isOpen) {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -68,8 +75,16 @@ export default function VendorPriceListModal({
           .then(res => setConsumablesList(Array.isArray(res) ? res : (res?.consumables || res?.consumableItems || [])))
           .catch(() => setConsumablesList([]));
       }
+
+      if (propVendors && propVendors.length > 0) {
+        setVendorsList(propVendors);
+      } else {
+        apiGet('/api/store/vendor', token)
+          .then(res => setVendorsList(Array.isArray(res) ? res : (res?.vendors || res?.data || [])))
+          .catch(() => setVendorsList([]));
+      }
     }
-  }, [isOpen, propRawMaterials, propBoughtOuts, propConsumables]);
+  }, [isOpen, propRawMaterials, propBoughtOuts, propConsumables, propVendors]);
 
   useEffect(() => {
     if (isOpen) {
@@ -81,15 +96,19 @@ export default function VendorPriceListModal({
         }
         setFormData({
           material: matId,
+          vendor: initialData.vendor?._id || initialData.vendor || "",
           price: initialData.price?.toString() || "",
           taxRate: initialData.taxRate?.toString() || "18",
+          isPreferred: Boolean(initialData.isPreferred),
           remarks: initialData.remarks || "",
         });
       } else {
         setFormData({
           material: "",
+          vendor: "",
           price: "",
           taxRate: "18",
+          isPreferred: false,
           remarks: "",
         });
       }
@@ -99,15 +118,45 @@ export default function VendorPriceListModal({
 
   const activeMaterialOptions = useMemo(() => {
     let list: any[] = [];
-    if (itemType === 'rm') list = rawMaterialsList;
-    else if (itemType === 'bo') list = boughtOutsList;
-    else if (itemType === 'consumable') list = consumablesList;
+    if (itemType === 'rm') {
+      list = rawMaterialsList;
+      if ((!list || list.length === 0) && Array.isArray(propMaterials)) {
+        list = propMaterials.filter(m => {
+          const t = (m.type || m.itemType || m.category?.name || '').toLowerCase();
+          return !t.includes('bought') && !t.includes('bo') && !t.includes('consumable');
+        });
+      }
+    } else if (itemType === 'bo') {
+      list = boughtOutsList;
+      if ((!list || list.length === 0) && Array.isArray(propMaterials)) {
+        list = propMaterials.filter(m => {
+          const t = (m.type || m.itemType || m.category?.name || '').toLowerCase();
+          return t.includes('bought') || t.includes('bo');
+        });
+      }
+    } else if (itemType === 'consumable') {
+      list = consumablesList;
+      if ((!list || list.length === 0) && Array.isArray(propMaterials)) {
+        list = propMaterials.filter(m => {
+          const t = (m.type || m.itemType || m.category?.name || '').toLowerCase();
+          return t.includes('consumable');
+        });
+      }
+    }
 
     return (Array.isArray(list) ? list : []).map(m => ({
       value: m._id,
-      label: `${m.name || 'Unnamed'} ${m.code ? `(${m.code})` : ''}`
+      label: formatItemSelectLabel(m),
+      description: getItemDescription(m)
     }));
-  }, [itemType, rawMaterialsList, boughtOutsList, consumablesList]);
+  }, [itemType, rawMaterialsList, boughtOutsList, consumablesList, propMaterials]);
+
+  const vendorOptions = useMemo(() => {
+    return (Array.isArray(vendorsList) ? vendorsList : []).map(v => ({
+      value: v._id,
+      label: `${v.name || 'Vendor'} ${v.code ? `(${v.code})` : ''}`
+    }));
+  }, [vendorsList]);
 
   if (!isOpen) return null;
 
@@ -123,8 +172,10 @@ export default function VendorPriceListModal({
       setError("");
       await onSubmit({
         material: formData.material,
+        vendor: formData.vendor || undefined,
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
+        isPreferred: Boolean(formData.isPreferred),
         remarks: formData.remarks,
       });
     } catch (err: any) {
@@ -220,7 +271,10 @@ export default function VendorPriceListModal({
               </label>
               {initialData?.material?.name ? (
                 <div className="w-full px-3.5 py-2 bg-gray-50 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 rounded-xl text-xs text-gray-900 dark:text-gray-100 font-medium">
-                  {initialData.material.name} {initialData.material.code ? `(${initialData.material.code})` : ''}
+                  <div className="font-bold">{initialData.material.name}</div>
+                  {getItemDescription(initialData.material) && (
+                    <div className="text-[11px] text-slate-500 italic mt-0.5">{getItemDescription(initialData.material)}</div>
+                  )}
                 </div>
               ) : (
                 <SearchableSelect
@@ -230,6 +284,38 @@ export default function VendorPriceListModal({
                   placeholder={`Select ${itemType === 'rm' ? 'Raw Material' : itemType === 'bo' ? 'Bought Out Item' : 'Consumable'}...`}
                 />
               )}
+            </div>
+
+            {/* Vendor Searchable Dropdown */}
+            <div>
+              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
+                Vendor / Supplier
+              </label>
+              <SearchableSelect
+                options={vendorOptions}
+                value={formData.vendor}
+                onChange={(val: any) => setFormData(prev => ({ ...prev, vendor: val }))}
+                placeholder="Select Vendor / Supplier..."
+              />
+            </div>
+
+            {/* Set as Preferred Supplier Checkbox */}
+            <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 rounded-xl flex items-start gap-2.5">
+              <input
+                type="checkbox"
+                id="isPreferredVendor"
+                checked={formData.isPreferred}
+                onChange={(e) => setFormData({ ...formData, isPreferred: e.target.checked })}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 mt-0.5 cursor-pointer"
+              />
+              <label htmlFor="isPreferredVendor" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                  ⭐ Set as Preferred Supplier for this Material
+                </span>
+                <span className="text-[11px] text-slate-500 block mt-0.5">
+                  Procurement Workbench and Auto-PO will prioritize this vendor when generating Purchase Orders.
+                </span>
+              </label>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

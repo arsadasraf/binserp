@@ -850,7 +850,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                             activeFGSearchIdx === idx
                                                                 ? fgSearchQuery
                                                                 : row.fgItemName
-                                                                ? `${row.fgItemName} ${row.fgItemCode ? `(${row.fgItemCode})` : ''}`
+                                                                ? `${row.fgItemName}${row.description ? ` - ${row.description}` : ''}`
                                                                 : ''
                                                         }
                                                         onFocus={() => {
@@ -908,8 +908,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                                             <span className="font-bold text-slate-900 dark:text-white block">
                                                                                 {fg.name}
                                                                             </span>
-                                                                            <span className="text-[10px] text-slate-400 font-mono">
-                                                                                Code: {fg.code || 'N/A'} • Unit: {fg.unit || 'PCS'}
+                                                                            <span className="text-[10px] text-slate-400">
+                                                                                {(fg.description || fg.descriptions) ? `${fg.description || fg.descriptions} • ` : ''}Unit: {fg.unit || 'PCS'}
                                                                             </span>
                                                                         </div>
                                                                         <span

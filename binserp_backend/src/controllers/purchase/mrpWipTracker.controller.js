@@ -92,8 +92,8 @@ export const getMRP360WipTracker = asyncHandler(async (req, res) => {
   });
 
   const plannedMaterials = [
-    ...(mrpPlan.rmRequirements || []).map(r => ({ materialName: r.materialName, materialCode: r.materialCode, requiredQty: r.requiredQuantity, unit: r.unit, type: "RM" })),
-    ...(mrpPlan.boRequirements || []).map(r => ({ materialName: r.materialName, materialCode: r.materialCode, requiredQty: r.requiredQuantity, unit: r.unit, type: "BO" }))
+    ...(mrpPlan.rmRequirements || []).map(r => ({ materialName: r.materialName, materialCode: r.materialCode, description: r.description || "", requiredQty: r.requiredQuantity, unit: r.unit, type: "RM" })),
+    ...(mrpPlan.boRequirements || []).map(b => ({ materialName: b.materialName, materialCode: b.materialCode, description: b.description || "", requiredQty: b.requiredQuantity, unit: b.unit, type: "BO" }))
   ];
 
   let totalMaterialRequired = 0;
@@ -112,6 +112,7 @@ export const getMRP360WipTracker = asyncHandler(async (req, res) => {
     return {
       materialName: pm.materialName,
       materialCode: pm.materialCode,
+      description: pm.description || "",
       itemType: pm.type,
       requiredQuantity: pm.requiredQty,
       issuedQuantity: issuedData.issuedQuantity,

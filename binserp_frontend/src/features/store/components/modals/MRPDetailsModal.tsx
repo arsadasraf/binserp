@@ -157,7 +157,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-700">
                   <tr>
-                    <th className="p-3">FG Item Name & Code</th>
+                    <th className="p-3">FG Item Name & Description</th>
                     <th className="p-3 text-center">BOM Ref</th>
                     <th className="p-3 text-center">Order Target</th>
                     <th className="p-3 text-center">FG GRN Received</th>
@@ -176,7 +176,7 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
                       <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                         <td className="p-3">
                           <strong className="text-slate-900 dark:text-white block">{fg.fgItemName}</strong>
-                          {fg.fgItemCode && <span className="font-mono text-[10px] text-slate-400">{fg.fgItemCode}</span>}
+                          {fg.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{fg.description}</span>}
                         </td>
                         <td className="p-3 text-center font-mono text-[10px] text-slate-500">
                           {fg.bomNumber || "BOM-Active"}

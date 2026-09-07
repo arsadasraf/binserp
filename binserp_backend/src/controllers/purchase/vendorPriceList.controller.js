@@ -12,10 +12,18 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);
 
-  const { vendor, material, price, taxRate, validFrom, validUntil, remarks } = req.body;
+  const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred } = req.body;
 
   if (!material) {
     throw new ApiError(400, "Material is required");
+  }
+
+  // If this entry is marked preferred, unset preferred flag on other entries for the same material
+  if (isPreferred) {
+    await VendorPriceList.updateMany(
+      { company: companyId, material },
+      { $set: { isPreferred: false } }
+    );
   }
 
   const query = { material, company: companyId };
@@ -31,6 +39,7 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
     if (validFrom !== undefined) existingPriceList.validFrom = validFrom;
     if (validUntil !== undefined) existingPriceList.validUntil = validUntil;
     if (remarks !== undefined) existingPriceList.remarks = remarks;
+    if (isPreferred !== undefined) existingPriceList.isPreferred = Boolean(isPreferred);
     
     await existingPriceList.save();
     return res.status(200).json(new ApiResponse(200, existingPriceList, "Price List updated successfully"));
@@ -44,6 +53,7 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
     taxRate,
     validFrom,
     validUntil,
+    isPreferred: Boolean(isPreferred),
     remarks,
     createdBy: req.user?.id || req.user?._id,
   });
@@ -62,7 +72,7 @@ export const getVendorPriceLists = asyncHandler(async (req, res) => {
 
   const priceLists = await VendorPriceList.find({ company: companyId })
     .populate('vendor', 'name code')
-    .populate('material', 'name code unit category')
+    .populate('material', 'name code unit category descriptions description specification')
     .sort({ createdAt: -1 });
 
   return res.status(200).json(new ApiResponse(200, priceLists, "Vendor Price Lists fetched successfully"));
@@ -72,6 +82,16 @@ export const updateVendorPriceList = asyncHandler(async (req, res) => {
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const { id } = req.params;
   const companyId = getCompanyId(req);
+
+  if (req.body.isPreferred) {
+    const existing = await VendorPriceList.findOne({ _id: id, company: companyId });
+    if (existing) {
+      await VendorPriceList.updateMany(
+        { company: companyId, material: existing.material, _id: { $ne: id } },
+        { $set: { isPreferred: false } }
+      );
+    }
+  }
 
   const updatedPriceList = await VendorPriceList.findOneAndUpdate(
     { _id: id, company: companyId },

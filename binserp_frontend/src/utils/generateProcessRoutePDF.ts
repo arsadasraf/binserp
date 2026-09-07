@@ -14,6 +14,8 @@ export interface ProcessRoutePDFData {
       item?: any;
       itemName?: string;
       itemType?: string;
+      fgType?: string;
+      itemClassification?: string;
       quantity?: number;
       unit?: string;
     }>;
@@ -126,9 +128,10 @@ export const generateProcessRoutePDF = (data: ProcessRoutePDFData) => {
     doc.text(item.name || "N/A", 52, startY + 6);
 
     doc.setFont("helvetica", "bold");
-    doc.text("Item Code:", 18, startY + 12);
+    doc.text("Description:", 18, startY + 12);
     doc.setFont("helvetica", "normal");
-    doc.text(item.code || "N/A", 52, startY + 12);
+    const descText = item.description || "N/A";
+    doc.text(descText.length > 35 ? descText.substring(0, 32) + "..." : descText, 52, startY + 12);
 
     doc.setFont("helvetica", "bold");
     doc.text("Item Type:", 18, startY + 18);
@@ -322,13 +325,27 @@ export const generateProcessRoutePDF = (data: ProcessRoutePDFData) => {
       doc.text("3. BILL OF MATERIALS (BOM)", 14, currentY + 3);
 
       const bomHeaders = ["#", "Item Name", "Item Type", "Required Qty / Piece", "Unit"];
-      const bomRows = bom.map((b, idx) => [
-        idx + 1,
-        b.item?.name || b.itemName || "Material",
-        b.itemType || "Material",
-        b.quantity || 1,
-        b.unit || "Nos",
-      ]);
+      const bomRows = bom.map((b, idx) => {
+        const rawType = (b.itemType || '').toString().toLowerCase();
+        const fgType = b.fgType || b.itemClassification || b.item?.type;
+        const name = (b.itemName || b.item?.name || '').toLowerCase();
+        let typeStr = 'RM';
+        if (rawType.includes('fg') || rawType === 'fgitem') {
+          if (fgType === 'Sub Assembly' || name.includes('sub')) typeStr = 'FG Sub-Assembly';
+          else if (fgType === 'Component') typeStr = 'FG Component';
+          else if (fgType === 'Assembly') typeStr = 'FG Assembly';
+          else typeStr = 'FG Sub-Assembly';
+        } else if (rawType.includes('bought') || rawType === 'bo') {
+          typeStr = 'BO';
+        }
+        return [
+          idx + 1,
+          b.item?.name || b.itemName || "Material",
+          typeStr,
+          b.quantity || 1,
+          b.unit || "Nos",
+        ];
+      });
 
       autoTable(doc, {
         startY: currentY + 6,

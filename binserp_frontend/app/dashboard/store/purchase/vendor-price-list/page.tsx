@@ -54,6 +54,10 @@ export default function PurchaseVendorPriceListPage() {
         <VendorPriceListModal
           isOpen={showModal}
           materials={materials || []}
+          rawMaterials={rawMaterials || []}
+          boughtOuts={boughtOuts || []}
+          consumables={consumables || []}
+          vendors={vendors || []}
           onClose={() => { setShowModal(false); setEditingItem(null); }}
           onSubmit={async (formData) => {
             if (editingItem && editingItem._id) {

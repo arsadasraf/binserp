@@ -15,6 +15,15 @@ const fgBOMItemSchema = new mongoose.Schema({
   itemName: { type: String, required: true },
   quantity: { type: Number, required: true },
   unit: { type: String, default: "Nos" },
+  fgType: {
+    type: String,
+    enum: ["Component", "Sub Assembly", "Assembly"],
+    default: undefined,
+  },
+  itemClassification: {
+    type: String,
+    default: undefined,
+  },
 });
 
 export const fgItemSchema = new mongoose.Schema(

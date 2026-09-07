@@ -171,7 +171,9 @@ export default function FinishedGoodsPage() {
             item: itemId,
             itemName: bItem.itemName || '',
             quantity: Number(bItem.quantity) || 1,
-            unit: bItem.unit || 'Nos'
+            unit: bItem.unit || 'Nos',
+            fgType: bItem.fgType || bItem.itemClassification || undefined,
+            itemClassification: bItem.itemClassification || bItem.fgType || undefined
           };
         }).filter((b: any) => b.item && b.itemName);
         submitData.append('bom', JSON.stringify(cleanedBOM));

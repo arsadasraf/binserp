@@ -349,11 +349,43 @@ export const generateMasterRecordPDF = ({ masterTab, item, companyInfo }: Genera
         let bomRowsHtml = '';
         if (bomItems.length > 0) {
             bomItems.forEach((b: any, idx: number) => {
+                const rawType = (b.itemType || '').toString().toLowerCase();
+                const fgType = b.fgType || b.itemClassification || b.item?.type;
+                const name = (b.itemName || '').toLowerCase();
+
+                let typeLabel = 'Raw Material (RM)';
+                let typeBg = '#ede9fe';
+                let typeColor = '#6d28d9';
+
+                if (rawType.includes('fg') || rawType === 'fgitem') {
+                    if (fgType === 'Sub Assembly' || (!fgType && name.includes('sub'))) {
+                        typeLabel = 'FG Sub-Assembly';
+                        typeBg = '#e0e7ff';
+                        typeColor = '#4338ca';
+                    } else if (fgType === 'Component') {
+                        typeLabel = 'FG Component';
+                        typeBg = '#e0f2fe';
+                        typeColor = '#0369a1';
+                    } else if (fgType === 'Assembly') {
+                        typeLabel = 'FG Assembly';
+                        typeBg = '#f3e8ff';
+                        typeColor = '#7e22ce';
+                    } else {
+                        typeLabel = 'FG Sub-Assembly';
+                        typeBg = '#e0e7ff';
+                        typeColor = '#4338ca';
+                    }
+                } else if (rawType.includes('bought') || rawType === 'bo') {
+                    typeLabel = 'Bought Out (BO)';
+                    typeBg = '#fef3c7';
+                    typeColor = '#b45309';
+                }
+
                 bomRowsHtml += `
                     <tr>
                         <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0;">${idx + 1}</td>
                         <td style="padding: 6px; border: 1px solid #e2e8f0; font-weight: bold;">${b.itemName || '-'}</td>
-                        <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0;"><span style="background: #ede9fe; color: #6d28d9; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">${b.itemType || 'Material'}</span></td>
+                        <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0;"><span style="background: ${typeBg}; color: ${typeColor}; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold;">${typeLabel}</span></td>
                         <td style="text-align: center; padding: 6px; border: 1px solid #e2e8f0; font-weight: bold;">${b.quantity || 1} ${b.unit || 'Nos'}</td>
                     </tr>
                 `;

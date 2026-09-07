@@ -565,10 +565,17 @@ export default function MasterDetailPreviewModal({
                                                             {(() => {
                                                                 const rawType = (b.itemType || 'RawMaterial').toString();
                                                                 if (rawType === 'FGItem' || rawType.toLowerCase().includes('fg')) {
-                                                                    const specificType = b.item?.type || 'Component';
+                                                                    const specificType = b.fgType || b.itemClassification || b.item?.type || 'Component';
+                                                                    const isSubAssy = specificType === 'Sub Assembly' || (b.itemName || '').toLowerCase().includes('sub');
                                                                     return (
-                                                                        <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-bold rounded text-[10px] border border-purple-200 dark:border-purple-800">
-                                                                            FG {specificType}
+                                                                        <span className={`px-2.5 py-0.5 font-bold rounded-md text-[10px] border ${
+                                                                            isSubAssy
+                                                                                ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300'
+                                                                                : specificType === 'Assembly'
+                                                                                ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-300'
+                                                                                : 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border-sky-300'
+                                                                        }`}>
+                                                                            {isSubAssy ? '🧩 FG Sub-Assembly' : `FG ${specificType}`}
                                                                         </span>
                                                                     );
                                                                 } else if (rawType === 'BoughtOut' || rawType.toLowerCase().includes('bought') || rawType === 'BO') {

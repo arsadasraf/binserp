@@ -58,6 +58,7 @@ export const mrpPlanSchema = new mongoose.Schema(
           {
             materialName: { type: String, required: true },
             materialCode: { type: String, default: "" },
+            description: { type: String, default: "" },
             itemType: { type: String, default: "Material" },
             category: { type: String, default: "RM/BO" },
             quantityPerFG: { type: Number, default: 1 },
@@ -80,6 +81,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         },
         materialName: { type: String, required: true },
         materialCode: { type: String, default: "" },
+        description: { type: String, default: "" },
         category: { type: String, default: "RM / BO Material" },
         itemType: { type: String, default: "RM/BO" },
         requiredQuantity: { type: Number, default: 0 },
@@ -100,6 +102,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         },
         materialName: { type: String, required: true },
         materialCode: { type: String, default: "" },
+        description: { type: String, default: "" },
         category: { type: String, default: "Bought Out" },
         itemType: { type: String, default: "BO" },
         requiredQuantity: { type: Number, default: 0 },
@@ -115,6 +118,7 @@ export const mrpPlanSchema = new mongoose.Schema(
       {
         materialName: { type: String, required: true },
         materialCode: { type: String, default: "" },
+        description: { type: String, default: "" },
         category: { type: String, default: "Consumable" },
         itemType: { type: String, default: "Consumable" },
         requiredQuantity: { type: Number, default: 0 },
@@ -130,6 +134,7 @@ export const mrpPlanSchema = new mongoose.Schema(
       {
         materialName: { type: String, required: true },
         materialCode: { type: String, default: "" },
+        description: { type: String, default: "" },
         category: { type: String, default: "Sub Assembly" },
         itemType: { type: String, default: "SubAssembly" },
         requiredQuantity: { type: Number, default: 0 },

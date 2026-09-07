@@ -864,7 +864,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
                       <tr>
-                        <th className="p-3.5">Finished Good (FG) Item</th>
+                        <th className="p-3.5">Finished Good (FG) Item & Description</th>
                         <th className="p-3.5 text-center">BOM Number</th>
                         <th className="p-3.5 text-center">Target Quantity</th>
                         <th className="p-3.5 text-center">FG GRN Received</th>
@@ -887,10 +887,10 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
                         return (
                           <tr key={fgIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                            {/* FG Name & Code */}
+                            {/* FG Name & Description */}
                             <td className="p-3.5">
                               <strong className="text-slate-900 dark:text-white block text-sm">{fg.fgItemName}</strong>
-                              {fg.fgItemCode && <span className="font-mono text-[10px] text-slate-400">{fg.fgItemCode}</span>}
+                              {fg.description && <span className="text-xs text-slate-500 italic block mt-0.5">{fg.description}</span>}
                             </td>
 
                             {/* BOM Number */}

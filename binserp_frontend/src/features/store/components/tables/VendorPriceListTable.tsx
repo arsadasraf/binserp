@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from "react";
 import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
 
 interface VendorPriceListTableProps {
   vendorPriceLists: any[];
@@ -56,8 +57,8 @@ export default function VendorPriceListTable({
       }
     });
 
-    // Fallback: if separate lists weren't provided, use materials array
-    if (items.length === 0 && Array.isArray(materials)) {
+    // Fallback & supplement: ensure any materials not yet added are included
+    if (Array.isArray(materials)) {
       materials.forEach(m => {
         const id = m._id?.toString() || m.id?.toString();
         if (id && !seenIds.has(id)) {
@@ -94,8 +95,8 @@ export default function VendorPriceListTable({
 
       const searchLower = searchTerm.toLowerCase();
       const materialName = item.name?.toLowerCase() || "";
-      const materialCode = item.code?.toLowerCase() || "";
-      return materialName.includes(searchLower) || materialCode.includes(searchLower);
+      const materialDesc = getItemDescription(item).toLowerCase();
+      return materialName.includes(searchLower) || materialDesc.includes(searchLower);
     });
   }, [unifiedItems, selectedCategory, searchTerm]);
 
@@ -209,7 +210,7 @@ export default function VendorPriceListTable({
             </div>
             <input
               type="text"
-              placeholder="Search item name or code..."
+              placeholder="Search item name or description..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
@@ -234,8 +235,9 @@ export default function VendorPriceListTable({
           <thead>
             <tr className="bg-gray-50/75 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider border-b border-gray-100 dark:border-gray-800">
               <th className="p-3.5 font-bold first:pl-6 w-16">Photo</th>
-              <th className="p-3.5 font-bold">Item Name & Code</th>
-              <th className="p-3.5 font-bold w-32">Category</th>
+              <th className="p-3.5 font-bold">Item Name & Description</th>
+              <th className="p-3.5 font-bold w-28">Category</th>
+              <th className="p-3.5 font-bold w-44">Supplier / Vendor</th>
               <th className="p-3.5 font-bold text-right w-36">Price (₹)</th>
               <th className="p-3.5 font-bold text-center w-24">Tax Rate</th>
               <th className="p-3.5 font-bold text-right last:pr-6 w-44">Actions</th>
@@ -244,7 +246,7 @@ export default function VendorPriceListTable({
           <tbody className="text-sm divide-y divide-gray-100 dark:divide-gray-800">
             {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-gray-500">
+                <td colSpan={7} className="p-8 text-center text-gray-500">
                   <div className="flex flex-col items-center justify-center gap-2">
                     <Tag className="w-8 h-8 text-gray-300" />
                     <p className="text-xs font-semibold">No items found matching the selected category & search query.</p>
@@ -275,12 +277,30 @@ export default function VendorPriceListTable({
                         </div>
                       )}
                     </td>
-                    <td className="p-3.5 font-medium text-gray-900 dark:text-white">
-                      <div className="font-bold text-xs sm:text-sm">{item.name || "N/A"}</div>
-                      <div className="text-xs text-gray-500 font-mono mt-0.5">{item.code || "-"}</div>
+                    <td className="p-3.5 font-medium text-gray-900 dark:text-white max-w-[280px]">
+                      <ItemNameAndDescription name={item.name} description={getItemDescription(item)} />
                     </td>
                     <td className="p-3.5">
                       {getCategoryBadge(item.itemCategory)}
+                    </td>
+                    <td className="p-3.5">
+                      {hasPrice && (config.vendor || config.vendorName) ? (
+                        <div>
+                          <div className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-1.5 flex-wrap">
+                            <span>{config.vendor?.name || config.vendorName || "Vendor"}</span>
+                            {config.isPreferred && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                ⭐ Preferred
+                              </span>
+                            )}
+                          </div>
+                          {config.vendor?.code && (
+                            <span className="font-mono text-[10px] text-slate-400">{config.vendor.code}</span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">Unassigned</span>
+                      )}
                     </td>
                     <td className="p-3.5 text-right font-medium">
                       {hasPrice && config.price != null ? (
@@ -372,11 +392,13 @@ export default function VendorPriceListTable({
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <h4 className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm truncate">{item.name || "N/A"}</h4>
                       {getCategoryBadge(item.itemCategory)}
                     </div>
-                    <p className="text-xs text-gray-500 font-mono mt-0.5">{item.code || "-"}</p>
+                    {getItemDescription(item) ? (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">{getItemDescription(item)}</p>
+                    ) : null}
                   </div>
                   {hasPrice ? (
                     <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 rounded flex-shrink-0">

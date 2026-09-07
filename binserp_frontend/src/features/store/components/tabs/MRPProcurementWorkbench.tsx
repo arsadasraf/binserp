@@ -39,6 +39,8 @@ export default function MRPProcurementWorkbench({
   const [activeTypeTab, setActiveTypeTab] = useState<'rm' | 'bo' | 'component' | 'subassembly' | 'assembly'>('rm');
   const [searchTerm, setSearchTerm] = useState('');
   const [onlyShortages, setOnlyShortages] = useState(false);
+  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
+  const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [submittingPO, setSubmittingPO] = useState(false);
@@ -68,8 +70,13 @@ export default function MRPProcurementWorkbench({
           if (found) setSelectedPlan(found);
         }
       }
-      if (compRes?.companyInfo) {
-        setCompanyInfo(compRes.companyInfo);
+      if (compRes) {
+        setCompanyInfo(compRes.companyInfo || compRes);
+      } else {
+        try {
+          const raw = localStorage.getItem("companyInfo") || localStorage.getItem("company");
+          if (raw) setCompanyInfo(JSON.parse(raw));
+        } catch (e) {}
       }
     } catch (err: any) {
       console.error("Failed to load MRP Procurement Workbench:", err);
@@ -158,17 +165,61 @@ export default function MRPProcurementWorkbench({
     }
   }, [classifiedLists, activeTypeTab]);
 
+  // Available categories for active type tab
+  const availableCategories = useMemo(() => {
+    const cats = new Set<string>();
+    (currentTypeList || []).forEach((it: any) => {
+      if (it.category) cats.add(it.category.trim());
+    });
+    return Array.from(cats).filter(Boolean).sort();
+  }, [currentTypeList]);
+
+  // Available vendors for active type tab
+  const availableVendors = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; isPreferred?: boolean; count: number }>();
+    (currentTypeList || []).forEach((it: any) => {
+      const v = it.bestVendor;
+      if (v?.vendorId || v?.vendorName) {
+        const id = v.vendorId ? String(v.vendorId) : v.vendorName;
+        if (!map.has(id)) {
+          map.set(id, {
+            id,
+            name: v.vendorName || "Vendor",
+            isPreferred: Boolean(v.isPreferred),
+            count: 0
+          });
+        }
+        const entry = map.get(id)!;
+        entry.count += 1;
+        if (v.isPreferred) entry.isPreferred = true;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => (b.isPreferred ? 1 : 0) - (a.isPreferred ? 1 : 0) || a.name.localeCompare(b.name));
+  }, [currentTypeList]);
+
   const filteredConsolidatedList = useMemo(() => {
     return currentTypeList.filter((item: any) => {
       const s = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm ||
         item.materialName.toLowerCase().includes(s) ||
         (item.materialCode && item.materialCode.toLowerCase().includes(s)) ||
+        (item.category && item.category.toLowerCase().includes(s)) ||
         (item.bestVendor?.vendorName && item.bestVendor.vendorName.toLowerCase().includes(s));
       const matchesShortage = !onlyShortages || item.netShortage > 0;
-      return matchesSearch && matchesShortage;
+      
+      const matchesCategory = selectedCategoryFilter === 'all' || item.category === selectedCategoryFilter;
+      
+      let matchesVendor = true;
+      if (selectedVendorFilter === 'preferred_only') {
+        matchesVendor = Boolean(item.bestVendor?.isPreferred);
+      } else if (selectedVendorFilter !== 'all') {
+        const vId = item.bestVendor?.vendorId ? String(item.bestVendor.vendorId) : item.bestVendor?.vendorName;
+        matchesVendor = vId === selectedVendorFilter;
+      }
+
+      return matchesSearch && matchesShortage && matchesCategory && matchesVendor;
     });
-  }, [currentTypeList, searchTerm, onlyShortages]);
+  }, [currentTypeList, searchTerm, onlyShortages, selectedCategoryFilter, selectedVendorFilter]);
 
   // Selection toggle (Exclusively in Types Classification View)
   const toggleSelect = (key: string) => {
@@ -243,19 +294,21 @@ export default function MRPProcurementWorkbench({
           unit: it.unit || (resolvedItemType === 'rm' ? 'KG' : 'PCS'),
           rate: rate,
           amount: lineSub,
-          description: `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`
+          description: it.description || `MRP Requirement for ${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || 'MRP'}`
         };
       });
 
-      const firstVendorId = selectedItems.find((i: any) => i.bestVendor?.vendorId)?.bestVendor?.vendorId || '';
+      const targetVendorId = (selectedVendorFilter && selectedVendorFilter !== 'all' && selectedVendorFilter !== 'preferred_only')
+        ? selectedVendorFilter
+        : (selectedItems.find((i: any) => i.bestVendor?.vendorId)?.bestVendor?.vendorId || '');
 
       onOpenPoModal({
-        vendor: firstVendorId,
+        vendor: targetVendorId,
         items: poItems,
         mrpPlanId: selectedPlan?._id,
         mrpNumber: selectedPlan?.mrpNumber,
         selectedItemKeys: selectedItems.map((i: any) => i.materialKey),
-        remarks: `Generated from MRP Procurement Workbench (${selectedPlan?.mrpNumber || 'MRP'})`
+        remarks: `Generated from MRP Procurement Workbench (${selectedPlan?.mrpNumber || 'MRP'}${selectedCategoryFilter !== 'all' ? ` - ${selectedCategoryFilter}` : ''})`
       });
     }
   };
@@ -358,7 +411,7 @@ export default function MRPProcurementWorkbench({
         currentStock: it.currentPhysicalStock,
         shortage: it.netShortage || it.requiredQuantity,
         unit: it.unit,
-        description: `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`
+        description: it.description || `Consolidated MRP Shortage (${it.mrpSources?.map((s: any) => s.mrpNumber).join(', ') || it.parentMRP || selectedPlan?.mrpNumber || ''})`
       }));
       onOpenRfqModal(rfqItems);
     }
@@ -900,7 +953,7 @@ export default function MRPProcurementWorkbench({
                         <span className="font-bold text-sm text-slate-900 dark:text-white">
                           {fg.fgItemName}
                         </span>
-                        {fg.fgItemCode && <span className="text-[11px] font-mono text-slate-400">({fg.fgItemCode})</span>}
+                        {fg.description && <span className="text-xs text-slate-500 italic font-normal">({fg.description})</span>}
                         {fg.bomNumber && (
                           <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-mono text-[9px]">
                             {fg.bomNumber}
@@ -946,7 +999,7 @@ export default function MRPProcurementWorkbench({
                                       {nMat.level > 1 && <span className="text-slate-300 font-mono">↳</span>}
                                       <div>
                                         <span className="font-bold text-slate-800 dark:text-slate-200">{nMat.materialName}</span>
-                                        {nMat.materialCode && <span className="block font-mono text-[9px] text-slate-400">{nMat.materialCode}</span>}
+                                        {nMat.description && <span className="block text-[10px] text-slate-500 italic mt-0.5">{nMat.description}</span>}
                                       </div>
                                     </div>
                                   </td>
@@ -1029,6 +1082,8 @@ export default function MRPProcurementWorkbench({
                 <button
                   onClick={() => {
                     setActiveTypeTab('rm');
+                    setSelectedCategoryFilter('all');
+                    setSelectedVendorFilter('all');
                     setSelectedKeys(new Set());
                   }}
                   className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -1044,6 +1099,8 @@ export default function MRPProcurementWorkbench({
                 <button
                   onClick={() => {
                     setActiveTypeTab('bo');
+                    setSelectedCategoryFilter('all');
+                    setSelectedVendorFilter('all');
                     setSelectedKeys(new Set());
                   }}
                   className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -1059,6 +1116,8 @@ export default function MRPProcurementWorkbench({
                 <button
                   onClick={() => {
                     setActiveTypeTab('component');
+                    setSelectedCategoryFilter('all');
+                    setSelectedVendorFilter('all');
                     setSelectedKeys(new Set());
                   }}
                   className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -1074,6 +1133,8 @@ export default function MRPProcurementWorkbench({
                 <button
                   onClick={() => {
                     setActiveTypeTab('subassembly');
+                    setSelectedCategoryFilter('all');
+                    setSelectedVendorFilter('all');
                     setSelectedKeys(new Set());
                   }}
                   className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -1089,6 +1150,8 @@ export default function MRPProcurementWorkbench({
                 <button
                   onClick={() => {
                     setActiveTypeTab('assembly');
+                    setSelectedCategoryFilter('all');
+                    setSelectedVendorFilter('all');
                     setSelectedKeys(new Set());
                   }}
                   className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -1100,6 +1163,76 @@ export default function MRPProcurementWorkbench({
                   <CheckCircle2 size={13} />
                   <span>🏆 Assemblies ({classifiedLists.assemblyList?.length || 0})</span>
                 </button>
+              </div>
+
+              {/* Filter Bar: Category & Vendor */}
+              <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  
+                  {/* Category Filter */}
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+                    <Tag size={13} className="text-slate-400" />
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Category:</span>
+                    <select
+                      value={selectedCategoryFilter}
+                      onChange={(e) => {
+                        setSelectedCategoryFilter(e.target.value);
+                        setSelectedKeys(new Set());
+                      }}
+                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
+                    >
+                      <option value="all">All Categories ({currentTypeList.length})</option>
+                      {availableCategories.map((cat) => {
+                        const count = currentTypeList.filter((it: any) => it.category === cat).length;
+                        return (
+                          <option key={cat} value={cat}>
+                            {cat} ({count})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Vendor / Preferred Filter */}
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+                    <Building2 size={13} className="text-slate-400" />
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Supplier:</span>
+                    <select
+                      value={selectedVendorFilter}
+                      onChange={(e) => {
+                        setSelectedVendorFilter(e.target.value);
+                        setSelectedKeys(new Set());
+                      }}
+                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[200px] truncate"
+                    >
+                      <option value="all">All Suppliers ({currentTypeList.length})</option>
+                      <option value="preferred_only">⭐ Preferred Suppliers Only ({currentTypeList.filter((it: any) => it.bestVendor?.isPreferred).length})</option>
+                      {availableVendors.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.isPreferred ? "⭐ " : ""}{v.name} ({v.count})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Reset Filters */}
+                  {(selectedCategoryFilter !== 'all' || selectedVendorFilter !== 'all') && (
+                    <button
+                      onClick={() => {
+                        setSelectedCategoryFilter('all');
+                        setSelectedVendorFilter('all');
+                        setSelectedKeys(new Set());
+                      }}
+                      className="px-2.5 py-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold cursor-pointer rounded-lg hover:bg-slate-200/60"
+                    >
+                      Reset Filters
+                    </button>
+                  )}
+                </div>
+
+                <div className="text-xs font-semibold text-slate-500">
+                  Showing <b>{filteredConsolidatedList.length}</b> of <b>{currentTypeList.length}</b> items
+                </div>
               </div>
 
               {/* Action Toolbar for Selected Items */}
@@ -1149,7 +1282,11 @@ export default function MRPProcurementWorkbench({
                     title="Open Outward PO Form prefilled with selected items"
                   >
                     <ShoppingCart size={12} />
-                    <span>📝 Create Outward PO ({selectedKeys.size})</span>
+                    <span>
+                      {selectedVendorFilter !== 'all' && selectedVendorFilter !== 'preferred_only'
+                        ? `📝 Release PO to ${availableVendors.find(v => v.id === selectedVendorFilter)?.name || 'Vendor'} (${selectedKeys.size})`
+                        : `📝 Create Outward PO (${selectedKeys.size})`}
+                    </span>
                   </button>
 
                   <button
@@ -1192,7 +1329,8 @@ export default function MRPProcurementWorkbench({
                             )}
                           </button>
                         </th>
-                        <th className="p-3">Material Name & Code</th>
+                        <th className="p-3">Material Name & Description</th>
+                        <th className="p-3">Category</th>
                         <th className="p-3 text-center">Gross Required</th>
                         <th className="p-3 text-center">Live Stock</th>
                         <th className="p-3 text-center">In-Transit PO</th>
@@ -1204,8 +1342,8 @@ export default function MRPProcurementWorkbench({
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {filteredConsolidatedList.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-slate-400">
-                            No {activeTypeTab.toUpperCase()} items found for this plan.
+                          <td colSpan={9} className="p-8 text-center text-slate-400">
+                            No {activeTypeTab.toUpperCase()} items found matching the selected filters.
                           </td>
                         </tr>
                       ) : (
@@ -1223,7 +1361,19 @@ export default function MRPProcurementWorkbench({
 
                               <td className="p-3">
                                 <div className="font-bold text-slate-900 dark:text-white">{item.materialName}</div>
-                                {item.materialCode && <span className="font-mono text-[10px] text-slate-400">{item.materialCode}</span>}
+                                {item.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{item.description}</span>}
+                              </td>
+
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                                  activeTypeTab === 'rm'
+                                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
+                                    : activeTypeTab === 'bo'
+                                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                }`}>
+                                  {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
+                                </span>
                               </td>
 
                               <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
@@ -1246,7 +1396,7 @@ export default function MRPProcurementWorkbench({
 
                               <td className="p-3 text-center">
                                 {item.netShortage > 0 ? (
-                                  <span className="font-black text-red-600 text-xs">
+                                  <span className="font-black text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded text-[11px]">
                                     {item.netShortage} {item.unit}
                                   </span>
                                 ) : (
@@ -1257,8 +1407,15 @@ export default function MRPProcurementWorkbench({
                               <td className="p-3">
                                 {item.bestVendor ? (
                                   <div className="text-[11px]">
-                                    <span className="font-bold text-slate-800 dark:text-slate-200">{item.bestVendor.vendorName}</span>
-                                    <span className="text-slate-400 block text-[10px]">₹{item.bestVendor.rate}/{item.unit}</span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">{item.bestVendor.vendorName}</span>
+                                      {item.bestVendor.isPreferred && (
+                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                          ⭐ Preferred
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-slate-400 block text-[10px] font-mono">₹{Number(item.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {item.unit}</span>
                                   </div>
                                 ) : (
                                   <span className="text-slate-400 italic text-[10px]">No vendor quote</span>

@@ -229,7 +229,7 @@ export default function MRP360WipDrawer({
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-800/60 font-bold text-slate-500 border-b border-slate-200 dark:border-slate-700">
                       <tr>
-                        <th className="p-3">Material Name</th>
+                        <th className="p-3">Material Name & Description</th>
                         <th className="p-3 text-center">Required Qty</th>
                         <th className="p-3 text-center">Issued to WIP</th>
                         <th className="p-3 text-center">Pending Store Issue</th>
@@ -241,7 +241,7 @@ export default function MRP360WipDrawer({
                         <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                           <td className="p-3">
                             <div className="font-bold text-slate-900 dark:text-white">{mat.materialName}</div>
-                            {mat.materialCode && <span className="font-mono text-[10px] text-slate-400">{mat.materialCode}</span>}
+                            {mat.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{mat.description}</span>}
                           </td>
                           <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300">
                             {mat.requiredQuantity} {mat.unit}

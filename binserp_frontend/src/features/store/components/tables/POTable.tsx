@@ -1207,6 +1207,9 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                     itemDesc = itemDesc.replace(/^[|,\s-]+|[|,\s-]+$/g, '');
                                                 }
 
+                                                const rate = Number(it.rate || it.unitPrice || it.price || 0);
+                                                const lineNet = Number(it.lineTotal || it.amount || (qty * rate));
+
                                                 return (
                                                     <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                                                         <td className="p-3 text-center text-slate-500 font-bold">{idx + 1}</td>

@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { mrpPlanSchema, purchaseOrderSchema } from "../../models/purchase/index.js";
-import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema } from "../../models/store/index.js";
+import { bomSchema, inventorySchema, rmBoItemSchema, categorySchema, fgItemSchema, rawMaterialSchema, boughtOutSchema } from "../../models/store/index.js";
 import { incomingPOSchema } from "../../models/sales/index.js";
 import { userSchema } from "../../models/user/index.js";
 
@@ -14,6 +14,8 @@ export const createMRPPlan = async (req, res) => {
     const BOM = req.getModel("BOM", bomSchema);
     const Inventory = req.getModel("Inventory", inventorySchema);
     const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
+    const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+    const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
     const Category = req.getModel("Category", categorySchema);
     const FGItem = req.getModel("FGItem", fgItemSchema);
     const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
@@ -48,6 +50,8 @@ export const createMRPPlan = async (req, res) => {
     // Cache inventory, RM/BO items, BOMs and FG items for fast hierarchy explosion
     const allInventories = await Inventory.find({ company: companyId });
     const allRmBoItems = await RmBoItem.find({ company: companyId }).populate("categoryId");
+    const allRawMaterials = await RawMaterial.find({ company: companyId }).populate("categoryId");
+    const allBoughtOuts = await BoughtOut.find({ company: companyId }).populate("categoryId");
     const allBOMs = await BOM.find({ company: companyId });
     const allFGItems = await FGItem.find({ company: companyId });
 
@@ -169,34 +173,64 @@ export const createMRPPlan = async (req, res) => {
               (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
               (r.name && r.name.toLowerCase() === sName.toLowerCase())
           );
+          const rawMat = allRawMaterials.find(
+            (r) =>
+              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
+              (r.name && r.name.toLowerCase() === sName.toLowerCase())
+          );
+          const boughtOut = allBoughtOuts.find(
+            (r) =>
+              (sCode && r.code && r.code.toLowerCase() === sCode.toLowerCase()) ||
+              (r.name && r.name.toLowerCase() === sName.toLowerCase())
+          );
 
-          // Check if this subItem itself is a sub-assembly (has a BOM or is in FGItems)
+          // Check if this subItem itself is an FGItem / sub-assembly
+          const matchedFG = allFGItems.find(
+            (f) =>
+              (sCode && f.code && f.code.toLowerCase() === sCode.toLowerCase()) ||
+              (f.name && f.name.toLowerCase() === sName.toLowerCase())
+          );
           const nestedSubBOM = findBOM(sName, sCode);
-          const isSubAssembly = Boolean(nestedSubBOM);
-          const catName = (rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
-          const rawItemType = (rmBo?.itemType || "").toLowerCase();
-          const isBO = rawItemType === 'bought out' || rawItemType === 'bo' || catName.includes('bought') || catName.includes('hardware') || catName.includes('fastener');
+          const fgType = matchedFG?.type || subItem.fgType || subItem.itemClassification;
+          const isSubAssembly = fgType === "Sub Assembly" || Boolean(nestedSubBOM);
+          const isComponent = fgType === "Component";
+          const isAssembly = fgType === "Assembly";
+
+          const assignedMasterCat = rawMat?.categoryId?.name || boughtOut?.categoryId?.name || rmBo?.categoryId?.name || rawMat?.category || boughtOut?.category || rmBo?.category || "";
+          const catName = (assignedMasterCat || rmBo?.categoryId?.name || rmBo?.category || "").toLowerCase();
+          const rawItemType = (rawMat?.itemType || boughtOut?.itemType || rmBo?.itemType || "").toLowerCase();
+          const isBO = Boolean(boughtOut) || rawItemType === 'bought out' || rawItemType === 'bo' || catName.includes('bought') || catName.includes('hardware') || catName.includes('fastener');
           const isConsumable = rawItemType === 'consumable' || catName.includes('consumable');
 
           let resolvedItemType = "RM";
-          let categoryLabel = rmBo?.categoryId?.name || "Raw Material";
+          let categoryLabel = assignedMasterCat || "Raw Material";
 
           if (isSubAssembly) {
             resolvedItemType = "SubAssembly";
             categoryLabel = "Sub Assembly";
+          } else if (isComponent) {
+            resolvedItemType = "Component";
+            categoryLabel = "In-House Component";
+          } else if (isAssembly) {
+            resolvedItemType = "Assembly";
+            categoryLabel = "Finished Good / Assembly";
           } else if (isBO) {
             resolvedItemType = "BO";
-            categoryLabel = rmBo?.categoryId?.name || "Bought Out";
+            categoryLabel = assignedMasterCat || "Bought Out";
           } else if (isConsumable) {
             resolvedItemType = "Consumable";
-            categoryLabel = rmBo?.categoryId?.name || "Consumable";
+            categoryLabel = assignedMasterCat || "Consumable";
           }
+
+          const sDesc = subItem.description || matchedFG?.description || matchedFG?.descriptions || rmBo?.description || rmBo?.descriptions || "";
 
           nestedList.push({
             materialName: sName,
             materialCode: sCode,
+            description: sDesc,
             itemType: resolvedItemType,
             category: categoryLabel,
+            fgType: fgType || undefined,
             quantityPerFG: perQty,
             totalRequired: grossQty,
             currentStock: currentStock,
@@ -218,6 +252,7 @@ export const createMRPPlan = async (req, res) => {
               material: rmBo?._id,
               materialName: sName,
               materialCode: sCode,
+              description: sDesc,
               category: categoryLabel,
               itemType: resolvedItemType,
               requiredQuantity: 0,
@@ -230,6 +265,9 @@ export const createMRPPlan = async (req, res) => {
             });
           }
           const existing = targetMap.get(itemKey);
+          if (!existing.description && sDesc) {
+            existing.description = sDesc;
+          }
           existing.requiredQuantity += grossQty;
           existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
           const fgLabel = `${parentName} (${grossQty} ${unit})`;
@@ -678,8 +716,17 @@ export const updateMRPPlan = async (req, res) => {
             const rawType = (item.itemType || item.category || "").toLowerCase();
 
             let matchedRmBo = allRmBoItems.find((r) => r.name && r.name.trim().toLowerCase() === rawName.toLowerCase());
+            const matchedFG = allFGItems.find((f) => 
+              (f.name && f.name.trim().toLowerCase() === rawName.toLowerCase()) ||
+              (item.materialCode && f.code && f.code.trim().toLowerCase() === item.materialCode.trim().toLowerCase())
+            );
+
             let itemCategory = "Raw Material";
-            if (matchedRmBo) {
+            if (matchedFG) {
+              if (matchedFG.type === "Sub Assembly") itemCategory = "Sub Assembly";
+              else if (matchedFG.type === "Component") itemCategory = "Component";
+              else if (matchedFG.type === "Assembly") itemCategory = "Assembly";
+            } else if (matchedRmBo) {
               const catName = matchedRmBo.categoryId?.name?.toLowerCase() || "";
               if (catName.includes("bought") || catName.includes("bo")) itemCategory = "Bought Out";
               else if (catName.includes("consumable")) itemCategory = "Consumable";
@@ -691,10 +738,12 @@ export const updateMRPPlan = async (req, res) => {
             }
 
             const targetMap = itemCategory === "Bought Out" ? boMap : itemCategory === "Consumable" ? consumableMap : itemCategory === "Sub Assembly" ? subAssemblyMap : rmMap;
+            const itemDesc = item.description || (matchedRmBo ? (matchedRmBo.description || matchedRmBo.descriptions) : "") || "";
             const current = targetMap.get(rawName) || {
               material: matchedRmBo ? matchedRmBo._id : undefined,
               materialName: rawName,
               materialCode: matchedRmBo ? matchedRmBo.code : item.materialCode || "",
+              description: itemDesc,
               category: itemCategory,
               itemType: itemCategory === "Raw Material" ? "RM" : itemCategory === "Bought Out" ? "BO" : itemCategory,
               requiredQuantity: 0,
@@ -702,6 +751,7 @@ export const updateMRPPlan = async (req, res) => {
               unit: item.unit || (matchedRmBo ? matchedRmBo.unit : "PCS"),
               sourceFGNames: [],
             };
+            if (!current.description && itemDesc) current.description = itemDesc;
             current.requiredQuantity += totalRequired;
             if (!current.sourceFGNames.includes(fg.fgItemName)) current.sourceFGNames.push(fg.fgItemName);
             targetMap.set(rawName, current);
@@ -716,6 +766,7 @@ export const updateMRPPlan = async (req, res) => {
             material: val.material,
             materialName: val.materialName,
             materialCode: val.materialCode || "",
+            description: val.description || "",
             category: val.category,
             itemType: val.itemType,
             requiredQuantity: val.requiredQuantity,

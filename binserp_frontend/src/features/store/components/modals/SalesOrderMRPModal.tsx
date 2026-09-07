@@ -295,7 +295,11 @@ export default function SalesOrderMRPModal({
                       <tr key={idx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
                         <td className="p-3 font-bold text-slate-900 dark:text-white">
                           {item.name || fgObj.name}
-                          {item.productCode && <span className="block text-[10px] text-slate-400 font-mono">{item.productCode}</span>}
+                          {(item.description || fgObj.description || fgObj.descriptions) && (
+                            <span className="block text-[11px] text-slate-500 font-normal italic mt-0.5">
+                              {item.description || fgObj.description || fgObj.descriptions}
+                            </span>
+                          )}
                         </td>
 
                         <td className="p-3 text-center font-mono font-bold text-slate-900 dark:text-white">
