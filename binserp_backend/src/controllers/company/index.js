@@ -6,3 +6,4 @@ export { getCompanyId } from './getCompanyId.controller.js';
 export { getCompanyProfile } from './getCompanyProfile.controller.js';
 export { updateCompanySettings } from './updateCompanySettings.controller.js';
 export { uploadCompanyLogo } from './uploadCompanyLogo.controller.js';
+export { convertImageToBase64 } from './convertImageToBase64.controller.js';

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Search, Edit2, X, Camera, Upload, Coins, Briefcase, User, IndianRupee, Save, Phone, Mail, Check, Zap, ChevronDown, ChevronUp, History, Clock, Download, Eye, FileText } from "lucide-react";
+import { Plus, Trash2, Search, Edit2, X, Camera, Upload, Coins, Briefcase, User, IndianRupee, Save, Phone, Mail, Check, Zap, ChevronDown, ChevronUp, History, Clock, Download, Eye, FileText, IdCard, RefreshCw } from "lucide-react";
 import axios from "axios";
 import { Employee, Department, Designation, Skill, EmployeeType } from "../../types/hr.types";
 import { API_BASE_URL } from "@/src/utils/config";
 import CompOffHistoryModal from "../modals/CompOffHistoryModal";
 import HrMasterExcelActions from "./HrMasterExcelActions";
+import { generateEmployeeCardPDF, CompanyCardDetails } from "@/src/utils/generateEmployeeCardPDF";
+import EmployeePreviewModal from "../modals/EmployeePreviewModal";
 
 
 // Reusable Switch Component
@@ -40,6 +42,23 @@ export default function EmployeeMaster() {
     // CompOff History Modal State
     const [showCompOffHistoryModal, setShowCompOffHistoryModal] = useState(false);
     const [selectedCompOffEmployee, setSelectedCompOffEmployee] = useState<Employee | null>(null);
+
+    // Company Settings & ID Card Download State
+    const [companyInfo, setCompanyInfo] = useState<CompanyCardDetails>({
+        companyName: "Company Name",
+        logo: "",
+        address: "",
+        city: "",
+        state: "",
+        pincode: "",
+        phone: "",
+        email: "",
+    });
+    const [downloadingCardId, setDownloadingCardId] = useState<string | null>(null);
+
+    // Employee Preview Modal State
+    const [previewEmployee, setPreviewEmployee] = useState<Employee | null>(null);
+    const [showPreviewModal, setShowPreviewModal] = useState(false);
 
     // Camera Refs
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -170,7 +189,55 @@ export default function EmployeeMaster() {
         fetchDesignations();
         fetchEmployeeTypes();
         fetchPrefixSettings();
+        fetchCompanyDetails();
     }, []);
+
+    const fetchCompanyDetails = async () => {
+        try {
+            const token = localStorage.getItem("token");
+            if (!token) return;
+            const [storeRes, hrPrefixRes, compMeRes] = await Promise.all([
+                axios.get(`${API_BASE_URL}/api/store/company-info`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
+                axios.get(`${API_BASE_URL}/api/hr-prefix`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
+                axios.get(`${API_BASE_URL}/api/company/me`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => null)
+            ]);
+
+            const storeData = storeRes?.data || {};
+            const hrData = hrPrefixRes?.data?.settings || {};
+            const compMeData = compMeRes?.data || {};
+
+            setCompanyInfo({
+                companyName: storeData.companyName || hrData.companyName || compMeData.companyName || compMeData.name || "Company Name",
+                logo: storeData.logo || hrData.companyLogo || compMeData.logo || "",
+                address: storeData.billingAddress || hrData.companyAddress || compMeData.address || "",
+                city: storeData.city || "",
+                state: storeData.state || "",
+                pincode: storeData.pincode || "",
+                phone: storeData.contactNumber || hrData.companyPhone || compMeData.contactNumber || "",
+                email: storeData.email || hrData.companyEmail || compMeData.email || "",
+            });
+        } catch (error) {
+            console.error("Error fetching company details:", error);
+        }
+    };
+
+    const handleDownloadIDCard = async (emp: Employee, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        try {
+            setDownloadingCardId(emp._id);
+            await generateEmployeeCardPDF(emp, companyInfo);
+        } catch (err) {
+            console.error("Failed to generate ID card PDF:", err);
+            alert("Failed to generate employee ID card PDF. Please try again.");
+        } finally {
+            setDownloadingCardId(null);
+        }
+    };
+
+    const handleOpenPreview = (emp: Employee) => {
+        setPreviewEmployee(emp);
+        setShowPreviewModal(true);
+    };
 
     const fetchPrefixSettings = async () => {
         try {
@@ -662,7 +729,7 @@ export default function EmployeeMaster() {
                                 <tr><td colSpan={6} className="dark:text-gray-400 px-6 py-10 text-center text-gray-500">No employees found.</td></tr>
                             ) : (
                                 filteredEmployees.map((emp) => (
-                                    <tr key={emp._id} onClick={() => handleOpenEdit(emp)} className="dark:hover:bg-slate-700 group hover:bg-gray-50 transition-colors cursor-pointer">
+                                    <tr key={emp._id} onClick={() => handleOpenPreview(emp)} className="dark:hover:bg-slate-700 group hover:bg-gray-50 transition-colors cursor-pointer">
                                         <td className="px-6 py-4">
                                             <div className="flex gap-4 items-center">
                                                 <div className="bg-gray-100 dark:bg-slate-700 flex h-12 items-center justify-center overflow-hidden rounded-full shadow-inner w-12">
@@ -708,12 +775,24 @@ export default function EmployeeMaster() {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                            <div className="flex gap-2 group-hover:opacity-100 justify-end opacity-0 transition-opacity">
-                                                <button onClick={() => handleOpenEdit(emp)} title="Edit Employee" className="bg-blue-50 hover:bg-blue-100 p-2 rounded-lg text-blue-600 transition-colors"><Edit2 size={16} /></button>
+                                            <div className="flex gap-2 justify-end items-center">
+                                                <button
+                                                    onClick={(e) => handleDownloadIDCard(emp, e)}
+                                                    disabled={downloadingCardId === emp._id}
+                                                    title="Download Employee ID Card"
+                                                    className="bg-purple-50 hover:bg-purple-100 p-2 rounded-lg text-purple-600 transition-colors disabled:opacity-50"
+                                                >
+                                                    {downloadingCardId === emp._id ? (
+                                                        <RefreshCw size={16} className="animate-spin" />
+                                                    ) : (
+                                                        <IdCard size={16} />
+                                                    )}
+                                                </button>
+                                                <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(emp); }} title="Edit Employee" className="bg-blue-50 hover:bg-blue-100 p-2 rounded-lg text-blue-600 transition-colors"><Edit2 size={16} /></button>
                                                 {emp.createdAt && (Date.now() - new Date(emp.createdAt).getTime() > 24 * 60 * 60 * 1000) ? (
-                                                    <button onClick={() => handleToggleStatus(emp._id)} title={emp.isActive ? "Deactivate" : "Activate"} className="bg-orange-50 hover:bg-orange-100 p-2 rounded-lg text-orange-600 transition-colors"><Zap size={16} /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleToggleStatus(emp._id); }} title={emp.isActive ? "Deactivate" : "Activate"} className="bg-orange-50 hover:bg-orange-100 p-2 rounded-lg text-orange-600 transition-colors"><Zap size={16} /></button>
                                                 ) : (
-                                                    <button onClick={() => handleDelete(emp._id)} title="Delete (Within 24h)" className="bg-red-50 hover:bg-red-100 p-2 rounded-lg text-red-600 transition-colors"><Trash2 size={16} /></button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(emp._id); }} title="Delete (Within 24h)" className="bg-red-50 hover:bg-red-100 p-2 rounded-lg text-red-600 transition-colors"><Trash2 size={16} /></button>
                                                 )}
                                             </div>
                                         </td>
@@ -729,7 +808,7 @@ export default function EmployeeMaster() {
                     {loading ? (
                         <div className="dark:text-gray-400 p-6 text-center text-gray-500">Loading...</div>
                     ) : filteredEmployees.map((emp) => (
-                        <div key={emp._id} onClick={() => handleOpenEdit(emp)} className="flex flex-col gap-4 p-4 dark:hover:bg-slate-700/50 hover:bg-gray-50 cursor-pointer transition-colors">
+                        <div key={emp._id} onClick={() => handleOpenPreview(emp)} className="flex flex-col gap-4 p-4 dark:hover:bg-slate-700/50 hover:bg-gray-50 cursor-pointer transition-colors">
                             <div className="flex items-start justify-between">
                                 <div className="flex gap-3 items-center">
                                     <div className="bg-gray-100 dark:bg-slate-700 flex h-12 items-center justify-center overflow-hidden rounded-full shadow-inner w-12">
@@ -775,11 +854,23 @@ export default function EmployeeMaster() {
                             </div>
 
                             <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => handleOpenEdit(emp)} className="bg-blue-50 flex flex-1 font-medium gap-2 hover:bg-blue-100 items-center justify-center py-2 rounded-lg text-blue-600 text-sm transition-colors"><Edit2 size={14} /> Edit</button>
+                                <button
+                                    onClick={(e) => handleDownloadIDCard(emp, e)}
+                                    disabled={downloadingCardId === emp._id}
+                                    className="bg-purple-50 flex flex-1 font-medium gap-1.5 hover:bg-purple-100 items-center justify-center py-2 rounded-lg text-purple-600 text-sm transition-colors disabled:opacity-50"
+                                >
+                                    {downloadingCardId === emp._id ? (
+                                        <RefreshCw size={14} className="animate-spin" />
+                                    ) : (
+                                        <IdCard size={14} />
+                                    )}
+                                    <span>ID Card</span>
+                                </button>
+                                <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(emp); }} className="bg-blue-50 flex flex-1 font-medium gap-2 hover:bg-blue-100 items-center justify-center py-2 rounded-lg text-blue-600 text-sm transition-colors"><Edit2 size={14} /> Edit</button>
                                 {emp.createdAt && (Date.now() - new Date(emp.createdAt).getTime() > 24 * 60 * 60 * 1000) ? (
-                                    <button onClick={() => handleToggleStatus(emp._id)} className="bg-orange-50 flex flex-1 font-medium gap-2 hover:bg-orange-100 items-center justify-center py-2 rounded-lg text-orange-600 text-sm transition-colors"><Zap size={14} /> {emp.isActive ? "Deactivate" : "Activate"}</button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleToggleStatus(emp._id); }} className="bg-orange-50 flex flex-1 font-medium gap-2 hover:bg-orange-100 items-center justify-center py-2 rounded-lg text-orange-600 text-sm transition-colors"><Zap size={14} /> {emp.isActive ? "Deactivate" : "Activate"}</button>
                                 ) : (
-                                    <button onClick={() => handleDelete(emp._id)} className="bg-red-50 flex flex-1 font-medium gap-2 hover:bg-red-100 items-center justify-center py-2 rounded-lg text-red-600 text-sm transition-colors"><Trash2 size={14} /> Delete</button>
+                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(emp._id); }} className="bg-red-50 flex flex-1 font-medium gap-2 hover:bg-red-100 items-center justify-center py-2 rounded-lg text-red-600 text-sm transition-colors"><Trash2 size={14} /> Delete</button>
                                 )}
                             </div>
                         </div>
@@ -798,9 +889,30 @@ export default function EmployeeMaster() {
                                 <h3 className="dark:text-white font-bold text-gray-900 text-xl">{isEditing ? "Edit Employee" : "Add New Employee"}</h3>
                                 <p className="dark:text-gray-400 text-gray-500 text-sm">Manage employee details, roles, and compensation.</p>
                             </div>
-                            <button onClick={() => { setShowModal(false); stopCamera(); }} className="dark:hover:bg-slate-700 dark:text-gray-500 hover:bg-gray-100 hover:text-gray-600 p-2 rounded-full text-gray-400 transition-colors">
-                                <X size={24} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {isEditing && currentId && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const emp = employees.find(e => e._id === currentId);
+                                            if (emp) handleDownloadIDCard(emp);
+                                        }}
+                                        disabled={downloadingCardId === currentId}
+                                        className="flex items-center gap-1.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 px-3 py-1.5 rounded-xl text-xs font-bold transition-all disabled:opacity-50"
+                                        title="Download Employee ID Card"
+                                    >
+                                        {downloadingCardId === currentId ? (
+                                            <RefreshCw size={14} className="animate-spin" />
+                                        ) : (
+                                            <IdCard size={14} />
+                                        )}
+                                        <span>Download ID Card</span>
+                                    </button>
+                                )}
+                                <button onClick={() => { setShowModal(false); stopCamera(); }} className="dark:hover:bg-slate-700 dark:text-gray-500 hover:bg-gray-100 hover:text-gray-600 p-2 rounded-full text-gray-400 transition-colors">
+                                    <X size={24} />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Modal Content */}
@@ -1511,6 +1623,26 @@ export default function EmployeeMaster() {
                 isOpen={showCompOffHistoryModal} 
                 onClose={() => { setShowCompOffHistoryModal(false); setSelectedCompOffEmployee(null); }} 
                 employee={selectedCompOffEmployee} 
+            />
+
+            {/* Employee Preview Modal */}
+            <EmployeePreviewModal
+                employee={previewEmployee}
+                isOpen={showPreviewModal}
+                onClose={() => {
+                    setShowPreviewModal(false);
+                    setPreviewEmployee(null);
+                }}
+                onEdit={(emp) => {
+                    setShowPreviewModal(false);
+                    setPreviewEmployee(null);
+                    handleOpenEdit(emp);
+                }}
+                onDownloadIDCard={async (emp) => {
+                    await handleDownloadIDCard(emp);
+                }}
+                downloadingCardId={downloadingCardId}
+                companyInfo={companyInfo}
             />
         </div>
     );

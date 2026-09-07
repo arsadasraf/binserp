@@ -18,6 +18,7 @@ import {
   CalendarDays,
 } from "lucide-react";
 import ErrorAlert from "@/src/components/ErrorAlert";
+import { formatWorkDuration, getWorkDurationMinutes } from "@/src/utils/attendanceUtils";
 
 interface EmployeeData {
   employee: {
@@ -134,7 +135,7 @@ export default function EmployeeDashboard() {
   const presentCount = filteredMonthlyAttendance.filter((r) => r.status === "Present").length;
   const absentCount = filteredMonthlyAttendance.filter((r) => r.status === "Absent").length;
   const halfDayCount = filteredMonthlyAttendance.filter((r) => r.status === "Half Day" || r.status === "Late").length;
-  const totalHours = filteredMonthlyAttendance.reduce((acc, r) => acc + (parseFloat(r.hoursWorked) || 0), 0);
+  const totalMinutesWorked = filteredMonthlyAttendance.reduce((acc, r) => acc + getWorkDurationMinutes(r), 0);
 
   const monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -535,7 +536,7 @@ export default function EmployeeDashboard() {
                         <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-100">Total Hours</span>
                         <Clock size={18} />
                       </div>
-                      <p className="text-2xl font-black">{totalHours.toFixed(1)} hrs</p>
+                      <p className="text-2xl font-black">{formatWorkDuration(totalMinutesWorked)}</p>
                     </div>
                   </div>
 
@@ -588,7 +589,7 @@ export default function EmployeeDashboard() {
                                   {rec.checkOut?.time ? new Date(rec.checkOut.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "-"}
                                 </td>
                                 <td className="p-4 text-right font-extrabold text-gray-900 dark:text-white">
-                                  {rec.hoursWorked || "-"}
+                                  {formatWorkDuration(rec)}
                                 </td>
                               </tr>
                             ))
@@ -653,7 +654,7 @@ export default function EmployeeDashboard() {
                             <div className="flex items-center justify-between sm:justify-end gap-4 border-t sm:border-t-0 pt-2 sm:pt-0 border-gray-100 dark:border-gray-800">
                               <div className="text-left sm:text-right">
                                 <p className="text-[10px] font-bold text-gray-400 uppercase">Hours Worked</p>
-                                <p className="text-xs font-extrabold text-gray-900 dark:text-white">{rec.hoursWorked || "-"} hrs</p>
+                                <p className="text-xs font-extrabold text-gray-900 dark:text-white">{formatWorkDuration(rec)}</p>
                               </div>
                               <span
                                 className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase ${

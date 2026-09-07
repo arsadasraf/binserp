@@ -41,6 +41,13 @@ export const attendanceSchema = new mongoose.Schema(
       type: Number, // in hours
       default: 0,
     },
+    durationMinutes: {
+      type: Number,
+      default: 0,
+    },
+    workedText: {
+      type: String,
+    },
     remarks: String,
   },
   { timestamps: true }

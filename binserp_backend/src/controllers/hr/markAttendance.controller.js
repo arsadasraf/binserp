@@ -109,8 +109,17 @@ export const markAttendance = async (req, res) => {
             // === CHECK-OUT ATTEMPT ===
             const checkInTime = new Date(openAttendance.checkIn.time);
             const diffMs = now.getTime() - checkInTime.getTime();
+            const totalWorkedMins = Math.max(0, Math.round(diffMs / 60000));
             const diffMins = diffMs / (1000 * 60);
             const diffHours = diffMs / (1000 * 60 * 60);
+
+            const hoursWorkedFormatted = Math.floor(totalWorkedMins / 60);
+            const minsWorkedFormatted = totalWorkedMins % 60;
+            const workedText = hoursWorkedFormatted > 0 && minsWorkedFormatted > 0
+                ? `${hoursWorkedFormatted}h ${minsWorkedFormatted}m`
+                : hoursWorkedFormatted > 0
+                ? `${hoursWorkedFormatted}h`
+                : `${minsWorkedFormatted}m`;
 
             // Rule 1: 5-Minute Anti-Double-Scan Debounce
             if (diffMins < 5) {
@@ -126,16 +135,15 @@ export const markAttendance = async (req, res) => {
             // Rule 2: Early Check-Out (< 4 Hours) Confirmation Check
             const forceCheckOut = req.body.forceCheckOut === true || req.body.forceCheckOut === "true";
             if (diffHours < 4 && !forceCheckOut) {
-                const hoursWorkedFormatted = Math.floor(diffHours);
-                const minsWorkedFormatted = Math.round((diffHours % 1) * 60);
                 return res.status(200).json({
                     status: "requires_confirmation",
                     type: "early_checkout",
                     employee: employee.name,
                     employeeId: employee._id,
                     hoursWorked: parseFloat(diffHours.toFixed(2)),
-                    workedText: `${hoursWorkedFormatted}h ${minsWorkedFormatted}m`,
-                    message: `You have worked for ${hoursWorkedFormatted}h ${minsWorkedFormatted}m (less than 4 hours). Do you confirm early check-out?`
+                    durationMinutes: totalWorkedMins,
+                    workedText: workedText,
+                    message: `You have worked for ${workedText} (less than 4 hours). Do you confirm early check-out?`
                 });
             }
 
@@ -147,6 +155,8 @@ export const markAttendance = async (req, res) => {
                 method: "Face"
             };
             openAttendance.hoursWorked = parseFloat(diffHours.toFixed(2));
+            openAttendance.durationMinutes = totalWorkedMins;
+            openAttendance.workedText = workedText;
             openAttendance.verificationMethod = "Face";
             if (diffHours < 4) {
                 openAttendance.earlyDeparture = true;
@@ -161,6 +171,8 @@ export const markAttendance = async (req, res) => {
                 employee: employee.name,
                 time: currentTime,
                 hoursWorked: openAttendance.hoursWorked,
+                durationMinutes: totalWorkedMins,
+                workedText: workedText,
                 earlyDeparture: diffHours < 4
             });
         }

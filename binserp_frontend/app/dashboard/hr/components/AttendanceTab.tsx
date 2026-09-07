@@ -8,6 +8,7 @@ import {
     ShieldCheck, RefreshCw, AlertTriangle, CheckCircle2
 } from "lucide-react";
 import { API_BASE_URL } from "@/src/utils/config";
+import { formatWorkDuration } from "@/src/utils/attendanceUtils";
 
 let faceapi: typeof import("@vladmandic/face-api") | null = null;
 
@@ -107,7 +108,7 @@ export default function AttendanceTab() {
                 setPendingConfirmation({
                     employeeId: result.employeeId,
                     employeeName: result.employee,
-                    workedText: result.workedText || `${result.hoursWorked}h`,
+                    workedText: result.workedText || formatWorkDuration(result.hoursWorked),
                     hoursWorked: result.hoursWorked,
                     imageBlob: blob
                 });

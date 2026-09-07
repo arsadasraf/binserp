@@ -10,6 +10,7 @@ import { Employee, Salary } from '../types/hr.types';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 import EditSalaryModal from './modals/EditSalaryModal';
 import { API_BASE_URL } from '@/src/utils/config';
+import { formatWorkDuration } from '@/src/utils/attendanceUtils';
 
 interface DayStatus {
     date: string; // YYYY-MM-DD
@@ -1392,7 +1393,7 @@ export default function SalariesTab() {
 
                                                 {/* Total Duty Hours */}
                                                 <td className="dark:text-gray-300 font-mono px-3 py-2.5 font-bold text-gray-700">
-                                                    {day.originalHours ? `${day.originalHours}h` : '0h'}
+                                                    {formatWorkDuration({ checkIn: { time: day.originalCheckIn }, checkOut: { time: day.originalCheckOut }, hoursWorked: day.originalHours }, { zeroPlaceholder: '0h' })}
                                                 </td>
 
                                                 {/* OT Hours */}

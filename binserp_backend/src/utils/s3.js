@@ -22,9 +22,10 @@ const uploadOnS3 = async (localFilePath, folder = "uploads", companyId = "") => 
     try {
         if (!localFilePath) return null;
 
-        const fileName = path.basename(localFilePath);
+        const rawFileName = path.basename(localFilePath);
+        const safeFileName = rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_');
         const prefix = companyId ? `${companyId}-` : "";
-        const key = `${folder}/${prefix}${Date.now()}-${fileName}`;
+        const key = `${folder}/${prefix}${Date.now()}-${safeFileName}`;
 
         const fileContent = fs.readFileSync(localFilePath);
         
@@ -32,7 +33,7 @@ const uploadOnS3 = async (localFilePath, folder = "uploads", companyId = "") => 
             Bucket: process.env.S3_BUCKET_NAME,
             Key: key,
             Body: fileContent,
-            ContentType: getContentType(fileName),
+            ContentType: getContentType(rawFileName),
         });
 
         await s3Client.send(putCommand);
@@ -70,10 +71,11 @@ const uploadOnS3 = async (localFilePath, folder = "uploads", companyId = "") => 
  */
 const getSignedUrlForGet = async (key, expiresIn = 3600) => {
     try {
-        const isPdf = key.toLowerCase().endsWith('.pdf');
+        const decodedKey = decodeS3Key(key);
+        const isPdf = decodedKey.toLowerCase().endsWith('.pdf');
         const command = new GetObjectCommand({
             Bucket: process.env.S3_BUCKET_NAME,
-            Key: key,
+            Key: decodedKey,
             ResponseContentDisposition: "inline",
             ResponseContentType: isPdf ? "application/pdf" : undefined,
         });
@@ -93,9 +95,10 @@ const getSignedUrlForGet = async (key, expiresIn = 3600) => {
  */
 const getSignedUrlForPut = async (key, contentType, expiresIn = 3600) => {
     try {
+        const decodedKey = decodeS3Key(key);
         const command = new PutObjectCommand({
             Bucket: process.env.S3_BUCKET_NAME,
-            Key: key,
+            Key: decodedKey,
             ContentType: contentType
         });
         return await getSignedUrl(s3Client, command, { expiresIn });
@@ -103,6 +106,30 @@ const getSignedUrlForPut = async (key, contentType, expiresIn = 3600) => {
         console.error("Error generating signed PUT URL:", error);
         return null;
     }
+};
+
+/**
+ * Recursively decodes a key or URL pathname so it can be correctly matched in S3
+ */
+const decodeS3Key = (keyOrUrl) => {
+    if (!keyOrUrl) return "";
+    let key = keyOrUrl;
+    if (key.startsWith('http')) {
+        try {
+            const url = new URL(key);
+            key = url.pathname.substring(1);
+        } catch (e) {
+            return keyOrUrl;
+        }
+    }
+    try {
+        while (key.includes('%')) {
+            const decoded = decodeURIComponent(key);
+            if (decoded === key) break;
+            key = decoded;
+        }
+    } catch (_) {}
+    return key;
 };
 
 /**
@@ -114,13 +141,7 @@ const deleteFromS3 = async (keyOrUrl) => {
     try {
         if (!keyOrUrl) return false;
 
-        let key = keyOrUrl;
-        // If it's a URL, extract the key
-        if (keyOrUrl.startsWith('http')) {
-            const url = new URL(keyOrUrl);
-            // Key is the pathname without the leading slash
-            key = url.pathname.substring(1);
-        }
+        const key = decodeS3Key(keyOrUrl);
 
         const command = new DeleteObjectCommand({
             Bucket: process.env.S3_BUCKET_NAME,
@@ -144,7 +165,9 @@ const getContentType = (fileName) => {
         '.png': 'image/png',
         '.jpg': 'image/jpeg',
         '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
         '.gif': 'image/gif',
+        '.svg': 'image/svg+xml',
         '.pdf': 'application/pdf',
         '.txt': 'text/plain',
         '.doc': 'application/msword',
@@ -166,25 +189,35 @@ const signPhotos = async (photos, expiresIn = 604800) => {
     
     const signedPhotos = await Promise.all(photos.map(async (photo) => {
         if (!photo) return null;
-        
-        // If it's already a signed URL (has X-Amz-Signature), return as is or re-sign?
-        // Usually, we should re-sign to ensure it hasn't expired.
-        
-        let key = photo;
-        if (photo.startsWith('http')) {
-            try {
-                const url = new URL(photo);
-                // Extract key from pathname
-                key = url.pathname.substring(1);
-            } catch (e) {
-                return photo; // Not a valid URL, return as is
-            }
-        }
-        
+        const key = decodeS3Key(photo);
         return await getSignedUrlForGet(key, expiresIn);
     }));
     
     return signedPhotos.filter(Boolean);
 };
 
-export { uploadOnS3, getSignedUrlForGet, getSignedUrlForPut, deleteFromS3, signPhotos };
+/**
+ * Fetches an object directly from S3 and returns a base64 Data URL
+ */
+const fetchS3ImageBase64 = async (keyOrUrl) => {
+    try {
+        const key = decodeS3Key(keyOrUrl);
+        if (!key) return null;
+
+        const command = new GetObjectCommand({
+            Bucket: process.env.S3_BUCKET_NAME,
+            Key: key,
+        });
+
+        const s3Response = await s3Client.send(command);
+        const byteArray = await s3Response.Body.transformToByteArray();
+        const base64 = Buffer.from(byteArray).toString('base64');
+        const contentType = s3Response.ContentType || getContentType(key);
+        return `data:${contentType};base64,${base64}`;
+    } catch (error) {
+        console.error("fetchS3ImageBase64 error:", error.message);
+        return null;
+    }
+};
+
+export { uploadOnS3, getSignedUrlForGet, getSignedUrlForPut, deleteFromS3, signPhotos, fetchS3ImageBase64, decodeS3Key };

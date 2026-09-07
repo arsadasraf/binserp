@@ -7,6 +7,7 @@ import { API_BASE_URL } from "@/src/utils/config";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import { formatWorkDuration } from "@/src/utils/attendanceUtils";
 
 interface AttendanceRecord {
     _id: string;
@@ -31,6 +32,8 @@ interface AttendanceRecord {
     verificationMethod?: string;
     status: string;
     hoursWorked?: number;
+    durationMinutes?: number;
+    workedText?: string;
 }
 
 export default function PresentTab() {
@@ -237,7 +240,7 @@ export default function PresentTab() {
             record.employee?.department || '-',
             record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
             record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-            record.hoursWorked ? `${record.hoursWorked}h` : '-',
+            formatWorkDuration(record),
             getStatusInfo(record).label
         ]);
 
@@ -311,7 +314,7 @@ export default function PresentTab() {
                 record.employee?.department || '-',
                 record.checkIn?.time ? new Date(record.checkIn.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
                 record.checkOut?.time ? new Date(record.checkOut.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-',
-                record.hoursWorked || '-',
+                formatWorkDuration(record),
                 getStatusInfo(record).label
             ]);
         });
@@ -329,7 +332,7 @@ export default function PresentTab() {
             { wch: 20 }, // Dept
             { wch: 15 }, // Check In
             { wch: 15 }, // Check Out
-            { wch: 10 }, // Hours
+            { wch: 20 }, // Hours
             { wch: 18 }  // Status
         ];
 
@@ -341,7 +344,7 @@ export default function PresentTab() {
     return (
         <div className="bg-white border border-gray-100 dark:bg-slate-800 dark:border-slate-700 overflow-hidden rounded-xl shadow-sm">
             <div className="bg-gray-50 border-b border-gray-100 dark:bg-slate-800/50 dark:border-slate-700 flex flex-col gap-4 justify-between lg:flex-row lg:items-center p-6">
-                <div>
+                <div className="hidden md:block">
                     <h3 className="dark:text-gray-100 flex font-bold gap-2 items-center text-gray-800 text-lg">
                         <UserCheck className="text-green-600" size={20} />
                         Attendance Records
@@ -539,7 +542,7 @@ export default function PresentTab() {
                                                     )}
                                                 </td>
                                                 <td className="dark:text-gray-200 font-medium font-mono px-6 py-4 text-gray-700 text-sm">
-                                                    {record.hoursWorked ? `${record.hoursWorked} h` : "-"}
+                                                    {formatWorkDuration(record)}
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${statusInfo.badgeClass}`}>
@@ -581,9 +584,9 @@ export default function PresentTab() {
                                             <span className="bg-blue-50 border border-blue-100 font-semibold px-2 py-0.5 rounded text-[10px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800">
                                                 {record.employee?.department || "N/A"}
                                             </span>
-                                            {record.hoursWorked ? (
+                                            {formatWorkDuration(record) !== "-" ? (
                                                 <span className="bg-amber-50 border border-amber-100 font-semibold px-2 py-0.5 rounded text-[10px] text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800">
-                                                    {record.hoursWorked} hrs
+                                                    {formatWorkDuration(record)}
                                                 </span>
                                             ) : null}
                                         </div>
