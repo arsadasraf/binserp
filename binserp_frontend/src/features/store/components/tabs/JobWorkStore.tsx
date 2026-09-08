@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, FileText, FileSpreadsheet } from 'lucide-react';
+import { 
+    Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, 
+    FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
+    AlertTriangle, ArrowRight, Layers, RefreshCw, X 
+} from 'lucide-react';
 import { JobWorkChallan, Vendor, JobWorkSupplier } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
@@ -24,12 +28,45 @@ interface JobWorkStoreProps {
     onSuccess: (msg: string) => void;
 }
 
-export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMaterials = [], boughtOuts = [], materials = [], inventoryList = [], inHouseItems = [], mrpPlans = [], activeTab, token, companyInfo, onError, onSuccess }: JobWorkStoreProps) {
+const getItemDescription = (item: any): string => {
+    if (!item) return '';
+    if (typeof item.description === 'string' && item.description.trim()) return item.description.trim();
+    if (typeof item.descriptions === 'string' && item.descriptions.trim()) return item.descriptions.trim();
+    if (typeof item.specification === 'string' && item.specification.trim()) return item.specification.trim();
+    return '';
+};
+
+const formatDateTime = (dateStr?: string | Date): string => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+    });
+};
+
+export default function JobWorkStore({ 
+    vendors, 
+    jobWorkSuppliers = [], 
+    rawMaterials = [], 
+    boughtOuts = [], 
+    materials = [], 
+    inventoryList = [], 
+    inHouseItems = [], 
+    mrpPlans = [], 
+    token, 
+    companyInfo, 
+    onError, 
+    onSuccess 
+}: JobWorkStoreProps) {
     const [challans, setChallans] = useState<JobWorkChallan[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    // User requested "Challan" tab. Replacing 'sent'/'create' with 'challan'.
-    const [subTab, setSubTab] = useState<'challan' | 'received' | 'overdue'>('challan');
+    
+    // Sub-Tabs: All, Active / In-Process, History / Received, Overdue Return
+    const [subTab, setSubTab] = useState<'all' | 'active' | 'received' | 'overdue'>('active');
 
     // Filter States
     const [filterMode, setFilterMode] = useState<'daily' | 'monthly' | 'yearly'>('daily');
@@ -37,7 +74,7 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
     const [filterSupplier, setFilterSupplier] = useState('');
     const [workflowFilter, setWorkflowFilter] = useState<'all' | 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card'>('all');
 
-    // New State for Pending Jobs
+    // Prefill data for editing
     const [prefillData, setPrefillData] = useState<any>(null);
 
     // Modal States
@@ -48,6 +85,30 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
     // Preview Modal State
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [previewChallan, setPreviewChallan] = useState<JobWorkChallan | null>(null);
+
+    // Live 1-second ticking timer for 24-hour edit/delete countdown
+    const [nowTime, setNowTime] = useState(Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNowTime(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const getRemainingEditSeconds = (createdAt?: string | Date) => {
+        if (!createdAt) return 0;
+        const created = new Date(createdAt).getTime();
+        if (isNaN(created)) return 0;
+        const elapsed = Math.floor((nowTime - created) / 1000);
+        const limit = 24 * 3600; // 24 hours in seconds
+        return Math.max(0, limit - elapsed);
+    };
+
+    const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds <= 0) return '00:00:00';
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
 
     const openPreview = (challan: JobWorkChallan) => {
         setPreviewChallan(challan);
@@ -70,12 +131,13 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
 
     useEffect(() => {
         fetchChallans();
-    }, [subTab]);
+    }, []);
 
     const handleCreateSuccess = () => {
         setIsFormOpen(false);
+        setPrefillData(null);
         fetchChallans();
-        onSuccess('Job Work Challan created successfully');
+        onSuccess('Job Work Challan saved successfully');
     };
 
     const handleReceiveSuccess = () => {
@@ -95,11 +157,15 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
         setIsFormOpen(true);
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this challan?')) return;
+    const handleDelete = async (id: string, challanNumber?: string) => {
+        const confirmMsg = challanNumber 
+            ? `Are you sure you want to delete Returnable DC #${challanNumber}? Outward stock will be safely restored.`
+            : 'Are you sure you want to delete this challan? Outward stock will be restored.';
+        if (!window.confirm(confirmMsg)) return;
+
         try {
             await apiDelete(`/api/store/jobwork/delete/${id}`, token!);
-            onSuccess('Challan deleted successfully');
+            onSuccess('Challan deleted and inventory restored successfully');
             fetchChallans();
         } catch (error: any) {
             onError(error.message || 'Failed to delete challan');
@@ -122,6 +188,30 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
         }
     };
 
+    // Tab counts calculation
+    const tabCounts = useMemo(() => {
+        const now = new Date();
+        let active = 0;
+        let received = 0;
+        let overdue = 0;
+
+        challans.forEach(c => {
+            const isClosed = c.status === 'Closed';
+            if (!isClosed) active++;
+            if (isClosed) received++;
+            if (!isClosed && c.expectedReturnDate && new Date(c.expectedReturnDate) < now) {
+                overdue++;
+            }
+        });
+
+        return {
+            all: challans.length,
+            active,
+            received,
+            overdue
+        };
+    }, [challans]);
+
     // Available years from challan dates
     const availableYears = useMemo(() => {
         const currentYear = new Date().getFullYear();
@@ -136,49 +226,55 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
     }, [challans]);
 
     // Filter Logic
-    const filteredChallans = challans.filter(c => {
-        const matchesSearch =
-            c.challanNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (c.vendor?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (c.mrpNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (c.items || []).some((it: any) => (it.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()));
+    const filteredChallans = useMemo(() => {
+        return challans.filter(c => {
+            const matchesSearch =
+                c.challanNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (c.vendor?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (c.mrpNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                (c.items || []).some((it: any) => (it.itemName || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
-        if (!matchesSearch) return false;
+            if (!matchesSearch) return false;
 
-        if (workflowFilter !== 'all') {
-            const type = c.jobWorkType || 'store-conversion';
-            if (type !== workflowFilter) return false;
-        }
+            if (workflowFilter !== 'all') {
+                const type = c.jobWorkType || 'store-conversion';
+                if (type !== workflowFilter) return false;
+            }
 
-        if (filterSupplier && c.vendor?._id !== filterSupplier) return false;
+            if (filterSupplier && c.vendor?._id !== filterSupplier) return false;
 
-        // Date Filter Logic (Day / Month / Year)
-        if (filterDate) {
-            const challanDateObj = new Date(c.date);
-            if (!isNaN(challanDateObj.getTime())) {
-                if (filterMode === 'daily') {
-                    const challanDay = challanDateObj.toISOString().slice(0, 10);
-                    if (challanDay !== filterDate) return false;
-                } else if (filterMode === 'monthly') {
-                    const challanMonth = challanDateObj.toISOString().slice(0, 7);
-                    if (challanMonth !== filterDate) return false;
-                } else if (filterMode === 'yearly') {
-                    const challanYear = String(challanDateObj.getFullYear());
-                    if (challanYear !== filterDate) return false;
+            // Date Filter Logic (Day / Month / Year)
+            if (filterDate) {
+                const challanDateObj = new Date(c.date);
+                if (!isNaN(challanDateObj.getTime())) {
+                    if (filterMode === 'daily') {
+                        const challanDay = challanDateObj.toISOString().slice(0, 10);
+                        if (challanDay !== filterDate) return false;
+                    } else if (filterMode === 'monthly') {
+                        const challanMonth = challanDateObj.toISOString().slice(0, 7);
+                        if (challanMonth !== filterDate) return false;
+                    } else if (filterMode === 'yearly') {
+                        const challanYear = String(challanDateObj.getFullYear());
+                        if (challanYear !== filterDate) return false;
+                    }
                 }
             }
-        }
 
-        // SubTab status filtering
-        if (subTab === 'challan') return c.status !== 'Closed';
-        if (subTab === 'received') return c.status === 'Closed' || c.status === 'Partial';
-        if (subTab === 'overdue') {
-            if (c.status === 'Closed') return false;
-            if (!c.expectedReturnDate) return false;
-            return new Date(c.expectedReturnDate) < new Date();
-        }
-        return true;
-    });
+            // SubTab status filtering
+            if (subTab === 'active') {
+                if (c.status === 'Closed') return false;
+            } else if (subTab === 'received') {
+                if (c.status !== 'Closed') return false;
+            } else if (subTab === 'overdue') {
+                if (c.status === 'Closed') return false;
+                if (!c.expectedReturnDate) return false;
+                if (new Date(c.expectedReturnDate) >= new Date()) return false;
+            }
+            // 'all' includes everything matching filters
+
+            return true;
+        });
+    }, [challans, searchTerm, workflowFilter, filterSupplier, filterDate, filterMode, subTab]);
 
     // Render dynamic date input based on selected mode
     const renderDateFilterInput = () => {
@@ -223,46 +319,69 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
             
             {/* Top Row: Sub-Tabs & Action Button */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                {/* Sub-Tabs */}
-                <div className="flex bg-gray-100 dark:bg-gray-800/60 p-1 rounded-xl backdrop-blur-sm overflow-x-auto no-scrollbar">
+                {/* Sub-Tabs with Counter Badges */}
+                <div className="flex bg-gray-100 dark:bg-gray-800/60 p-1 rounded-xl backdrop-blur-sm overflow-x-auto no-scrollbar gap-1 max-w-full">
                     <button
-                        onClick={() => setSubTab('challan')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            subTab === 'challan'
+                        onClick={() => setSubTab('all')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            subTab === 'all'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        Active Challans
+                        <span>All Challans</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'all' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                            {tabCounts.all}
+                        </span>
+                    </button>
+
+                    <button
+                        onClick={() => setSubTab('active')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            subTab === 'active'
+                                ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
+                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                    >
+                        <span>Active / In-Process</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'active' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                            {tabCounts.active}
+                        </span>
                     </button>
 
                     <button
                         onClick={() => setSubTab('received')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                             subTab === 'received'
                                 ? 'bg-white dark:bg-gray-700 text-emerald-600 dark:text-emerald-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        History / Received
+                        <span>History / Received</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'received' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                            {tabCounts.received}
+                        </span>
                     </button>
 
                     <button
                         onClick={() => setSubTab('overdue')}
-                        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                             subTab === 'overdue'
                                 ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        Overdue Return
+                        <span>Overdue Return</span>
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'overdue' ? 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
+                            {tabCounts.overdue}
+                        </span>
                     </button>
                 </div>
 
                 {/* Primary Action Button */}
                 <button
                     onClick={() => handleCreateChallan()}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer"
+                    className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer shrink-0"
                 >
                     <Plus size={15} />
                     <span>Create Returnable DC</span>
@@ -369,268 +488,496 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                 </div>
             </div>
 
-
-            {/* Content Logic */}
+            {/* Content Logic: High-Density ERP Data Table */}
             {loading ? (
                 <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
             ) : filteredChallans.length === 0 ? (
-                <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-200 pb-28 sm:pb-20">
-                    <Truck className="mx-auto h-12 w-12 text-gray-300 mb-3" />
-                    <p className="text-gray-500">No job work items found</p>
-                    {subTab === 'challan' && (
-                        <div className="mt-4">
-                            <button
-                                onClick={() => handleCreateChallan()}
-                                className="text-indigo-600 font-medium hover:underline"
-                            >
-                                Create your first challan
-                            </button>
-                        </div>
-                    )}
+                <div className="text-center py-12 bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-dashed border-gray-200 dark:border-gray-700 pb-28 sm:pb-20">
+                    <Truck className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-3" />
+                    <p className="text-gray-500 dark:text-gray-400 font-medium text-sm">No returnable delivery challans found matching current filters</p>
+                    <div className="mt-4">
+                        <button
+                            onClick={() => handleCreateChallan()}
+                            className="text-indigo-600 dark:text-indigo-400 font-bold text-xs hover:underline"
+                        >
+                            + Create New Returnable DC
+                        </button>
+                    </div>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 gap-4 pb-28 sm:pb-20">
-                    {filteredChallans.map(challan => (
-                        <div key={challan._id} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow group">
-                            {/* Clickable Card Header */}
-                            <div
-                                onClick={() => openPreview(challan)}
-                                className="flex flex-col sm:flex-row justify-between gap-3 mb-4 border-b border-gray-50 pb-3 cursor-pointer hover:bg-slate-50/80 -mx-4 -mt-4 p-4 rounded-t-2xl transition-colors"
-                                title="Click to view full challan details preview"
-                            >
-                                <div>
-                                    <div className="flex items-center gap-2.5 mb-1 flex-wrap">
-                                        <span className="font-extrabold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-1.5 text-sm sm:text-base">
-                                            {challan.challanNumber}
-                                            <Eye size={15} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity hidden sm:inline" />
-                                        </span>
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
-                                            challan.status === 'Partial' ? 'bg-amber-100 text-amber-800' :
-                                                challan.status === 'Closed' ? 'bg-green-100 text-green-800' :
-                                                    'bg-red-100 text-red-800'
-                                            }`}>{challan.status}</span>
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                            challan.jobWorkType === 'route-card'
-                                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800'
-                                                : challan.jobWorkType === 'store-to-wip'
-                                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-                                                    : 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800'
-                                        }`}>
-                                            {challan.jobWorkType === 'route-card' ? 'PPC Route-Card (WIP)' : challan.jobWorkType === 'store-to-wip' ? 'Store to WIP' : 'RM Conversion'}
-                                        </span>
-                                        {challan.ewayBillNo && (
-                                            <span className="bg-indigo-50 text-indigo-700 font-mono text-[11px] px-2 py-0.5 rounded border border-indigo-100">
-                                                E-Way: {challan.ewayBillNo}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="text-xs sm:text-sm text-gray-600 flex items-center gap-1.5">
-                                        <Factory size={14} className="text-slate-400 shrink-0" /> <span className="font-semibold">{challan.vendor?.name || 'Unknown Vendor'}</span>
-                                    </div>
-                                </div>
-                                <div className="text-left sm:text-right text-xs text-gray-500 flex sm:flex-col justify-between items-center sm:items-end gap-1">
-                                    <div className="flex items-center gap-1"><Calendar size={13} /> Sent: {new Date(challan.date).toLocaleDateString()}</div>
-                                    {challan.expectedReturnDate && (
-                                        <div className={`font-semibold ${new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed' ? 'text-red-500' : 'text-gray-500'}`}>
-                                            Due: {new Date(challan.expectedReturnDate).toLocaleDateString()}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
+                <>
+                    {/* Desktop ERP Data Table */}
+                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left border-collapse">
+                                <thead className="bg-slate-50 dark:bg-slate-800/80 text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                                    <tr>
+                                        <th className="px-3.5 py-3 text-center w-12">#</th>
+                                        <th className="px-4 py-3">Challan Details</th>
+                                        <th className="px-4 py-3">Subcontractor / Vendor</th>
+                                        <th className="px-3.5 py-3">MRP Plan Ref</th>
+                                        <th className="px-4 py-3">Outward Material Sent</th>
+                                        <th className="px-4 py-3">Expected Return Item(s)</th>
+                                        <th className="px-3.5 py-3">Dates & Status</th>
+                                        <th className="px-4 py-3 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                    {filteredChallans.map((challan, idx) => {
+                                        const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
+                                        const isActionable = remainingSecs > 0 && challan.status !== 'Closed' && challan.status !== 'Partial';
+                                        const isOverdue = challan.expectedReturnDate && new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed';
 
-                            {/* Desktop Items Table */}
-                            <div className="hidden md:block overflow-x-auto cursor-pointer" onClick={() => openPreview(challan)}>
-                                <table className="w-full text-sm">
-                                    <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
-                                        <tr>
-                                            <th className="px-3 py-2 text-left">Item Sent</th>
-                                            <th className="px-3 py-2 text-left">Material to be Received</th>
-                                            <th className="px-3 py-2 text-left">Process / Rate</th>
-                                            <th className="px-3 py-2 text-center">Sent Qty</th>
-                                            <th className="px-3 py-2 text-center">Recv Qty</th>
-                                            <th className="px-3 py-2 text-center">Pending</th>
-                                            <th className="px-3 py-2 text-right">Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-100">
-                                        {challan.items.map((item, idx) => {
-                                            const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
-                                                receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
-                                                quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                                                quantityReceived: item.quantityReceived || 0,
-                                                receivingUnit: item.receivingUnit || item.unit || 'PCS',
-                                                status: item.status
-                                            }];
+                                        // Material Sent Summary
+                                        const isAssembly = challan.operationMode === 'assembly';
+                                        const primarySentItem = challan.items?.[0];
+                                        const sentItemCount = challan.items?.length || 0;
+                                        const totalSentQty = (challan.items || []).reduce((acc, it) => acc + (Number(it.quantitySent) || 0), 0);
+                                        const sentUnit = primarySentItem?.unit || 'PCS';
+                                        const sentProcessType = primarySentItem?.processType || (isAssembly ? 'Assembly / Welding' : 'Job Work');
+                                        const sentRate = Number(primarySentItem?.processRate != null ? primarySentItem.processRate : primarySentItem?.unitPrice) || 0;
+                                        const sentDesc = getItemDescription(primarySentItem);
 
-                                            return retList.map((ret, rIdx) => {
-                                                const expQty = Number(ret.quantityToBeReceived) || 0;
-                                                const recvQty = Number(ret.quantityReceived) || 0;
-                                                const pending = expQty - recvQty;
-                                                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
+                                        // Returning Item Summary
+                                        let retName = '-';
+                                        let retDesc = '';
+                                        let expQty = 0;
+                                        let recvQty = 0;
+                                        let pendingQty = 0;
+                                        let retUnit = 'PCS';
 
-                                                return (
-                                                    <tr key={`${idx}_${rIdx}`}>
-                                                        {rIdx === 0 && (
-                                                             <td rowSpan={retList.length} className="px-3 py-2 font-semibold text-gray-900 border-r border-gray-100 align-top">
-                                                                {item.itemName}
-                                                            </td>
-                                                        )}
-                                                        <td className="px-3 py-2 text-indigo-700 font-semibold">
-                                                            {ret.receivedItemName || item.itemName}
-                                                        </td>
-                                                        {rIdx === 0 && (
-                                                            <td rowSpan={retList.length} className="px-3 py-2 text-gray-600 border-r border-gray-100 align-top">
-                                                                <div className="font-semibold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</div>
-                                                                {rate > 0 && (
-                                                                    <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                                        ₹{rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
-                                                                    </div>
-                                                                )}
-                                                            </td>
-                                                        )}
-                                                        {rIdx === 0 && (
-                                                            <td rowSpan={retList.length} className="px-3 py-2 text-center border-r border-gray-100 align-top">
-                                                                {item.quantitySent} {item.unit}
-                                                            </td>
-                                                        )}
-                                                        <td className="px-3 py-2 text-center text-slate-700 font-bold">
-                                                            {recvQty}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-center text-indigo-600 font-bold">
-                                                            {pending > 0 ? pending : 0}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right">
-                                                            {ret.status === 'Completed' || pending <= 0 ? <CheckCircle2 size={16} className="text-emerald-500 ml-auto" /> :
-                                                                <span className="text-xs text-amber-600 font-medium">{ret.status || 'Sent'}</span>}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            });
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
+                                        if (isAssembly && challan.assemblyOutputItem) {
+                                            const out = challan.assemblyOutputItem;
+                                            retName = out.itemName || 'Assembled / Welded Product';
+                                            retDesc = getItemDescription(out);
+                                            expQty = Number(out.quantityToBeReceived) || 0;
+                                            recvQty = Number(out.quantityReceived) || 0;
+                                            pendingQty = Math.max(0, expQty - recvQty);
+                                            retUnit = out.receivingUnit || 'PCS';
+                                        } else if (primarySentItem) {
+                                            const firstRet = primarySentItem.returningItems?.[0];
+                                            retName = firstRet?.receivedItemName || primarySentItem.itemName || 'Converted Item';
+                                            retDesc = getItemDescription(firstRet);
+                                            expQty = Number(firstRet?.quantityToBeReceived || primarySentItem.quantitySent) || 0;
+                                            recvQty = Number(firstRet?.quantityReceived || primarySentItem.quantityReceived) || 0;
+                                            pendingQty = Math.max(0, expQty - recvQty);
+                                            retUnit = firstRet?.receivingUnit || primarySentItem.unit || 'PCS';
+                                        }
 
-                            {/* Mobile Items Card View */}
-                            <div className="md:hidden flex flex-col gap-2.5 cursor-pointer" onClick={() => openPreview(challan)}>
-                                {challan.items.map((item, idx) => {
-                                    const retList = (item.returningItems && item.returningItems.length > 0) ? item.returningItems : [{
-                                        receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
-                                        quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                                        quantityReceived: item.quantityReceived || 0,
-                                        receivingUnit: item.receivingUnit || item.unit || 'PCS',
-                                        status: item.status
-                                    }];
+                                        return (
+                                            <tr key={challan._id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors group">
+                                                {/* 1. Row Index */}
+                                                <td className="px-3.5 py-3 text-center text-xs font-mono font-bold text-slate-400">
+                                                    {idx + 1}
+                                                </td>
 
-                                    return (
-                                        <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-2">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Sent Item</span>
-                                                    <span className="font-bold text-slate-900 text-xs">{item.itemName}</span>
-                                                    <span className="text-[11px] text-indigo-600 font-medium block">
-                                                        Process: {item.processType} {(item.processRate || item.unitPrice) ? `(₹${item.processRate || item.unitPrice}/${item.unit || 'PCS'})` : ''}
-                                                    </span>
-                                                </div>
-                                                <span className="px-2 py-0.5 bg-slate-200 text-slate-800 rounded text-[11px] font-bold">
-                                                    {item.quantitySent} {item.unit}
-                                                </span>
-                                            </div>
-
-                                            {retList.map((ret, rIdx) => {
-                                                const expQty = Number(ret.quantityToBeReceived) || 0;
-                                                const recvQty = Number(ret.quantityReceived) || 0;
-                                                const pending = expQty - recvQty;
-
-                                                return (
-                                                    <div key={rIdx} className="pt-2 border-t border-slate-200/60 flex justify-between items-center text-xs">
-                                                        <div>
-                                                            <span className="text-[10px] text-slate-400 uppercase block">Returning</span>
-                                                            <span className="font-semibold text-indigo-700">{ret.receivedItemName || item.itemName}</span>
+                                                {/* 2. Challan Details */}
+                                                <td className="px-4 py-3">
+                                                    <div className="flex flex-col gap-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <button
+                                                                onClick={() => openPreview(challan)}
+                                                                className="text-xs font-black text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer font-mono"
+                                                                title="Click to preview complete DC details"
+                                                            >
+                                                                {challan.challanNumber}
+                                                                <Eye size={12} className="opacity-70 group-hover:opacity-100" />
+                                                            </button>
                                                         </div>
-                                                        <div className="flex items-center gap-2 text-right">
-                                                            <div>
-                                                                <span className="text-[10px] text-slate-400 block">Recv / Pend</span>
-                                                                <span className="font-bold text-slate-800">{recvQty} / <strong className="text-indigo-600">{pending > 0 ? pending : 0}</strong></span>
-                                                            </div>
-                                                            {ret.status === 'Completed' || pending <= 0 ? (
-                                                                <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                                                        <div className="flex flex-wrap items-center gap-1">
+                                                            {/* DC Type Badge */}
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold border ${
+                                                                challan.jobWorkType === 'route-card'
+                                                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                                                                    : challan.jobWorkType === 'store-to-wip'
+                                                                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                                        : challan.jobWorkType === 'wip-to-wip'
+                                                                            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                                                                            : 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800'
+                                                            }`}>
+                                                                {challan.jobWorkType === 'route-card' ? 'Route-Card' :
+                                                                 challan.jobWorkType === 'store-to-wip' ? 'Store ➔ WIP' :
+                                                                 challan.jobWorkType === 'wip-to-wip' ? 'WIP ➔ WIP' : 'RM Conv.'}
+                                                            </span>
+
+                                                            {/* Mode Badge */}
+                                                            {isAssembly ? (
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-200 dark:border-amber-800 uppercase tracking-tight" title="Many components welded / assembled into 1 return item">
+                                                                    Many ➔ 1 Kit
+                                                                </span>
                                                             ) : (
-                                                                <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-bold">In WIP</span>
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                                    1 ➔ Many
+                                                                </span>
+                                                            )}
+
+                                                            {/* E-Way Bill */}
+                                                            {challan.ewayBillNo && (
+                                                                <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-semibold" title={`E-Way Bill: ${challan.ewayBillNo}`}>
+                                                                    EW: {challan.ewayBillNo.slice(-6)}
+                                                                </span>
                                                             )}
                                                         </div>
                                                     </div>
-                                                );
-                                            })}
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                                                </td>
 
-                            {/* Receive Timeline */}
-                            {(challan as any).receiveHistory && (challan as any).receiveHistory.length > 0 && (
-                                <div className="mt-3 bg-gray-50 rounded-lg p-3 text-xs">
-                                    <h4 className="font-semibold text-gray-700 mb-2">Receive Timeline:</h4>
-                                    <ul className="space-y-1">
-                                        {(challan as any).receiveHistory.map((hist: any, i: number) => {
-                                            const itemName = challan.items.find((it: any) => it._id === hist.itemId)?.itemName || 'Unknown Item';
-                                            return (
-                                                <li key={i} className="text-gray-600 flex gap-2">
-                                                    <span className="text-gray-400">{new Date(hist.date).toLocaleString()}</span>
-                                                    <span>-</span>
-                                                    <span className="font-medium text-gray-800">{hist.quantity}</span>
-                                                    <span>x {itemName}</span>
-                                                </li>
-                                            );
-                                        })}
-                                    </ul>
-                                </div>
-                            )}
+                                                {/* 3. Subcontractor / Vendor */}
+                                                <td className="px-4 py-3">
+                                                    <div className="font-bold text-xs text-slate-900 dark:text-slate-100 line-clamp-1">
+                                                        {challan.vendor?.name || 'Unknown Vendor'}
+                                                    </div>
+                                                    {challan.vendor?.city && (
+                                                        <div className="text-[11px] text-slate-400">
+                                                            {challan.vendor.city}
+                                                        </div>
+                                                    )}
+                                                </td>
 
-                            {/* Actions - Responsive Grid on Mobile */}
-                            <div className="mt-4 pt-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
-                                <div className="flex flex-wrap gap-1.5 sm:gap-2">
-                                    <button onClick={() => openPreview(challan)} className="px-3 py-1.5 text-xs sm:text-sm font-semibold text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors flex items-center gap-1">
-                                        <Eye size={14} /> Preview
-                                    </button>
-                                    {challan.status !== 'Partial' && challan.status !== 'Closed' && (
-                                        (() => {
-                                            const createdAtTime = (challan as any).createdAt ? new Date((challan as any).createdAt).getTime() : 0;
-                                            const isWithinTwoHours = createdAtTime ? (Date.now() - createdAtTime) <= (2 * 60 * 60 * 1000) : true;
+                                                {/* 4. MRP Plan Ref */}
+                                                <td className="px-3.5 py-3 text-xs">
+                                                    {challan.mrpNumber ? (
+                                                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded text-[11px] font-mono font-bold">
+                                                            {challan.mrpNumber}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-slate-400 text-xs">-</span>
+                                                    )}
+                                                </td>
 
-                                            if (isWithinTwoHours) {
-                                                return (
-                                                    <>
-                                                        <button onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors">Edit</button>
-                                                        <button onClick={() => handleDelete(challan._id)} className="px-3 py-1.5 text-xs sm:text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">Delete</button>
-                                                    </>
-                                                );
-                                            }
-                                            return null;
-                                        })()
-                                    )}
-                                    <button onClick={() => exportChallanToPDF(challan)} className="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1" title="Download PDF"><FileText size={15}/></button>
-                                    <button onClick={() => exportChallanToExcel(challan)} className="px-2.5 py-1.5 text-xs sm:text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors flex items-center gap-1" title="Download Excel"><FileSpreadsheet size={15}/></button>
-                                </div>
-                                {challan.status !== 'Closed' && (
-                                    <button
-                                        onClick={() => openReceiveModal(challan)}
-                                        className="w-full sm:w-auto px-4 py-2 bg-gray-900 text-white text-xs sm:text-sm font-bold rounded-xl hover:bg-black transition-colors flex items-center justify-center gap-2 shadow-sm"
-                                    >
-                                        <Truck size={15} /> Mark Received / Return
-                                    </button>
-                                )}
-                            </div>
+                                                {/* 5. Outward Material(s) Sent (Strict AGENTS.md compliance: Name bold, description italic) */}
+                                                <td className="px-4 py-3 max-w-xs">
+                                                    <div>
+                                                        <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
+                                                            {primarySentItem?.itemName || 'Material Item'}
+                                                        </div>
+                                                        {sentDesc && (
+                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                {sentDesc}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+                                                        <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                                                            {isAssembly ? `${totalSentQty} ${sentUnit} (Total)` : `${primarySentItem?.quantitySent || 0} ${sentUnit}`}
+                                                        </span>
+                                                        {sentItemCount > 1 && (
+                                                            <span 
+                                                                className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900 cursor-help"
+                                                                title={`Kit contains ${sentItemCount} items: ${(challan.items || []).map(it => it.itemName).join(', ')}`}
+                                                            >
+                                                                +{sentItemCount - 1} more items
+                                                            </span>
+                                                        )}
+                                                        {sentRate > 0 && (
+                                                            <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                                @ ₹{sentRate.toFixed(2)}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+
+                                                {/* 6. Expected Converted / Return Item(s) */}
+                                                <td className="px-4 py-3 max-w-xs">
+                                                    <div>
+                                                        <div className="font-bold text-xs text-indigo-700 dark:text-indigo-300 line-clamp-1">
+                                                            {retName}
+                                                        </div>
+                                                        {retDesc && (
+                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                                {retDesc}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mt-1 text-xs font-semibold">
+                                                        <span className="text-slate-500">Exp: <b className="text-slate-800 dark:text-slate-200">{expQty}</b></span>
+                                                        <span className="text-slate-300">•</span>
+                                                        <span className="text-emerald-600">Recv: <b>{recvQty}</b></span>
+                                                        <span className="text-slate-300">•</span>
+                                                        <span className={`font-bold ${pendingQty > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+                                                            Pend: {pendingQty} {retUnit}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* 7. Dates & Status */}
+                                                <td className="px-3.5 py-3 whitespace-nowrap">
+                                                    <div className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                                                        Sent: {formatDateTime(challan.date)}
+                                                    </div>
+                                                    {challan.expectedReturnDate && (
+                                                        <div className={`text-[11px] font-semibold mt-0.5 flex items-center gap-1 ${
+                                                            isOverdue ? 'text-red-600 font-bold' : 'text-slate-500'
+                                                        }`}>
+                                                            {isOverdue && <AlertTriangle size={11} className="text-red-500 shrink-0" />}
+                                                            Due: {formatDateTime(challan.expectedReturnDate)}
+                                                        </div>
+                                                    )}
+                                                    <div className="mt-1">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                                                            challan.status === 'Open' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                                                            challan.status === 'Partial' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                                            challan.status === 'Closed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                            'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300'
+                                                        }`}>
+                                                            {challan.status}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* 8. Quick Actions & 24h Countdown Timer */}
+                                                <td className="px-4 py-3 text-right whitespace-nowrap">
+                                                    <div className="flex justify-end items-center gap-1.5">
+                                                        {/* Preview Action */}
+                                                        <button 
+                                                            onClick={() => openPreview(challan)} 
+                                                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800" 
+                                                            title="Preview Challan (Details, PDF, Excel)"
+                                                        >
+                                                            <Eye size={14} />
+                                                        </button>
+
+                                                        {/* Mark Return / Receive Action */}
+                                                        {challan.status !== 'Closed' && (
+                                                            <button 
+                                                                onClick={() => openReceiveModal(challan)} 
+                                                                className="px-2.5 py-1.5 bg-gray-900 hover:bg-black text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-xs cursor-pointer" 
+                                                                title="Mark Received / Return Items"
+                                                            >
+                                                                <Truck size={13} />
+                                                                <span>Return</span>
+                                                            </button>
+                                                        )}
+
+                                                        {/* Direct Print PDF */}
+                                                        <button 
+                                                            onClick={() => exportChallanToPDF(challan)} 
+                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800" 
+                                                            title="Download PDF"
+                                                        >
+                                                            <FileText size={14} />
+                                                        </button>
+
+                                                        {/* Excel Export */}
+                                                        <button 
+                                                            onClick={() => exportChallanToExcel(challan)} 
+                                                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800" 
+                                                            title="Download Excel"
+                                                        >
+                                                            <FileSpreadsheet size={14} />
+                                                        </button>
+
+                                                        {/* 24-Hour Edit/Delete Countdown Timer */}
+                                                        {isActionable ? (
+                                                            <div className="flex items-center gap-1 shrink-0 ml-0.5">
+                                                                <span 
+                                                                    title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                    className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                                >
+                                                                    <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                    {formatRemainingTime(remainingSecs)}
+                                                                </span>
+
+                                                                <button 
+                                                                    onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} 
+                                                                    className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800" 
+                                                                    title={`Edit Returnable DC (${formatRemainingTime(remainingSecs)} left)`}
+                                                                >
+                                                                    <Edit2 size={13} />
+                                                                </button>
+
+                                                                <button 
+                                                                    onClick={() => handleDelete(challan._id, challan.challanNumber)} 
+                                                                    className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800" 
+                                                                    title={`Delete Returnable DC (${formatRemainingTime(remainingSecs)} left)`}
+                                                                >
+                                                                    <Trash2 size={13} />
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <span 
+                                                                title={challan.status === 'Closed' ? 'Challan is fully closed and locked' : challan.status === 'Partial' ? 'Challan has received items and cannot be edited' : 'Action window expired (24 hours elapsed)'}
+                                                                className="px-2 py-1 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-xl text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
+                                                            >
+                                                                <Lock size={11} /> Locked
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
-                    ))}
-                </div>
+                    </div>
+
+                    {/* Mobile Card View (Responsive for Phone/Tablet) */}
+                    <div className="md:hidden flex flex-col gap-3 pb-28 sm:pb-20">
+                        {filteredChallans.map((challan) => {
+                            const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
+                            const isActionable = remainingSecs > 0 && challan.status !== 'Closed' && challan.status !== 'Partial';
+                            const isOverdue = challan.expectedReturnDate && new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed';
+
+                            const isAssembly = challan.operationMode === 'assembly';
+                            const primarySentItem = challan.items?.[0];
+                            const sentItemCount = challan.items?.length || 0;
+                            const totalSentQty = (challan.items || []).reduce((acc, it) => acc + (Number(it.quantitySent) || 0), 0);
+                            const sentUnit = primarySentItem?.unit || 'PCS';
+
+                            let retName = '-';
+                            let expQty = 0;
+                            let recvQty = 0;
+                            let pendingQty = 0;
+
+                            if (isAssembly && challan.assemblyOutputItem) {
+                                const out = challan.assemblyOutputItem;
+                                retName = out.itemName || 'Assembled Product';
+                                expQty = Number(out.quantityToBeReceived) || 0;
+                                recvQty = Number(out.quantityReceived) || 0;
+                                pendingQty = Math.max(0, expQty - recvQty);
+                            } else if (primarySentItem) {
+                                const firstRet = primarySentItem.returningItems?.[0];
+                                retName = firstRet?.receivedItemName || primarySentItem.itemName || 'Converted Item';
+                                expQty = Number(firstRet?.quantityToBeReceived || primarySentItem.quantitySent) || 0;
+                                recvQty = Number(firstRet?.quantityReceived || primarySentItem.quantityReceived) || 0;
+                                pendingQty = Math.max(0, expQty - recvQty);
+                            }
+
+                            return (
+                                <div key={challan._id} className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col gap-3">
+                                    <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-2">
+                                        <div>
+                                            <span 
+                                                onClick={() => openPreview(challan)} 
+                                                className="text-xs font-mono text-indigo-600 dark:text-indigo-400 font-bold block mb-0.5 cursor-pointer hover:underline"
+                                            >
+                                                DC #{challan.challanNumber}
+                                            </span>
+                                            <h4 className="font-bold text-slate-900 dark:text-white text-xs">
+                                                {challan.vendor?.name || 'Vendor'}
+                                            </h4>
+                                        </div>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                challan.status === 'Open' ? 'bg-blue-100 text-blue-800' :
+                                                challan.status === 'Partial' ? 'bg-amber-100 text-amber-800' :
+                                                challan.status === 'Closed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                            }`}>
+                                                {challan.status}
+                                            </span>
+                                            {challan.mrpNumber && (
+                                                <span className="text-[10px] font-mono font-semibold text-slate-500">
+                                                    MRP: {challan.mrpNumber}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-400">Outward Item:</span>
+                                            <span className="font-bold text-slate-800 dark:text-slate-200 text-right">
+                                                {primarySentItem?.itemName || '-'}
+                                                {sentItemCount > 1 && ` (+${sentItemCount - 1} more)`}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-400">Sent Qty:</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-200">
+                                                {isAssembly ? totalSentQty : (primarySentItem?.quantitySent || 0)} {sentUnit}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-400">Inward Return:</span>
+                                            <span className="font-semibold text-indigo-700 dark:text-indigo-400 text-right">
+                                                {retName}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-400">Exp / Recv / Pend:</span>
+                                            <span className="font-bold">
+                                                {expQty} / <span className="text-emerald-600">{recvQty}</span> / <span className="text-amber-600">{pendingQty}</span>
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-400">Sent Date:</span>
+                                            <span>{formatDateTime(challan.date)}</span>
+                                        </div>
+                                        {challan.expectedReturnDate && (
+                                            <div className="flex justify-between">
+                                                <span className="text-slate-400">Due Date:</span>
+                                                <span className={isOverdue ? 'text-red-600 font-bold' : ''}>
+                                                    {formatDateTime(challan.expectedReturnDate)}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Mobile Actions */}
+                                    <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-1">
+                                            <button 
+                                                onClick={() => openPreview(challan)} 
+                                                className="px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 rounded-lg hover:bg-indigo-100 flex items-center gap-1 cursor-pointer"
+                                            >
+                                                <Eye size={13} /> Preview
+                                            </button>
+                                            <button 
+                                                onClick={() => exportChallanToPDF(challan)} 
+                                                className="p-1.5 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 cursor-pointer"
+                                                title="PDF"
+                                            >
+                                                <FileText size={13} />
+                                            </button>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5">
+                                            {challan.status !== 'Closed' && (
+                                                <button 
+                                                    onClick={() => openReceiveModal(challan)} 
+                                                    className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
+                                                >
+                                                    <Truck size={13} /> Return
+                                                </button>
+                                            )}
+
+                                            {isActionable ? (
+                                                <div className="flex items-center gap-1">
+                                                    <span className="px-1.5 py-1 bg-amber-50 text-amber-700 rounded font-mono text-[9px] font-bold border border-amber-200">
+                                                        {formatRemainingTime(remainingSecs)}
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} 
+                                                        className="p-1.5 text-blue-600 bg-blue-50 rounded-lg cursor-pointer"
+                                                    >
+                                                        <Edit2 size={12} />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDelete(challan._id, challan.challanNumber)} 
+                                                        className="p-1.5 text-rose-600 bg-rose-50 rounded-lg cursor-pointer"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="px-1.5 py-1 bg-slate-100 text-slate-400 rounded text-[10px] font-semibold flex items-center gap-1">
+                                                    <Lock size={10} /> Locked
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </>
             )}
 
             {/* Forms & Modals */}
             <JobWorkForm
                 isOpen={isFormOpen}
                 isModal={true}
-                onClose={() => setIsFormOpen(false)}
+                onClose={() => { setIsFormOpen(false); setPrefillData(null); }}
                 onSuccess={handleCreateSuccess}
                 onError={onError}
                 vendors={vendors}
@@ -647,7 +994,6 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
             />
 
             {/* Modals */}
-
             {isReceiveModalOpen && selectedChallan && (
                 <JobWorkReceiveModal
                     isOpen={isReceiveModalOpen}
@@ -667,9 +1013,9 @@ export default function JobWorkStore({ vendors, jobWorkSuppliers = [], rawMateri
                     vendors={vendors}
                     jobWorkSuppliers={jobWorkSuppliers}
                     companyInfo={companyInfo}
-                    onEdit={(c) => { setPrefillData(c); setIsFormOpen(true); }}
-                    onReceive={(c) => openReceiveModal(c)}
-                    onDelete={(id) => handleDelete(id)}
+                    onEdit={(c) => { setPrefillData(c); setIsPreviewOpen(false); setIsFormOpen(true); }}
+                    onReceive={(c) => { setIsPreviewOpen(false); openReceiveModal(c); }}
+                    onDelete={(id) => { setIsPreviewOpen(false); handleDelete(id, previewChallan.challanNumber); }}
                 />
             )}
         </div>

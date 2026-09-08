@@ -229,7 +229,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             });
             const rate = Number(it.targetPrice) > 0 ? Number(it.targetPrice) : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
             const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
-            const hsn = it.hsnCode || pEntry?.hsnCode || matchedFg?.hsnCode || '';
+            const hsn = it.hsnCode || matchedFg?.hsnCode || pEntry?.hsnCode || '';
             const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
             const amount = qty * rate * (1 + taxRate / 100);
 
@@ -306,7 +306,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             });
             const rate = Number(it.targetPrice) > 0 ? Number(it.targetPrice) : (pEntry && pEntry.price != null ? Number(pEntry.price) : Number(matchedFg?.sellingPrice || 0));
             const taxRate = pEntry && pEntry.taxRate != null ? Number(pEntry.taxRate) : Number(matchedFg?.taxRate || 18);
-            const hsn = it.hsnCode || pEntry?.hsnCode || matchedFg?.hsnCode || '';
+            const hsn = it.hsnCode || matchedFg?.hsnCode || pEntry?.hsnCode || '';
             const prodName = matchedFg?.name || it.fgItem?.name || it.itemName || 'FG Item';
             const amount = qty * rate * (1 + taxRate / 100);
 
@@ -431,7 +431,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.unitPrice || selectedFg?.rate || 0));
             const autoTax = priceEntry && priceEntry.taxRate != null ? Number(priceEntry.taxRate) : (Number(selectedFg?.taxRate || selectedFg?.gstRate || 18));
-            const autoHsn = priceEntry?.hsnCode || (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || '';
+            const autoHsn = (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || priceEntry?.hsnCode || '';
 
             updated[index] = {
                 ...updated[index],

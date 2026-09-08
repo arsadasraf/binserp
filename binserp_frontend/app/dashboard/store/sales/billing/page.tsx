@@ -35,6 +35,7 @@ export default function SalesBillingPage() {
           customers={customers || []}
           fgItems={fgItems || []}
           inHouseItems={fgItems || []}
+          companyInfo={companyInfo}
           onClose={() => { setShowModal(false); setEditingBilling(null); }}
           onSubmit={async (formData) => {
             try {

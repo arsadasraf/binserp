@@ -14,9 +14,10 @@ import {
   AlertTriangle,
   AlertCircle
 } from 'lucide-react';
-import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem } from "@/src/features/store/types/store.types";
+import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem, JobWorkAssemblyOutputItem } from "@/src/features/store/types/store.types";
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
+import { getItemDescription } from '@/src/utils/itemDisplayHelper';
 import SearchableSelect from '../SearchableSelect';
 
 interface JobWorkFormProps {
@@ -81,6 +82,18 @@ export default function JobWorkForm({
         estimatedWeight: 0,
         estimatedPrice: 0,
         jobWorkType: 'store-conversion',
+        operationMode: 'discrete',
+        assemblyOutputItem: {
+            item: '',
+            itemName: '',
+            itemType: 'fg',
+            quantityToBeReceived: 1,
+            receivingUnit: 'PCS',
+            processType: 'Assembly',
+            processRate: 0,
+            processAmount: 0,
+            description: ''
+        },
         mrpNumber: '',
         mrpPlan: '',
         items: [
@@ -194,9 +207,11 @@ export default function JobWorkForm({
         return sourceList.map((m: any) => {
             const stock = getItemStock(m._id, 'rm');
             const unit = m.unit || (m as any).categoryId?.unit || 'PCS';
+            const desc = getItemDescription(m);
+            const descSuffix = desc ? ` — ${desc}` : '';
             return {
                 value: m._id,
-                label: `${m.name ? `${m.name} ${m.code ? `[${m.code}]` : ''}` : 'Raw Material'} • Stock: ${stock} ${unit}`
+                label: `${m.name || 'Raw Material'}${descSuffix} • Stock: ${stock} ${unit}`
             };
         });
     }, [rawMaterials, materials, getItemStock]);
@@ -207,9 +222,11 @@ export default function JobWorkForm({
         return sourceList.map((m: any) => {
             const stock = getItemStock(m._id, 'bo');
             const unit = m.unit || (m as any).categoryId?.unit || 'PCS';
+            const desc = getItemDescription(m);
+            const descSuffix = desc ? ` — ${desc}` : '';
             return {
                 value: m._id,
-                label: `${m.name ? `${m.name} ${m.code ? `[${m.code}]` : ''}` : 'Bought Out Item'} • Stock: ${stock} ${unit}`
+                label: `${m.name || 'Bought Out Item'}${descSuffix} • Stock: ${stock} ${unit}`
             };
         });
     }, [boughtOuts, materials, getItemStock]);
@@ -221,10 +238,11 @@ export default function JobWorkForm({
             const stock = i.shopfloorWipQty !== undefined ? (Number(i.shopfloorWipQty) || 0) : getItemStock(i._id || i.materialId, 'fg');
             const unit = i.unit || 'PCS';
             const nameStr = i.materialName || i.name || i.componentName || 'Finished Good / Component';
-            const codeStr = i.materialCode || i.componentCode || i.code ? ` [${i.materialCode || i.componentCode || i.code}]` : '';
+            const desc = getItemDescription(i);
+            const descSuffix = desc ? ` — ${desc}` : '';
             return {
                 value: i.materialId || i.id || i._id,
-                label: `${nameStr}${codeStr} • Shopfloor WIP: ${stock} ${unit}`
+                label: `${nameStr}${descSuffix} • Shopfloor WIP: ${stock} ${unit}`
             };
         });
     }, [wipFgItems, inHouseItems, getItemStock]);
@@ -354,6 +372,18 @@ export default function JobWorkForm({
                 estimatedWeight: 0,
                 estimatedPrice: 0,
                 jobWorkType: 'store-conversion',
+                operationMode: 'discrete',
+                assemblyOutputItem: {
+                    item: '',
+                    itemName: '',
+                    itemType: 'fg',
+                    quantityToBeReceived: 1,
+                    receivingUnit: 'PCS',
+                    processType: 'Assembly',
+                    processRate: 0,
+                    processAmount: 0,
+                    description: ''
+                },
                 mrpNumber: '',
                 mrpPlan: '',
                 items: [
@@ -535,6 +565,95 @@ export default function JobWorkForm({
         setFormData({ ...formData, items: newItems });
     };
 
+    // Handle Assembly Output Item Changes (Many-to-One consolidation mode)
+    const handleAssemblyOutputChange = (field: string, value: any) => {
+        const currentOut: JobWorkAssemblyOutputItem = {
+            item: '',
+            itemName: '',
+            itemType: 'fg',
+            quantityToBeReceived: 1,
+            receivingUnit: 'PCS',
+            processType: 'Assembly',
+            processRate: 0,
+            processAmount: 0,
+            description: '',
+            ...(formData.assemblyOutputItem || {}),
+            [field]: value
+        };
+
+        if (field === 'item') {
+            const selectedId = value;
+            const sourceList = [...wipFgItems, ...(inHouseItems || [])];
+            const foundFg = sourceList.find((i: any) => 
+                String(i.materialId) === String(selectedId) || 
+                String(i.id) === String(selectedId) || 
+                String(i._id) === String(selectedId)
+            );
+            if (foundFg) {
+                currentOut.itemName = foundFg.materialName || foundFg.name || foundFg.componentName || 'Assembled Product';
+                currentOut.receivingUnit = foundFg.unit || 'PCS';
+                currentOut.itemType = 'fg';
+            } else {
+                const foundMat = [...rawMaterials, ...boughtOuts, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
+                if (foundMat) {
+                    currentOut.itemName = foundMat.name || 'Converted Material';
+                    currentOut.receivingUnit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
+                    currentOut.itemType = (foundMat.type === 'bo' || foundMat.itemType === 'bo') ? 'bo' : 'rm';
+                }
+            }
+        }
+
+        if (field === 'processRate') {
+            const r = Number(value) || 0;
+            currentOut.processRate = r;
+            currentOut.processAmount = (Number(currentOut.quantityToBeReceived) || 1) * r;
+        }
+
+        if (field === 'quantityToBeReceived') {
+            const q = Number(value) || 0;
+            const r = Number(currentOut.processRate) || 0;
+            currentOut.processAmount = q * r;
+        }
+
+        setFormData({
+            ...formData,
+            assemblyOutputItem: currentOut,
+            estimatedPrice: currentOut.processAmount && currentOut.processAmount > 0 ? currentOut.processAmount : formData.estimatedPrice
+        });
+    };
+
+    // Handle Operation Mode Switch (Discrete vs Assembly/Welding)
+    const handleOperationModeChange = (mode: 'discrete' | 'assembly') => {
+        if (mode === 'assembly') {
+            // Set sensible default processType for items if generic
+            const updatedItems = formData.items.map(it => ({
+                ...it,
+                processType: it.processType === 'Machining' ? 'Welding & Assembly' : it.processType
+            }));
+            setFormData({
+                ...formData,
+                operationMode: 'assembly',
+                items: updatedItems,
+                assemblyOutputItem: {
+                    item: formData.assemblyOutputItem?.item || '',
+                    itemName: formData.assemblyOutputItem?.itemName || '',
+                    itemType: formData.assemblyOutputItem?.itemType || 'fg',
+                    quantityToBeReceived: formData.assemblyOutputItem?.quantityToBeReceived || 1,
+                    receivingUnit: formData.assemblyOutputItem?.receivingUnit || 'PCS',
+                    processType: formData.assemblyOutputItem?.processType || 'Welding & Assembly',
+                    processRate: formData.assemblyOutputItem?.processRate || 0,
+                    processAmount: formData.assemblyOutputItem?.processAmount || 0,
+                    description: formData.assemblyOutputItem?.description || ''
+                }
+            });
+        } else {
+            setFormData({
+                ...formData,
+                operationMode: 'discrete'
+            });
+        }
+    };
+
     // Add / Remove Sent Material Lines
     const addSentItemRow = () => {
         const defaultSentType = formData.jobWorkType === 'wip-to-wip' ? 'fg' : 'rm';
@@ -549,7 +668,7 @@ export default function JobWorkForm({
                     itemType: defaultSentType,
                     quantitySent: 1,
                     unit: 'PCS',
-                    processType: 'Machining',
+                    processType: formData.operationMode === 'assembly' ? 'Welding & Assembly' : 'Machining',
                     processRate: 0,
                     processAmount: 0,
                     unitPrice: 0,
@@ -624,7 +743,7 @@ export default function JobWorkForm({
             errors.mrpNumber = 'MRP Plan is required for Store to WIP and WIP to WIP';
         }
 
-        // Validation 4: Outward item existence, quantity sent, stock balance, and returning item rows
+        // Validation 4: Outward item existence, quantity sent, and stock balance
         for (let i = 0; i < formData.items.length; i++) {
             const item = formData.items[i];
             if (!item.item && !item.itemName) {
@@ -643,15 +762,29 @@ export default function JobWorkForm({
                 }
             }
 
-            if (Array.isArray(item.returningItems)) {
-                item.returningItems.forEach((ret, r) => {
-                    if (!ret.receivedItem && !ret.receivedItemName) {
-                        errors[`item_${i}_ret_${r}_item`] = 'Converted return item is required';
-                    }
-                    if (!ret.quantityToBeReceived || Number(ret.quantityToBeReceived) <= 0) {
-                        errors[`item_${i}_ret_${r}_quantity`] = 'Return qty must be > 0';
-                    }
-                });
+            // In discrete mode, validate returning items for each line
+            if (formData.operationMode !== 'assembly') {
+                if (Array.isArray(item.returningItems)) {
+                    item.returningItems.forEach((ret, r) => {
+                        if (!ret.receivedItem && !ret.receivedItemName) {
+                            errors[`item_${i}_ret_${r}_item`] = 'Converted return item is required';
+                        }
+                        if (!ret.quantityToBeReceived || Number(ret.quantityToBeReceived) <= 0) {
+                            errors[`item_${i}_ret_${r}_quantity`] = 'Return qty must be > 0';
+                        }
+                    });
+                }
+            }
+        }
+
+        // Validation 5: Consolidated Assembly Output Item (when in Assembly / Many-to-One mode)
+        if (formData.operationMode === 'assembly') {
+            const out = formData.assemblyOutputItem;
+            if (!out?.item && !out?.itemName?.trim()) {
+                errors['assembly_output_item'] = 'Assembled / Welded product name is required';
+            }
+            if (!out?.quantityToBeReceived || Number(out.quantityToBeReceived) <= 0) {
+                errors['assembly_output_qty'] = 'Expected assembled quantity must be > 0';
             }
         }
 
@@ -814,45 +947,63 @@ export default function JobWorkForm({
                         </div>
                     )}
 
-                    {/* Small & Thin Segmented Returnable DC Type Bar */}
-                    <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 gap-1">
+                    {/* Segmented Returnable DC Type Bar with Clear Direction Subtitles */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 p-1.5 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700 gap-1.5">
                         <button
                             type="button"
                             onClick={() => handleDcTypeChange('store-conversion')}
-                            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center ${
                                 (formData.jobWorkType || 'store-conversion') === 'store-conversion'
                                     ? 'bg-indigo-600 text-white shadow-xs'
                                     : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span>🏭 RM Conversion</span>
-                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM ➔ RM Conversion)</span>
+                            <span className="font-extrabold text-xs">🏭 RM Conversion</span>
+                            <span className={`text-[10px] font-medium leading-tight ${
+                                (formData.jobWorkType || 'store-conversion') === 'store-conversion'
+                                    ? 'text-indigo-100'
+                                    : 'text-slate-500 dark:text-slate-400'
+                            }`}>
+                                Main Store RM ➔ Main Store RM
+                            </span>
                         </button>
 
                         <button
                             type="button"
                             onClick={() => handleDcTypeChange('store-to-wip')}
-                            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center ${
                                 formData.jobWorkType === 'store-to-wip'
                                     ? 'bg-indigo-600 text-white shadow-xs'
                                     : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span>🔄 Store to WIP</span>
-                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(RM ➔ MRP WIP)</span>
+                            <span className="font-extrabold text-xs">🔄 Store to WIP</span>
+                            <span className={`text-[10px] font-medium leading-tight ${
+                                formData.jobWorkType === 'store-to-wip'
+                                    ? 'text-indigo-100'
+                                    : 'text-slate-500 dark:text-slate-400'
+                            }`}>
+                                Main Store RM ➔ Shopfloor WIP
+                            </span>
                         </button>
 
                         <button
                             type="button"
                             onClick={() => handleDcTypeChange('wip-to-wip')}
-                            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            className={`py-2 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center gap-0.5 text-center ${
                                 formData.jobWorkType === 'wip-to-wip'
                                     ? 'bg-indigo-600 text-white shadow-xs'
                                     : 'text-slate-600 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-700'
                             }`}
                         >
-                            <span>📦 WIP to WIP</span>
-                            <span className="text-[10px] opacity-80 font-normal hidden sm:inline">(Coating / Treatment)</span>
+                            <span className="font-extrabold text-xs">📦 WIP to WIP</span>
+                            <span className={`text-[10px] font-medium leading-tight ${
+                                formData.jobWorkType === 'wip-to-wip'
+                                    ? 'text-indigo-100'
+                                    : 'text-slate-500 dark:text-slate-400'
+                            }`}>
+                                Shopfloor WIP ➔ Shopfloor WIP
+                            </span>
                         </button>
                     </div>
 
@@ -885,9 +1036,6 @@ export default function JobWorkForm({
                                         {(formData.jobWorkType === 'store-to-wip' || formData.jobWorkType === 'wip-to-wip') && (
                                             <span className="text-red-500">*</span>
                                         )}
-                                        <span className="text-[10px] font-normal text-slate-400">
-                                            {formData.jobWorkType === 'store-conversion' ? '(Optional)' : '(Required)'}
-                                        </span>
                                     </span>
                                     {formErrors.mrpNumber && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.mrpNumber}</span>}
                                 </label>
@@ -973,21 +1121,50 @@ export default function JobWorkForm({
                         </div>
                     </div>
 
-                    {/* Section 2: Materials Sent & Expected Returning Items */}
+                    {/* Section 2: Materials Sent & Inward Items */}
                     <div className="space-y-3">
-                        <div className="flex justify-between items-center">
+                        <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                            {/* Section Title */}
                             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                                 <Package size={14} className="text-indigo-600" />
-                                Material Lines Sent & Expected Inward Returns
+                                {formData.operationMode === 'assembly' ? 'Outward Materials' : 'Materials Sent & Inward Returns'}
                             </span>
 
-                            <button
-                                type="button"
-                                onClick={addSentItemRow}
-                                className="flex items-center gap-1 px-3 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors cursor-pointer"
-                            >
-                                <Plus size={13} /> Add Line
-                            </button>
+                            {/* Simple Toggle Switch: ON = One to Many (Default), OFF = Many to One */}
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-xs transition-colors ${formData.operationMode === 'assembly' ? 'font-black text-indigo-600 dark:text-indigo-400' : 'font-semibold text-slate-400'}`}>
+                                        Many to One
+                                    </span>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={formData.operationMode !== 'assembly'}
+                                        onClick={() => handleOperationModeChange(formData.operationMode === 'assembly' ? 'discrete' : 'assembly')}
+                                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                                            formData.operationMode !== 'assembly' ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
+                                        }`}
+                                        title={formData.operationMode !== 'assembly' ? 'One to Many' : 'Many to One'}
+                                    >
+                                        <span
+                                            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                                                formData.operationMode !== 'assembly' ? 'translate-x-5' : 'translate-x-0'
+                                            }`}
+                                        />
+                                    </button>
+                                    <span className={`text-xs transition-colors ${formData.operationMode !== 'assembly' ? 'font-black text-indigo-600 dark:text-indigo-400' : 'font-semibold text-slate-400'}`}>
+                                        One to Many
+                                    </span>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={addSentItemRow}
+                                    className="flex items-center gap-1 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 rounded-lg text-xs font-bold border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors cursor-pointer"
+                                >
+                                    <Plus size={13} /> {formData.operationMode === 'assembly' ? 'Add Outward Material' : 'Add Line'}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Sent Items Cards */}
@@ -1192,140 +1369,289 @@ export default function JobWorkForm({
                                             </div>
                                         </div>
 
-                                        {/* Sub-Section: Expected Converted Returning Items */}
-                                        <div className="pl-3 border-l-2 border-indigo-200 dark:border-indigo-800 space-y-2">
-                                            <div className="flex justify-between items-center">
-                                                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase flex items-center gap-1">
-                                                    <ArrowRight size={12} className="text-indigo-600" />
-                                                    Expected Returning Inward Item(s)
-                                                </span>
+                                        {/* Sub-Section: Expected Converted Returning Items (Only in Discrete 1-to-1 Mode) */}
+                                        {formData.operationMode !== 'assembly' && (
+                                            <div className="pl-3 border-l-2 border-indigo-200 dark:border-indigo-800 space-y-2">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase flex items-center gap-1">
+                                                        <ArrowRight size={12} className="text-indigo-600" />
+                                                        Expected Returning Inward Item(s)
+                                                    </span>
 
-                                                <button
-                                                    type="button"
-                                                    onClick={() => addReturningItemSubRow(itemIdx)}
-                                                    className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
-                                                >
-                                                    <Plus size={12} /> Add Return
-                                                </button>
-                                            </div>
-
-                                            {/* Returning Item Sub-Rows */}
-                                            <div className="space-y-2">
-                                                {sentItem.returningItems.map((retItem, retIdx) => (
-                                                    <div 
-                                                        key={retIdx}
-                                                        className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg border border-indigo-100 dark:border-indigo-900/40 items-end"
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => addReturningItemSubRow(itemIdx)}
+                                                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                                                     >
-                                                        {/* Return Material Type */}
-                                                        <div className="sm:col-span-3">
-                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                Return Type
-                                                            </label>
-                                                            <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
-                                                                {isStoreConversion ? (
-                                                                    <button
-                                                                        type="button"
-                                                                        className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center"
-                                                                    >
-                                                                        🔵 RM (Raw Material)
-                                                                    </button>
-                                                                ) : (
-                                                                    <button
-                                                                        type="button"
-                                                                        className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center"
-                                                                    >
-                                                                        🟣 WIP FG
-                                                                    </button>
-                                                                )}
-                                                            </div>
-                                                        </div>
+                                                        <Plus size={12} /> Add Return
+                                                    </button>
+                                                </div>
 
-                                                        {/* Return Item Selector */}
-                                                        <div className="sm:col-span-5" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
-                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                <span>Converted Returning Item <span className="text-red-500">*</span></span>
-                                                                {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
-                                                                    <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
-                                                                        {formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
-                                                                    </span>
-                                                                )}
-                                                            </label>
-                                                            <SearchableSelect
-                                                                options={
-                                                                    retItem.receivedItemType === 'rm' ? rmOptions :
-                                                                    retItem.receivedItemType === 'bo' ? boOptions :
-                                                                    fgOptions
-                                                                }
-                                                                value={retItem.receivedItem || ''}
-                                                                hasError={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
-                                                                onChange={(val) => {
-                                                                    handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val);
-                                                                    if (val) clearError(`item_${itemIdx}_ret_${retIdx}_item`);
-                                                                }}
-                                                                placeholder="Select Converted Item..."
-                                                            />
-                                                        </div>
-
-                                                        {/* Quantity To Receive */}
-                                                        <div className="sm:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
-                                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                <span>Return Qty <span className="text-red-500">*</span></span>
-                                                                {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
-                                                                    <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
-                                                                        Req
-                                                                    </span>
-                                                                )}
-                                                            </label>
-                                                            <input
-                                                                type="number"
-                                                                min="0.01"
-                                                                step="any"
-                                                                value={retItem.quantityToBeReceived || ''}
-                                                                onChange={(e) => {
-                                                                    const val = Number(e.target.value);
-                                                                    handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
-                                                                    if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
-                                                                }}
-                                                                className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
-                                                                    formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]
-                                                                        ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
-                                                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20'
-                                                                }`}
-                                                            />
-                                                        </div>
-
-                                                        {/* Return Unit & Delete */}
-                                                        <div className="sm:col-span-2 flex items-center gap-1.5">
-                                                            <div className="flex-1">
+                                                {/* Returning Item Sub-Rows */}
+                                                <div className="space-y-2">
+                                                    {sentItem.returningItems.map((retItem, retIdx) => (
+                                                        <div 
+                                                            key={retIdx}
+                                                            className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg border border-indigo-100 dark:border-indigo-900/40 items-end"
+                                                        >
+                                                            {/* Return Material Type */}
+                                                            <div className="sm:col-span-3">
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                    Unit
+                                                                    Return Type
                                                                 </label>
-                                                                <input
-                                                                    type="text"
-                                                                    value={retItem.receivingUnit || 'PCS'}
-                                                                    onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'receivingUnit', e.target.value)}
-                                                                    className="w-full h-9 px-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                                                                    {isStoreConversion ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center"
+                                                                        >
+                                                                            🔵 RM (Raw Material)
+                                                                        </button>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center"
+                                                                        >
+                                                                            🟣 WIP FG
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Return Item Selector */}
+                                                            <div className="sm:col-span-5" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
+                                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                    <span>Converted Returning Item <span className="text-red-500">*</span></span>
+                                                                    {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
+                                                                        <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                            {formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
+                                                                        </span>
+                                                                    )}
+                                                                </label>
+                                                                <SearchableSelect
+                                                                    options={
+                                                                        retItem.receivedItemType === 'rm' ? rmOptions :
+                                                                        retItem.receivedItemType === 'bo' ? boOptions :
+                                                                        fgOptions
+                                                                    }
+                                                                    value={retItem.receivedItem || ''}
+                                                                    hasError={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}
+                                                                    onChange={(val) => {
+                                                                        handleReturningItemChange(itemIdx, retIdx, 'receivedItem', val);
+                                                                        if (val) clearError(`item_${itemIdx}_ret_${retIdx}_item`);
+                                                                    }}
+                                                                    placeholder="Select Converted Item..."
                                                                 />
                                                             </div>
-                                                            {sentItem.returningItems.length > 1 && (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => removeReturningItemSubRow(itemIdx, retIdx)}
-                                                                    className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                                                                    title="Remove return item"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            )}
+
+                                                            {/* Quantity To Receive */}
+                                                            <div className="sm:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
+                                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                    <span>Return Qty <span className="text-red-500">*</span></span>
+                                                                    {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
+                                                                        <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">
+                                                                            Req
+                                                                        </span>
+                                                                    )}
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0.01"
+                                                                    step="any"
+                                                                    value={retItem.quantityToBeReceived || ''}
+                                                                    onChange={(e) => {
+                                                                        const val = Number(e.target.value);
+                                                                        handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
+                                                                        if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
+                                                                    }}
+                                                                    className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                                        formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]
+                                                                            ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20'
+                                                                    }`}
+                                                                />
+                                                            </div>
+
+                                                            {/* Return Unit & Delete */}
+                                                            <div className="sm:col-span-2 flex items-center gap-1.5">
+                                                                <div className="flex-1">
+                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                                        Unit
+                                                                    </label>
+                                                                    <input
+                                                                        type="text"
+                                                                        value={retItem.receivingUnit || 'PCS'}
+                                                                        onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'receivingUnit', e.target.value)}
+                                                                        className="w-full h-9 px-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                    />
+                                                                </div>
+                                                                {sentItem.returningItems.length > 1 && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => removeReturningItemSubRow(itemIdx, retIdx)}
+                                                                        className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                                                                        title="Remove return item"
+                                                                    >
+                                                                        <Trash2 size={14} />
+                                                                    </button>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    ))}
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                     </div>
                                 );
                             })}
                         </div>
+
+                        {/* Add Another Outward Material Line Button (Prominent, Supports Lots of Line Items) */}
+                        <div className="pt-1">
+                            <button
+                                type="button"
+                                onClick={addSentItemRow}
+                                className="w-full py-2.5 px-4 rounded-xl border-2 border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-2xs"
+                            >
+                                <Plus size={15} />
+                                <span>{formData.operationMode === 'assembly' ? '+ Add Another Outward Material Line (Lots of line items supported)' : '+ Add Another Outward Material Line'}</span>
+                            </button>
+                        </div>
+
+                        {/* Section 2B: Consolidated Single Assembled / Welded Product Return Card (Assembly Mode) */}
+                        {formData.operationMode === 'assembly' && (
+                            <div className="bg-gradient-to-br from-indigo-50/80 via-white to-purple-50/60 dark:from-slate-900 dark:via-indigo-950/20 dark:to-slate-900 p-4 rounded-2xl border-2 border-indigo-300 dark:border-indigo-800 shadow-sm space-y-3 mt-4">
+                                <div className="flex items-center justify-between border-b border-indigo-200 dark:border-indigo-800/80 pb-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs">
+                                            <ArrowRight size={14} />
+                                        </div>
+                                        <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                                            Inward Material (1 Item)
+                                        </h3>
+                                    </div>
+                                    <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                        Many ➔ 1 Return
+                                    </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 pt-1">
+                                    {/* Assembled Product Selector */}
+                                    <div className="sm:col-span-2 lg:col-span-5" data-has-error={!!formErrors['assembly_output_item']}>
+                                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                                            <span>Assembled / Welded Item <span className="text-red-500">*</span></span>
+                                            {formErrors['assembly_output_item'] && (
+                                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                    {formErrors['assembly_output_item']}
+                                                </span>
+                                            )}
+                                        </label>
+                                        <SearchableSelect
+                                            options={formData.jobWorkType === 'store-conversion' ? [...rmOptions, ...boOptions] : fgOptions}
+                                            value={formData.assemblyOutputItem?.item || ''}
+                                            hasError={!!formErrors['assembly_output_item']}
+                                            allowCustom={true}
+                                            onChange={(val) => {
+                                                handleAssemblyOutputChange('item', val);
+                                                if (val) clearError('assembly_output_item');
+                                            }}
+                                            placeholder="Select or enter assembled / welded item..."
+                                        />
+                                    </div>
+
+                                    {/* Expected Quantity */}
+                                    <div className="sm:col-span-1 lg:col-span-2" data-has-error={!!formErrors['assembly_output_qty']}>
+                                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                                            <span>Expected Qty <span className="text-red-500">*</span></span>
+                                            {formErrors['assembly_output_qty'] && (
+                                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                    Required
+                                                </span>
+                                            )}
+                                        </label>
+                                        <input
+                                            type="number"
+                                            min="0.01"
+                                            step="any"
+                                            value={formData.assemblyOutputItem?.quantityToBeReceived || ''}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value) || 0;
+                                                handleAssemblyOutputChange('quantityToBeReceived', val);
+                                                if (val > 0) clearError('assembly_output_qty');
+                                            }}
+                                            className={`w-full h-9 px-2.5 border rounded-xl text-xs font-black text-center outline-none ${
+                                                formErrors['assembly_output_qty']
+                                                    ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 ring-1 ring-rose-400'
+                                                    : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20'
+                                            }`}
+                                        />
+                                    </div>
+
+                                    {/* Receiving Unit */}
+                                    <div className="sm:col-span-1 lg:col-span-1">
+                                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                            Unit
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.assemblyOutputItem?.receivingUnit || 'PCS'}
+                                            onChange={(e) => handleAssemblyOutputChange('receivingUnit', e.target.value)}
+                                            className="w-full h-9 px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-center uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                        />
+                                    </div>
+
+                                    {/* Assembly / Welding Process Name */}
+                                    <div className="sm:col-span-1 lg:col-span-2">
+                                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                            Process Operation
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="Welding / Assembly"
+                                            value={formData.assemblyOutputItem?.processType || 'Welding & Assembly'}
+                                            onChange={(e) => handleAssemblyOutputChange('processType', e.target.value)}
+                                            className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                        />
+                                    </div>
+
+                                    {/* Process Rate */}
+                                    <div className="sm:col-span-1 lg:col-span-2">
+                                        <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                            Process Rate (₹)
+                                        </label>
+                                        <div className="relative">
+                                            <span className="absolute left-2.5 top-2 text-xs font-bold text-slate-400">₹</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                step="any"
+                                                placeholder="0.00"
+                                                value={formData.assemblyOutputItem?.processRate !== undefined ? formData.assemblyOutputItem.processRate : ''}
+                                                onChange={(e) => {
+                                                    const val = parseFloat(e.target.value) || 0;
+                                                    handleAssemblyOutputChange('processRate', val);
+                                                }}
+                                                className="w-full h-9 pl-6 pr-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Description / Process Specs */}
+                                    <div className="sm:col-span-2 lg:col-span-12">
+                                        <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                                            Technical Specifications / Assembly & Welding Notes
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. MIG Welding as per drawing rev 2, stress relieved, assemble with gussets..."
+                                            value={formData.assemblyOutputItem?.description || ''}
+                                            onChange={(e) => handleAssemblyOutputChange('description', e.target.value)}
+                                            className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Section 3: Logistics & Valuation */}

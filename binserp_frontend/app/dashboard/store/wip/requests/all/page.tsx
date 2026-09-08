@@ -4,10 +4,9 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStoreData } from '@/src/features/store/components/hooks/useStoreData';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
-
 import MaterialIssueTab from '@/src/features/store/components/tabs/MaterialIssueTab';
 
-export default function RmRequestsPage() {
+export default function AllRequestsPage() {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
 
@@ -32,9 +31,9 @@ export default function RmRequestsPage() {
         storeData={storeData}
         token={token}
         activeSubTab="requests"
-        requestTypeFilter="rm"
-        title="Raw Material (RM) Requests"
-        description="Pending store requests for Raw Materials"
+        requestTypeFilter="all"
+        title="All Material Requests"
+        description="All pending store requests across RM, BO, Consumables, and FG"
       />
     </div>
   );

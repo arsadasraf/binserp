@@ -52,6 +52,9 @@ export const storeService = binsApi.injectEndpoints({
       transformResponse: (response: any, _meta, tab) => {
         const current = storeEndpoints.find((endpoint) => endpoint.key === tab);
         if (!current) return [];
+        if (tab === "company-info") {
+          return response?.bankDetails ? response : (response?.companyInfo || response?.data || response);
+        }
         return response[current.dataKey] || response.data || response;
       },
     }),
@@ -70,10 +73,11 @@ export const storeService = binsApi.injectEndpoints({
       invalidatesTags: (_result, _error, { tab }) => {
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
-        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc") {
+        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
           if (!tags.includes("StoreGrn")) tags.push("StoreGrn");
           if (!tags.includes("StoreDc")) tags.push("StoreDc");
+          if (!tags.includes("StorePo")) tags.push("StorePo");
         }
         return tags;
       },
@@ -93,10 +97,11 @@ export const storeService = binsApi.injectEndpoints({
       invalidatesTags: (_result, _error, { tab }) => {
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
-        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc") {
+        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
           if (!tags.includes("StoreGrn")) tags.push("StoreGrn");
           if (!tags.includes("StoreDc")) tags.push("StoreDc");
+          if (!tags.includes("StorePo")) tags.push("StorePo");
         }
         return tags;
       },
@@ -112,8 +117,9 @@ export const storeService = binsApi.injectEndpoints({
       invalidatesTags: (_result, _error, { tab }) => {
         const endpoint = storeEndpoints.find((entry) => entry.key === tab);
         const tags = endpoint ? [endpoint.tag as any] : [];
-        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc") {
+        if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+          if (!tags.includes("StorePo")) tags.push("StorePo");
         }
         return tags;
       },

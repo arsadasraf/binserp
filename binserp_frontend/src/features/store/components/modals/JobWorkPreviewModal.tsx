@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Calendar, User, Truck, Package, Layers, FileText, FileSpreadsheet, Check, CheckCircle2, Factory, Clock, ArrowRight, ShieldCheck, Edit3, Trash2 } from 'lucide-react';
+import { X, Calendar, User, Truck, Package, Layers, FileText, FileSpreadsheet, Check, CheckCircle2, Factory, Clock, ArrowRight, ShieldCheck, Edit3, Trash2, Zap, Sparkles } from 'lucide-react';
 import { JobWorkChallan, Vendor } from "@/src/features/store/types/store.types";
 import { generateDocument } from '@/src/utils/documentHelper';
 
@@ -75,6 +75,15 @@ export default function JobWorkPreviewModal({
                                 }`}>
                                     {challan.status}
                                 </span>
+                                {challan.operationMode === 'assembly' ? (
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30 flex items-center gap-1">
+                                        <Zap size={11} /> Many to One (Many Outward ➔ 1 Inward)
+                                    </span>
+                                ) : (
+                                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 flex items-center gap-1">
+                                        One to Many Flow
+                                    </span>
+                                )}
                             </div>
                             <p className="text-xs text-indigo-300/80 mt-0.5">
                                 Job-Work Outward Returnable Delivery Challan
@@ -193,114 +202,255 @@ export default function JobWorkPreviewModal({
                         </div>
                     </div>
 
-                    {/* Section 2: Items Details Table */}
-                    <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                                <Package size={14} /> Items Sent & Expected Return Material Mapping
-                            </span>
-                        </div>
+                    {/* Section 2: Items Details */}
+                    {challan.operationMode === 'assembly' ? (
+                        <div className="space-y-5">
+                            {/* Dispatched Components Table */}
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                        <Layers size={14} className="text-amber-500" /> Dispatched Components / Bill of Materials (Kit Sent)
+                                    </span>
+                                    <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                                        {challan.items.length} Component{challan.items.length > 1 ? 's' : ''} Outwarded
+                                    </span>
+                                </div>
 
-                        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
-                                    <tr>
-                                        <th className="px-4 py-3">Item Sent</th>
-                                        <th className="px-4 py-3 text-center">Sent Qty</th>
-                                        <th className="px-4 py-3">Material to be Received</th>
-                                        <th className="px-4 py-3 text-center">Exp. Return</th>
-                                        <th className="px-4 py-3 text-center">Recv Qty</th>
-                                        <th className="px-4 py-3 text-center">Pending</th>
-                                        <th className="px-4 py-3">Process / Rate</th>
-                                        <th className="px-4 py-3 text-right">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
-                                    {challan.items.map((item, idx) => {
-                                        const retList = (item.returningItems && item.returningItems.length > 0)
-                                            ? item.returningItems
-                                            : [{
-                                                receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
-                                                quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                                                quantityReceived: item.quantityReceived || 0,
-                                                receivingUnit: item.receivingUnit || item.unit || 'PCS',
-                                                status: item.status
-                                            }];
-
-                                        return retList.map((ret, rIdx) => {
-                                            const expQty = Number(ret.quantityToBeReceived) || 0;
-                                            const recvQty = Number(ret.quantityReceived) || 0;
-                                            const pending = expQty - recvQty;
-
-                                            return (
-                                                <tr key={`${idx}_${rIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
-                                                    {rIdx === 0 && (
-                                                        <td rowSpan={retList.length} className="px-4 py-3.5 font-bold text-slate-900 dark:text-white border-r border-slate-100 dark:border-slate-800 align-top">
-                                                            {item.itemName}
-                                                        </td>
-                                                    )}
-
-                                                    {rIdx === 0 && (
-                                                        <td rowSpan={retList.length} className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800 align-top">
-                                                            {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
-                                                        </td>
-                                                    )}
-
-                                                    <td className="px-4 py-3.5 font-bold text-indigo-700 dark:text-indigo-300">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <ArrowRight size={14} className="text-indigo-500 flex-shrink-0" />
-                                                            {ret.receivedItemName || item.itemName}
-                                                        </div>
+                                <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
+                                            <tr>
+                                                <th className="px-4 py-3">#</th>
+                                                <th className="px-4 py-3">Component / Material Sent</th>
+                                                <th className="px-4 py-3 text-center">Dispatched Qty</th>
+                                                <th className="px-4 py-3">Process / Specifications</th>
+                                                <th className="px-4 py-3 text-right">Estimated Rate / Value</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                                            {challan.items.map((item, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                                                    <td className="px-4 py-3.5 text-xs text-slate-400 font-mono font-bold">{idx + 1}</td>
+                                                    <td className="px-4 py-3.5">
+                                                        <div className="font-bold text-slate-900 dark:text-white">{item.itemName}</div>
+                                                        {item.description && (
+                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{item.description}</div>
+                                                        )}
                                                     </td>
-
                                                     <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
-                                                        {expQty} <span className="text-xs text-slate-400">{ret.receivingUnit || 'PCS'}</span>
+                                                        {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
                                                     </td>
-
-                                                    <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400">
-                                                        {recvQty}
+                                                    <td className="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300">
+                                                        <span className="font-semibold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</span>
+                                                        {item.itemType && (
+                                                            <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 uppercase">{item.itemType}</span>
+                                                        )}
                                                     </td>
-
-                                                    <td className="px-4 py-3.5 text-center font-black text-amber-600 dark:text-amber-400">
-                                                        {pending > 0 ? pending : 0}
-                                                    </td>
-
-                                                    {rIdx === 0 && (
-                                                        <td rowSpan={retList.length} className="px-4 py-3.5 border-l border-slate-100 dark:border-slate-800 align-top text-xs">
-                                                            <div className="font-bold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</div>
-                                                            {(item.processRate || item.unitPrice) ? (
-                                                                <div className="text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
-                                                                    Rate: ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
+                                                    <td className="px-4 py-3.5 text-right text-xs">
+                                                        {(item.processRate || item.unitPrice) ? (
+                                                            <>
+                                                                <div className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                                                                    ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
                                                                 </div>
-                                                            ) : null}
-                                                            {(item.processRate || item.unitPrice) ? (
-                                                                <div className="text-[11px] text-slate-500 font-semibold font-mono">
-                                                                    Value: ₹{(Number(item.quantitySent || 0) * Number(item.processRate != null ? item.processRate : item.unitPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                <div className="text-[11px] text-slate-400 font-mono">
+                                                                    ₹{(Number(item.quantitySent || 0) * Number(item.processRate != null ? item.processRate : item.unitPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                                 </div>
-                                                            ) : null}
-                                                            {item.description ? <div className="text-slate-400 italic mt-0.5">{item.description}</div> : null}
-                                                        </td>
-                                                    )}
-
-                                                    <td className="px-4 py-3.5 text-right">
-                                                        {ret.status === 'Completed' || pending <= 0 ? (
-                                                            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600">
-                                                                <CheckCircle2 size={14} /> Completed
-                                                            </span>
+                                                            </>
                                                         ) : (
-                                                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
-                                                                {ret.status || 'Pending'}
-                                                            </span>
+                                                            <span className="text-slate-400">-</span>
                                                         )}
                                                     </td>
                                                 </tr>
-                                            );
-                                        });
-                                    })}
-                                </tbody>
-                            </table>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* Target Welded / Assembled Product Return Card */}
+                            {challan.assemblyOutputItem && (
+                                <div className="bg-gradient-to-br from-amber-500/10 via-indigo-500/5 to-slate-50 dark:to-slate-900 p-5 rounded-2xl border-2 border-amber-400/40 shadow-sm space-y-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 dark:border-amber-900/40 pb-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                                                <Sparkles size={16} />
+                                            </div>
+                                            <div>
+                                                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                                                    Inward Deliverable (Many ➔ 1 Return)
+                                                </span>
+                                                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
+                                                    Inward Material (Consolidated 1 Item)
+                                                </h4>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700">
+                                                Destination: <strong className="text-indigo-600 dark:text-indigo-400">Shopfloor WIP FG</strong>
+                                            </span>
+                                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                                challan.assemblyOutputItem.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                (challan.assemblyOutputItem.quantityReceived || 0) > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                            }`}>
+                                                {challan.assemblyOutputItem.status || 'Pending'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="sm:col-span-2 bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Assembled Item Name</span>
+                                            <div className="font-extrabold text-slate-900 dark:text-white text-sm mt-0.5">
+                                                {challan.assemblyOutputItem.itemName || 'Consolidated Assembly Product'}
+                                            </div>
+                                            {challan.assemblyOutputItem.description && (
+                                                <div className="text-xs text-slate-500 italic mt-1 line-clamp-2">
+                                                    {challan.assemblyOutputItem.description}
+                                                </div>
+                                            )}
+                                            {challan.assemblyOutputItem.processType && (
+                                                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+                                                    Process: {challan.assemblyOutputItem.processType}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Expected Return Qty</span>
+                                            <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
+                                                {challan.assemblyOutputItem.quantityToBeReceived} <span className="text-xs font-semibold text-slate-400">{challan.assemblyOutputItem.receivingUnit || 'PCS'}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Received / Pending</span>
+                                            <div className="flex items-baseline gap-2 mt-0.5">
+                                                <span className="text-lg font-black text-emerald-600">
+                                                    {challan.assemblyOutputItem.quantityReceived || 0}
+                                                </span>
+                                                <span className="text-xs text-slate-400">/</span>
+                                                <span className="text-sm font-black text-amber-600">
+                                                    {Math.max(0, (challan.assemblyOutputItem.quantityToBeReceived || 0) - (challan.assemblyOutputItem.quantityReceived || 0))} rem
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </div>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Package size={14} /> Items Sent & Expected Return Material Mapping
+                                </span>
+                            </div>
+
+                            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
+                                        <tr>
+                                            <th className="px-4 py-3">Item Sent</th>
+                                            <th className="px-4 py-3 text-center">Sent Qty</th>
+                                            <th className="px-4 py-3">Material to be Received</th>
+                                            <th className="px-4 py-3 text-center">Exp. Return</th>
+                                            <th className="px-4 py-3 text-center">Recv Qty</th>
+                                            <th className="px-4 py-3 text-center">Pending</th>
+                                            <th className="px-4 py-3">Process / Rate</th>
+                                            <th className="px-4 py-3 text-right">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                                        {challan.items.map((item, idx) => {
+                                            const retList = (item.returningItems && item.returningItems.length > 0)
+                                                ? item.returningItems
+                                                : [{
+                                                    receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                                                    quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
+                                                    quantityReceived: item.quantityReceived || 0,
+                                                    receivingUnit: item.receivingUnit || item.unit || 'PCS',
+                                                    status: item.status
+                                                }];
+
+                                            return retList.map((ret, rIdx) => {
+                                                const expQty = Number(ret.quantityToBeReceived) || 0;
+                                                const recvQty = Number(ret.quantityReceived) || 0;
+                                                const pending = expQty - recvQty;
+
+                                                return (
+                                                    <tr key={`${idx}_${rIdx}`} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50">
+                                                        {rIdx === 0 && (
+                                                            <td rowSpan={retList.length} className="px-4 py-3.5 font-bold text-slate-900 dark:text-white border-r border-slate-100 dark:border-slate-800 align-top">
+                                                                <div>{item.itemName}</div>
+                                                                {item.description && (
+                                                                    <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{item.description}</div>
+                                                                )}
+                                                            </td>
+                                                        )}
+
+                                                        {rIdx === 0 && (
+                                                            <td rowSpan={retList.length} className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 border-r border-slate-100 dark:border-slate-800 align-top">
+                                                                {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
+                                                            </td>
+                                                        )}
+
+                                                        <td className="px-4 py-3.5 font-bold text-indigo-700 dark:text-indigo-300">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <ArrowRight size={14} className="text-indigo-500 flex-shrink-0" />
+                                                                {ret.receivedItemName || item.itemName}
+                                                            </div>
+                                                        </td>
+
+                                                        <td className="px-4 py-3.5 text-center font-bold text-slate-800 dark:text-slate-200">
+                                                            {expQty} <span className="text-xs text-slate-400">{ret.receivingUnit || 'PCS'}</span>
+                                                        </td>
+
+                                                        <td className="px-4 py-3.5 text-center font-bold text-emerald-600 dark:text-emerald-400">
+                                                            {recvQty}
+                                                        </td>
+
+                                                        <td className="px-4 py-3.5 text-center font-black text-amber-600 dark:text-amber-400">
+                                                            {pending > 0 ? pending : 0}
+                                                        </td>
+
+                                                        {rIdx === 0 && (
+                                                            <td rowSpan={retList.length} className="px-4 py-3.5 border-l border-slate-100 dark:border-slate-800 align-top text-xs">
+                                                                <div className="font-bold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</div>
+                                                                {(item.processRate || item.unitPrice) ? (
+                                                                    <div className="text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
+                                                                        Rate: ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}
+                                                                    </div>
+                                                                ) : null}
+                                                                {(item.processRate || item.unitPrice) ? (
+                                                                    <div className="text-[11px] text-slate-500 font-semibold font-mono">
+                                                                        Value: ₹{(Number(item.quantitySent || 0) * Number(item.processRate != null ? item.processRate : item.unitPrice || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    </div>
+                                                                ) : null}
+                                                                {item.description ? <div className="text-slate-400 italic mt-0.5">{item.description}</div> : null}
+                                                            </td>
+                                                        )}
+
+                                                        <td className="px-4 py-3.5 text-right">
+                                                            {ret.status === 'Completed' || pending <= 0 ? (
+                                                                <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600">
+                                                                    <CheckCircle2 size={14} /> Completed
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-xs font-bold text-amber-600 dark:text-amber-400">
+                                                                    {ret.status || 'Pending'}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            });
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Receive History Timeline */}
                     {(challan as any).receiveHistory && (challan as any).receiveHistory.length > 0 && (

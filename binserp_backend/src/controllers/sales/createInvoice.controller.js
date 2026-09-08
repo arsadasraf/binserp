@@ -91,8 +91,10 @@ export const createInvoice = async (req, res) => {
           // Validate and update quantities
           for (const invoiceItem of items) {
             const poItem = po.items.find(i => 
+              (invoiceItem.poItemId && i._id && i._id.toString() === invoiceItem.poItemId.toString()) ||
               (i.productName && invoiceItem.materialName && i.productName.trim().toLowerCase() === invoiceItem.materialName.trim().toLowerCase()) || 
-              (invoiceItem.fgItem && i.fgItem && i.fgItem.toString() === invoiceItem.fgItem.toString())
+              (invoiceItem.fgItem && i.fgItem && i.fgItem.toString() === invoiceItem.fgItem.toString()) ||
+              (invoiceItem.material && i.material && i.material.toString() === invoiceItem.material.toString())
             );
             if (poItem) {
               poItem.billedQuantity = (poItem.billedQuantity || 0) + Number(invoiceItem.quantity || 0);
@@ -152,9 +154,32 @@ export const createInvoice = async (req, res) => {
       }
     }
 
+    // Resolve Bank Details & Terms and Conditions from CompanyInfo if not provided
+    let finalBankDetails = req.body.bankDetails;
+    let finalTermsAndConditions = req.body.termsAndConditions;
+
+    if (!finalBankDetails || !finalBankDetails.bankName || !finalTermsAndConditions) {
+      try {
+        const CompanyInfo = req.getModel('CompanyInfo', companyInfoSchema);
+        const compInfoDoc = await CompanyInfo.findOne({ company: companyId });
+        if (compInfoDoc) {
+          if (!finalBankDetails || !finalBankDetails.bankName) {
+            finalBankDetails = compInfoDoc.bankDetails || finalBankDetails;
+          }
+          if (!finalTermsAndConditions) {
+            finalTermsAndConditions = compInfoDoc.printSettings?.invoice?.termsAndConditions || compInfoDoc.commercialTerms || "";
+          }
+        }
+      } catch (err) {
+        console.warn("Could not retrieve companyInfo for invoice defaults:", err);
+      }
+    }
+
     const invoice = await Invoice.create({
       company: companyId,
       ...req.body,
+      bankDetails: finalBankDetails,
+      termsAndConditions: finalTermsAndConditions,
       exchangeRateToINR: Number(req.body.exchangeRateToINR || 1),
       customerPoReference: finalPoReference,
       incomingPO: incomingPoDocId,

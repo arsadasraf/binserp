@@ -35,6 +35,7 @@ export default function SalesDCPage() {
           customers={customers || []}
           inHouseItems={fgItems || []}
           fgItems={fgItems || []}
+          companyInfo={companyInfo}
           onClose={() => { setShowModal(false); setEditingDC(null); }}
           onSubmit={async (formData) => {
             try {

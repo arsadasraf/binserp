@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus, Clock, Lock } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadDCExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import DCPreviewModal from '../modals/DCPreviewModal';
@@ -48,6 +48,29 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
     const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth);
     const [selectedDay, setSelectedDay] = useState("");
     const [selectedDCPreview, setSelectedDCPreview] = useState<any | null>(null);
+
+    // Live 1-second ticking timer for 24h edit/delete countdown
+    const [currentTime, setCurrentTime] = useState(Date.now());
+    useEffect(() => {
+        const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const getRemainingEditSeconds = (dateStr?: string | Date) => {
+        if (!dateStr) return 0;
+        const createdMs = new Date(dateStr).getTime();
+        if (isNaN(createdMs)) return 0;
+        const elapsedSecs = Math.floor((currentTime - createdMs) / 1000);
+        const remaining = 24 * 3600 - elapsedSecs;
+        return remaining > 0 ? remaining : 0;
+    };
+
+    const formatRemainingTime = (totalSeconds: number) => {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
 
     const uniqueCustomers = useMemo(() => {
         const list: { id: string; name: string }[] = [];
@@ -234,8 +257,21 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                         <td className="px-6 py-4 text-sm text-slate-500 font-mono">{item.customerPoReference || "-"}</td>
                                         <td className="px-6 py-4 text-sm font-medium text-slate-800 dark:text-slate-200">{item.customerName || "-"}</td>
                                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                                            {item.items?.[0]?.materialName || item.items?.[0]?.productName || '-'}
-                                            {item.items?.length > 1 && <span className="text-xs text-blue-600 font-semibold ml-1">(+{item.items.length - 1} more)</span>}
+                                            <div className="max-w-[240px]">
+                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                                    {item.items?.[0]?.materialName || item.items?.[0]?.productName || 'Item'}
+                                                </div>
+                                                {(item.items?.[0]?.description || item.items?.[0]?.descriptions) && (
+                                                    <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                                                        {item.items?.[0]?.description || item.items?.[0]?.descriptions}
+                                                    </div>
+                                                )}
+                                                {item.items?.length > 1 && (
+                                                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">
+                                                        (+{item.items.length - 1} more items)
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
                                             <div className="flex items-center gap-1.5">
@@ -249,21 +285,65 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                             {formatDateTime(item.createdAt || item.date)}
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <div className="flex justify-end gap-2">
+                                            <div className="flex justify-end items-center gap-1.5">
                                                 <button 
                                                     onClick={() => setSelectedDCPreview(item)} 
-                                                    className="px-3.5 py-1.5 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-blue-200 dark:border-blue-800 shadow-sm" 
-                                                    title="Preview DC (PDF, Excel, Edit, Delete)"
+                                                    className="px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 text-blue-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-blue-200 dark:border-blue-800 shadow-xs cursor-pointer" 
+                                                    title="Preview DC (PDF, Excel, Details)"
                                                 >
-                                                    <Eye size={15} /> Preview
+                                                    <Eye size={14} /> Preview
                                                 </button>
                                                 <button 
                                                     onClick={() => generateEWayBill(item)} 
-                                                    className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-200 dark:border-amber-800 shadow-sm" 
+                                                    className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-xs cursor-pointer" 
                                                     title="Generate E-Way Bill"
                                                 >
-                                                    <Truck size={15} /> E-Way
+                                                    <Truck size={14} /> E-Way
                                                 </button>
+
+                                                {(() => {
+                                                    const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
+                                                    const isWithin24h = remainingSecs > 0;
+
+                                                    return isWithin24h ? (
+                                                        <div className="flex items-center gap-1 shrink-0 ml-0.5">
+                                                            <span 
+                                                                title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                            >
+                                                                <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                {formatRemainingTime(remainingSecs)}
+                                                            </span>
+
+                                                            <button 
+                                                                onClick={() => onEdit(item)} 
+                                                                className="p-1.5 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-lg transition-colors cursor-pointer border border-blue-200 dark:border-blue-800" 
+                                                                title={`Edit Delivery Challan (${formatRemainingTime(remainingSecs)} left)`}
+                                                            >
+                                                                <Edit2 size={13} />
+                                                            </button>
+
+                                                            <button 
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Are you sure you want to delete Delivery Challan ${item.dcNumber}? Inventory will be restored and Customer PO status will revert.`)) {
+                                                                        onDelete(item._id);
+                                                                    }
+                                                                }} 
+                                                                className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800" 
+                                                                title={`Delete Delivery Challan (${formatRemainingTime(remainingSecs)} left)`}
+                                                            >
+                                                                <Trash2 size={13} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <span 
+                                                            title="Action window expired (Allowed within 24 hours of creation)"
+                                                            className="px-2 py-1 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-xl text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
+                                                        >
+                                                            <Lock size={11} /> Locked
+                                                        </span>
+                                                    );
+                                                })()}
                                             </div>
                                         </td>
                                     </tr>
@@ -295,7 +375,17 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-slate-400 font-medium">Items:</span> 
-                                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.items?.[0]?.materialName || '-'}{item.items?.length > 1 && ` (+${item.items.length - 1} more)`}</span>
+                                        <div className="text-right">
+                                            <span className="font-bold text-slate-800 dark:text-slate-100 block">
+                                                {item.items?.[0]?.materialName || '-'}
+                                                {item.items?.length > 1 && ` (+${item.items.length - 1} more)`}
+                                            </span>
+                                            {(item.items?.[0]?.description || item.items?.[0]?.descriptions) && (
+                                                <span className="text-[10px] text-slate-400 italic block line-clamp-1">
+                                                    {item.items?.[0]?.description || item.items?.[0]?.descriptions}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-slate-400 font-medium">Prepared By:</span> 
@@ -303,9 +393,35 @@ export default function DCTable({ data = [], companyInfo, onEdit, onDelete, onCr
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                                    <button onClick={() => setSelectedDCPreview(item)} className="flex-1 py-2 text-blue-600 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-blue-200 dark:border-blue-800 transition-all"><Eye size={15} /> Preview</button>
-                                    <button onClick={() => generateEWayBill(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800 transition-all"><Truck size={15} /> E-Way</button>
+                                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                    <div className="flex items-center gap-1.5 flex-1">
+                                        <button onClick={() => setSelectedDCPreview(item)} className="flex-1 py-1.5 text-blue-600 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1 border border-blue-200 dark:border-blue-800 transition-all"><Eye size={13} /> Preview</button>
+                                        <button onClick={() => generateEWayBill(item)} className="flex-1 py-1.5 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1 border border-amber-200 dark:border-amber-800 transition-all"><Truck size={13} /> E-Way</button>
+                                    </div>
+
+                                    {(() => {
+                                        const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
+                                        const isWithin24h = remainingSecs > 0;
+
+                                        return isWithin24h ? (
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <span className="px-2 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-lg font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                                                    <Clock size={10} className="text-amber-600 animate-pulse" />
+                                                    {formatRemainingTime(remainingSecs)}
+                                                </span>
+                                                <button onClick={() => onEdit(item)} className="p-1.5 text-blue-600 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 text-xs font-bold"><Edit2 size={13} /></button>
+                                                <button onClick={() => {
+                                                    if (window.confirm(`Delete Delivery Challan ${item.dcNumber}?`)) {
+                                                        onDelete(item._id);
+                                                    }
+                                                }} className="p-1.5 text-rose-600 bg-rose-50 dark:bg-rose-900/30 rounded-lg border border-rose-200 dark:border-rose-800 text-xs font-bold"><Trash2 size={13} /></button>
+                                            </div>
+                                        ) : (
+                                            <span className="px-2 py-0.5 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-lg text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700">
+                                                <Lock size={10} /> Locked
+                                            </span>
+                                        );
+                                    })()}
                                 </div>
                             </div>
                         ))}

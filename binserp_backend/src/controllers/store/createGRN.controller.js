@@ -57,7 +57,11 @@ export const createGRN = async (req, res) => {
       purchaseOrder, 
       mrpPlan,
       mrpNumber,
-      qcRequired 
+      qcRequired,
+      taxRate,
+      subtotal,
+      taxAmount,
+      totalAmount 
     } = req.body;
 
     // Parse qcRequired explicitly
@@ -208,12 +212,20 @@ export const createGRN = async (req, res) => {
           if (validId) {
             if (isRM) doc = await RawMaterial.findOne({ _id: validId, company: companyId });
             else if (isBO) doc = await BoughtOut.findOne({ _id: validId, company: companyId });
+            if (!doc) doc = await RawMaterial.findOne({ _id: validId, company: companyId });
+            if (!doc) doc = await BoughtOut.findOne({ _id: validId, company: companyId });
+            if (!doc) doc = await ConsumableItem.findOne({ _id: validId, company: companyId });
             if (!doc) doc = await Material.findOne({ _id: validId, company: companyId });
           }
           if (!doc && itemName) {
-            if (isRM) doc = await RawMaterial.findOne({ company: companyId, name: itemName });
-            else if (isBO) doc = await BoughtOut.findOne({ company: companyId, name: itemName });
-            if (!doc) doc = await Material.findOne({ company: companyId, name: itemName });
+            const escaped = itemName.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const nameRegex = new RegExp(`^${escaped}$`, 'i');
+            if (isRM) doc = await RawMaterial.findOne({ company: companyId, name: nameRegex });
+            else if (isBO) doc = await BoughtOut.findOne({ company: companyId, name: nameRegex });
+            if (!doc) doc = await RawMaterial.findOne({ company: companyId, name: nameRegex });
+            if (!doc) doc = await BoughtOut.findOne({ company: companyId, name: nameRegex });
+            if (!doc) doc = await ConsumableItem.findOne({ company: companyId, name: nameRegex });
+            if (!doc) doc = await Material.findOne({ company: companyId, name: nameRegex });
           }
 
           if (doc) {
@@ -266,6 +278,17 @@ export const createGRN = async (req, res) => {
       return res.status(400).json({ message: "At least one item is required for GRN" });
     }
 
+    const parsedTaxRate = parseFloat(taxRate) || 0;
+    const computedSubtotal = subtotal !== undefined && subtotal !== null && !isNaN(parseFloat(subtotal))
+      ? parseFloat(subtotal)
+      : itemsArray.reduce((sum, it) => sum + (it.quantity * (it.rate || 0)), 0);
+    const computedTaxAmount = taxAmount !== undefined && taxAmount !== null && !isNaN(parseFloat(taxAmount))
+      ? parseFloat(taxAmount)
+      : (computedSubtotal * parsedTaxRate) / 100;
+    const computedTotalAmount = totalAmount !== undefined && totalAmount !== null && !isNaN(parseFloat(totalAmount))
+      ? parseFloat(totalAmount)
+      : computedSubtotal + computedTaxAmount;
+
     const grn = await GRN.create({
       company: companyId,
       type: normalizedType,
@@ -281,6 +304,10 @@ export const createGRN = async (req, res) => {
       mrpPlan: mrpPlan && isValidObjectId(mrpPlan.toString()) ? mrpPlan : undefined,
       mrpNumber: mrpNumber || "",
       items: itemsArray,
+      taxRate: parsedTaxRate,
+      subtotal: computedSubtotal,
+      taxAmount: computedTaxAmount,
+      totalAmount: computedTotalAmount,
       pdf: pdfUrl,
       photos: photoUrls,
       receivedBy: userId,
@@ -302,36 +329,56 @@ export const createGRN = async (req, res) => {
           : { poNumber: poReference, company: companyId };
         
         const poDoc = await PurchaseOrder.findOne(poQuery);
-        if (poDoc && Array.isArray(poDoc.items) && poDoc.items.length > 0) {
+        if (poDoc) {
           let poUpdated = false;
           let allItemsCompleted = true;
           let anyItemReceived = false;
 
-          poDoc.items.forEach(poItem => {
-            const matchingGrnItem = itemsArray.find(gItem => 
-              (gItem.material && poItem.material && gItem.material.toString() === poItem.material.toString()) ||
-              (gItem.materialName && poItem.materialName && gItem.materialName.toLowerCase().trim() === poItem.materialName.toLowerCase().trim())
-            );
+          if (Array.isArray(poDoc.items) && poDoc.items.length > 0) {
+            poDoc.items.forEach(poItem => {
+              const matchingGrnItem = itemsArray.find(gItem => {
+                if (gItem.material && poItem.material && gItem.material.toString() === poItem.material.toString()) return true;
+                if (gItem.materialName && poItem.materialName) {
+                  const gName = gItem.materialName.toLowerCase().trim();
+                  const pName = poItem.materialName.toLowerCase().trim();
+                  if (gName === pName || gName.includes(pName) || pName.includes(gName)) return true;
+                }
+                return false;
+              });
 
-            if (matchingGrnItem) {
-              const addedQty = parseFloat(matchingGrnItem.quantity || matchingGrnItem.receivedQuantity || 0);
-              poItem.receivedQuantity = (poItem.receivedQuantity || 0) + addedQty;
-              poItem.pendingQuantity = Math.max(0, (poItem.quantity || 0) - poItem.receivedQuantity);
-              if (poItem.receivedQuantity >= poItem.quantity) {
-                poItem.itemStatus = "Completed";
-              } else if (poItem.receivedQuantity > 0) {
-                poItem.itemStatus = "Partially Received";
+              if (matchingGrnItem) {
+                const addedQty = parseFloat(matchingGrnItem.quantity || matchingGrnItem.receivedQuantity || 0);
+                poItem.receivedQuantity = (poItem.receivedQuantity || 0) + addedQty;
+                poItem.pendingQuantity = Math.max(0, (poItem.quantity || 0) - poItem.receivedQuantity);
+                if (poItem.receivedQuantity >= poItem.quantity) {
+                  poItem.itemStatus = "Completed";
+                } else if (poItem.receivedQuantity > 0) {
+                  poItem.itemStatus = "Partially Received";
+                }
+                poUpdated = true;
               }
-              poUpdated = true;
-            }
 
-            if ((poItem.receivedQuantity || 0) < (poItem.quantity || 0)) {
+              if ((poItem.receivedQuantity || 0) < (poItem.quantity || 0)) {
+                allItemsCompleted = false;
+              }
+              if ((poItem.receivedQuantity || 0) > 0) {
+                anyItemReceived = true;
+              }
+            });
+          } else {
+            // Single material PO fallback
+            const totalRec = itemsArray.reduce((sum, g) => sum + (parseFloat(g.quantity || g.receivedQuantity || 0)), 0);
+            poDoc.receivedQuantity = (poDoc.receivedQuantity || 0) + totalRec;
+            poDoc.pendingQuantity = Math.max(0, (poDoc.quantity || 0) - poDoc.receivedQuantity);
+            poUpdated = true;
+            if (poDoc.receivedQuantity >= (poDoc.quantity || 0)) {
+              allItemsCompleted = true;
+              anyItemReceived = true;
+            } else if (poDoc.receivedQuantity > 0) {
               allItemsCompleted = false;
-            }
-            if ((poItem.receivedQuantity || 0) > 0) {
               anyItemReceived = true;
             }
-          });
+          }
 
           if (poUpdated) {
             if (allItemsCompleted) poDoc.status = "Completed";

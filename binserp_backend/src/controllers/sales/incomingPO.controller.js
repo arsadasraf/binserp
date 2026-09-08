@@ -150,7 +150,17 @@ export const getAllIncomingPOs = asyncHandler(async (req, res) => {
   const Invoice = req.getModel("Invoice", invoiceSchema);
   const companyId = getCompanyId(req);
 
-  const pos = await IncomingPO.find({ company: companyId })
+  const queryFilter = { company: companyId };
+  if (req.query.customer) {
+    queryFilter.customer = req.query.customer;
+  }
+  if (req.query.openOnly === "true") {
+    queryFilter.status = { $nin: ["Completed", "Cancelled"] };
+  } else if (req.query.status) {
+    queryFilter.status = req.query.status;
+  }
+
+  const pos = await IncomingPO.find(queryFilter)
     .sort({ createdAt: -1 })
     .populate("customer", "name companyName code email phone city")
     .populate("quotationReference", "quotationNumber")
@@ -164,8 +174,22 @@ export const getAllIncomingPOs = asyncHandler(async (req, res) => {
   for (const po of pos) {
     if (po.status === "Cancelled") continue;
 
-    const dcs = await DeliveryChallan.find({ customerPoReference: po._id, company: companyId });
-    const invoices = await Invoice.find({ customerPoReference: po._id, company: companyId });
+    const dcs = await DeliveryChallan.find({
+      company: companyId,
+      $or: [
+        { customerPoReference: po._id },
+        { customerPoReference: po.poNumber },
+        { customerPoNumber: po.poNumber },
+      ]
+    });
+    const invoices = await Invoice.find({
+      company: companyId,
+      $or: [
+        { customerPoReference: po._id },
+        { customerPoReference: po.poNumber },
+        { incomingPO: po._id },
+      ]
+    });
 
     const totalOrdered = (po.items || []).reduce((sum, i) => sum + Number(i.quantity || 0), 0);
 
@@ -198,7 +222,11 @@ export const getAllIncomingPOs = asyncHandler(async (req, res) => {
     }
   }
 
-  res.status(200).json({ pos });
+  const filteredPos = req.query.openOnly === "true"
+    ? pos.filter(po => po.status !== "Completed" && po.status !== "Cancelled")
+    : pos;
+
+  res.status(200).json({ pos: filteredPos });
 });
 
 export const updateIncomingPO = asyncHandler(async (req, res) => {

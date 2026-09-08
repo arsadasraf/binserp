@@ -1,4 +1,8 @@
 import { vendorQuotationSchema } from "../../models/purchase/index.js";
+import { rawMaterialSchema } from "../../models/store/rawMaterial.model.js";
+import { boughtOutSchema } from "../../models/store/boughtOut.model.js";
+import { consumableItemSchema } from "../../models/store/consumableItem.model.js";
+import { rmBoItemSchema } from "../../models/store/rmBoItem.model.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -69,12 +73,65 @@ export const createVendorQuotation = asyncHandler(async (req, res) => {
 
 export const getVendorQuotations = asyncHandler(async (req, res) => {
   const VendorQuotation = req.getModel("VendorQuotation", vendorQuotationSchema);
+  const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+  const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+  const ConsumableItem = req.getModel("ConsumableItem", consumableItemSchema);
+  const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
   const companyId = getCompanyId(req);
 
   const quotations = await VendorQuotation.find({ company: companyId })
     .populate("vendor")
     .populate("rfq")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
+
+  // Collect all material IDs referenced across Quotations
+  const materialIdSet = new Set();
+  quotations.forEach(q => {
+    (q.items || []).forEach(it => {
+      if (it.materialId) {
+        materialIdSet.add(it.materialId.toString());
+      }
+    });
+  });
+
+  const materialIds = Array.from(materialIdSet);
+
+  if (materialIds.length > 0) {
+    const [rawMaterials, boughtOuts, consumables, rmBoItems] = await Promise.all([
+      RawMaterial.find({ _id: { $in: materialIds } }).select("name descriptions unit category standardCost").lean().catch(() => []),
+      BoughtOut.find({ _id: { $in: materialIds } }).select("name descriptions unit category standardCost").lean().catch(() => []),
+      ConsumableItem.find({ _id: { $in: materialIds } }).select("name descriptions unit category standardCost").lean().catch(() => []),
+      RmBoItem.find({ _id: { $in: materialIds } }).select("name description unit category rate").lean().catch(() => []),
+    ]);
+
+    const materialMap = new Map();
+    [...rawMaterials, ...boughtOuts, ...consumables, ...rmBoItems].forEach(m => {
+      if (m && m._id) {
+        materialMap.set(m._id.toString(), m);
+      }
+    });
+
+    quotations.forEach(q => {
+      (q.items || []).forEach(it => {
+        if (it.materialId) {
+          const mat = materialMap.get(it.materialId.toString());
+          if (mat) {
+            it.material = mat;
+            if (!it.materialName || it.materialName === "Material Item") {
+              it.materialName = mat.name || it.materialName;
+            }
+            if (!it.description) {
+              it.description = mat.descriptions || mat.description || mat.specification || "";
+            }
+            if (!it.unit) {
+              it.unit = it.uom || mat.unit || "PCS";
+            }
+          }
+        }
+      });
+    });
+  }
 
   return res.status(200).json(new ApiResponse(200, quotations, "Vendor Quotations fetched successfully"));
 });

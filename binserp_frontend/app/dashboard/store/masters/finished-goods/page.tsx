@@ -64,6 +64,7 @@ export default function FinishedGoodsPage() {
     setEditingItem(item);
     setFormData({
       ...item,
+      hsnCode: item.hsnCode || '',
       type: item.type || 'Component',
       unit: item.unit || 'Nos'
     });
@@ -151,6 +152,7 @@ export default function FinishedGoodsPage() {
       submitData.append('type', formData.type || 'Component');
       submitData.append('unit', formData.unit || 'Nos');
       submitData.append('description', formData.description || '');
+      submitData.append('hsnCode', (formData.hsnCode || '').toString().trim());
       submitData.append('revisionNumber', (formData.revisionNumber || '').toString().trim());
       submitData.append('reorderLevel', String(formData.reorderLevel ?? 0));
 

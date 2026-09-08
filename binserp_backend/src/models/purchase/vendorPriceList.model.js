@@ -13,7 +13,6 @@ export const vendorPriceListSchema = new mongoose.Schema(
     },
     material: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "RmBoItem",
       required: true,
     },
     price: {

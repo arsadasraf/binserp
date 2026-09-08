@@ -359,14 +359,31 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         return list;
     }, [consumables, combinedInventoryList, inventoryLookups]);
 
+    // All store inventory materials across RM, BO, and Consumables for multi-category GRNs
+    const allStoreMaterials = useMemo(() => {
+        const combined = [
+            ...(Array.isArray(effectiveRmList) ? effectiveRmList : []),
+            ...(Array.isArray(effectiveBoList) ? effectiveBoList : []),
+            ...(Array.isArray(consumables) ? consumables : [])
+        ];
+        const seen = new Set<string>();
+        return combined.filter(item => {
+            if (!item || !item._id) return false;
+            const idStr = String(item._id);
+            if (seen.has(idStr)) return false;
+            seen.add(idStr);
+            return true;
+        });
+    }, [effectiveRmList, effectiveBoList, consumables]);
+
     // Active materials for GRN modal
     const activeGrnMaterials = useMemo(() => {
-        if (activeSubTab === 'rm') return effectiveRmList;
-        if (activeSubTab === 'bo') return effectiveBoList;
-        if (activeSubTab === 'consumable') return consumables || [];
-        if (activeSubTab === 'inhouse' || activeSubTab === 'fg-history') return inHouseComponents || [];
-        return effectiveRmList || [];
-    }, [activeSubTab, effectiveRmList, effectiveBoList, consumables, inHouseComponents]);
+        if (activeSubTab === 'inhouse' || activeSubTab === 'fg-history') {
+            return inHouseComponents || [];
+        }
+        // For commercial GRNs (RM, BO, Consumables), provide all store materials so any Outward PO item is resolved
+        return allStoreMaterials.length > 0 ? allStoreMaterials : (effectiveRmList || []);
+    }, [activeSubTab, allStoreMaterials, inHouseComponents, effectiveRmList]);
 
     const activeGrnType = activeSubTab === 'inhouse' || activeSubTab === 'fg-history' 
         ? 'inhouse' 
@@ -407,6 +424,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         // If in history mode, it's GRN edit
         if (activeSubTab === 'history') {
             const grnData = {
+                ...item,
                 _id: item._id,
                 grnNumber: item.grnNumber,
                 date: item.date,
@@ -417,6 +435,8 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 supplier: item.supplier?._id || item.supplier || '',
                 locationId: '',
                 category: item.items?.[0]?.material?.category?.name || '',
+                taxRate: item.taxRate || 0,
+                items: item.items || [],
             };
             setEditingGRN(grnData);
             setShowGRNModal(true);

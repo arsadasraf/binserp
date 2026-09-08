@@ -362,6 +362,9 @@ export const getWipInventory = async (req, res) => {
       const mrpNumber = challan.mrpNumber || "";
       const jwType = challan.jobWorkType || "store-conversion";
 
+      // Check if this is an Assembly / Many-to-One consolidation challan
+      const isAssemblyChallan = challan.operationMode === "assembly" && challan.assemblyOutputItem;
+
       (challan.items || []).forEach((sentItem) => {
         const sentName = sentItem.itemName || "Sent Material";
         const sentQty = Number(sentItem.quantitySent) || 0;
@@ -370,15 +373,23 @@ export const getWipInventory = async (req, res) => {
         const sentRawType = (sentItem.itemType || (jwType === "wip-to-wip" ? "fg" : "rm")).toLowerCase();
         const sentTargetType = (sentRawType === "bo" || sentRawType === "bought out") ? "bo" : (sentRawType === "fg" || sentRawType === "inhouse" || sentRawType === "component" || jwType === "wip-to-wip") ? "fg" : "rm";
 
-        const retList = Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
-          ? sentItem.returningItems
-          : [{
-              receivedItem: sentItem.receivedItem,
-              receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
-              receivedItemType: sentItem.receivedItemType || (jwType === "store-conversion" ? "rm" : "fg"),
-              quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
-              quantityReceived: Number(sentItem.quantityReceived) || 0
-            }];
+        const retList = isAssemblyChallan
+          ? [{
+              receivedItem: challan.assemblyOutputItem.item,
+              receivedItemName: challan.assemblyOutputItem.itemName || "Assembled Product",
+              receivedItemType: challan.assemblyOutputItem.itemType || "fg",
+              quantityToBeReceived: Number(challan.assemblyOutputItem.quantityToBeReceived) || 0,
+              quantityReceived: Number(challan.assemblyOutputItem.quantityReceived) || 0
+            }]
+          : (Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
+            ? sentItem.returningItems
+            : [{
+                receivedItem: sentItem.receivedItem,
+                receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
+                receivedItemType: sentItem.receivedItemType || (jwType === "store-conversion" ? "rm" : "fg"),
+                quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
+                quantityReceived: Number(sentItem.quantityReceived) || 0
+              }]);
 
         const expectedQty = retList.reduce((acc, r) => acc + (Number(r.quantityToBeReceived) || 0), 0) || sentQty;
         const receivedQty = retList.reduce((acc, r) => acc + (Number(r.quantityReceived) || 0), 0);
@@ -426,6 +437,10 @@ export const getWipInventory = async (req, res) => {
 
         // For Store-to-WIP & WIP-to-WIP: QC-governed return back to Shopfloor WIP
         if (jwType === "store-to-wip" || jwType === "wip-to-wip") {
+          // For assembly challan, only process the assembled return entry once per challan
+          if (isAssemblyChallan && challan.__assemblyProcessed) return;
+          if (isAssemblyChallan) challan.__assemblyProcessed = true;
+
           retList.forEach((ret) => {
             const retName = ret.receivedItemName || sentName;
             const fgEntry = findWipEntry(ret.receivedItem, retName, null, "fg");

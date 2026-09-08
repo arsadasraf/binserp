@@ -1,6 +1,6 @@
 "use client";
-import React, { useState, useMemo } from "react";
-import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench } from "lucide-react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Layers, Package, Cog, Wrench, Filter, Check, X, Star } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getItemDescription, ItemNameAndDescription } from "@/src/utils/itemDisplayHelper";
 
@@ -27,6 +27,23 @@ export default function VendorPriceListTable({
 }: VendorPriceListTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'rm' | 'bo' | 'consumable'>('all');
+  const [vendorFilter, setVendorFilter] = useState<'all' | 'preferred_only' | 'unassigned' | string>('all');
+  const [showVendorFilterMenu, setShowVendorFilterMenu] = useState(false);
+  const vendorFilterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (vendorFilterRef.current && !vendorFilterRef.current.contains(event.target as Node)) {
+        setShowVendorFilterMenu(false);
+      }
+    };
+    if (showVendorFilterMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showVendorFilterMenu]);
 
   // Unified items list with explicit category tags
   const unifiedItems = useMemo(() => {
@@ -75,6 +92,44 @@ export default function VendorPriceListTable({
     return items;
   }, [rawMaterials, boughtOuts, consumables, materials]);
 
+  // Map to easily find assigned price configs for each Material
+  const priceListMap = useMemo(() => {
+    return (vendorPriceLists || []).reduce((acc, curr) => {
+      const materialId = (curr.material?._id || curr.material || curr.materialId)?.toString();
+      if (materialId) {
+        if (!acc[materialId]) acc[materialId] = [];
+        acc[materialId].push(curr);
+      }
+      return acc;
+    }, {} as Record<string, any[]>);
+  }, [vendorPriceLists]);
+
+  // Available unique vendors from price lists for column dropdown filter
+  const availableVendors = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code?: string; count: number }>();
+    (vendorPriceLists || []).forEach(vpl => {
+      const v = vpl.vendor;
+      const vId = v?._id?.toString() || (typeof v === 'string' ? v : null) || vpl.vendorName;
+      const vName = v?.name || vpl.vendorName || "Vendor";
+      const vCode = v?.code;
+      if (vId) {
+        if (!map.has(vId)) {
+          map.set(vId, { id: vId, name: vName, code: vCode, count: 0 });
+        }
+        map.get(vId)!.count++;
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [vendorPriceLists]);
+
+  // Total items with preferred vendor
+  const preferredCount = useMemo(() => {
+    return unifiedItems.filter(item => {
+      const configs = priceListMap[item._id?.toString()] || [];
+      return configs.some((c: any) => c.isPreferred);
+    }).length;
+  }, [unifiedItems, priceListMap]);
+
   // Counts for each category
   const counts = useMemo(() => {
     return {
@@ -85,12 +140,31 @@ export default function VendorPriceListTable({
     };
   }, [unifiedItems]);
 
-  // Filter items by category and search
+  // Filter items by category, vendor/preferred status, and search
   const filteredItems = useMemo(() => {
     return unifiedItems.filter((item) => {
       if (selectedCategory !== 'all' && item.itemCategory !== selectedCategory) {
         return false;
       }
+
+      // Vendor / Preferred Filter
+      if (vendorFilter !== 'all') {
+        const configs = priceListMap[item._id?.toString()] || [];
+        if (vendorFilter === 'preferred_only') {
+          if (!configs.some((c: any) => c.isPreferred)) return false;
+        } else if (vendorFilter === 'unassigned') {
+          if (configs.length > 0) return false;
+        } else {
+          // Specific vendor filter by ID or name
+          const match = configs.some((c: any) => {
+            const vId = (c.vendor?._id || c.vendor)?.toString();
+            const vName = c.vendor?.name || c.vendorName;
+            return vId === vendorFilter || vName === vendorFilter;
+          });
+          if (!match) return false;
+        }
+      }
+
       if (!searchTerm.trim()) return true;
 
       const searchLower = searchTerm.toLowerCase();
@@ -98,19 +172,7 @@ export default function VendorPriceListTable({
       const materialDesc = getItemDescription(item).toLowerCase();
       return materialName.includes(searchLower) || materialDesc.includes(searchLower);
     });
-  }, [unifiedItems, selectedCategory, searchTerm]);
-
-  // Map to easily find assigned price configs for each Material
-  const priceListMap = useMemo(() => {
-    return (vendorPriceLists || []).reduce((acc, curr) => {
-      const materialId = (curr.material?._id || curr.material)?.toString();
-      if (materialId) {
-        if (!acc[materialId]) acc[materialId] = [];
-        acc[materialId].push(curr);
-      }
-      return acc;
-    }, {} as Record<string, any[]>);
-  }, [vendorPriceLists]);
+  }, [unifiedItems, selectedCategory, vendorFilter, priceListMap, searchTerm]);
 
   const getCategoryBadge = (cat: 'rm' | 'bo' | 'consumable') => {
     switch (cat) {
@@ -203,7 +265,26 @@ export default function VendorPriceListTable({
         </div>
 
         {/* Search Bar & Action Button */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+          {/* Quick Preferred Vendor Toggle */}
+          <button
+            type="button"
+            onClick={() => setVendorFilter(prev => prev === 'preferred_only' ? 'all' : 'preferred_only')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap border ${
+              vendorFilter === 'preferred_only'
+                ? 'bg-amber-500 text-white border-amber-600 shadow-xs'
+                : 'text-amber-800 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/60'
+            }`}
+            title="Filter by Preferred Vendors Only"
+          >
+            <span>⭐ Preferred Only</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+              vendorFilter === 'preferred_only' ? 'bg-white/20 text-white' : 'bg-amber-200/70 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'
+            }`}>
+              {preferredCount}
+            </span>
+          </button>
+
           <div className="relative flex-1 sm:w-64">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="h-3.5 w-3.5 text-gray-400" />
@@ -229,6 +310,42 @@ export default function VendorPriceListTable({
         </div>
       </div>
 
+      {/* Active Filter Indicator Bar */}
+      {vendorFilter !== 'all' && (
+        <div className="px-4 py-2 bg-amber-50/70 dark:bg-amber-950/30 border-b border-amber-100 dark:border-amber-900/40 flex items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-amber-900 dark:text-amber-200">
+              Filter Active:
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-[11px]">
+              {vendorFilter === 'preferred_only'
+                ? '⭐ Preferred Vendors Only'
+                : vendorFilter === 'unassigned'
+                ? 'Unassigned Only'
+                : (availableVendors.find(v => v.id === vendorFilter)?.name || 'Specific Vendor')}
+              <button
+                type="button"
+                onClick={() => setVendorFilter('all')}
+                className="hover:bg-amber-200 dark:hover:bg-amber-800 rounded-full p-0.5 ml-1 cursor-pointer"
+                title="Remove filter"
+              >
+                <X size={12} />
+              </button>
+            </span>
+            <span className="text-gray-500 text-[11px]">
+              ({filteredItems.length} {filteredItems.length === 1 ? 'item' : 'items'})
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setVendorFilter('all')}
+            className="text-[11px] font-bold text-amber-800 dark:text-amber-300 hover:underline cursor-pointer"
+          >
+            Clear Filter
+          </button>
+        </div>
+      )}
+
       {/* Desktop Table View */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left border-collapse">
@@ -237,7 +354,119 @@ export default function VendorPriceListTable({
               <th className="p-3.5 font-bold first:pl-6 w-16">Photo</th>
               <th className="p-3.5 font-bold">Item Name & Description</th>
               <th className="p-3.5 font-bold w-28">Category</th>
-              <th className="p-3.5 font-bold w-44">Supplier / Vendor</th>
+              
+              {/* Supplier / Vendor Column with Filter Dropdown */}
+              <th className="p-3.5 font-bold w-48 relative">
+                <div className="flex items-center justify-between gap-1.5">
+                  <span className="truncate">Supplier / Vendor</span>
+                  <div className="relative" ref={vendorFilterRef}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowVendorFilterMenu(prev => !prev);
+                      }}
+                      className={`p-1 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                        vendorFilter !== 'all'
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : 'text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/60 dark:hover:bg-gray-700'
+                      }`}
+                      title="Filter by Vendor / Preferred"
+                    >
+                      <Filter size={12} className={vendorFilter !== 'all' ? 'fill-current' : ''} />
+                      {vendorFilter !== 'all' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                      )}
+                    </button>
+
+                    {/* Filter Dropdown Popover */}
+                    {showVendorFilterMenu && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="absolute left-0 sm:right-0 sm:left-auto top-full mt-1.5 w-64 bg-white dark:bg-gray-900 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 py-1.5 z-50 text-xs normal-case tracking-normal"
+                      >
+                        <div className="px-3.5 py-2 font-bold text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 text-[10px] uppercase tracking-wider flex justify-between items-center">
+                          <span>Vendor Column Filter</span>
+                          {vendorFilter !== 'all' && (
+                            <button
+                              type="button"
+                              onClick={() => { setVendorFilter('all'); setShowVendorFilterMenu(false); }}
+                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer lowercase"
+                            >
+                              reset
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="py-1">
+                          <button
+                            type="button"
+                            onClick={() => { setVendorFilter('all'); setShowVendorFilterMenu(false); }}
+                            className={`w-full px-3.5 py-2 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${
+                              vendorFilter === 'all' ? 'font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30' : 'text-gray-700 dark:text-gray-300'
+                            }`}
+                          >
+                            <span>Show All Vendors</span>
+                            {vendorFilter === 'all' && <Check size={14} />}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => { setVendorFilter('preferred_only'); setShowVendorFilterMenu(false); }}
+                            className={`w-full px-3.5 py-2 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${
+                              vendorFilter === 'preferred_only' ? 'font-bold text-amber-700 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/30' : 'text-gray-700 dark:text-gray-300'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-300">⭐ Preferred Only</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 text-amber-800 font-bold">{preferredCount}</span>
+                              {vendorFilter === 'preferred_only' && <Check size={14} />}
+                            </div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => { setVendorFilter('unassigned'); setShowVendorFilterMenu(false); }}
+                            className={`w-full px-3.5 py-2 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer ${
+                              vendorFilter === 'unassigned' ? 'font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30' : 'text-gray-700 dark:text-gray-300'
+                            }`}
+                          >
+                            <span>Unassigned Only</span>
+                            {vendorFilter === 'unassigned' && <Check size={14} />}
+                          </button>
+                        </div>
+
+                        {availableVendors.length > 0 && (
+                          <>
+                            <div className="px-3.5 py-1.5 font-bold text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800 text-[10px] uppercase tracking-wider">
+                              Filter By Specific Vendor
+                            </div>
+                            <div className="max-h-48 overflow-y-auto custom-scrollbar divide-y divide-gray-50 dark:divide-gray-800">
+                              {availableVendors.map(v => (
+                                <button
+                                  key={v.id}
+                                  type="button"
+                                  onClick={() => { setVendorFilter(v.id); setShowVendorFilterMenu(false); }}
+                                  className={`w-full px-3.5 py-2 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer truncate ${
+                                    vendorFilter === v.id ? 'font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/30' : 'text-gray-700 dark:text-gray-300'
+                                  }`}
+                                >
+                                  <span className="truncate">{v.name}</span>
+                                  <div className="flex items-center gap-1 shrink-0 ml-1">
+                                    <span className="text-[10px] text-gray-400 font-mono">({v.count})</span>
+                                    {vendorFilter === v.id && <Check size={14} />}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </th>
+
               <th className="p-3.5 font-bold text-right w-36">Price (₹)</th>
               <th className="p-3.5 font-bold text-center w-24">Tax Rate</th>
               <th className="p-3.5 font-bold text-right last:pr-6 w-44">Actions</th>
@@ -256,7 +485,7 @@ export default function VendorPriceListTable({
             ) : (
               filteredItems.map((item, index) => {
                 const assignedConfigs = priceListMap[item._id?.toString()] || [];
-                const config = assignedConfigs[0];
+                const config = assignedConfigs.find((c: any) => c.isPreferred) || assignedConfigs[0];
                 const hasPrice = !!config;
 
                 return (
@@ -291,6 +520,11 @@ export default function VendorPriceListTable({
                             {config.isPreferred && (
                               <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
                                 ⭐ Preferred
+                              </span>
+                            )}
+                            {assignedConfigs.length > 1 && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                +{assignedConfigs.length - 1} other
                               </span>
                             )}
                           </div>
@@ -374,7 +608,7 @@ export default function VendorPriceListTable({
         ) : (
           filteredItems.map((item) => {
             const assignedConfigs = priceListMap[item._id?.toString()] || [];
-            const config = assignedConfigs[0];
+            const config = assignedConfigs.find((c: any) => c.isPreferred) || assignedConfigs[0];
             const hasPrice = !!config;
 
             return (

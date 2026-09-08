@@ -49,62 +49,188 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
         'TRIPLICATE FOR CONSIGNOR / FILE COPY'
     ];
 
-    // Build Items Rows HTML
+    const isAssemblyMode = doc.operationMode === 'assembly';
+    const assemblyOutput = doc.assemblyOutputItem;
+
+    // Build Items Section HTML
     let totalSentQty = 0;
     let totalExpectedQty = 0;
     let totalProcessValue = 0;
-    let itemsTableRowsHtml = '';
+    let itemsSectionHtml = '';
 
     const items = doc.items || [];
-    let rowIdx = 0;
 
-    if (items.length > 0) {
-        items.forEach((item: any, idx: number) => {
-            const sentQty = Number(item.quantitySent || 0);
-            totalSentQty += sentQty;
-            const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
-            const lineVal = sentQty * rate;
-            totalProcessValue += lineVal;
+    if (isAssemblyMode) {
+        let compRows = '';
+        if (items.length > 0) {
+            items.forEach((item: any, idx: number) => {
+                const sentQty = Number(item.quantitySent || 0);
+                totalSentQty += sentQty;
+                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
+                const lineVal = sentQty * rate;
+                totalProcessValue += lineVal;
 
-            const retList = (item.returningItems && item.returningItems.length > 0)
-                ? item.returningItems
-                : [{
-                    receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
-                    quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
-                    receivingUnit: item.receivingUnit || item.unit || 'PCS'
-                }];
-
-            retList.forEach((ret: any, rIdx: number) => {
-                rowIdx++;
-                const expQty = Number(ret.quantityToBeReceived || 0);
-                totalExpectedQty += expQty;
-
-                itemsTableRowsHtml += `
+                compRows += `
                     <tr>
-                        ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; padding: 5px 3px;">${idx + 1}</td>` : ''}
-                        ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; font-weight: bold; padding: 5px 6px;">${item.itemName || ''} ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}</td>` : ''}
-                        ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-weight: bold; padding: 5px 4px;">${item.quantitySent || ''} ${item.unit || 'PCS'}</td>` : ''}
-                        ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; padding: 5px 6px;"><b>${item.processType || 'Job Work'}</b></td>` : ''}
-                        ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
-                        <td style="text-align: left; font-weight: bold; color: #1e3a8a; padding: 5px 6px;">${ret.receivedItemName || ''}</td>
-                        <td style="text-align: center; padding: 5px 4px;">${expQty} ${ret.receivingUnit || 'PCS'}</td>
-                        ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px;">${lineVal > 0 ? '₹' + lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
+                        <td style="text-align: center; padding: 5px 3px;">${idx + 1}</td>
+                        <td style="text-align: left; font-weight: bold; padding: 5px 6px;">
+                            ${item.itemName || ''}
+                            ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic;">${item.description}</div>` : ''}
+                        </td>
+                        <td style="text-align: center; font-weight: bold; padding: 5px 4px;">${sentQty} ${item.unit || 'PCS'}</td>
+                        <td style="text-align: left; padding: 5px 6px;"><b>${item.processType || 'Job Work'}</b></td>
+                        <td style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
+                        <td style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px;">${lineVal > 0 ? '₹' + lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                     </tr>
                 `;
             });
-        });
 
-        // Fill blank rows for full page rendering
-        for (let i = rowIdx; i < 5; i++) {
-            itemsTableRowsHtml += `
-                <tr>
-                    <td style="height: 24px;"></td>
-                    <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
-                </tr>
-            `;
+            for (let i = items.length; i < 4; i++) {
+                compRows += `<tr><td style="height: 22px;"></td><td></td><td></td><td></td><td></td><td></td></tr>`;
+            }
+        } else {
+            compRows = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No components listed</td></tr>`;
         }
+
+        totalExpectedQty = Number(assemblyOutput?.quantityToBeReceived || 0);
+
+        itemsSectionHtml = `
+            <!-- Components Sent Table -->
+            <div style="font-weight: bold; font-size: 10px; color: #334155; margin-bottom: 4px; text-transform: uppercase;">
+                1. Dispatched Components / Kit Bill of Materials:
+            </div>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #f1f5f9; text-transform: uppercase; font-weight: bold;">
+                    <tr>
+                        <th style="width: 5%; padding: 6px 3px; text-align: center;">Sl</th>
+                        <th style="width: 45%; padding: 6px 6px; text-align: left;">Component / Material Dispatched</th>
+                        <th style="width: 15%; padding: 6px 4px; text-align: center;">Dispatched Qty</th>
+                        <th style="width: 15%; padding: 6px 6px; text-align: left;">Process</th>
+                        <th style="width: 10%; padding: 6px 4px; text-align: center;">Rate (₹)</th>
+                        <th style="width: 10%; padding: 6px 6px; text-align: right;">Amount (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${compRows}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #64748b;">
+                    <tr>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Components Sent Qty =</td>
+                        <td style="padding: 6px 4px; text-align: center;">${totalSentQty}</td>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Job Value =</td>
+                        <td style="padding: 6px 6px; text-align: right; font-family: monospace; font-size: 11px;">₹${totalProcessValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            <!-- Target Consolidated Return Box -->
+            <div style="border: 2px solid #1e3a8a; background: #f8fafc; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px;">
+                <div style="font-size: 9px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; margin-bottom: 5px;">
+                    2. Inward Material (Consolidated 1 Item Deliverable - Many ➔ 1)
+                </div>
+                <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                    <tr>
+                        <td style="width: 60%; vertical-align: top;">
+                            <div style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">Finished Product / Sub-Assembly:</div>
+                            <div style="font-weight: 800; font-size: 13px; color: #0f172a; margin-top: 2px;">${assemblyOutput?.itemName || 'Consolidated Assembly Product'}</div>
+                            ${assemblyOutput?.description ? `<div style="font-size: 9px; color: #475569; font-style: italic; margin-top: 2px;">${assemblyOutput.description}</div>` : ''}
+                            ${assemblyOutput?.processType ? `<div style="font-size: 9px; color: #1e3a8a; font-weight: bold; margin-top: 3px;">Process: ${assemblyOutput.processType}</div>` : ''}
+                        </td>
+                        <td style="width: 40%; vertical-align: top; text-align: right;">
+                            <div style="font-size: 9px; color: #64748b; font-weight: bold; text-transform: uppercase;">Expected Return Qty:</div>
+                            <div style="font-weight: 900; font-size: 15px; color: #1e3a8a; margin-top: 2px;">
+                                ${assemblyOutput?.quantityToBeReceived || 0} ${assemblyOutput?.receivingUnit || 'PCS'}
+                            </div>
+                            <div style="font-size: 9px; color: #475569; margin-top: 3px;">
+                                Stock Receipt: <b style="color: #0f172a;">Shopfloor WIP FG</b>
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        `;
     } else {
-        itemsTableRowsHtml = `<tr><td colspan="8" style="text-align: center; padding: 40px;">No items listed</td></tr>`;
+        let rowIdx = 0;
+        let itemsTableRowsHtml = '';
+
+        if (items.length > 0) {
+            items.forEach((item: any, idx: number) => {
+                const sentQty = Number(item.quantitySent || 0);
+                totalSentQty += sentQty;
+                const rate = Number(item.processRate != null ? item.processRate : item.unitPrice) || 0;
+                const lineVal = sentQty * rate;
+                totalProcessValue += lineVal;
+
+                const retList = (item.returningItems && item.returningItems.length > 0)
+                    ? item.returningItems
+                    : [{
+                        receivedItemName: item.receivedItemName || item.itemToBeReceived || item.itemName,
+                        quantityToBeReceived: item.quantityToBeReceived || item.quantitySent,
+                        receivingUnit: item.receivingUnit || item.unit || 'PCS'
+                    }];
+
+                retList.forEach((ret: any, rIdx: number) => {
+                    rowIdx++;
+                    const expQty = Number(ret.quantityToBeReceived || 0);
+                    totalExpectedQty += expQty;
+
+                    itemsTableRowsHtml += `
+                        <tr>
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; padding: 5px 3px;">${idx + 1}</td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; font-weight: bold; padding: 5px 6px;">${item.itemName || ''} ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}</td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-weight: bold; padding: 5px 4px;">${item.quantitySent || ''} ${item.unit || 'PCS'}</td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; padding: 5px 6px;"><b>${item.processType || 'Job Work'}</b></td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
+                            <td style="text-align: left; font-weight: bold; color: #1e3a8a; padding: 5px 6px;">${ret.receivedItemName || ''}</td>
+                            <td style="text-align: center; padding: 5px 4px;">${expQty} ${ret.receivingUnit || 'PCS'}</td>
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px;">${lineVal > 0 ? '₹' + lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
+                        </tr>
+                    `;
+                });
+            });
+
+            // Fill blank rows for full page rendering
+            for (let i = rowIdx; i < 5; i++) {
+                itemsTableRowsHtml += `
+                    <tr>
+                        <td style="height: 24px;"></td>
+                        <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                    </tr>
+                `;
+            }
+        } else {
+            itemsTableRowsHtml = `<tr><td colspan="8" style="text-align: center; padding: 40px;">No items listed</td></tr>`;
+        }
+
+        itemsSectionHtml = `
+            <!-- Items Table -->
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;" border="1" bordercolor="#94a3b8">
+                <thead style="background: #f1f5f9; text-transform: uppercase; font-weight: bold;">
+                    <tr>
+                        <th style="width: 4%; padding: 6px 3px; text-align: center;">Sl</th>
+                        <th style="width: 22%; padding: 6px 6px; text-align: left;">Items Sent</th>
+                        <th style="width: 9%; padding: 6px 4px; text-align: center;">Sent Qty</th>
+                        <th style="width: 15%; padding: 6px 6px; text-align: left;">Process</th>
+                        <th style="width: 11%; padding: 6px 4px; text-align: center;">Rate (₹)</th>
+                        <th style="width: 20%; padding: 6px 6px; text-align: left;">Return Item</th>
+                        <th style="width: 8%; padding: 6px 4px; text-align: center;">Exp Qty</th>
+                        <th style="width: 11%; padding: 6px 6px; text-align: right;">Amount (₹)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsTableRowsHtml}
+                </tbody>
+                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #64748b;">
+                    <tr>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Sent Qty =</td>
+                        <td style="padding: 6px 4px; text-align: center;">${totalSentQty}</td>
+                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Exp Qty =</td>
+                        <td style="padding: 6px 4px; text-align: left;" colspan="2">${totalExpectedQty}</td>
+                        <td style="padding: 6px 6px; text-align: right; font-family: monospace; font-size: 11px;">₹${totalProcessValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        `;
     }
 
     // Build 3-Copy HTML Pages (HTML only, no raw JSX comments)
@@ -130,7 +256,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
 
             <!-- Document Title Bar -->
             <div style="text-align: center; background: #f1f5f9; border: 1px solid #cbd5e1; font-weight: bold; font-size: 13px; padding: 6px; text-transform: uppercase; letter-spacing: 1px; color: #0f172a; margin-bottom: 12px;">
-                RETURNABLE - DELIVERY CHALLAN
+                ${isAssemblyMode ? 'RETURNABLE - DELIVERY CHALLAN [MANY TO ONE CONSOLIDATION]' : 'RETURNABLE - DELIVERY CHALLAN [ONE TO MANY]'}
             </div>
 
             <!-- Address & Logistics Panel -->
@@ -188,33 +314,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                 </tr>
             </table>
 
-            <!-- Items Table -->
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 10px;" border="1" bordercolor="#94a3b8">
-                <thead style="background: #f1f5f9; text-transform: uppercase; font-weight: bold;">
-                    <tr>
-                        <th style="width: 4%; padding: 6px 3px; text-align: center;">Sl</th>
-                        <th style="width: 22%; padding: 6px 6px; text-align: left;">Items Sent</th>
-                        <th style="width: 9%; padding: 6px 4px; text-align: center;">Sent Qty</th>
-                        <th style="width: 15%; padding: 6px 6px; text-align: left;">Process</th>
-                        <th style="width: 11%; padding: 6px 4px; text-align: center;">Rate (₹)</th>
-                        <th style="width: 20%; padding: 6px 6px; text-align: left;">Return Item</th>
-                        <th style="width: 8%; padding: 6px 4px; text-align: center;">Exp Qty</th>
-                        <th style="width: 11%; padding: 6px 6px; text-align: right;">Amount (₹)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${itemsTableRowsHtml}
-                </tbody>
-                <tfoot style="background: #f8fafc; font-weight: bold; border-top: 2px solid #64748b;">
-                    <tr>
-                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Sent Qty =</td>
-                        <td style="padding: 6px 4px; text-align: center;">${totalSentQty}</td>
-                        <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Exp Qty =</td>
-                        <td style="padding: 6px 4px; text-align: left;" colspan="2">${totalExpectedQty}</td>
-                        <td style="padding: 6px 6px; text-align: right; font-family: monospace; font-size: 11px;">₹${totalProcessValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                </tfoot>
-            </table>
+            ${itemsSectionHtml}
 
             <!-- Footer Terms & Signatures -->
             <div style="border: 1px solid #94a3b8; padding: 8px; background: #fafafa; margin-bottom: 10px; font-size: 9px; line-height: 1.4;">
@@ -1967,10 +2067,11 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
     const compGst = masterCompany?.gstin || masterCompany?.gstNumber || masterCompany?.gst || 'N/A';
     const compPan = masterCompany?.panNumber || masterCompany?.pan || 'N/A';
 
-    const bankName = masterCompany?.bankDetails?.bankName || masterCompany?.bankName || '-';
-    const accountNumber = masterCompany?.bankDetails?.accountNumber || masterCompany?.accountNumber || '-';
-    const ifscCode = masterCompany?.bankDetails?.ifscCode || masterCompany?.ifscCode || '-';
-    const branchName = masterCompany?.bankDetails?.branchName || masterCompany?.branchName || '';
+    const docBank = doc.bankDetails || {};
+    const bankName = docBank.bankName || masterCompany?.bankDetails?.bankName || masterCompany?.bankName || '-';
+    const accountNumber = docBank.accountNumber || masterCompany?.bankDetails?.accountNumber || masterCompany?.accountNumber || '-';
+    const ifscCode = docBank.ifscCode || masterCompany?.bankDetails?.ifscCode || masterCompany?.ifscCode || '-';
+    const branchName = docBank.branch || docBank.branchName || masterCompany?.bankDetails?.branch || masterCompany?.bankDetails?.branchName || masterCompany?.branchName || '';
 
     // 2. Resolve Customer Details
     const custObj = typeof doc.customer === 'object' ? doc.customer : {};
@@ -2149,7 +2250,7 @@ export const generateFrontendInvoicePDF = (data: { doc: any; companyInfo?: any; 
                         <div style="font-size: 9.5px; color: #334155; line-height: 1.4;">
                             Bank: <b>${bankName}</b> | A/c: <b>${accountNumber}</b> | IFSC: <b>${ifscCode}</b> ${branchName ? `| Branch: ${branchName}` : ''}<br>
                             ${doc.remarks || doc.otherDetails ? `Remarks: ${doc.remarks || doc.otherDetails}<br>` : ''}
-                            Terms: Subject to local jurisdiction. Payment due as per agreed billing terms.
+                            <div style="margin-top: 5px; font-size: 9px; color: #475569; white-space: pre-line;"><b>Terms & Conditions:</b><br>${doc.termsAndConditions || doc.terms || masterCompany?.printSettings?.invoice?.termsAndConditions || masterCompany?.commercialTerms || '1. Goods once sold will not be accepted back or exchanged.\n2. Payment due as per agreed billing terms.\n3. Subject to local jurisdiction only.'}</div>
                         </div>
                         <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; font-size: 10px; font-style: italic;">
                             Amount in Words: ${convertAmountToWords(grandTotal, doc.currency)}
@@ -2334,6 +2435,11 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
         `;
     });
 
+    const grnTaxRate = Number(grn.taxRate) || 0;
+    const grnSubtotal = Number(grn.subtotal) || totalVal;
+    const grnTaxAmount = Number(grn.taxAmount) || (grnTaxRate > 0 ? (grnSubtotal * grnTaxRate) / 100 : 0);
+    const grnGrandTotal = Number(grn.totalAmount) || (grnSubtotal + grnTaxAmount);
+
     const pagesHtml = copyTypes.map((copyTitle) => `
         <div class="page" style="page-break-after: always; width: 100%; max-width: 800px; margin: 0 auto 30px auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
             <!-- Top Copy Header -->
@@ -2398,14 +2504,24 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                 </tbody>
                 <tfoot>
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px; border-top: 2px solid #cbd5e1;">
-                        <td colspan="2" style="padding: 8px; text-align: right; text-transform: uppercase;">Total:</td>
-                        <td style="padding: 8px; text-align: center;">${totalRcvQty}</td>
-                        <td style="padding: 8px; text-align: center; color: #16a34a;">${totalAccQty}</td>
-                        <td style="padding: 8px; text-align: center; color: ${totalRejQty > 0 ? '#dc2626' : '#64748b'};">${totalRejQty}</td>
+                        <td colspan="2" style="padding: 7px 8px; text-align: right; text-transform: uppercase;">${grnTaxRate > 0 ? 'Total Qty / Subtotal:' : 'Total:'}</td>
+                        <td style="padding: 7px 8px; text-align: center;">${totalRcvQty}</td>
+                        <td style="padding: 7px 8px; text-align: center; color: #16a34a;">${totalAccQty}</td>
+                        <td style="padding: 7px 8px; text-align: center; color: ${totalRejQty > 0 ? '#dc2626' : '#64748b'};">${totalRejQty}</td>
                         <td></td>
                         <td></td>
-                        <td style="padding: 8px; text-align: right; font-size: 12px; color: #4f46e5; font-weight: 900;">₹${totalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td style="padding: 7px 8px; text-align: right; font-size: 11px; color: ${grnTaxRate > 0 ? '#1e293b' : '#4f46e5'}; font-weight: 800;">₹${grnSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
+                    ${grnTaxRate > 0 ? `
+                    <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
+                        <td colspan="7" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">GST (${grnTaxRate}%):</td>
+                        <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4f46e5; font-weight: 700;">+ ₹${grnTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    <tr style="background: #eef2ff; font-weight: 900; font-size: 12px; border-top: 1px solid #c7d2fe;">
+                        <td colspan="7" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST):</td>
+                        <td style="padding: 8px; text-align: right; font-size: 12px; color: #059669; font-weight: 900;">₹${grnGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                    ` : ''}
                 </tfoot>
             </table>
 

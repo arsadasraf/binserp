@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Edit2, Trash2, Download, Truck, FileText, Search, User, Calendar, X, Eye, Plus, Clock, Lock } from 'lucide-react';
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { download4CopyPDF, downloadFrontendExcel, downloadInvoiceExcelDocument } from '@/src/utils/frontendDocumentHelper';
 import { getCurrencySymbol } from '@/src/utils/currencyHelper';
@@ -46,6 +46,40 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
     const [selectedMonth, setSelectedMonth] = useState(getCurrentMonth);
     const [selectedDay, setSelectedDay] = useState("");
     const [selectedInvoicePreview, setSelectedInvoicePreview] = useState<any | null>(null);
+
+    // Live 1-second ticking timer for 24h edit/delete countdown
+    const [nowTime, setNowTime] = useState(Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNowTime(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
+        if (!createdAt) return 0;
+        const created = new Date(createdAt).getTime();
+        const elapsed = Math.floor((nowTime - created) / 1000);
+        const limit = 24 * 3600; // 24 hours in seconds
+        return Math.max(0, limit - elapsed);
+    };
+
+    const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds <= 0) return '00:00:00';
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    const handleDeleteSafe = (item: any) => {
+        const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
+        if (remainingSecs <= 0) {
+            alert("This Tax Invoice cannot be deleted because the 24-hour edit/delete window has expired.");
+            return;
+        }
+        if (window.confirm(`Are you sure you want to delete Tax Invoice #${item.invoiceNumber || ''}? This will return inventory stock and adjust linked Customer PO status.`)) {
+            onDelete(item._id);
+        }
+    };
 
     const uniqueCustomers = useMemo(() => {
         const list: { id: string; name: string }[] = [];
@@ -242,13 +276,18 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                             {item.customerName || item.customer?.name || item.customer?.companyName || "-"}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
-                                            <div className="max-w-[200px] truncate" title={(item.items || []).map((i: any) => i.materialName || i.productName || i.itemName).join(', ')}>
-                                                <span className="font-semibold text-slate-900 dark:text-white">
+                                            <div className="max-w-[240px]">
+                                                <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
                                                     {item.items?.[0]?.materialName || item.items?.[0]?.productName || item.items?.[0]?.itemName || 'Item'}
-                                                </span>
+                                                </div>
+                                                {(item.items?.[0]?.description || item.items?.[0]?.descriptions) && (
+                                                    <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1">
+                                                        {item.items?.[0]?.description || item.items?.[0]?.descriptions}
+                                                    </div>
+                                                )}
                                                 {item.items?.length > 1 && (
-                                                    <span className="text-xs text-indigo-600 dark:text-indigo-400 font-bold ml-1">
-                                                        (+{item.items.length - 1} more)
+                                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                                        (+{item.items.length - 1} more items)
                                                     </span>
                                                 )}
                                             </div>
@@ -265,21 +304,61 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                             {formatDateTime(item.createdAt || item.date)}
                                         </td>
                                         <td className="px-6 py-4 text-right">
-                                            <div className="flex justify-end gap-2">
+                                            <div className="flex justify-end items-center gap-1.5">
                                                 <button 
                                                     onClick={() => setSelectedInvoicePreview(item)} 
-                                                    className="px-3.5 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-600 text-indigo-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 shadow-sm" 
-                                                    title="Preview Invoice (PDF, Excel, Edit, Delete)"
+                                                    className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-600 text-indigo-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-indigo-200 dark:border-indigo-800 shadow-xs cursor-pointer" 
+                                                    title="Preview Invoice (PDF, Excel, Details)"
                                                 >
-                                                    <Eye size={15} /> Preview
+                                                    <Eye size={14} /> Preview
                                                 </button>
                                                 <button 
                                                     onClick={() => generateEWayBill(item)} 
-                                                    className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border border-amber-200 dark:border-amber-800 shadow-sm" 
+                                                    className="px-3 py-1.5 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 text-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 border border-amber-200 dark:border-amber-800 shadow-xs cursor-pointer" 
                                                     title="Generate E-Way Bill"
                                                 >
-                                                    <Truck size={15} /> E-Way
+                                                    <Truck size={14} /> E-Way
                                                 </button>
+
+                                                {(() => {
+                                                    const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
+                                                    const isWithin24h = remainingSecs > 0;
+
+                                                    return isWithin24h ? (
+                                                        <div className="flex items-center gap-1 shrink-0 ml-0.5">
+                                                            <span 
+                                                                title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                            >
+                                                                <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                {formatRemainingTime(remainingSecs)}
+                                                            </span>
+
+                                                            <button 
+                                                                onClick={() => onEdit(item)} 
+                                                                className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer border border-indigo-200 dark:border-indigo-800" 
+                                                                title={`Edit Tax Invoice (${formatRemainingTime(remainingSecs)} left)`}
+                                                            >
+                                                                <Edit2 size={14} />
+                                                            </button>
+
+                                                            <button 
+                                                                onClick={() => handleDeleteSafe(item)} 
+                                                                className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800" 
+                                                                title={`Delete Tax Invoice (${formatRemainingTime(remainingSecs)} left)`}
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <span 
+                                                            title="24-hour compliance edit and delete window has expired"
+                                                            className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-75 shrink-0 ml-0.5"
+                                                        >
+                                                            <Lock size={11} /> Locked
+                                                        </span>
+                                                    );
+                                                })()}
                                             </div>
                                         </td>
                                     </tr>
@@ -309,9 +388,21 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                         <span className="text-slate-400 font-medium">Creation Date & Time:</span> 
                                         <span className="font-semibold text-slate-700 dark:text-slate-200">{formatDateTime(item.createdAt || item.date)}</span>
                                     </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-slate-400 font-medium">Items:</span> 
-                                        <span className="font-semibold text-slate-800 dark:text-slate-100">{item.items?.[0]?.materialName || '-'}{item.items?.length > 1 && ` (+${item.items.length - 1} more)`}</span>
+                                    <div>
+                                        <span className="text-slate-400 font-medium block">Item & Description:</span> 
+                                        <div className="font-bold text-slate-800 dark:text-slate-100">
+                                            {item.items?.[0]?.materialName || item.items?.[0]?.productName || '-'}
+                                        </div>
+                                        {(item.items?.[0]?.description || item.items?.[0]?.descriptions) && (
+                                            <div className="text-[11px] text-slate-500 italic line-clamp-1">
+                                                {item.items?.[0]?.description || item.items?.[0]?.descriptions}
+                                            </div>
+                                        )}
+                                        {item.items?.length > 1 && (
+                                            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                                (+{item.items.length - 1} more items)
+                                            </span>
+                                        )}
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-slate-400 font-medium">Total Amount:</span> 
@@ -321,9 +412,42 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                                    <button onClick={() => setSelectedInvoicePreview(item)} className="flex-1 py-2 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 transition-all"><Eye size={15} /> Preview</button>
-                                    <button onClick={() => generateEWayBill(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800 transition-all"><Truck size={15} /> E-Way</button>
+                                <div className="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                                    {(() => {
+                                        const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
+                                        const isWithin24h = remainingSecs > 0;
+
+                                        return isWithin24h ? (
+                                            <div className="flex items-center justify-between w-full">
+                                                <span className="px-2 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-lg font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                                                    <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                    {formatRemainingTime(remainingSecs)} left to edit
+                                                </span>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button 
+                                                        onClick={() => onEdit(item)} 
+                                                        className="px-2.5 py-1 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <Edit2 size={13} /> Edit
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleDeleteSafe(item)} 
+                                                        className="px-2.5 py-1 text-xs font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-800 flex items-center gap-1 cursor-pointer"
+                                                    >
+                                                        <Trash2 size={13} /> Delete
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-lg inline-flex items-center gap-1 opacity-75">
+                                                <Lock size={11} /> 24h Edit Window Expired (Locked)
+                                            </span>
+                                        );
+                                    })()}
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => setSelectedInvoicePreview(item)} className="flex-1 py-2 text-indigo-600 bg-indigo-50 dark:bg-indigo-900/30 hover:bg-indigo-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 transition-all cursor-pointer"><Eye size={15} /> Preview</button>
+                                        <button onClick={() => generateEWayBill(item)} className="flex-1 py-2 text-amber-600 bg-amber-50 dark:bg-amber-900/30 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer"><Truck size={15} /> E-Way</button>
+                                    </div>
                                 </div>
                             </div>
                         ))}

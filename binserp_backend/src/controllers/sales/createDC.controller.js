@@ -75,8 +75,10 @@ export const createDC = async (req, res) => {
         // Validate and update dispatched quantities
         for (const dcItem of items) {
           const poItem = po.items.find(i => 
+            (dcItem.poItemId && i._id && i._id.toString() === dcItem.poItemId.toString()) ||
             (i.productName && dcItem.materialName && i.productName.trim().toLowerCase() === dcItem.materialName.trim().toLowerCase()) || 
-            (i.fgItem && dcItem.fgItem && i.fgItem.toString() === dcItem.fgItem.toString())
+            (i.fgItem && dcItem.fgItem && i.fgItem.toString() === dcItem.fgItem.toString()) ||
+            (i.material && dcItem.material && i.material.toString() === dcItem.material.toString())
           );
           if (poItem) {
             poItem.dispatchedQuantity = (poItem.dispatchedQuantity || 0) + Number(dcItem.quantity || 0);
@@ -110,6 +112,28 @@ export const createDC = async (req, res) => {
 
     const dcCurrency = req.body.currency || (typeof po !== 'undefined' && po ? po.currency : undefined) || 'INR';
 
+    // Resolve Company Master defaults if bankDetails or termsAndConditions are not supplied
+    let dcBankDetails = req.body.bankDetails;
+    let dcTerms = req.body.termsAndConditions;
+    if (!dcBankDetails || !dcBankDetails.bankName || !dcTerms) {
+      const CompanyInfo = req.getModel('CompanyInfo', companyInfoSchema);
+      const compInfo = await CompanyInfo.findOne({ company: companyId });
+      if (compInfo) {
+        if (!dcBankDetails || !dcBankDetails.bankName) {
+          dcBankDetails = {
+            accountName: compInfo.bankDetails?.accountName || compInfo.companyName || "",
+            bankName: compInfo.bankDetails?.bankName || "",
+            accountNumber: compInfo.bankDetails?.accountNumber || "",
+            ifscCode: compInfo.bankDetails?.ifscCode || "",
+            branch: compInfo.bankDetails?.branch || compInfo.bankDetails?.branchName || ""
+          };
+        }
+        if (!dcTerms) {
+          dcTerms = compInfo.printSettings?.dc?.termsAndConditions || compInfo.printSettings?.invoice?.termsAndConditions || compInfo.commercialTerms || "";
+        }
+      }
+    }
+
     const dc = await DeliveryChallan.create({
       company: companyId,
       dcNumber,
@@ -128,6 +152,8 @@ export const createDC = async (req, res) => {
       vehicleNumber: req.body.vehicleNumber,
       packagingType: req.body.packagingType,
       packagingCharges: req.body.packagingCharges,
+      bankDetails: dcBankDetails,
+      termsAndConditions: dcTerms,
       otherDetails: req.body.otherDetails,
       reduceStock: shouldReduceStock,
       stockDeducted: shouldReduceStock && status !== "Cancelled",

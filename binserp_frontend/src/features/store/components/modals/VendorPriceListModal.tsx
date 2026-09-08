@@ -152,10 +152,16 @@ export default function VendorPriceListModal({
   }, [itemType, rawMaterialsList, boughtOutsList, consumablesList, propMaterials]);
 
   const vendorOptions = useMemo(() => {
-    return (Array.isArray(vendorsList) ? vendorsList : []).map(v => ({
-      value: v._id,
-      label: `${v.name || 'Vendor'} ${v.code ? `(${v.code})` : ''}`
-    }));
+    const list = [
+      { value: "", label: "-- None (General / Base Price) --" }
+    ];
+    (Array.isArray(vendorsList) ? vendorsList : []).forEach(v => {
+      list.push({
+        value: v._id,
+        label: `${v.name || 'Vendor'} ${v.code ? `(${v.code})` : ''}`
+      });
+    });
+    return list;
   }, [vendorsList]);
 
   if (!isOpen) return null;
@@ -172,14 +178,20 @@ export default function VendorPriceListModal({
       setError("");
       await onSubmit({
         material: formData.material,
-        vendor: formData.vendor || undefined,
+        vendor: formData.vendor || null,
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
         isPreferred: Boolean(formData.isPreferred),
         remarks: formData.remarks,
       });
     } catch (err: any) {
-      setError(err.message || "Failed to save price list.");
+      const errorMsg =
+        err?.data?.message ||
+        err?.data?.error ||
+        err?.message ||
+        err?.error ||
+        "Failed to save price list. Please check your inputs and try again.";
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

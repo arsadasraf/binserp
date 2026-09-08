@@ -250,11 +250,11 @@ export const getAllPOs = asyncHandler(async (req, res) => {
 });
 
 export const getVendorActivePOs = asyncHandler(async (req, res) => {
-  req.getModel('Vendor', vendorSchema);
-  req.getModel('RmBoItem', rmBoItemSchema);
-  req.getModel('RawMaterial', rawMaterialSchema);
-  req.getModel('BoughtOut', boughtOutSchema);
-  req.getModel('ConsumableItem', consumableItemSchema);
+  const Vendor = req.getModel('Vendor', vendorSchema);
+  const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+  const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+  const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
+  const ConsumableItem = req.getModel('ConsumableItem', consumableItemSchema);
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
   const companyId = getCompanyId(req);
   const { vendorId } = req.params;
@@ -268,19 +268,152 @@ export const getVendorActivePOs = asyncHandler(async (req, res) => {
   }
 
   const pos = await PurchaseOrder.find(query)
-    .populate("vendor", "name code")
-    .populate("items.material", "name code unit category")
-    .sort({ date: -1 });
+    .populate("vendor", "name code email phone address gst")
+    .sort({ date: -1 })
+    .lean();
+
+  // Collect all material IDs referenced in POs (both top-level and in items)
+  const materialIdSet = new Set();
+  pos.forEach(po => {
+    if (po.material && isValidObjectId(po.material)) {
+      materialIdSet.add(po.material.toString());
+    }
+    if (Array.isArray(po.items)) {
+      po.items.forEach(it => {
+        const matVal = typeof it.material === 'object' && it.material !== null ? it.material._id : it.material;
+        if (matVal && isValidObjectId(matVal)) {
+          materialIdSet.add(matVal.toString());
+        }
+      });
+    }
+  });
+
+  const validObjectIds = Array.from(materialIdSet);
+
+  // Query separated material collections in parallel
+  const [rawMaterials, boughtOuts, consumables, rmBoItems] = await Promise.all([
+    validObjectIds.length > 0
+      ? RawMaterial.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos minimumStock')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : [],
+    validObjectIds.length > 0
+      ? BoughtOut.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos minimumStock')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : [],
+    validObjectIds.length > 0
+      ? ConsumableItem.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos minimumStock')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : [],
+    validObjectIds.length > 0
+      ? RmBoItem.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos itemType')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : []
+  ]);
+
+  // Build unified lookup map
+  const materialMap = new Map();
+  rmBoItems.forEach(item => {
+    materialMap.set(item._id.toString(), {
+      ...item,
+      itemCategory: (item.itemType || '').toLowerCase().includes('bought') ? 'bo' : 'rm'
+    });
+  });
+  rawMaterials.forEach(item => materialMap.set(item._id.toString(), { ...item, itemCategory: 'rm' }));
+  boughtOuts.forEach(item => materialMap.set(item._id.toString(), { ...item, itemCategory: 'bo' }));
+  consumables.forEach(item => materialMap.set(item._id.toString(), { ...item, itemCategory: 'consumable' }));
 
   const posFormatted = pos.map(po => {
-    const poObj = po.toObject();
-    if (Array.isArray(poObj.items)) {
-      poObj.items = poObj.items.map(it => ({
-        ...it,
-        receivedQuantity: it.receivedQuantity || 0,
-        pendingQuantity: it.pendingQuantity !== undefined ? it.pendingQuantity : Math.max(0, (it.quantity || 0) - (it.receivedQuantity || 0)),
-      }));
+    const poObj = { ...po };
+
+    // Format top-level material if present
+    const topMatId = poObj.material ? (typeof poObj.material === 'object' ? poObj.material._id?.toString() : poObj.material.toString()) : null;
+    const topResolvedMat = topMatId ? materialMap.get(topMatId) : null;
+
+    if (topResolvedMat) {
+      poObj.material = {
+        _id: topResolvedMat._id,
+        name: topResolvedMat.name,
+        code: topResolvedMat.code || '',
+        unit: topResolvedMat.unit || (typeof topResolvedMat.categoryId === 'object' ? topResolvedMat.categoryId?.unit : '') || 'PCS',
+        category: typeof topResolvedMat.category === 'object' ? topResolvedMat.category?.name : (topResolvedMat.category || (typeof topResolvedMat.categoryId === 'object' ? topResolvedMat.categoryId?.name : '')),
+        description: topResolvedMat.descriptions || topResolvedMat.description || '',
+        descriptions: topResolvedMat.descriptions || topResolvedMat.description || '',
+        specification: topResolvedMat.specification || '',
+        itemCategory: topResolvedMat.itemCategory || 'rm'
+      };
     }
+
+    // Process items array or synthesize from top-level
+    if (Array.isArray(poObj.items) && poObj.items.length > 0) {
+      poObj.items = poObj.items.map(it => {
+        const matIdStr = it.material ? (typeof it.material === 'object' ? it.material._id?.toString() : it.material.toString()) : null;
+        const resolved = matIdStr ? materialMap.get(matIdStr) : null;
+
+        const resolvedMaterialObj = resolved ? {
+          _id: resolved._id,
+          name: resolved.name,
+          code: resolved.code || '',
+          unit: resolved.unit || (typeof resolved.categoryId === 'object' ? resolved.categoryId?.unit : '') || 'PCS',
+          category: typeof resolved.category === 'object' ? resolved.category?.name : (resolved.category || (typeof resolved.categoryId === 'object' ? resolved.categoryId?.name : '')),
+          description: resolved.descriptions || resolved.description || '',
+          descriptions: resolved.descriptions || resolved.description || '',
+          specification: resolved.specification || '',
+          itemCategory: resolved.itemCategory || 'rm'
+        } : (typeof it.material === 'object' && it.material !== null ? it.material : null);
+
+        const materialName = it.materialName || resolvedMaterialObj?.name || (typeof it.material === 'string' ? '' : '') || 'Material Item';
+        const description = it.description || it.descriptions || resolvedMaterialObj?.descriptions || resolvedMaterialObj?.description || '';
+        const unit = it.unit || resolvedMaterialObj?.unit || 'PCS';
+        const rate = it.rate != null && !isNaN(Number(it.rate)) ? Number(it.rate) : (it.unitPrice != null ? Number(it.unitPrice) : (it.price != null ? Number(it.price) : (poObj.rate != null ? Number(poObj.rate) : 0)));
+        const qty = Number(it.quantity || 0);
+        const recQty = Number(it.receivedQuantity || 0);
+        const pendQty = it.pendingQuantity !== undefined ? Number(it.pendingQuantity) : Math.max(0, qty - recQty);
+
+        return {
+          ...it,
+          material: resolvedMaterialObj || it.material,
+          materialName,
+          description,
+          descriptions: description,
+          unit,
+          rate,
+          quantity: qty,
+          receivedQuantity: recQty,
+          pendingQuantity: pendQty,
+        };
+      });
+    } else if (poObj.material || poObj.materialName) {
+      // Synthesize single item array for legacy or single-item POs
+      const matName = poObj.materialName || topResolvedMat?.name || 'Material Item';
+      const desc = poObj.description || topResolvedMat?.descriptions || topResolvedMat?.description || '';
+      const unit = poObj.unit || topResolvedMat?.unit || 'PCS';
+      const rate = Number(poObj.rate || 0);
+      const qty = Number(poObj.quantity || 0);
+      const recQty = Number(poObj.receivedQuantity || 0);
+      const pendQty = poObj.pendingQuantity !== undefined ? Number(poObj.pendingQuantity) : Math.max(0, qty - recQty);
+
+      poObj.items = [{
+        material: poObj.material || undefined,
+        materialName: matName,
+        description: desc,
+        descriptions: desc,
+        unit,
+        rate,
+        quantity: qty,
+        receivedQuantity: recQty,
+        pendingQuantity: pendQty,
+        amount: poObj.amount || (qty * rate)
+      }];
+    }
+
     return poObj;
   });
 

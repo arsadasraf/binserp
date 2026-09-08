@@ -17,6 +17,13 @@ export const deleteInvoice = async (req, res) => {
     const invoice = await Invoice.findOne({ _id: id, company: companyId });
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
+    // 24-hour edit/delete restriction
+    const createdTime = new Date(invoice.createdAt || invoice.date).getTime();
+    const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
+    if (hoursDiff > 24) {
+      return res.status(403).json({ message: "Tax Invoice can only be edited or deleted within 24 hours of creation" });
+    }
+
     // Check if invoice was a direct standalone invoice (not created from DC)
     const isLinkedToDC = !!(invoice.deliveryChallan || invoice.dcNumber || invoice.isLinkedToDC || invoice.deliveryChallanId);
 
@@ -32,28 +39,49 @@ export const deleteInvoice = async (req, res) => {
       });
     }
 
-    // If invoice had customerPoReference, reverse PO billedQuantity
-    if (invoice.customerPoReference) {
+    // If invoice had customerPoReference or incomingPO, reverse PO billedQuantity & dispatchedQuantity
+    if (invoice.customerPoReference || invoice.incomingPO) {
       const po = await IncomingPO.findOne({
         company: companyId,
         $or: [
+          { _id: invoice.incomingPO },
           { _id: mongoose.Types.ObjectId.isValid(invoice.customerPoReference) ? invoice.customerPoReference : null },
           { poNumber: invoice.customerPoReference }
         ]
       });
       if (po && Array.isArray(po.items) && Array.isArray(invoice.items)) {
         for (const invItem of invoice.items) {
-          const poItem = po.items.find(i => i.productName === invItem.materialName || i.fgItem?.toString() === invItem.fgItem?.toString());
+          const poItem = po.items.find(i =>
+            (invItem.poItemId && i._id && i._id.toString() === invItem.poItemId.toString()) ||
+            (i.productName && invItem.materialName && i.productName.trim().toLowerCase() === invItem.materialName.trim().toLowerCase()) ||
+            (invItem.fgItem && i.fgItem && i.fgItem.toString() === invItem.fgItem.toString()) ||
+            (invItem.material && i.material && i.material.toString() === invItem.material.toString())
+          );
           if (poItem) {
             poItem.billedQuantity = Math.max(0, (poItem.billedQuantity || 0) - Number(invItem.quantity || 0));
+            poItem.dispatchedQuantity = Math.max(0, (poItem.dispatchedQuantity || 0) - Number(invItem.quantity || 0));
           }
         }
         const totalOrdered = po.items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
         const totalFulfilled = po.items.reduce((acc, item) => acc + Math.max(Number(item.dispatchedQuantity || 0), Number(item.billedQuantity || 0)), 0);
+        
+        let newStatus = po.status;
         if (totalFulfilled <= 0) {
-          po.status = "Open";
+          newStatus = po.salesOrderGenerated ? "Sales Order Generated" : "Received";
         } else if (totalFulfilled < totalOrdered) {
-          po.status = "Partially Dispatched";
+          newStatus = "Partially Dispatched";
+        } else {
+          newStatus = "Completed";
+        }
+
+        if (po.status !== newStatus) {
+          po.status = newStatus;
+          po.statusHistory = po.statusHistory || [];
+          po.statusHistory.push({
+            status: newStatus,
+            updatedBy: req.user?.id || req.user?._id,
+            updatedAt: new Date()
+          });
         }
         await po.save();
       }

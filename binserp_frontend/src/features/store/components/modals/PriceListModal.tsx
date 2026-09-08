@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { X, Save, AlertCircle, Tag, DollarSign, Percent } from "lucide-react";
-import SearchableSelect from "../SearchableSelect";
+import { X, Save, AlertCircle, Tag } from "lucide-react";
+import { formatItemSelectLabel, getItemDescription } from "@/src/utils/itemDisplayHelper";
 
 interface PriceListModalProps {
   isOpen: boolean;
@@ -24,7 +24,6 @@ export default function PriceListModal({
     fgItem: "",
     price: "",
     taxRate: "18",
-    hsnCode: "",
     remarks: "",
   });
 
@@ -41,7 +40,6 @@ export default function PriceListModal({
           fgItem: itemObj?._id || initialData.fgItem || "",
           price: (initialData.price ?? existingConfig?.price ?? itemObj?.sellingPrice ?? "")?.toString(),
           taxRate: (initialData.taxRate ?? existingConfig?.taxRate ?? itemObj?.taxRate ?? "18")?.toString(),
-          hsnCode: initialData.hsnCode || existingConfig?.hsnCode || itemObj?.hsnCode || "",
           remarks: initialData.remarks || existingConfig?.remarks || "",
         });
       } else {
@@ -49,7 +47,6 @@ export default function PriceListModal({
           fgItem: "",
           price: "",
           taxRate: "18",
-          hsnCode: "",
           remarks: "",
         });
       }
@@ -68,10 +65,13 @@ export default function PriceListModal({
       fgItem: selectedId,
       price: (existingConfig?.price ?? selectedFg?.sellingPrice ?? prev.price)?.toString(),
       taxRate: (existingConfig?.taxRate ?? selectedFg?.taxRate ?? prev.taxRate ?? "18")?.toString(),
-      hsnCode: existingConfig?.hsnCode || selectedFg?.hsnCode || prev.hsnCode || "",
-      remarks: existingConfig?.remarks || prev.remarks
+      remarks: existingConfig?.remarks || prev.remarks,
     }));
   };
+
+  const selectedFgObj = fgItems.find(f => f._id === formData.fgItem) || (typeof initialData?.fgItem === "object" ? initialData?.fgItem : null);
+  const isPreSelected = !!initialData?.fgItem;
+  const resolvedHsnCode = selectedFgObj?.hsnCode || initialData?.hsnCode || "";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,10 +87,6 @@ export default function PriceListModal({
       setError("Please select a valid tax rate.");
       return;
     }
-    if (!formData.hsnCode.trim()) {
-      setError("Please enter a valid HSN Code.");
-      return;
-    }
 
     try {
       setLoading(true);
@@ -99,7 +95,7 @@ export default function PriceListModal({
         ...formData,
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
-        hsnCode: formData.hsnCode.trim(),
+        hsnCode: resolvedHsnCode,
       });
     } catch (err: any) {
       setError(err?.data?.message || err?.message || "Failed to save price list.");
@@ -107,9 +103,6 @@ export default function PriceListModal({
       setLoading(false);
     }
   };
-
-  const isPreSelected = !!initialData?.fgItem;
-  const selectedFgObj = fgItems.find(f => f._id === formData.fgItem) || (typeof initialData?.fgItem === "object" ? initialData?.fgItem : null);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-gray-900/60 backdrop-blur-sm overflow-y-auto">
@@ -149,8 +142,13 @@ export default function PriceListModal({
               </label>
 
               {isPreSelected && selectedFgObj ? (
-                <div className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-900 dark:text-white flex items-center justify-between">
-                  <span>{selectedFgObj.name} ({selectedFgObj.code || 'FG'})</span>
+                <div className="w-full px-3.5 py-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white">{selectedFgObj.name || "N/A"}</div>
+                    {getItemDescription(selectedFgObj) && (
+                      <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{getItemDescription(selectedFgObj)}</div>
+                    )}
+                  </div>
                   <span className="text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">Locked</span>
                 </div>
               ) : (
@@ -163,15 +161,15 @@ export default function PriceListModal({
                   <option value="">Select Finished Good...</option>
                   {fgItems.map(fg => (
                     <option key={fg._id} value={fg._id}>
-                      {fg.name} ({fg.code || 'FG'})
+                      {formatItemSelectLabel(fg)}
                     </option>
                   ))}
                 </select>
               )}
             </div>
 
-            {/* Price, Tax Rate & HSN Code Inputs */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Price & Tax Rate Inputs */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Selling Price (₹) <span className="text-red-500">*</span>
@@ -207,20 +205,6 @@ export default function PriceListModal({
                   <option value="18">18% GST (Standard)</option>
                   <option value="28">28% GST</option>
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                  HSN Code <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.hsnCode}
-                  onChange={(e) => setFormData({ ...formData, hsnCode: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                  placeholder="e.g. 8471"
-                  required
-                />
               </div>
             </div>
 

@@ -404,6 +404,14 @@ export interface DCFormData {
         unit: string;
         description?: string;
     }>;
+    bankDetails?: {
+        accountName?: string;
+        bankName?: string;
+        accountNumber?: string;
+        ifscCode?: string;
+        branch?: string;
+    };
+    termsAndConditions?: string;
     discount?: number;
     otherDetails?: string;
     status?: "Draft" | "Issued" | "Delivered";
@@ -437,6 +445,8 @@ export interface BillingFormData {
     taxAmount?: number;
     totalAmount: number;
     otherDetails?: string;
+    bankDetails?: BankDetails;
+    termsAndConditions?: string;
     status?: "Draft" | "Sent" | "Paid";
 }
 
@@ -513,6 +523,20 @@ export interface JobWorkItem {
     receivingUnit?: string;
 }
 
+export interface JobWorkAssemblyOutputItem {
+    item?: string;
+    itemName: string;
+    itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom' | 'Component' | 'SubAssembly' | 'Assembly';
+    quantityToBeReceived: number;
+    quantityReceived?: number;
+    receivingUnit: string;
+    processType?: string;
+    processRate?: number;
+    processAmount?: number;
+    description?: string;
+    status?: 'Sent' | 'Partial' | 'Completed';
+}
+
 export interface JobWorkChallan {
     _id: string;
     challanNumber: string;
@@ -526,6 +550,8 @@ export interface JobWorkChallan {
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
+    operationMode?: 'discrete' | 'assembly';
+    assemblyOutputItem?: JobWorkAssemblyOutputItem;
     mrpPlan?: string;
     mrpNumber?: string;
     routeCardRef?: {
@@ -551,6 +577,8 @@ export interface JobWorkFormData {
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
+    operationMode?: 'discrete' | 'assembly';
+    assemblyOutputItem?: JobWorkAssemblyOutputItem;
     mrpPlan?: string;
     mrpNumber?: string;
     routeCardRef?: {
@@ -688,6 +716,7 @@ export interface DCModalProps {
     onSubmit: (data: DCFormData) => void;
     customers: Customer[];
     loading: boolean;
+    companyInfo?: CompanyInfo;
     initialData?: DCFormData;
     isEditing?: boolean;
 }
@@ -699,6 +728,7 @@ export interface BillingModalProps {
     onSubmit: (data: BillingFormData) => void;
     customers: Customer[];
     loading: boolean;
+    companyInfo?: CompanyInfo;
     initialData?: BillingFormData;
     isEditing?: boolean;
 }

@@ -7,6 +7,7 @@ import { generateFrontendVendorQuotationPDF } from '@/src/utils/frontendPdfHelpe
 import PoGenerationModal from '../modals/PoGenerationModal';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+import { ItemNameAndDescription, formatItemSelectLabel, getItemDescription } from '@/src/utils/itemDisplayHelper';
 
 interface IncomingQuotationTabProps {
     token: string | null;
@@ -129,24 +130,90 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         const selectedRfq = (Array.isArray(rfqs) ? rfqs : []).find((r: any) => r._id === rfqId);
         if (!selectedRfq) return;
 
-        const autoItems = (selectedRfq.items || []).map((it: any) => ({
-            materialId: it.materialId,
-            materialName: it.materialName || 'Material Item',
-            quantity: Number(it.quantity) || 1,
-            unit: it.unit || it.uom || 'PCS',
-            unitPrice: Number(it.targetPrice) || 0,
-            tax: 18,
-            total: (Number(it.quantity) || 1) * (Number(it.targetPrice) || 0) * 1.18,
-            remarks: it.remarks || ''
-        }));
+        // Auto-detect and populate vendor details if assigned on RFQ
+        let detectedVendorId = '';
+        let detectedVendorName = selectedRfq.vendorName || '';
+        let detectedVendorEmail = selectedRfq.vendorEmail || '';
+        let detectedVendorPhone = selectedRfq.vendorPhone || '';
+        let detectedVendorAddress = '';
+
+        const v0 = Array.isArray(selectedRfq.vendorIds) && selectedRfq.vendorIds.length > 0 ? selectedRfq.vendorIds[0] : null;
+        if (v0) {
+            if (typeof v0 === 'object' && v0._id) {
+                detectedVendorId = v0._id.toString();
+                detectedVendorName = v0.name || detectedVendorName;
+                detectedVendorEmail = v0.email || detectedVendorEmail;
+                detectedVendorPhone = v0.phone || v0.contactNumber || detectedVendorPhone;
+                detectedVendorAddress = v0.address || v0.billingAddress || '';
+            } else if (typeof v0 === 'string') {
+                detectedVendorId = v0;
+                const matchedVen = (Array.isArray(vendors) ? vendors : []).find((v: any) => v._id === v0);
+                if (matchedVen) {
+                    detectedVendorName = matchedVen.name || detectedVendorName;
+                    detectedVendorEmail = matchedVen.email || detectedVendorEmail;
+                    detectedVendorPhone = matchedVen.phone || matchedVen.contactNumber || detectedVendorPhone;
+                    detectedVendorAddress = matchedVen.address || matchedVen.billingAddress || '';
+                }
+            }
+        } else if (detectedVendorName) {
+            const matchedVen = (Array.isArray(vendors) ? vendors : []).find((v: any) => v.name?.trim().toLowerCase() === detectedVendorName.trim().toLowerCase());
+            if (matchedVen) {
+                detectedVendorId = matchedVen._id;
+                detectedVendorAddress = matchedVen.address || matchedVen.billingAddress || '';
+                detectedVendorEmail = matchedVen.email || detectedVendorEmail;
+                detectedVendorPhone = matchedVen.phone || matchedVen.contactNumber || detectedVendorPhone;
+            }
+        }
+
+        // Combine master items for fallback resolution
+        const allMasters = [
+            ...(Array.isArray(rawMaterials) ? rawMaterials.map(m => ({ ...m, _itemType: 'rm' })) : []),
+            ...(Array.isArray(boughtOuts) ? boughtOuts.map(m => ({ ...m, _itemType: 'bo' })) : []),
+            ...(Array.isArray(consumables) ? consumables.map(m => ({ ...m, _itemType: 'consumable' })) : [])
+        ];
+
+        const autoItems = (selectedRfq.items || []).map((it: any) => {
+            const matIdStr = (typeof it.materialId === 'object' && it.materialId?._id)
+                ? it.materialId._id.toString()
+                : (it.materialId ? it.materialId.toString() : '');
+            const foundMaster = matIdStr ? allMasters.find(m => (m._id || m.id)?.toString() === matIdStr) : null;
+
+            const name = it.materialName || foundMaster?.name || (typeof it.materialId === 'object' ? it.materialId?.name : '') || 'Material Item';
+            const desc = it.description || (foundMaster ? getItemDescription(foundMaster) : '') || (typeof it.materialId === 'object' ? getItemDescription(it.materialId) : '') || '';
+            const itemType = it.itemType || foundMaster?._itemType || 'rm';
+            const unit = it.unit || it.uom || foundMaster?.unit || foundMaster?.uom || (typeof foundMaster?.category === 'object' ? foundMaster?.category?.unit : '') || 'PCS';
+            const qty = Number(it.quantity) || 1;
+            const rate = Number(it.targetPrice ?? it.unitPrice ?? foundMaster?.standardCost ?? foundMaster?.rate ?? 0);
+            const taxPct = 18;
+            const total = (qty * rate) * (1 + taxPct / 100);
+
+            return {
+                fromRfq: true,
+                materialId: matIdStr || (foundMaster ? (foundMaster._id || foundMaster.id)?.toString() : ''),
+                materialName: name,
+                description: desc,
+                itemType,
+                quantity: qty,
+                unit,
+                unitPrice: rate,
+                tax: taxPct,
+                total,
+                remarks: it.remarks || ''
+            };
+        });
 
         const sub = autoItems.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.unitPrice), 0);
-        const tax = sub * 0.18;
+        const tax = autoItems.reduce((acc: number, cur: any) => acc + (cur.quantity * cur.unitPrice * ((Number(cur.tax) || 0) / 100)), 0);
 
         setNewQuote(prev => ({
             ...prev,
             rfqId,
             rfqNumber: selectedRfq.rfqNumber || '',
+            vendorId: detectedVendorId || prev.vendorId,
+            vendorName: detectedVendorName || prev.vendorName,
+            vendorAddress: detectedVendorAddress || prev.vendorAddress,
+            vendorEmail: detectedVendorEmail || prev.vendorEmail,
+            vendorPhone: detectedVendorPhone || prev.vendorPhone,
             items: autoItems,
             subtotal: sub,
             totalTax: tax,
@@ -172,9 +239,11 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
         setNewQuote(prev => ({
             ...prev,
             items: [...prev.items, {
+                fromRfq: false,
                 itemType: 'rm',
                 materialId: '',
                 materialName: '',
+                description: '',
                 quantity: 1,
                 unit: 'PCS',
                 unitPrice: 0,
@@ -213,6 +282,7 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
             itemType: newType,
             materialId: '',
             materialName: '',
+            description: '',
             unit: 'PCS',
             unitPrice: 0,
             total: 0
@@ -229,15 +299,40 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
         const found = (Array.isArray(sourceList) ? sourceList : []).find((m: any) => (m._id || m.id)?.toString() === selectedId?.toString());
         const autoName = found?.name || found?.materialName || 'Material';
+        const autoDesc = found ? getItemDescription(found) : '';
         const autoUnit = found?.unit || found?.uom || (typeof found?.category === 'object' ? found?.category?.unit : '') || 'PCS';
+        const autoRate = updatedItems[index].unitPrice || Number(found?.standardCost || found?.rate || 0);
+
+        const qty = Number(updatedItems[index].quantity) || 1;
+        const taxPct = Number(updatedItems[index].tax) || 18;
+        const lineTotal = (qty * autoRate) * (1 + taxPct / 100);
 
         updatedItems[index] = {
             ...updatedItems[index],
             materialId: selectedId,
             materialName: autoName,
-            unit: autoUnit
+            description: autoDesc,
+            unit: autoUnit,
+            unitPrice: autoRate,
+            total: lineTotal
         };
-        setNewQuote(prev => ({ ...prev, items: updatedItems }));
+
+        let sub = 0;
+        let tax = 0;
+        updatedItems.forEach((it: any) => {
+            const lineSub = (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0);
+            const lineTax = lineSub * ((Number(it.tax) || 0) / 100);
+            sub += lineSub;
+            tax += lineTax;
+        });
+
+        setNewQuote(prev => ({
+            ...prev,
+            items: updatedItems,
+            subtotal: sub,
+            totalTax: tax,
+            grandTotal: sub + tax
+        }));
     };
 
     const handleItemPriceChange = (index: number, field: string, value: any) => {
@@ -757,11 +852,16 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                             </div>
                                                             <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-3 border border-slate-100 dark:border-slate-800 space-y-1.5 max-h-48 overflow-y-auto">
                                                                 {(quote.items || []).map((it: any, idx: number) => (
-                                                                    <div key={idx} className="flex justify-between items-center text-xs">
-                                                                        <span className="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[180px]">
-                                                                            {it.materialName || 'Material'}
-                                                                        </span>
-                                                                        <span className="font-bold text-slate-900 dark:text-white font-mono">
+                                                                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                                                                        <div className="truncate max-w-[190px]">
+                                                                            <ItemNameAndDescription
+                                                                                name={it.materialName || 'Material'}
+                                                                                description={it.description}
+                                                                                nameClassName="font-bold text-slate-800 dark:text-slate-200 text-xs truncate block"
+                                                                                descClassName="text-[10px] text-slate-500 dark:text-slate-400 italic truncate block"
+                                                                            />
+                                                                        </div>
+                                                                        <span className="font-bold text-slate-900 dark:text-white font-mono shrink-0 ml-2">
                                                                             ₹{Number(it.unitPrice || 0).toLocaleString()} <span className="text-[10px] text-slate-400">/{it.unit || 'PCS'}</span>
                                                                         </span>
                                                                     </div>
@@ -863,6 +963,8 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                     <SearchableSelect
                                         options={(Array.isArray(vendors) ? vendors : []).map((v: any) => ({ value: v._id, label: `${v.name} (${v.city || 'Supplier'})` }))}
                                         value={newQuote.vendorId}
+                                        displayLabel={newQuote.vendorName || undefined}
+                                        allowCustom={true}
                                         onChange={(val: any) => handleSelectVendor(val)}
                                         placeholder="Select Vendor..."
                                     />
@@ -919,7 +1021,8 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
 
                                                 const itemOptions = (Array.isArray(sourceList) ? sourceList : []).map(m => ({
                                                     value: (m._id || m.id)?.toString(),
-                                                    label: `${m.name || 'Item'} ${m.code ? `(${m.code})` : ''}`.trim()
+                                                    label: formatItemSelectLabel(m),
+                                                    description: getItemDescription(m)
                                                 })).filter(o => o.value);
 
                                                 return (
@@ -938,15 +1041,18 @@ export default function IncomingQuotationTab({ token, onError, onSuccess }: Inco
                                                         </td>
 
                                                         {/* Material Name / Dropdown */}
-                                                        <td className="px-2 py-2">
-                                                            {item.materialId && selectedRfqId ? (
-                                                                <span className="font-bold text-slate-900 dark:text-white">
-                                                                    {item.materialName}
-                                                                </span>
+                                                        <td className="px-2 py-2 min-w-[220px]">
+                                                            {(item as any).fromRfq || (selectedRfqId && item.materialName) ? (
+                                                                <ItemNameAndDescription
+                                                                    name={item.materialName || 'Material Item'}
+                                                                    description={(item as any).description}
+                                                                />
                                                             ) : (
                                                                 <SearchableSelect
                                                                     options={itemOptions}
                                                                     value={item.materialId || ''}
+                                                                    displayLabel={item.materialName ? formatItemSelectLabel({ name: item.materialName, description: (item as any).description }) : undefined}
+                                                                    allowCustom={true}
                                                                     onChange={(val: any) => handleItemMaterialSelect(idx, val)}
                                                                     placeholder="Select Item..."
                                                                 />

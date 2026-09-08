@@ -238,6 +238,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
 
                 if (formData.locationId) formDataPayload.append('location', formData.locationId);
                 if (formData.unit) formDataPayload.append('unit', formData.unit);
+                if (formData.hsnCode !== undefined) formDataPayload.append('hsnCode', (formData.hsnCode || '').toString().trim());
                 if (formData.revisionNumber) formDataPayload.append('revisionNumber', formData.revisionNumber);
                 if (formData.bom && formData.bom.length > 0) formDataPayload.append('bom', JSON.stringify(formData.bom));
                 
@@ -730,6 +731,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         boughtOuts: boughtOutsData,
         consumables: consumablesData,
         materials: materialsData,
+        vendorPriceLists: vendorPriceListsData,
         mrpPlans: mrpsData,
         mrps: mrpsData,
         refetch: fetchData,

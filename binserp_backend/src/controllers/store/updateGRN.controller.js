@@ -235,6 +235,19 @@ export const updateGRN = async (req, res) => {
       }
     }
 
+    if (req.body.taxRate !== undefined) {
+      req.body.taxRate = parseFloat(req.body.taxRate) || 0;
+    }
+    if (req.body.subtotal !== undefined) {
+      req.body.subtotal = parseFloat(req.body.subtotal) || 0;
+    }
+    if (req.body.taxAmount !== undefined) {
+      req.body.taxAmount = parseFloat(req.body.taxAmount) || 0;
+    }
+    if (req.body.totalAmount !== undefined) {
+      req.body.totalAmount = parseFloat(req.body.totalAmount) || 0;
+    }
+
     const updatedGRN = await GRN.findOneAndUpdate(
       { _id: id, company: companyId },
       req.body,

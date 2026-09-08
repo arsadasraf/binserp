@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import { purchaseRFQSchema } from "../../models/purchase/index.js";
 import { userSchema } from "../../models/user/index.js";
+import { vendorSchema, rawMaterialSchema, boughtOutSchema, consumableItemSchema, rmBoItemSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
@@ -52,7 +54,12 @@ export const createPurchaseRFQ = asyncHandler(async (req, res) => {
 
 export const getPurchaseRFQs = asyncHandler(async (req, res) => {
   const PurchaseRFQ = req.getModel("PurchaseRFQ", purchaseRFQSchema);
+  const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+  const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+  const ConsumableItem = req.getModel("ConsumableItem", consumableItemSchema);
+  const RmBoItem = req.getModel("RmBoItem", rmBoItemSchema);
   req.getModel("User", userSchema);
+  req.getModel("Vendor", vendorSchema);
   const companyId = getCompanyId(req);
 
   const rfqs = await PurchaseRFQ.find({ company: companyId })
@@ -60,9 +67,105 @@ export const getPurchaseRFQs = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email role")
     .populate("updatedBy", "name email role")
     .populate("statusHistory.updatedBy", "name email role")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 
-  return res.status(200).json(new ApiResponse(200, rfqs, "Purchase RFQs fetched successfully"));
+  // Collect all material IDs referenced across RFQs
+  const materialIdSet = new Set();
+  rfqs.forEach(rfq => {
+    if (Array.isArray(rfq.items)) {
+      rfq.items.forEach(it => {
+        const matVal = typeof it.materialId === 'object' && it.materialId !== null ? it.materialId._id : it.materialId;
+        if (matVal && mongoose.Types.ObjectId.isValid(String(matVal))) {
+          materialIdSet.add(matVal.toString());
+        }
+      });
+    }
+  });
+
+  const validObjectIds = Array.from(materialIdSet);
+
+  // Parallel multi-collection query
+  const [rawMaterials, boughtOuts, consumables, rmBoItems] = await Promise.all([
+    validObjectIds.length > 0
+      ? RawMaterial.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : [],
+    validObjectIds.length > 0
+      ? BoughtOut.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : [],
+    validObjectIds.length > 0
+      ? ConsumableItem.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : [],
+    validObjectIds.length > 0
+      ? RmBoItem.find({ company: companyId, _id: { $in: validObjectIds } })
+          .select('name code unit category descriptions description specification photos itemType')
+          .populate('categoryId', 'name unit')
+          .lean()
+      : []
+  ]);
+
+  // Build unified lookup map
+  const materialMap = new Map();
+  rmBoItems.forEach(item => {
+    materialMap.set(item._id.toString(), {
+      ...item,
+      itemCategory: (item.itemType || '').toLowerCase().includes('bought') ? 'bo' : 'rm'
+    });
+  });
+  rawMaterials.forEach(item => materialMap.set(item._id.toString(), { ...item, itemCategory: 'rm' }));
+  boughtOuts.forEach(item => materialMap.set(item._id.toString(), { ...item, itemCategory: 'bo' }));
+  consumables.forEach(item => materialMap.set(item._id.toString(), { ...item, itemCategory: 'consumable' }));
+
+  const rfqsFormatted = rfqs.map(rfq => {
+    const rfqObj = { ...rfq };
+    if (Array.isArray(rfqObj.items)) {
+      rfqObj.items = rfqObj.items.map(it => {
+        const matIdStr = it.materialId ? (typeof it.materialId === 'object' ? it.materialId._id?.toString() : it.materialId.toString()) : null;
+        const resolved = matIdStr ? materialMap.get(matIdStr) : null;
+
+        const resolvedMatObj = resolved ? {
+          _id: resolved._id,
+          name: resolved.name,
+          code: resolved.code || '',
+          unit: resolved.unit || (typeof resolved.categoryId === 'object' ? resolved.categoryId?.unit : '') || 'PCS',
+          category: typeof resolved.category === 'object' ? resolved.category?.name : (resolved.category || (typeof resolved.categoryId === 'object' ? resolved.categoryId?.name : '')),
+          description: resolved.descriptions || resolved.description || '',
+          descriptions: resolved.descriptions || resolved.description || '',
+          specification: resolved.specification || '',
+          itemCategory: resolved.itemCategory || 'rm'
+        } : (typeof it.materialId === 'object' && it.materialId !== null ? it.materialId : null);
+
+        const materialName = it.materialName || resolvedMatObj?.name || 'Material Item';
+        const description = it.description || resolvedMatObj?.descriptions || resolvedMatObj?.description || '';
+        const unit = it.unit || it.uom || resolvedMatObj?.unit || 'PCS';
+        const itemType = it.itemType || resolvedMatObj?.itemCategory || 'rm';
+
+        return {
+          ...it,
+          materialId: resolvedMatObj ? resolvedMatObj._id : it.materialId,
+          material: resolvedMatObj || undefined,
+          materialName,
+          description,
+          descriptions: description,
+          unit,
+          uom: unit,
+          itemType
+        };
+      });
+    }
+    return rfqObj;
+  });
+
+  return res.status(200).json(new ApiResponse(200, rfqsFormatted, "Purchase RFQs fetched successfully"));
 });
 
 export const updatePurchaseRFQ = asyncHandler(async (req, res) => {

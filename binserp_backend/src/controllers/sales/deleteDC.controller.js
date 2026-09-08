@@ -56,6 +56,13 @@ export const deleteDC = async (req, res) => {
     const dc = await DeliveryChallan.findOne({ _id: id, company: companyId });
     if (!dc) return res.status(404).json({ message: "DC not found" });
 
+    // 24-hour edit/delete restriction
+    const createdTime = new Date(dc.createdAt || dc.date).getTime();
+    const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
+    if (hoursDiff > 24) {
+      return res.status(403).json({ message: "Delivery Challan can only be edited or deleted within 24 hours of creation" });
+    }
+
     // If DC had deducted stock (not Cancelled), restore stock across FG, RM, BO, and Consumables
     if (dc.status !== "Cancelled" && Array.isArray(dc.items)) {
       await reverseSalesItemsStock(req, dc.items, {
@@ -68,18 +75,24 @@ export const deleteDC = async (req, res) => {
       });
     }
 
-    // If DC had customerPoReference, reverse PO dispatchedQuantity
-    if (dc.customerPoReference) {
+    // If DC had customerPoReference or incomingPO, reverse PO dispatchedQuantity
+    if (dc.customerPoReference || dc.incomingPO) {
       const po = await IncomingPO.findOne({
         company: companyId,
         $or: [
+          { _id: dc.incomingPO },
           { _id: mongoose.Types.ObjectId.isValid(dc.customerPoReference) ? dc.customerPoReference : null },
           { poNumber: dc.customerPoReference }
         ]
       });
       if (po && Array.isArray(po.items) && Array.isArray(dc.items)) {
         for (const dcItem of dc.items) {
-          const poItem = po.items.find(i => i.productName === dcItem.materialName || i.fgItem?.toString() === dcItem.fgItem?.toString());
+          const poItem = po.items.find(i =>
+            (dcItem.poItemId && i._id && i._id.toString() === dcItem.poItemId.toString()) ||
+            (i.productName && dcItem.materialName && i.productName.trim().toLowerCase() === dcItem.materialName.trim().toLowerCase()) ||
+            (dcItem.fgItem && i.fgItem && i.fgItem.toString() === dcItem.fgItem.toString()) ||
+            (dcItem.material && i.material && i.material.toString() === dcItem.material.toString())
+          );
           if (poItem) {
             poItem.dispatchedQuantity = Math.max(0, (poItem.dispatchedQuantity || 0) - Number(dcItem.quantity || 0));
           }

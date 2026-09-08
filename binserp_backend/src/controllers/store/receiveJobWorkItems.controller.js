@@ -68,43 +68,63 @@ export const receiveJobWorkItems = async (req, res) => {
       let targetItemType = "fg";
 
       // 1. Locate returning item and update inward counters on Challan
-      for (const jwItem of jobWork.items) {
-        if (jwItem.returningItems && jwItem.returningItems.length > 0) {
-          const retDoc = jwItem.returningItems.id(returningItemId || itemId);
-          if (retDoc) {
-            matchedItemName = retDoc.receivedItemName || jwItem.itemName || matchedItemName;
-            targetItemDoc = retDoc.receivedItem;
-            targetItemType = (retDoc.receivedItemType || "fg").toLowerCase();
+      if (jobWork.operationMode === "assembly" && jobWork.assemblyOutputItem) {
+        matchedItemName = jobWork.assemblyOutputItem.itemName || matchedItemName;
+        targetItemDoc = jobWork.assemblyOutputItem.item;
+        targetItemType = (jobWork.assemblyOutputItem.itemType || "fg").toLowerCase();
 
-            retDoc.quantityReceived = (retDoc.quantityReceived || 0) + qtyNum;
-            if (retDoc.quantityReceived >= retDoc.quantityToBeReceived) {
-              retDoc.status = "Completed";
-            } else {
-              retDoc.status = "Partial";
-            }
-
-            const allRetCompleted = jwItem.returningItems.every(
-              r => r.status === "Completed" || (r.quantityReceived || 0) >= r.quantityToBeReceived
-            );
-            jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
-            jwItem.status = allRetCompleted ? "Completed" : "Partial";
-            break;
-          }
+        jobWork.assemblyOutputItem.quantityReceived = (jobWork.assemblyOutputItem.quantityReceived || 0) + qtyNum;
+        if (jobWork.assemblyOutputItem.quantityReceived >= jobWork.assemblyOutputItem.quantityToBeReceived) {
+          jobWork.assemblyOutputItem.status = "Completed";
+        } else {
+          jobWork.assemblyOutputItem.status = "Partial";
         }
 
-        if (String(jwItem._id) === String(itemId)) {
-          matchedItemName = jwItem.itemName || matchedItemName;
-          targetItemDoc = jwItem.receivedItem || jwItem.item;
-          targetItemType = (jwItem.receivedItemType || jwItem.itemType || "fg").toLowerCase();
+        // Also advance sent items status in proportion or mark completed if output is completed
+        const isComplete = jobWork.assemblyOutputItem.status === "Completed";
+        jobWork.items.forEach(it => {
+          it.quantityReceived = (it.quantityReceived || 0) + qtyNum;
+          it.status = isComplete ? "Completed" : "Partial";
+        });
+      } else {
+        for (const jwItem of jobWork.items) {
+          if (jwItem.returningItems && jwItem.returningItems.length > 0) {
+            const retDoc = jwItem.returningItems.id(returningItemId || itemId);
+            if (retDoc) {
+              matchedItemName = retDoc.receivedItemName || jwItem.itemName || matchedItemName;
+              targetItemDoc = retDoc.receivedItem;
+              targetItemType = (retDoc.receivedItemType || "fg").toLowerCase();
 
-          jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
-          const targetQty = jwItem.quantityToBeReceived || jwItem.quantitySent;
-          if (jwItem.quantityReceived >= targetQty) {
-            jwItem.status = "Completed";
-          } else {
-            jwItem.status = "Partial";
+              retDoc.quantityReceived = (retDoc.quantityReceived || 0) + qtyNum;
+              if (retDoc.quantityReceived >= retDoc.quantityToBeReceived) {
+                retDoc.status = "Completed";
+              } else {
+                retDoc.status = "Partial";
+              }
+
+              const allRetCompleted = jwItem.returningItems.every(
+                r => r.status === "Completed" || (r.quantityReceived || 0) >= r.quantityToBeReceived
+              );
+              jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
+              jwItem.status = allRetCompleted ? "Completed" : "Partial";
+              break;
+            }
           }
-          break;
+
+          if (String(jwItem._id) === String(itemId)) {
+            matchedItemName = jwItem.itemName || matchedItemName;
+            targetItemDoc = jwItem.receivedItem || jwItem.item;
+            targetItemType = (jwItem.receivedItemType || jwItem.itemType || "fg").toLowerCase();
+
+            jwItem.quantityReceived = (jwItem.quantityReceived || 0) + qtyNum;
+            const targetQty = jwItem.quantityToBeReceived || jwItem.quantitySent;
+            if (jwItem.quantityReceived >= targetQty) {
+              jwItem.status = "Completed";
+            } else {
+              jwItem.status = "Partial";
+            }
+            break;
+          }
         }
       }
 
@@ -304,7 +324,12 @@ export const receiveJobWorkItems = async (req, res) => {
     }
 
     // Update Main Job Work Status
-    const anyPending = jobWork.items.some(i => i.status !== "Completed");
+    let anyPending = false;
+    if (jobWork.operationMode === "assembly" && jobWork.assemblyOutputItem) {
+      anyPending = jobWork.assemblyOutputItem.status !== "Completed" && (jobWork.assemblyOutputItem.quantityReceived || 0) < jobWork.assemblyOutputItem.quantityToBeReceived;
+    } else {
+      anyPending = jobWork.items.some(i => i.status !== "Completed");
+    }
     jobWork.status = anyPending ? "Partial" : "Closed";
 
     await jobWork.save();

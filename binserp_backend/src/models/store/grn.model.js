@@ -81,6 +81,22 @@ export const grnSchema = new mongoose.Schema(
         description: String,
       },
     ],
+    taxRate: {
+      type: Number,
+      default: 0,
+    },
+    subtotal: {
+      type: Number,
+      default: 0,
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+    },
+    totalAmount: {
+      type: Number,
+      default: 0,
+    },
     receivedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

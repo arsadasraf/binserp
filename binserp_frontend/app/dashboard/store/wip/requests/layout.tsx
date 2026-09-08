@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Layers, ShoppingCart, Package, Boxes, History, Plus } from 'lucide-react';
+import { Layers, ShoppingCart, Package, Boxes, History, Plus, LayoutGrid } from 'lucide-react';
 import { 
   useGetStoreDataQuery, 
   useCreateStoreRecordMutation 
@@ -37,6 +37,8 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
   // Compute pending counts per individual category
   const pendingRequests = (materialRequests as any[]).filter((r: any) => r.status === 'Pending' || r.status === 'Approved');
   
+  const allPendingCount = pendingRequests.length;
+
   const rmPendingCount = pendingRequests.filter((r: any) => {
     const t = (r.type || 'rm').toLowerCase();
     return t === 'rm' || t === 'raw-material';
@@ -59,6 +61,13 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
   const historyCount = (materialIssues as any[]).length;
 
   const requestTabs = [
+    { 
+      name: 'All Requests', 
+      href: '/dashboard/store/wip/requests/all', 
+      icon: LayoutGrid, 
+      count: allPendingCount,
+      color: 'indigo'
+    },
     { 
       name: 'RM Requests', 
       href: '/dashboard/store/wip/requests/rm', 
@@ -100,6 +109,7 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
     if (pathname.includes('/consumables')) return 'consumable';
     if (pathname.includes('/fg')) return 'inhouse';
     if (pathname.includes('/bo')) return 'bo';
+    if (pathname.includes('/rm')) return 'rm';
     return 'rm';
   };
 
@@ -118,7 +128,9 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
       <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
         <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl gap-1 overflow-x-auto no-scrollbar flex-1 sm:flex-none">
           {requestTabs.map((tab) => {
-            const isActive = pathname === tab.href || (pathname === '/dashboard/store/wip/requests' && tab.href.endsWith('/rm')) || (pathname === '/dashboard/store/wip/requests/rm-bo' && tab.href.endsWith('/rm'));
+            const isActive = pathname === tab.href || 
+              (pathname === '/dashboard/store/wip/requests' && tab.href.endsWith('/all')) || 
+              (pathname === '/dashboard/store/wip/requests/rm-bo' && tab.href.endsWith('/rm'));
             const Icon = tab.icon;
 
             return (
@@ -132,6 +144,7 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
                 }`}
               >
                 <Icon size={14} className={isActive ? (
+                  tab.color === 'indigo' ? 'text-indigo-600' :
                   tab.color === 'blue' ? 'text-blue-600' :
                   tab.color === 'emerald' ? 'text-emerald-600' :
                   tab.color === 'amber' ? 'text-amber-500' :
@@ -142,7 +155,8 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
                   <span
                     className={`px-1.5 py-0.5 text-[10px] font-black rounded-full leading-none transition-colors ${
                       isActive
-                        ? (tab.color === 'blue' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300' :
+                        ? (tab.color === 'indigo' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' :
+                           tab.color === 'blue' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300' :
                            tab.color === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' :
                            tab.color === 'amber' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300' :
                            tab.color === 'purple' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300' :

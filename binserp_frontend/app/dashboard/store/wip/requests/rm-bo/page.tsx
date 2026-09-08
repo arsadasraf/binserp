@@ -1,14 +1,5 @@
-"use client";
-
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 export default function RmBoLegacyRedirectPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace('/dashboard/store/wip/requests/rm');
-  }, [router]);
-
-  return null;
+  redirect('/dashboard/store/wip/requests/rm');
 }

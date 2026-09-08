@@ -66,6 +66,9 @@ export const deliveryChallanSchema = new mongoose.Schema(
           type: mongoose.Schema.Types.ObjectId,
           ref: "Component",
         },
+        poItemId: {
+          type: mongoose.Schema.Types.ObjectId,
+        },
         itemType: {
           type: String,
           enum: ["fg", "rm", "bo", "consumable"],
@@ -99,6 +102,14 @@ export const deliveryChallanSchema = new mongoose.Schema(
     vehicleNumber: String,
     packagingType: String,
     packagingCharges: { type: Number, default: 0 },
+    bankDetails: {
+      accountName: String,
+      bankName: String,
+      accountNumber: String,
+      ifscCode: String,
+      branch: String,
+    },
+    termsAndConditions: String,
     otherDetails: String,
     reduceStock: {
       type: Boolean,

@@ -20,7 +20,8 @@ import {
     ZoomIn,
     FileSpreadsheet,
     PackageCheck,
-    RotateCcw
+    RotateCcw,
+    Percent
 } from 'lucide-react';
 import { GRNModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
@@ -82,6 +83,9 @@ export default function GRNModal({
     const [photoFiles, setPhotoFiles] = useState<File[]>([]);
     const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
     const [isCompressing, setIsCompressing] = useState(false);
+
+    // Global Tax Rate (GST) state for RM, BO, Consumables
+    const [globalTaxRate, setGlobalTaxRate] = useState<number>(0);
 
     // Post-submission success & preview states
     const [createdGRNData, setCreatedGRNData] = useState<any>(null);
@@ -200,6 +204,7 @@ export default function GRNModal({
                 setIsMrpRequired(!!(initialData as any).mrpPlan);
                 setExistingPhotos((initialData as any).photos || []);
                 setQcRequired((initialData as any).qcRequired || false);
+                setGlobalTaxRate(Number((initialData as any).taxRate) || 0);
 
                 if (Array.isArray(initialData.items) && initialData.items.length > 0) {
                     const entries = initialData.items.map((item: any) => {
@@ -231,6 +236,7 @@ export default function GRNModal({
                 setIsMrpRequired(false);
                 setPoLinkedNotice(null);
                 setQcRequired(false);
+                setGlobalTaxRate(0);
                 setPdfFile(null);
                 setPhotoFiles([]);
                 setExistingPhotos([]);
@@ -296,17 +302,35 @@ export default function GRNModal({
 
     // Format material options with descriptions for SearchableSelect
     const materialOptions = useMemo(() => {
-        return safeMaterials.map((m: any) => {
+        const optionsMap = new Map<string, any>();
+
+        safeMaterials.forEach((m: any) => {
+            if (!m || !m._id) return;
             const desc = m.descriptions || m.description || '';
             const code = m.code ? `[${m.code}]` : '';
-            return {
-                value: m._id,
+            optionsMap.set(String(m._id), {
+                value: String(m._id),
                 label: `${m.name || 'Unnamed'} ${code} ${desc ? `— ${desc}` : ''}`.trim(),
                 description: desc,
                 code: m.code
-            };
+            });
         });
-    }, [safeMaterials]);
+
+        // Ensure any materialEntry item currently loaded in the form (from Outward PO or initialData) is present in options
+        materialEntries.forEach((entry) => {
+            if (entry.material && !optionsMap.has(String(entry.material))) {
+                const desc = entry.description || '';
+                optionsMap.set(String(entry.material), {
+                    value: String(entry.material),
+                    label: `${entry.materialName || 'Material Item'} ${desc ? `— ${desc}` : ''}`.trim(),
+                    description: desc,
+                    code: ''
+                });
+            }
+        });
+
+        return Array.from(optionsMap.values());
+    }, [safeMaterials, materialEntries]);
 
     // Handle PO Selection and Auto-Populate Items
     const handleSelectPO = (poId: string) => {
@@ -322,45 +346,83 @@ export default function GRNModal({
 
         setPoReference(foundPO.poNumber || '');
 
-        if (Array.isArray(foundPO.items) && foundPO.items.length > 0) {
-            const newEntries: MaterialEntry[] = foundPO.items.map((poItem: any) => {
+        // Set global tax rate if present on PO
+        if (foundPO.taxRate !== undefined && foundPO.taxRate !== null && !isNaN(Number(foundPO.taxRate))) {
+            setGlobalTaxRate(Number(foundPO.taxRate));
+        }
+
+        const poItemsList: any[] = (Array.isArray(foundPO.items) && foundPO.items.length > 0)
+            ? foundPO.items
+            : (foundPO.material || foundPO.materialName ? [{
+                material: foundPO.material,
+                materialName: foundPO.materialName,
+                description: foundPO.description,
+                quantity: foundPO.quantity,
+                receivedQuantity: foundPO.receivedQuantity,
+                pendingQuantity: foundPO.pendingQuantity,
+                unit: foundPO.unit,
+                rate: foundPO.rate,
+                category: foundPO.category
+            }] : []);
+
+        if (poItemsList.length > 0) {
+            const newEntries: MaterialEntry[] = poItemsList.map((poItem: any) => {
                 const materialObj = poItem.material;
-                const matId = typeof materialObj === 'object' && materialObj !== null
-                    ? materialObj._id 
-                    : (poItem.material || poItem.item || '');
+                let matId = typeof materialObj === 'object' && materialObj !== null
+                    ? String(materialObj._id || '') 
+                    : (poItem.material ? String(poItem.material) : (poItem.item ? String(poItem.item) : ''));
 
-                const matName = typeof materialObj === 'object' && materialObj !== null
-                    ? materialObj.name 
-                    : (poItem.itemName || poItem.name || '');
+                let matName = poItem.materialName || (typeof materialObj === 'object' && materialObj !== null ? materialObj.name : '') || poItem.itemName || poItem.name || '';
 
-                const desc = poItem.description || poItem.descriptions || (typeof materialObj === 'object' ? (materialObj.descriptions || materialObj.description) : '');
+                // Try to resolve matching item from safeMaterials
+                const matchedSafeMat = safeMaterials.find((m: any) => 
+                    (matId && String(m._id) === String(matId)) ||
+                    (matName && m.name && m.name.toLowerCase().trim() === matName.toLowerCase().trim())
+                );
 
-                let unit = poItem.unit || '';
-                if (!unit && typeof materialObj === 'object' && materialObj !== null) {
-                    unit = materialObj.unit || '';
+                if (matchedSafeMat) {
+                    if (!matId) matId = String(matchedSafeMat._id);
+                    if (!matName) matName = matchedSafeMat.name;
+                }
+
+                const desc = poItem.description || poItem.descriptions || 
+                    (typeof materialObj === 'object' && materialObj !== null ? (materialObj.descriptions || materialObj.description) : '') ||
+                    (matchedSafeMat?.descriptions || matchedSafeMat?.description || '');
+
+                let unit = poItem.unit || (typeof materialObj === 'object' && materialObj !== null ? materialObj.unit : '') || matchedSafeMat?.unit || '';
+                if (!unit && matchedSafeMat?.categoryId && typeof matchedSafeMat.categoryId === 'object') {
+                    unit = matchedSafeMat.categoryId.unit || '';
                 }
 
                 let category = poItem.category || '';
                 if (!category && typeof materialObj === 'object' && materialObj !== null) {
                     category = typeof materialObj.category === 'object' ? materialObj.category?.name : materialObj.category;
                 }
+                if (!category && matchedSafeMat) {
+                    category = typeof matchedSafeMat.category === 'object' ? matchedSafeMat.category?.name : (matchedSafeMat.category || '');
+                }
 
                 let locationId = poItem.locationId || '';
                 if (!locationId && typeof materialObj === 'object' && materialObj !== null) {
                     locationId = typeof materialObj.locationId === 'object' ? materialObj.locationId?._id : materialObj.locationId;
                 }
+                if (!locationId && matchedSafeMat?.locationId) {
+                    locationId = typeof matchedSafeMat.locationId === 'object' ? matchedSafeMat.locationId._id : matchedSafeMat.locationId;
+                }
 
+                const qty = Number(poItem.quantity) || 0;
+                const recQty = Number(poItem.receivedQuantity) || 0;
                 const qtyRemaining = poItem.pendingQuantity !== undefined 
                     ? Number(poItem.pendingQuantity) 
-                    : Math.max(0, (Number(poItem.quantity) || 0) - (Number(poItem.receivedQuantity) || 0));
+                    : Math.max(0, qty - recQty);
 
-                const rate = Number(poItem.rate) || Number(poItem.unitPrice) || Number(poItem.price) || 0;
+                const rate = Number(poItem.rate ?? poItem.unitPrice ?? poItem.price ?? foundPO.rate ?? matchedSafeMat?.rate ?? 0);
 
                 return {
                     material: matId,
-                    materialName: matName,
+                    materialName: matName || 'Material Item',
                     description: desc || '',
-                    quantity: qtyRemaining > 0 ? qtyRemaining : Number(poItem.quantity) || 0,
+                    quantity: qtyRemaining > 0 ? qtyRemaining : (qty > 0 ? qty : 1),
                     unit: unit || 'PCS',
                     category: category || '',
                     locationId: locationId || '',
@@ -369,7 +431,7 @@ export default function GRNModal({
             });
 
             setMaterialEntries(newEntries);
-            setPoLinkedNotice(`Loaded ${newEntries.length} items from PO #${foundPO.poNumber}`);
+            setPoLinkedNotice(`Loaded ${newEntries.length} item(s) from PO #${foundPO.poNumber} with prices, remaining quantities & descriptions`);
         }
     };
 
@@ -536,11 +598,11 @@ export default function GRNModal({
         }
 
         if ((type === 'inhouse' || type === 'fg') && isMrpRequired && !mrpPlan) {
-            errors.mrpPlan = "Open Purchase MRP Plan is required in Compulsory Mode";
+            errors.mrpPlan = "Please select an Open Production MRP Plan";
         }
 
         materialEntries.forEach((entry, idx) => {
-            if (!entry.material) {
+            if (!entry.material && !entry.materialName?.trim()) {
                 errors[`item_${idx}_material`] = "Material item is required";
             }
             if (!entry.quantity || Number(entry.quantity) <= 0) {
@@ -563,18 +625,28 @@ export default function GRNModal({
 
         setFormErrors({});
 
-        const items = materialEntries.map(entry => ({
-            material: entry.material,
-            consumable: entry.material,
-            fgItem: entry.material,
-            materialName: entry.materialName,
-            description: entry.description,
-            descriptions: entry.description,
-            quantity: Number(entry.quantity),
-            unit: entry.unit,
-            locationId: entry.locationId,
-            rate: Number(entry.rate) || 0,
-        }));
+        const items = materialEntries.map(entry => {
+            let matId = entry.material;
+            // If matId is empty, try to resolve from safeMaterials by name
+            if (!matId && entry.materialName) {
+                const matched = safeMaterials.find((m: any) => m.name && m.name.toLowerCase().trim() === entry.materialName!.toLowerCase().trim());
+                if (matched) matId = String(matched._id);
+            }
+
+            return {
+                material: matId || undefined,
+                consumable: matId || undefined,
+                fgItem: matId || undefined,
+                materialName: entry.materialName || 'Material Item',
+                description: entry.description || '',
+                descriptions: entry.description || '',
+                quantity: Number(entry.quantity),
+                unit: entry.unit || 'PCS',
+                category: entry.category,
+                locationId: entry.locationId || undefined,
+                rate: Number(entry.rate) || 0,
+            };
+        });
 
         const formData = new FormData();
         formData.append('grnNumber', grnNumber);
@@ -582,6 +654,17 @@ export default function GRNModal({
         formData.append('type', type);
         formData.append('qcRequired', String(qcRequired));
         formData.append('items', JSON.stringify(items));
+
+        const isCommercialGRN = type !== 'inhouse' && type !== 'fg';
+        const subtotalCalc = items.reduce((sum, it) => sum + (it.quantity * (it.rate || 0)), 0);
+        const taxRateToSave = isCommercialGRN ? Number(globalTaxRate) || 0 : 0;
+        const taxAmountCalc = (subtotalCalc * taxRateToSave) / 100;
+        const totalAmountCalc = subtotalCalc + taxAmountCalc;
+
+        formData.append('taxRate', String(taxRateToSave));
+        formData.append('subtotal', String(subtotalCalc));
+        formData.append('taxAmount', String(taxAmountCalc));
+        formData.append('totalAmount', String(totalAmountCalc));
 
         if (type !== 'inhouse' && type !== 'fg') {
             formData.append('supplier', supplierId);
@@ -591,9 +674,8 @@ export default function GRNModal({
             photoFiles.forEach(photo => formData.append('photos', photo));
             if (isEditing) formData.append('existingPhotos', JSON.stringify(existingPhotos));
         } else {
-            if (customer) formData.append('customer', customer);
-            if (mrpPlan) formData.append('mrpPlan', mrpPlan);
-            if (mrpNumber) formData.append('mrpNumber', mrpNumber);
+            if (isMrpRequired && mrpPlan) formData.append('mrpPlan', mrpPlan);
+            if (isMrpRequired && mrpNumber) formData.append('mrpNumber', mrpNumber);
         }
 
         try {
@@ -616,8 +698,11 @@ export default function GRNModal({
                 pdfName: pdfFile?.name,
                 qcRequired,
                 qcStatus: qcRequired ? 'Pending QC' : 'Passed',
+                taxRate: taxRateToSave,
+                subtotal: subtotalCalc,
+                taxAmount: taxAmountCalc,
                 totalQuantity: items.reduce((sum, it) => sum + it.quantity, 0),
-                totalAmount: items.reduce((sum, it) => sum + (it.quantity * (it.rate || 0)), 0)
+                totalAmount: totalAmountCalc
             });
         } catch (err: any) {
             console.error("GRN submission error:", err);
@@ -625,9 +710,12 @@ export default function GRNModal({
     };
 
     // Calculate totals
+    const isCommercialGRN = type !== 'inhouse' && type !== 'fg';
     const totalItemsCount = materialEntries.filter(m => m.material).length;
     const totalQuantity = materialEntries.reduce((sum, m) => sum + (Number(m.quantity) || 0), 0);
-    const totalNetValue = materialEntries.reduce((sum, m) => sum + ((Number(m.quantity) || 0) * (Number(m.rate) || 0)), 0);
+    const subtotal = materialEntries.reduce((sum, m) => sum + ((Number(m.quantity) || 0) * (Number(m.rate) || 0)), 0);
+    const taxAmount = isCommercialGRN ? (subtotal * (Number(globalTaxRate) || 0)) / 100 : 0;
+    const grandTotalWithTax = subtotal + taxAmount;
 
     const theme = {
         title: type === 'inhouse' || type === 'fg' 
@@ -681,7 +769,9 @@ export default function GRNModal({
                     <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs">
                         
                         {/* Summary Metrics Bar */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                        <div className={`grid gap-2.5 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700 ${
+                            createdGRNData.taxRate > 0 ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'
+                        }`}>
                             <div>
                                 <span className="text-[10px] font-bold text-slate-400 uppercase">Receipt Date</span>
                                 <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">{new Date(createdGRNData.date).toLocaleDateString('en-IN')}</p>
@@ -694,10 +784,27 @@ export default function GRNModal({
                                 <span className="text-[10px] font-bold text-slate-400 uppercase">Total Items</span>
                                 <p className="font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">{createdGRNData.items?.length || 0} Items ({createdGRNData.totalQuantity} Qty)</p>
                             </div>
-                            <div>
-                                <span className="text-[10px] font-bold text-slate-400 uppercase">Total Value</span>
-                                <p className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{createdGRNData.totalAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
-                            </div>
+                            {createdGRNData.taxRate > 0 ? (
+                                <>
+                                    <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">Subtotal</span>
+                                        <p className="font-bold text-slate-800 dark:text-slate-200 mt-0.5">₹{(createdGRNData.subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase">GST ({createdGRNData.taxRate}%)</span>
+                                        <p className="font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">+ ₹{(createdGRNData.taxAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Total with GST</span>
+                                        <p className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{createdGRNData.totalAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                    </div>
+                                </>
+                            ) : (
+                                <div>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Total Value</span>
+                                    <p className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">₹{createdGRNData.totalAmount?.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</p>
+                                </div>
+                            )}
                         </div>
 
                         {/* Items Table with Descriptions */}
@@ -927,109 +1034,94 @@ export default function GRNModal({
                                 </div>
                             )}
 
-                            {/* Customer & MRP Plan for FG / InHouse */}
+                            {/* For FG / InHouse GRN: Simple MRP Compulsory Toggle & Simple QC Check Toggle */}
                             {(type === 'inhouse' || type === 'fg') && (
                                 <>
-                                    {/* MRP Mode Toggle Switch Header */}
-                                    <div className="col-span-1 sm:col-span-2 lg:col-span-4 p-3 bg-purple-50/80 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-800/80 flex flex-wrap items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shrink-0 ${isMrpRequired ? 'bg-purple-600 text-white shadow-xs' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                                                <Layers className="w-4 h-4" />
-                                            </div>
-                                            <div>
-                                                <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                                                    <span>Production MRP Plan Linkage</span>
-                                                    <span className={`text-[10px] px-2 py-0.5 rounded-md font-extrabold uppercase border ${isMrpRequired ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border-purple-300 dark:border-purple-700' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'}`}>
-                                                        {isMrpRequired ? 'Compulsory (Plan-Driven)' : 'Optional / Direct FG Inward'}
-                                                    </span>
-                                                </div>
-                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                                    {isMrpRequired
-                                                        ? "Strictly requires selecting an active Production MRP Plan to auto-load planned FG quantities and track fulfillment."
-                                                        : "Direct FG Inward enabled — you can directly select Finished Goods from inventory or optionally choose an MRP plan."}
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* Interactive Mode Toggle Buttons */}
-                                        <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl border border-purple-200 dark:border-purple-800/80 shadow-xs shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setIsMrpRequired(false);
-                                                    clearError('mrpPlan');
-                                                }}
-                                                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${!isMrpRequired ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                                            >
-                                                Direct / Optional MRP
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setIsMrpRequired(true);
-                                                }}
-                                                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${isMrpRequired ? 'bg-purple-600 text-white shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'}`}
-                                            >
-                                                Compulsory MRP Plan
-                                            </button>
+                                    {/* Simple MRP Compulsory Toggle */}
+                                    <div className="flex flex-col justify-center">
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                            MRP Compulsory
+                                        </span>
+                                        <div className="h-9 flex items-center">
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={isMrpRequired} 
+                                                    onChange={(e) => {
+                                                        const checked = e.target.checked;
+                                                        setIsMrpRequired(checked);
+                                                        if (!checked) {
+                                                            setMrpPlan('');
+                                                            setMrpNumber('');
+                                                            clearError('mrpPlan');
+                                                        }
+                                                    }} 
+                                                    className="sr-only peer" 
+                                                />
+                                                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-purple-600"></div>
+                                                <span className="ml-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                                    {isMrpRequired ? 'Required' : 'Direct Inward'}
+                                                </span>
+                                            </label>
                                         </div>
                                     </div>
 
-                                    {/* Open Purchase MRP Plan Dropdown */}
-                                    <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors.mrpPlan}>
-                                        <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1 flex items-center justify-between">
-                                            <span>
-                                                {isMrpRequired ? "Open Purchase MRP Plan" : "Link MRP Plan (Optional)"}{" "}
-                                                {isMrpRequired && <span className="text-red-500">*</span>}
-                                            </span>
-                                            {formErrors.mrpPlan ? (
-                                                <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">Required in Compulsory Mode</span>
-                                            ) : (
-                                                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">({openMrpPlans.length} Open)</span>
-                                            )}
-                                        </label>
-                                        <select
-                                            value={mrpPlan}
-                                            onChange={(e) => {
-                                                handleSelectMRPPlan(e.target.value);
-                                                if (e.target.value) clearError('mrpPlan');
-                                            }}
-                                            className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold focus:ring-2 cursor-pointer truncate transition-all ${
-                                                formErrors.mrpPlan
-                                                    ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/40 text-rose-950 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
-                                                    : 'bg-purple-50/70 dark:bg-purple-950/50 border-purple-300 dark:border-purple-800 text-purple-950 dark:text-purple-200 focus:ring-purple-500'
-                                            }`}
-                                        >
-                                            <option value="">
-                                                {isMrpRequired ? "-- Select Open Purchase MRP Plan * --" : "-- Direct Inward / No MRP Link (Optional) --"}
-                                            </option>
-                                            {openMrpPlans.map(plan => {
-                                                const itemCount = plan.fgItems?.length || plan.items?.length || 0;
-                                                return (
-                                                    <option key={plan._id} value={plan._id}>
-                                                        MRP #{plan.mrpNumber} {plan.customerName ? `— ${plan.customerName}` : ''} ({itemCount} FG items) [{plan.status || 'Planned'}]
-                                                    </option>
-                                                );
-                                            })}
-                                        </select>
+                                    {/* Simple QC Check Toggle for FG */}
+                                    <div className="flex flex-col justify-center">
+                                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                            QC Check Required
+                                        </span>
+                                        <div className="h-9 flex items-center">
+                                            <label className="relative inline-flex items-center cursor-pointer">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={qcRequired} 
+                                                    onChange={(e) => setQcRequired(e.target.checked)} 
+                                                    className="sr-only peer" 
+                                                />
+                                                <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                                                <span className="ml-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                                    {qcRequired ? 'Pending QC' : 'Direct Inward'}
+                                                </span>
+                                            </label>
+                                        </div>
                                     </div>
 
-                                    {/* Customer (Optional / Auto-filled from MRP Plan) */}
-                                    <div className="sm:col-span-2 lg:col-span-2">
-                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                            Customer <span className="text-slate-400 font-normal text-[10px]">(Optional / In-House Stock)</span>
-                                        </label>
-                                        <SearchableSelect
-                                            options={safeCustomers.map(cust => ({
-                                                value: cust._id,
-                                                label: `${cust.name || 'Unnamed'} ${cust.code ? `(${cust.code})` : ''}`
-                                            }))}
-                                            value={typeof customer === 'object' ? (customer as any)._id : customer || ''}
-                                            onChange={(val: any) => setCustomer(val)}
-                                            placeholder="Select Customer (Optional)..."
-                                            dropdownPosition="auto"
-                                        />
-                                    </div>
+                                    {/* Open Production MRP Plan Dropdown - Shown ONLY if MRP is Compulsory */}
+                                    {isMrpRequired && (
+                                        <div className="col-span-1 sm:col-span-2 lg:col-span-4 p-3 bg-purple-50/70 dark:bg-purple-950/40 rounded-xl border border-purple-200 dark:border-purple-800/80" data-has-error={!!formErrors.mrpPlan}>
+                                            <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1 flex items-center justify-between">
+                                                <span>Open Production MRP Plan <span className="text-red-500">*</span></span>
+                                                {formErrors.mrpPlan ? (
+                                                    <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.mrpPlan}</span>
+                                                ) : (
+                                                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold">({openMrpPlans.length} Open MRP{openMrpPlans.length !== 1 ? 's' : ''})</span>
+                                                )}
+                                            </label>
+                                            <select
+                                                value={mrpPlan}
+                                                onChange={(e) => {
+                                                    handleSelectMRPPlan(e.target.value);
+                                                    if (e.target.value) clearError('mrpPlan');
+                                                }}
+                                                className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold focus:ring-2 cursor-pointer truncate transition-all ${
+                                                    formErrors.mrpPlan
+                                                        ? 'border-rose-500 bg-rose-50/60 dark:bg-rose-950/40 text-rose-950 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                        : 'bg-white dark:bg-slate-900 border-purple-300 dark:border-purple-800 text-purple-950 dark:text-purple-200 focus:ring-purple-500'
+                                                }`}
+                                            >
+                                                <option value="">-- Select Open Purchase MRP Plan * --</option>
+                                                {openMrpPlans.map(plan => {
+                                                    const itemCount = plan.fgItems?.length || plan.items?.length || 0;
+                                                    return (
+                                                        <option key={plan._id} value={plan._id}>
+                                                            MRP #{plan.mrpNumber} {plan.customerName ? `— ${plan.customerName}` : ''} ({itemCount} FG items) [{plan.status || 'Planned'}]
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        </div>
+                                    )}
                                 </>
                             )}
 
@@ -1074,36 +1166,31 @@ export default function GRNModal({
                                 </div>
                             )}
 
-                            {/* Quality Check (QC Required) Toggle Bar */}
-                            <div className="col-span-1 sm:col-span-2 lg:col-span-4 flex items-center justify-between p-2.5 sm:p-3 bg-indigo-50/70 dark:bg-slate-800/80 rounded-xl border border-indigo-200 dark:border-slate-700 mt-1">
-                                <div className="flex items-center gap-2.5">
-                                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${qcRequired ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
-                                        <ShieldCheck className="w-4 h-4" />
-                                    </div>
-                                    <div>
+                            {/* Quality Check (QC Required) Toggle Bar for RM/BO */}
+                            {type !== 'inhouse' && type !== 'fg' && (
+                                <div className="col-span-1 sm:col-span-2 lg:col-span-4 flex items-center justify-between p-2.5 sm:p-3 bg-indigo-50/70 dark:bg-slate-800/80 rounded-xl border border-indigo-200 dark:border-slate-700 mt-1">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0 ${qcRequired ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                                            <ShieldCheck className="w-4 h-4" />
+                                        </div>
                                         <div className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                                             <span>Quality Check (QC) Required</span>
                                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase ${qcRequired ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                                                 {qcRequired ? 'Send to Incoming QC' : 'Direct Inward'}
                                             </span>
                                         </div>
-                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                                            {qcRequired 
-                                                ? "Material will be held in Pending QC Stock and routed to Incoming Quality for inspection." 
-                                                : "Stock is immediately available in Current Inventory without QC inspection."}
-                                        </div>
                                     </div>
+                                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={qcRequired} 
+                                            onChange={(e) => setQcRequired(e.target.checked)} 
+                                            className="sr-only peer" 
+                                        />
+                                        <div className="w-10 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
+                                    </label>
                                 </div>
-                                <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-2">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={qcRequired} 
-                                        onChange={(e) => setQcRequired(e.target.checked)} 
-                                        className="sr-only peer" 
-                                    />
-                                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600"></div>
-                                </label>
-                            </div>
+                            )}
                         </div>
 
                         {/* PO Auto-link Notice */}
@@ -1299,6 +1386,8 @@ export default function GRNModal({
                                                     <SearchableSelect
                                                         options={materialOptions}
                                                         value={entry.material}
+                                                        displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                        allowCustom={true}
                                                         hasError={hasMaterialError}
                                                         onChange={(val: any) => {
                                                             handleMaterialChange(index, 'material', val);
@@ -1417,6 +1506,8 @@ export default function GRNModal({
                                             <SearchableSelect
                                                 options={materialOptions}
                                                 value={entry.material}
+                                                displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                allowCustom={true}
                                                 hasError={hasMaterialError}
                                                 onChange={(val: any) => {
                                                     handleMaterialChange(index, 'material', val);
@@ -1485,17 +1576,103 @@ export default function GRNModal({
                             })}
                         </div>
 
-                        {/* Summary Bar */}
-                        <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        {/* Global Tax Rate Selector Bar (for RM, BO, Consumables) */}
+                        {isCommercialGRN && (
+                            <div className="p-3 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-slate-50 dark:from-slate-900/80 dark:via-indigo-950/20 dark:to-slate-900/80 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                                <div className="flex items-center gap-2.5 flex-wrap">
+                                    <div className="flex items-center gap-1.5 font-bold text-slate-700 dark:text-slate-200">
+                                        <Percent size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                        <span>Global Tax / GST Rate:</span>
+                                    </div>
+                                    
+                                    {/* Preset Buttons */}
+                                    <div className="inline-flex items-center rounded-xl bg-slate-200/80 dark:bg-slate-800 p-0.5 gap-1 border border-slate-300/80 dark:border-slate-700 shadow-2xs">
+                                        {[0, 5, 12, 18, 28].map((rate) => {
+                                            const isActive = Number(globalTaxRate) === rate;
+                                            return (
+                                                <button
+                                                    key={rate}
+                                                    type="button"
+                                                    onClick={() => setGlobalTaxRate(rate)}
+                                                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                                        isActive
+                                                            ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 scale-[1.02]'
+                                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white/70 dark:hover:bg-slate-700/60'
+                                                    }`}
+                                                >
+                                                    {rate}%
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Custom Tax Rate Input */}
+                                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-2 py-0.5 shadow-2xs focus-within:ring-2 focus-within:ring-indigo-500">
+                                        <span className="text-[11px] text-slate-400 font-semibold">Custom:</span>
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="100"
+                                            step="0.1"
+                                            value={globalTaxRate === 0 && ![0, 5, 12, 18, 28].includes(globalTaxRate) ? '' : globalTaxRate}
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                setGlobalTaxRate(isNaN(val) ? 0 : Math.max(0, Math.min(100, val)));
+                                            }}
+                                            placeholder="0"
+                                            className="w-10 bg-transparent text-center font-bold text-slate-800 dark:text-slate-200 outline-none text-xs"
+                                        />
+                                        <span className="text-xs font-black text-slate-500">%</span>
+                                    </div>
+                                </div>
+
+                                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                    {globalTaxRate > 0 ? (
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-1">
+                                            <CheckCircle2 size={12} />
+                                            {globalTaxRate}% GST applied globally
+                                        </span>
+                                    ) : (
+                                        <span className="text-slate-400 italic">0% GST (Tax Exempt / Non-GST)</span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Summary Bar with Full GST Breakdown */}
+                        <div className="p-3.5 bg-slate-100 dark:bg-slate-800/90 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
                             <div className="flex items-center gap-4 text-slate-600 dark:text-slate-400 font-medium">
                                 <div>Items: <span className="font-bold text-slate-900 dark:text-slate-100">{totalItemsCount}</span></div>
                                 <div>Total Qty: <span className="font-bold text-slate-900 dark:text-slate-100">{totalQuantity}</span></div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-slate-500 font-semibold">Total Value:</span>
-                                <span className="text-sm font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
-                                    ₹{totalNetValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </span>
+
+                            <div className="flex items-center gap-3 flex-wrap">
+                                {isCommercialGRN && (
+                                    <>
+                                        <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Subtotal:</span>
+                                            <span className="font-bold text-slate-900 dark:text-slate-100">
+                                                ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">GST ({globalTaxRate}%):</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                                + ₹{taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        </div>
+                                    </>
+                                )}
+
+                                <div className="flex items-center gap-2 pl-2 border-l border-slate-300 dark:border-slate-700">
+                                    <span className="text-slate-700 dark:text-slate-300 font-black">
+                                        {isCommercialGRN ? 'Whole GRN Price (with GST):' : 'Total Value:'}
+                                    </span>
+                                    <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-3.5 py-1 rounded-xl border border-emerald-300 dark:border-emerald-800 shadow-xs tracking-tight">
+                                        ₹{grandTotalWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>

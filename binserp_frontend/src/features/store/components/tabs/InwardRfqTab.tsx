@@ -242,7 +242,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                 return pFgId?.toString() === value?.toString();
             });
             const autoRate = priceEntry && priceEntry.price != null ? Number(priceEntry.price) : (Number(selectedFg?.sellingPrice || selectedFg?.rate || 0));
-            const autoHsn = priceEntry?.hsnCode || (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || '';
+            const autoHsn = (selectedFg as any)?.hsnCode || (selectedFg as any)?.hsn || priceEntry?.hsnCode || '';
             const autoName = selectedFg?.name || selectedFg?.itemName || '';
             const autoDesc = selectedFg?.descriptions || selectedFg?.description || autoName;
             const autoUnit = selectedFg?.unit || 'PCS';

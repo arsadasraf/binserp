@@ -32,12 +32,12 @@ export const updateJobWorkChallan = async (req, res) => {
       return res.status(400).json({ message: "Cannot edit a challan that has received items" });
     }
 
-    // 2. Enforce 2-hour edit window
+    // 2. Enforce 24-hour edit window
     const createdAt = new Date(existingChallan.createdAt);
     const diffInHours = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
-    if (diffInHours > 2) {
+    if (diffInHours > 24) {
       return res.status(400).json({ 
-        message: "Job Work Challan cannot be edited after 2 hours from creation to preserve audit integrity." 
+        message: "Job Work Challan cannot be edited after 24 hours from creation to preserve audit integrity." 
       });
     }
 

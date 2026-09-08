@@ -1,22 +1,27 @@
 /**
  * Billing Modal Component
  * Modal form for creating and editing Tax Invoices / Bills
- * Supports Polymorphic Item Selection: FG, Raw Material (RM), Bought-Out (BO), and Consumables
- * Features Real-Time Stock Validation and Live Foreign Currency to INR Conversion Preview
+ * Top-Level Material Category Selector: FG, Raw Material (RM), Bought-Out (BO), and Consumables
+ * Strict Single Material Category Rule: Only one type of material can be invoiced at once
+ * High-performance debounced on-demand keyword search (asyncSearch) avoiding bulk 10,000 item downloads
+ * Strict Item Display Standard: Item Name with Technical Description (Never raw item codes)
+ * Live Customer Open PO selection & unbilled item auto-population
+ * Inline "Add Item" on last item row & prominent Add/Delete item buttons
  */
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
     X, Plus, Trash2, Package, User, Calendar, Hash, FileText, Truck,
     Calculator, IndianRupee, CheckCircle2, AlertTriangle, Cog, Layers,
-    FlaskConical, RefreshCw, ArrowRightLeft, DollarSign
+    FlaskConical, RefreshCw, ArrowRightLeft, DollarSign, ShoppingCart, Info,
+    Building2, CreditCard, RotateCcw
 } from "lucide-react";
-import { BillingModalProps, RmBoItem } from "@/src/features/store/types/store.types";
-import SearchableSelect from "../SearchableSelect";
-import { useGetStoreDataQuery } from "@/src/store/services/storeService";
-import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR, getExchangeRateToINR } from "@/src/utils/currencyHelper";
+import { BillingModalProps, RmBoItem, CompanyInfo } from "@/src/features/store/types/store.types";
+import SearchableSelect, { SearchableOption } from "../SearchableSelect";
+import { getCurrencySymbol, CURRENCY_OPTIONS, convertToINR } from "@/src/utils/currencyHelper";
+import { apiRequest } from "@/src/lib/api";
 
 interface ExtendedBillingModalProps extends BillingModalProps {
     materials?: RmBoItem[];
@@ -28,6 +33,7 @@ export type ItemCategoryType = 'fg' | 'rm' | 'bo' | 'consumable';
 
 interface InvoiceItemEntry {
     itemType: ItemCategoryType;
+    poItemId?: string;
     fgItem?: string;
     rawMaterial?: string;
     boughtOut?: string;
@@ -52,12 +58,10 @@ export default function BillingModal({
     onClose,
     onSubmit,
     customers = [],
-    materials = [],
-    fgItems = [],
-    inHouseItems = [],
     loading,
     initialData,
     isEditing = false,
+    companyInfo,
 }: ExtendedBillingModalProps) {
     const [invoiceNumber, setInvoiceNumber] = useState("");
     const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
@@ -70,6 +74,9 @@ export default function BillingModal({
     const [customExchangeRate, setCustomExchangeRate] = useState<number | undefined>(undefined);
     const [isEditingExchangeRate, setIsEditingExchangeRate] = useState(false);
 
+    // Single Invoice-Level Material Type on Top
+    const [invoiceMaterialType, setInvoiceMaterialType] = useState<ItemCategoryType>('fg');
+
     const [transportationType, setTransportationType] = useState("Road Transport");
     const [transportationCharges, setTransportationCharges] = useState(0);
     const [vehicleNumber, setVehicleNumber] = useState("");
@@ -78,8 +85,122 @@ export default function BillingModal({
     const [discount, setDiscount] = useState(0);
     const [otherDetails, setOtherDetails] = useState("");
     const [status, setStatus] = useState("Draft");
-    const [globalTaxRate, setGlobalTaxRate] = useState(0);
+    const [globalTaxRate, setGlobalTaxRate] = useState(18);
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    // Company Master Resolution & Defaults
+    const [fetchedCompany, setFetchedCompany] = useState<any>(null);
+
+    // Active fetch on modal open to ensure company master data & bank details are loaded
+    useEffect(() => {
+        if (!isOpen) return;
+
+        let isMounted = true;
+        const fetchMasterCompany = async () => {
+            try {
+                const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
+                const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+                const res = await fetch(`${API_BASE_URL}/api/store/company-info`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {}
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && (data.companyName || data.bankDetails) && isMounted) {
+                        setFetchedCompany(data);
+                        try {
+                            localStorage.setItem("storeCompanyInfo", JSON.stringify(data));
+                        } catch (e) {}
+                    }
+                }
+            } catch (err) {
+                console.error("BillingModal: Error fetching company info master:", err);
+            }
+        };
+
+        fetchMasterCompany();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [isOpen]);
+
+    const resolvedCompany = useMemo(() => {
+        if (fetchedCompany && (fetchedCompany.companyName || fetchedCompany.bankDetails)) return fetchedCompany;
+        if (companyInfo && (companyInfo.companyName || companyInfo.bankDetails)) return companyInfo;
+        try {
+            const stored = typeof window !== 'undefined' ? (localStorage.getItem("storeCompanyInfo") || localStorage.getItem("companyInfo")) : null;
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed && (parsed.companyName || parsed.bankDetails)) return parsed;
+            }
+        } catch (e) {}
+        return fetchedCompany || companyInfo;
+    }, [fetchedCompany, companyInfo]);
+
+    const getMasterBankDetails = useCallback(() => {
+        const bd = resolvedCompany?.bankDetails || {};
+        return {
+            accountName: bd.accountName || resolvedCompany?.companyName || "",
+            bankName: bd.bankName || (resolvedCompany as any)?.bankName || "",
+            accountNumber: bd.accountNumber || (resolvedCompany as any)?.accountNumber || "",
+            ifscCode: bd.ifscCode || (resolvedCompany as any)?.ifscCode || "",
+            branch: bd.branch || bd.branchName || (resolvedCompany as any)?.branchName || ""
+        };
+    }, [resolvedCompany]);
+
+    const DEFAULT_INVOICE_TERMS = 
+`1. Goods once sold will not be accepted back or exchanged.
+2. Payment is due within agreed credit terms from the date of invoice.
+3. Interest @ 18% p.a. will be charged on overdue payments after due date.
+4. Any disputes arising out of this invoice are subject to local jurisdiction only.`;
+
+    const getMasterTerms = useCallback(() => {
+        return resolvedCompany?.printSettings?.invoice?.termsAndConditions || resolvedCompany?.commercialTerms || DEFAULT_INVOICE_TERMS;
+    }, [resolvedCompany]);
+
+    const [bankDetails, setBankDetails] = useState({
+        accountName: "",
+        bankName: "",
+        accountNumber: "",
+        ifscCode: "",
+        branch: ""
+    });
+
+    const [termsAndConditions, setTermsAndConditions] = useState("");
+
+    // Keep bank details & terms in sync with company master whenever master data arrives
+    useEffect(() => {
+        if (!resolvedCompany) return;
+        const masterBank = getMasterBankDetails();
+
+        setBankDetails(prev => {
+            const hasExisting = Boolean(prev.bankName || prev.accountNumber);
+            if (!hasExisting && (masterBank.bankName || masterBank.accountNumber)) {
+                return masterBank;
+            }
+            return prev;
+        });
+
+        setTermsAndConditions(prev => {
+            if (!prev || !prev.trim()) {
+                return getMasterTerms();
+            }
+            return prev;
+        });
+    }, [resolvedCompany, getMasterBankDetails, getMasterTerms]);
+
+    // Customer Open POs state
+    const [customerPOs, setCustomerPOs] = useState<any[]>([]);
+    const [isLoadingCustomerPOs, setIsLoadingCustomerPOs] = useState(false);
+
+    // Item options cache per category & selected items cache
+    const [categoryInitialOptions, setCategoryInitialOptions] = useState<Record<ItemCategoryType, SearchableOption[]>>({
+        fg: [],
+        rm: [],
+        bo: [],
+        consumable: []
+    });
+    const itemDetailsCacheRef = useRef<Map<string, any>>(new Map());
 
     const clearError = (key: string) => {
         setFormErrors(prev => {
@@ -99,44 +220,10 @@ export default function BillingModal({
         unit: "PCS",
         rate: 0,
         amount: 0,
-        taxRate: 0,
+        taxRate: 18,
         taxAmount: 0,
         description: ""
     }]);
-
-    // Queries to guarantee FG, RM, BO, Consumables & Inventory data are loaded
-    const { data: fetchedFGList = [] } = useGetStoreDataQuery("fg-item", { skip: !isOpen });
-    const { data: rawMaterials = [] } = useGetStoreDataQuery("raw-material", { skip: !isOpen });
-    const { data: boughtOuts = [] } = useGetStoreDataQuery("bought-out", { skip: !isOpen });
-    const { data: consumableItems = [] } = useGetStoreDataQuery("consumable-item", { skip: !isOpen });
-    const { data: inventoryList = [] } = useGetStoreDataQuery("inventory", { skip: !isOpen });
-    const { data: incomingPOs = [] } = useGetStoreDataQuery("incoming-po", { skip: !isOpen });
-    const { data: priceLists = [] } = useGetStoreDataQuery("price-list", { skip: !isOpen });
-
-    const availableFGItems = useMemo(() => {
-        const combined = [...(fgItems || []), ...(inHouseItems || []), ...(Array.isArray(fetchedFGList) ? fetchedFGList : [])];
-        const uniqueMap = new Map();
-        combined.forEach(item => {
-            if (item && (item._id || item.id) && !uniqueMap.has(item._id || item.id)) {
-                uniqueMap.set(item._id || item.id, item);
-            }
-        });
-        return Array.from(uniqueMap.values());
-    }, [fgItems, inHouseItems, fetchedFGList]);
-
-    // Helper map for inventory quantities by materialId or materialName
-    const inventoryStockMap = useMemo(() => {
-        const map = new Map<string, number>();
-        if (Array.isArray(inventoryList)) {
-            inventoryList.forEach((inv: any) => {
-                if (inv.materialId) map.set(String(inv.materialId), Number(inv.currentStock || 0));
-                if (inv._id) map.set(String(inv._id), Number(inv.currentStock || 0));
-                if (inv.materialCode) map.set(String(inv.materialCode).toLowerCase(), Number(inv.currentStock || 0));
-                if (inv.materialName) map.set(String(inv.materialName).toLowerCase(), Number(inv.currentStock || 0));
-            });
-        }
-        return map;
-    }, [inventoryList]);
 
     const generateInvoiceNumber = () => {
         const now = new Date();
@@ -148,14 +235,212 @@ export default function BillingModal({
         return `INV/${year}${month}${day}-${hours}${mins}`;
     };
 
+    // Fast keyword search using backend search endpoint
+    const searchItemsAsync = useCallback(async (type: ItemCategoryType, query: string): Promise<SearchableOption[]> => {
+        try {
+            const res = await apiRequest(`/api/store/items/search?type=${type}&query=${encodeURIComponent(query)}&limit=30`);
+            if (!res.ok) return [];
+            const data = await res.json();
+            const fetched = (data.items || []).map((item: any) => {
+                const descStr = item.description || item.descriptions || '';
+                const option: SearchableOption = {
+                    value: String(item.value || item._id),
+                    label: descStr ? `${item.name} — ${descStr}` : item.name,
+                    description: descStr,
+                    code: item.code || '',
+                    name: item.name,
+                    unit: item.unit || 'PCS',
+                    hsnCode: item.hsnCode || '',
+                    currentStock: item.currentStock !== undefined ? item.currentStock : (item.quantity || 0),
+                    rate: Number(item.rate || item.price || item.sellingPrice || 0),
+                    badge: item.badge,
+                    subBadge: item.subBadge,
+                    rawItem: item
+                };
+                itemDetailsCacheRef.current.set(String(option.value), option);
+                return option;
+            });
+            return fetched;
+        } catch (err) {
+            console.error("Error searching store items:", err);
+            return [];
+        }
+    }, []);
+
+    // Preload top 30 items for category if not already loaded
+    const preloadCategoryOptions = useCallback(async (category: ItemCategoryType) => {
+        if (categoryInitialOptions[category]?.length > 0) return;
+        const initial = await searchItemsAsync(category, "");
+        setCategoryInitialOptions(prev => ({
+            ...prev,
+            [category]: initial
+        }));
+    }, [categoryInitialOptions, searchItemsAsync]);
+
+    // Preload default category on modal open
+    useEffect(() => {
+        if (isOpen) {
+            preloadCategoryOptions(invoiceMaterialType);
+        }
+    }, [isOpen, invoiceMaterialType, preloadCategoryOptions]);
+
+    // Top-Level Material Category Switcher: Only one type of material per invoice
+    const handleInvoiceMaterialTypeChange = (newType: ItemCategoryType) => {
+        if (newType === invoiceMaterialType) return;
+
+        const hasEnteredData = items.some(i => i.materialName || i.fgItem || i.rawMaterial || i.boughtOut || i.consumableItem);
+        if (hasEnteredData) {
+            const confirmed = window.confirm(
+                `Switching material category to ${newType.toUpperCase()} will reset all current line items, as only one material type can be invoiced at once. Proceed?`
+            );
+            if (!confirmed) return;
+        }
+
+        setInvoiceMaterialType(newType);
+        preloadCategoryOptions(newType);
+
+        // Reset items to single blank row with the new material type
+        setItems([{
+            itemType: newType,
+            fgItem: "",
+            rawMaterial: "",
+            boughtOut: "",
+            consumableItem: "",
+            materialName: "",
+            hsnCode: "",
+            quantity: 1,
+            unit: newType === 'rm' ? 'KGS' : 'PCS',
+            rate: 0,
+            amount: 0,
+            taxRate: globalTaxRate || 18,
+            taxAmount: 0,
+            description: ""
+        }]);
+    };
+
+    // Fetch customer open POs when customer is selected
+    const fetchOpenCustomerPOs = useCallback(async (customerId: string) => {
+        if (!customerId) {
+            setCustomerPOs([]);
+            return;
+        }
+        setIsLoadingCustomerPOs(true);
+        try {
+            const res = await apiRequest(`/api/sales/incoming-po?customer=${encodeURIComponent(customerId)}&openOnly=true`);
+            if (res.ok) {
+                const data = await res.json();
+                setCustomerPOs(data.pos || []);
+            } else {
+                setCustomerPOs([]);
+            }
+        } catch (err) {
+            console.error("Failed to load customer open POs:", err);
+            setCustomerPOs([]);
+        } finally {
+            setIsLoadingCustomerPOs(false);
+        }
+    }, []);
+
+    // Handle Customer Selection
+    const handleCustomerChange = (val: string) => {
+        setCustomer(val);
+        const cust: any = customers.find((c: any) => (c._id || c.id) === val);
+        if (cust) {
+            setCustomerName(cust.name || cust.customerName || cust.companyName || "");
+            setCustomerAddress(cust.address || cust.billingAddress || "");
+            setCustomerGST(cust.gstNumber || cust.gstin || "");
+        } else {
+            setCustomerName("");
+            setCustomerAddress("");
+            setCustomerGST("");
+        }
+        setCustomerPoReference("");
+        clearError("customer");
+        if (val) {
+            fetchOpenCustomerPOs(val);
+        } else {
+            setCustomerPOs([]);
+        }
+    };
+
+    // Handle Customer PO Selection & Auto-fill line items
+    const handleCustomerPoSelect = (poNumber: string) => {
+        setCustomerPoReference(poNumber);
+        if (!poNumber) return;
+
+        const selectedPO = customerPOs.find(p => p.poNumber === poNumber);
+        if (!selectedPO || !Array.isArray(selectedPO.items)) return;
+
+        // Extract items with unbilled quantities
+        const unbilledItems = selectedPO.items
+            .map((poItem: any) => {
+                const orderedQty = Number(poItem.quantity || 0);
+                const billedQty = Number(poItem.billedQuantity || 0);
+                const remainingQty = Math.max(0, orderedQty - billedQty);
+                return { poItem, remainingQty };
+            })
+            .filter((entry: { poItem: any; remainingQty: number }) => entry.remainingQty > 0);
+
+        if (unbilledItems.length > 0) {
+            const isDefaultBlank = items.length === 1 && !items[0].materialName && !items[0].fgItem && !items[0].rawMaterial;
+            if (isDefaultBlank || window.confirm(`Import ${unbilledItems.length} remaining line item(s) from Customer PO ${poNumber}?`)) {
+                // PO items are Finished Goods
+                setInvoiceMaterialType('fg');
+                preloadCategoryOptions('fg');
+
+                const populatedRows: InvoiceItemEntry[] = unbilledItems.map(({ poItem, remainingQty }: { poItem: any; remainingQty: number }) => {
+                    const rate = Number(poItem.rate || poItem.pricePerQuantity || 0);
+                    const amt = remainingQty * rate;
+                    const taxAmt = amt * ((globalTaxRate || 18) / 100);
+                    const desc = poItem.description || poItem.fgItem?.description || poItem.descriptions || "";
+                    const name = poItem.productName || poItem.fgItem?.name || "Product Item";
+                    const fgId = poItem.fgItem?._id || poItem.fgItem || "";
+
+                    if (fgId) {
+                        itemDetailsCacheRef.current.set(String(fgId), {
+                            value: String(fgId),
+                            label: desc ? `${name} — ${desc}` : name,
+                            name,
+                            description: desc,
+                            unit: poItem.unit || "PCS",
+                            hsnCode: poItem.hsnCode || poItem.fgItem?.hsnCode || "",
+                            currentStock: 999
+                        });
+                    }
+
+                    return {
+                        itemType: 'fg',
+                        poItemId: poItem._id,
+                        fgItem: fgId || undefined,
+                        materialName: name,
+                        itemCode: poItem.code || poItem.fgItem?.code || "",
+                        hsnCode: poItem.hsnCode || poItem.fgItem?.hsnCode || "",
+                        quantity: remainingQty,
+                        unit: poItem.unit || "PCS",
+                        rate,
+                        amount: amt,
+                        taxRate: globalTaxRate || 18,
+                        taxAmount: taxAmt,
+                        description: desc,
+                        availableStock: 999
+                    };
+                });
+
+                setItems(populatedRows);
+            }
+        }
+    };
+
+    // Initial Data loading on Edit or Create
     useEffect(() => {
         if (!isOpen) return;
 
         if (initialData) {
             setInvoiceNumber(initialData.invoiceNumber || "");
             setDate(initialData.date ? new Date(initialData.date).toISOString().split("T")[0] : new Date().toISOString().split("T")[0]);
-            setCustomer(typeof initialData.customer === 'object' ? (initialData.customer as any)?._id : initialData.customer || "");
-            setCustomerName(initialData.customerName || (initialData.customer as any)?.name || "");
+            const custId = typeof initialData.customer === 'object' ? (initialData.customer as any)?._id : initialData.customer || "";
+            setCustomer(custId);
+            setCustomerName(initialData.customerName || (initialData.customer as any)?.name || (initialData.customer as any)?.companyName || "");
             setCustomerAddress(initialData.customerAddress || (initialData.customer as any)?.address || "");
             setCustomerGST(initialData.customerGST || (initialData.customer as any)?.gstNumber || "");
             setCustomerPoReference(initialData.customerPoReference || "");
@@ -170,24 +455,47 @@ export default function BillingModal({
             setOtherDetails(initialData.otherDetails || (initialData as any).remarks || "");
             setStatus(initialData.status || "Draft");
 
+            // Detect material category from existing items
+            const firstType = (initialData.items?.[0] as any)?.itemType?.toLowerCase();
+            const detectedType: ItemCategoryType = (firstType === "rm" || firstType === "bo" || firstType === "consumable") ? firstType : "fg";
+            setInvoiceMaterialType(detectedType);
+            preloadCategoryOptions(detectedType);
+
+            if (custId) {
+                fetchOpenCustomerPOs(custId);
+            }
+
             if (initialData.items && initialData.items.length > 0) {
                 setItems(initialData.items.map((i: any) => {
-                    const rawType = (i.itemType || "fg").toLowerCase();
-                    const itemType: ItemCategoryType = (rawType === "rm" || rawType === "bo" || rawType === "consumable") ? rawType : "fg";
                     const itemId = i.fgItem?._id || i.fgItem || i.rawMaterial?._id || i.rawMaterial || i.boughtOut?._id || i.boughtOut || i.consumableItem?._id || i.consumableItem || i.material || "";
                     const qty = i.quantity || 1;
                     const rate = i.rate || i.pricePerQuantity || 0;
                     const amt = qty * rate;
-                    const taxRate = i.taxRate || 0;
+                    const taxRate = i.taxRate !== undefined ? i.taxRate : 18;
+                    const name = i.materialName || i.productName || i.name || "";
+                    const desc = i.description || i.descriptions || "";
+
+                    if (itemId) {
+                        itemDetailsCacheRef.current.set(String(itemId), {
+                            value: String(itemId),
+                            label: desc ? `${name} — ${desc}` : name,
+                            name,
+                            description: desc,
+                            unit: i.unit || "PCS",
+                            hsnCode: i.hsnCode || "",
+                            currentStock: 999
+                        });
+                    }
 
                     return {
-                        itemType,
-                        fgItem: itemType === 'fg' ? itemId : undefined,
-                        rawMaterial: itemType === 'rm' ? itemId : undefined,
-                        boughtOut: itemType === 'bo' ? itemId : undefined,
-                        consumableItem: itemType === 'consumable' ? itemId : undefined,
+                        itemType: detectedType,
+                        poItemId: i.poItemId,
+                        fgItem: detectedType === 'fg' ? itemId : undefined,
+                        rawMaterial: detectedType === 'rm' ? itemId : undefined,
+                        boughtOut: detectedType === 'bo' ? itemId : undefined,
+                        consumableItem: detectedType === 'consumable' ? itemId : undefined,
                         itemCode: i.itemCode || "",
-                        materialName: i.materialName || i.productName || i.name || "",
+                        materialName: name,
                         hsnCode: i.hsnCode || "",
                         quantity: qty,
                         unit: i.unit || "PCS",
@@ -195,13 +503,32 @@ export default function BillingModal({
                         amount: amt,
                         taxRate: taxRate,
                         taxAmount: i.taxAmount || (amt * (taxRate / 100)),
-                        description: i.description || ""
+                        description: desc,
+                        availableStock: 999
                     };
                 }));
             } else {
                 setItems([{
-                    itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, description: ""
+                    itemType: detectedType, fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 18, taxAmount: 0, description: ""
                 }]);
+            }
+
+            if (initialData.bankDetails && (initialData.bankDetails.bankName || initialData.bankDetails.accountNumber)) {
+                setBankDetails({
+                    accountName: initialData.bankDetails.accountName || "",
+                    bankName: initialData.bankDetails.bankName || "",
+                    accountNumber: initialData.bankDetails.accountNumber || "",
+                    ifscCode: initialData.bankDetails.ifscCode || "",
+                    branch: initialData.bankDetails.branch || (initialData.bankDetails as any).branchName || ""
+                });
+            } else {
+                setBankDetails(getMasterBankDetails());
+            }
+
+            if (initialData.termsAndConditions) {
+                setTermsAndConditions(initialData.termsAndConditions);
+            } else {
+                setTermsAndConditions(getMasterTerms());
             }
         } else {
             setInvoiceNumber(generateInvoiceNumber());
@@ -221,158 +548,56 @@ export default function BillingModal({
             setDiscount(0);
             setOtherDetails("");
             setStatus("Draft");
+            setCustomerPOs([]);
+            setBankDetails(getMasterBankDetails());
+            setTermsAndConditions(getMasterTerms());
+            setInvoiceMaterialType('fg');
+            preloadCategoryOptions('fg');
             setItems([{
-                itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 0, taxAmount: 0, description: ""
+                itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: 18, taxAmount: 0, description: ""
             }]);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [initialData, isOpen]);
 
-    // Item selection handler polymorphic across FG, RM, BO, Consumable
-    const handleCategoryChange = (index: number, newCategory: ItemCategoryType) => {
-        const newItems = [...items];
-        newItems[index] = {
-            ...newItems[index],
-            itemType: newCategory,
-            fgItem: undefined,
-            rawMaterial: undefined,
-            boughtOut: undefined,
-            consumableItem: undefined,
-            itemCode: "",
-            materialName: "",
-            hsnCode: "",
-            rate: 0,
-            amount: 0,
-            taxAmount: 0,
-            availableStock: 0
-        };
-        setItems(newItems);
-        clearError(`item_${index}_id`);
-    };
-
+    // Item Selection Handler
     const handleItemSelection = (index: number, selectedId: string) => {
         const newItems = [...items];
         const currentItem = newItems[index];
-        const category = currentItem.itemType;
 
-        let name = "";
-        let code = "";
-        let hsn = "";
-        let unit = "PCS";
-        let rate = 0;
-        let desc = "";
-        let stock = 0;
-        let taxRate = currentItem.taxRate || globalTaxRate || 18;
+        const cached = itemDetailsCacheRef.current.get(String(selectedId));
+        const name = cached?.name || "";
+        const code = cached?.code || "";
+        const hsn = cached?.hsnCode || "";
+        const unit = cached?.unit || "PCS";
+        const desc = cached?.description || "";
+        const stock = cached?.currentStock ?? 0;
+        const rate = cached?.rate || currentItem.rate || 0;
+        const qty = currentItem.quantity || 1;
+        const amt = qty * rate;
+        const taxRate = currentItem.taxRate !== undefined ? currentItem.taxRate : globalTaxRate;
 
-        if (category === 'rm') {
-            const doc = (rawMaterials || []).find((r: any) => (r._id || r.id) === selectedId);
-            if (doc) {
-                name = doc.name || "";
-                code = doc.code || "";
-                hsn = doc.hsnCode || "";
-                unit = doc.unit || "KGS";
-                desc = doc.descriptions || "";
-                stock = inventoryStockMap.get(String(doc._id)) ?? inventoryStockMap.get(name.toLowerCase()) ?? 0;
-            }
-            const qty = currentItem.quantity || 1;
-            const amt = qty * rate;
-            newItems[index] = {
-                ...currentItem,
-                rawMaterial: selectedId,
-                materialName: name,
-                itemCode: code,
-                hsnCode: hsn,
-                unit,
-                rate,
-                amount: amt,
-                taxRate,
-                taxAmount: amt * (taxRate / 100),
-                description: desc,
-                availableStock: stock
-            };
-        } else if (category === 'bo') {
-            const doc = (boughtOuts || []).find((b: any) => (b._id || b.id) === selectedId);
-            if (doc) {
-                name = doc.name || "";
-                code = doc.code || "";
-                hsn = doc.hsnCode || "";
-                unit = doc.unit || "NOS";
-                desc = doc.descriptions || "";
-                stock = inventoryStockMap.get(String(doc._id)) ?? inventoryStockMap.get(name.toLowerCase()) ?? 0;
-            }
-            const qty = currentItem.quantity || 1;
-            const amt = qty * rate;
-            newItems[index] = {
-                ...currentItem,
-                boughtOut: selectedId,
-                materialName: name,
-                itemCode: code,
-                hsnCode: hsn,
-                unit,
-                rate,
-                amount: amt,
-                taxRate,
-                taxAmount: amt * (taxRate / 100),
-                description: desc,
-                availableStock: stock
-            };
-        } else if (category === 'consumable') {
-            const doc = (consumableItems || []).find((c: any) => (c._id || c.id) === selectedId);
-            if (doc) {
-                name = doc.name || "";
-                code = doc.code || "";
-                hsn = doc.hsnCode || "";
-                unit = doc.unit || "PCS";
-                desc = doc.descriptions || "";
-                stock = inventoryStockMap.get(String(doc._id)) ?? inventoryStockMap.get(name.toLowerCase()) ?? 0;
-            }
-            const qty = currentItem.quantity || 1;
-            const amt = qty * rate;
-            newItems[index] = {
-                ...currentItem,
-                consumableItem: selectedId,
-                materialName: name,
-                itemCode: code,
-                hsnCode: hsn,
-                unit,
-                rate,
-                amount: amt,
-                taxRate,
-                taxAmount: amt * (taxRate / 100),
-                description: desc,
-                availableStock: stock
-            };
-        } else {
-            // Finished Good (FG)
-            const doc = (availableFGItems || []).find((f: any) => (f._id || f.id) === selectedId);
-            const priceConfig = Array.isArray(priceLists) ? priceLists.find((p: any) => (p.fgItem?._id || p.fgItem) === selectedId) : null;
-            if (doc) {
-                name = doc.name || doc.partName || "";
-                code = doc.code || doc.partCode || "";
-                hsn = priceConfig?.hsnCode || doc.hsnCode || "";
-                unit = doc.unit || "PCS";
-                rate = Number(priceConfig?.price ?? doc.sellingPrice ?? doc.rate ?? 0);
-                desc = doc.description || doc.partDescription || "";
-                stock = Number(doc.quantity || 0);
-            }
-            const qty = currentItem.quantity || 1;
-            const amt = qty * rate;
-            newItems[index] = {
-                ...currentItem,
-                fgItem: selectedId,
-                materialName: name,
-                itemCode: code,
-                hsnCode: hsn,
-                unit,
-                rate,
-                amount: amt,
-                taxRate,
-                taxAmount: amt * (taxRate / 100),
-                description: desc,
-                availableStock: stock
-            };
-        }
+        newItems[index] = {
+            ...currentItem,
+            itemType: invoiceMaterialType,
+            fgItem: invoiceMaterialType === 'fg' ? selectedId : undefined,
+            rawMaterial: invoiceMaterialType === 'rm' ? selectedId : undefined,
+            boughtOut: invoiceMaterialType === 'bo' ? selectedId : undefined,
+            consumableItem: invoiceMaterialType === 'consumable' ? selectedId : undefined,
+            materialName: name,
+            itemCode: code,
+            hsnCode: hsn,
+            unit,
+            rate,
+            amount: amt,
+            taxRate,
+            taxAmount: amt * (taxRate / 100),
+            description: desc,
+            availableStock: stock
+        };
 
         setItems(newItems);
+        clearError(`item_${index}_id`);
     };
 
     const updateItem = (index: number, field: keyof InvoiceItemEntry, value: any) => {
@@ -390,13 +615,30 @@ export default function BillingModal({
         setItems(newItems);
     };
 
+    // Add New Item (Uses currently selected invoiceMaterialType)
     const addItem = () => {
         setItems([
             ...items,
-            { itemType: 'fg', fgItem: "", materialName: "", hsnCode: "", quantity: 1, unit: "PCS", rate: 0, amount: 0, taxRate: globalTaxRate, taxAmount: 0, description: "" }
+            {
+                itemType: invoiceMaterialType,
+                fgItem: "",
+                rawMaterial: "",
+                boughtOut: "",
+                consumableItem: "",
+                materialName: "",
+                hsnCode: "",
+                quantity: 1,
+                unit: invoiceMaterialType === 'rm' ? 'KGS' : 'PCS',
+                rate: 0,
+                amount: 0,
+                taxRate: globalTaxRate || 18,
+                taxAmount: 0,
+                description: ""
+            }
         ]);
     };
 
+    // Delete Line Item
     const removeItem = (index: number) => {
         if (items.length > 1) {
             setItems(items.filter((_, i) => i !== index));
@@ -430,17 +672,11 @@ export default function BillingModal({
 
         items.forEach((item, index) => {
             const itemId = item.fgItem || item.rawMaterial || item.boughtOut || item.consumableItem;
-            if (!itemId) {
+            if (!itemId && !item.materialName) {
                 errors[`item_${index}_id`] = 'Item selection is required';
                 return;
             }
 
-            const stock = Number(item.availableStock ?? 0);
-            if (stock <= 0) {
-                errors[`item_${index}_quantity`] = `Out of stock (Avail: 0)`;
-            } else if (Number(item.quantity) > stock) {
-                errors[`item_${index}_quantity`] = `Exceeds stock (Avail: ${stock})`;
-            }
             if (Number(item.quantity) <= 0) {
                 errors[`item_${index}_quantity`] = 'Qty must be > 0';
             }
@@ -462,7 +698,7 @@ export default function BillingModal({
 
         const payloadItems = items.map(entry => {
             const itemPayload: any = {
-                itemType: entry.itemType,
+                itemType: invoiceMaterialType,
                 materialName: entry.materialName,
                 itemCode: entry.itemCode,
                 hsnCode: entry.hsnCode,
@@ -474,6 +710,7 @@ export default function BillingModal({
                 taxAmount: entry.taxAmount || 0,
                 description: entry.description,
             };
+            if (entry.poItemId) itemPayload.poItemId = entry.poItemId;
             if (entry.fgItem) itemPayload.fgItem = entry.fgItem;
             if (entry.rawMaterial) itemPayload.rawMaterial = entry.rawMaterial;
             if (entry.boughtOut) itemPayload.boughtOut = entry.boughtOut;
@@ -500,6 +737,8 @@ export default function BillingModal({
             discount,
             totalAmount,
             otherDetails,
+            bankDetails,
+            termsAndConditions,
             status,
         };
 
@@ -511,43 +750,26 @@ export default function BillingModal({
 
     if (!isOpen) return null;
 
-    // Build select dropdown options for each item category
-    const getItemOptions = (category: ItemCategoryType) => {
-        if (category === 'rm') {
-            return (rawMaterials || []).map((r: any) => {
-                const stock = inventoryStockMap.get(String(r._id)) ?? inventoryStockMap.get(String(r.name).toLowerCase()) ?? 0;
-                return {
-                    value: r._id || r.id,
-                    label: `${r.name} (${r.code || 'RM'}) — Stock: ${stock} ${r.unit || 'KGS'}`
-                };
-            });
-        }
-        if (category === 'bo') {
-            return (boughtOuts || []).map((b: any) => {
-                const stock = inventoryStockMap.get(String(b._id)) ?? inventoryStockMap.get(String(b.name).toLowerCase()) ?? 0;
-                return {
-                    value: b._id || b.id,
-                    label: `${b.name} (${b.code || 'BO'}) — Stock: ${stock} ${b.unit || 'NOS'}`
-                };
-            });
-        }
-        if (category === 'consumable') {
-            return (consumableItems || []).map((c: any) => {
-                const stock = inventoryStockMap.get(String(c._id)) ?? inventoryStockMap.get(String(c.name).toLowerCase()) ?? 0;
-                return {
-                    value: c._id || c.id,
-                    label: `${c.name} (${c.code || 'CON'}) — Stock: ${stock} ${c.unit || 'PCS'}`
-                };
-            });
-        }
-        // FG
-        return (availableFGItems || []).map((fg: any) => {
-            const stock = Number(fg.quantity || 0);
+    // Build options for customer PO selector
+    const customerPoOptions: SearchableOption[] = [
+        { value: "", label: "None / Direct Sale (No Customer PO)", description: "Generate invoice without linking to a Customer PO" },
+        ...customerPOs.map(po => {
+            const unbilledCount = (po.items || []).filter((i: any) => (Number(i.quantity || 0) - Number(i.billedQuantity || 0)) > 0).length;
             return {
-                value: fg._id || fg.id,
-                label: `${fg.name || fg.partName || 'FG Product'} (${fg.code || 'FG'}) — Stock: ${stock} ${fg.unit || 'PCS'}`
+                value: po.poNumber,
+                label: `${po.poNumber} (${po.date ? new Date(po.date).toLocaleDateString() : 'N/A'}) — Status: ${po.status || 'Received'}`,
+                description: `${unbilledCount} unbilled item(s) available for invoicing`,
+                badge: po.status,
+                po
             };
-        });
+        })
+    ];
+
+    const materialTypeLabelMap: Record<ItemCategoryType, string> = {
+        fg: "Finished Goods (FG)",
+        rm: "Raw Material (RM)",
+        bo: "Bought-Out (BO)",
+        consumable: "Consumables"
     };
 
     return (
@@ -564,22 +786,81 @@ export default function BillingModal({
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                                 {isEditing ? "Edit Tax Invoice" : "Create Tax Invoice / Bill"}
                             </h2>
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Billed items across FG, Raw Materials, Bought-Out & Consumables with inventory deduction
-                            </p>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
+                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors cursor-pointer"
                     >
                         <X size={20} />
                     </button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+
+                    {/* TOP SECTION: Material Types Selector on Top (Single Type Invoicing) */}
+                    <div className="bg-gradient-to-r from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-800/60 dark:via-indigo-950/20 dark:to-slate-800/60 p-4 rounded-2xl border border-indigo-100 dark:border-slate-700 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                            <Layers size={16} className="text-indigo-600 dark:text-indigo-400" />
+                            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                                Material Type:
+                            </span>
+                        </div>
+
+                        {/* Segmented Buttons for Material Type */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => handleInvoiceMaterialTypeChange('fg')}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                                    invoiceMaterialType === 'fg'
+                                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/25 ring-2 ring-indigo-500/20'
+                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                <Package size={14} /> Finished Goods (FG)
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => handleInvoiceMaterialTypeChange('rm')}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                                    invoiceMaterialType === 'rm'
+                                        ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25 ring-2 ring-amber-500/20'
+                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                <Cog size={14} /> Raw Material (RM)
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => handleInvoiceMaterialTypeChange('bo')}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                                    invoiceMaterialType === 'bo'
+                                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25 ring-2 ring-purple-500/20'
+                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                <Layers size={14} /> Bought-Out (BO)
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => handleInvoiceMaterialTypeChange('consumable')}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                                    invoiceMaterialType === 'consumable'
+                                        ? 'bg-teal-600 text-white shadow-md shadow-teal-600/25 ring-2 ring-teal-500/20'
+                                        : 'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                            >
+                                <FlaskConical size={14} /> Consumables
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Basic Info Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-800 rounded-2xl">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 p-5 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-800 rounded-2xl">
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Invoice Number</label>
                             <input
@@ -603,22 +884,50 @@ export default function BillingModal({
                         </div>
 
                         <div className="space-y-1" data-has-error={!!formErrors.customer}>
-                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Customer <span className="text-red-500">*</span></label>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                Customer <span className="text-red-500">*</span>
+                            </label>
                             <SearchableSelect
-                                options={(customers || []).map((c: any) => ({ value: c._id || c.id, label: c.name || c.customerName }))}
+                                options={(customers || []).map((c: any) => ({
+                                    value: c._id || c.id,
+                                    label: c.name || c.customerName || c.companyName || 'Customer',
+                                    description: c.email || c.phone || c.city || ''
+                                }))}
                                 value={customer}
                                 hasError={!!formErrors.customer}
-                                onChange={(val: string) => {
-                                    setCustomer(val);
-                                    const cust: any = customers.find((c: any) => (c._id || (c as any).id) === val);
-                                    if (cust) {
-                                        setCustomerName(cust.name || cust.customerName || "");
-                                        setCustomerAddress(cust.address || cust.billingAddress || "");
-                                        setCustomerGST(cust.gstNumber || cust.gstin || "");
-                                    }
-                                    clearError("customer");
-                                }}
-                                placeholder="Select Customer"
+                                onChange={handleCustomerChange}
+                                placeholder="Select Customer..."
+                            />
+                        </div>
+
+                        {/* Customer PO Selection (Open POs) */}
+                        <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                    <ShoppingCart size={13} className="text-indigo-600" />
+                                    Customer PO Ref
+                                </label>
+                                {customer && customerPOs.length > 0 && (
+                                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                                        {customerPOs.length} Open
+                                    </span>
+                                )}
+                            </div>
+                            <SearchableSelect
+                                options={customerPoOptions}
+                                value={customerPoReference}
+                                onChange={handleCustomerPoSelect}
+                                placeholder={
+                                    !customer 
+                                        ? "Select customer first..." 
+                                        : isLoadingCustomerPOs 
+                                            ? "Loading open POs..." 
+                                            : customerPOs.length === 0 
+                                                ? "No open POs found" 
+                                                : "Select Customer PO..."
+                                }
+                                disabled={!customer || isLoadingCustomerPOs}
+                                allowCustom={true}
                             />
                         </div>
 
@@ -639,213 +948,479 @@ export default function BillingModal({
                         </div>
                     </div>
 
+                    {/* Customer PO banner if selected */}
+                    {customerPoReference && (
+                        <div className="flex items-center justify-between bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 px-4 py-2 rounded-xl text-xs text-indigo-900 dark:text-indigo-200">
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold text-slate-600 dark:text-slate-300">Linked PO:</span>
+                                <span className="font-bold text-indigo-700 dark:text-indigo-300">{customerPoReference}</span>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setCustomerPoReference("")}
+                                className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold text-[11px] ml-2 cursor-pointer"
+                            >
+                                Clear Link
+                            </button>
+                        </div>
+                    )}
+
                     {/* Items Section */}
                     <div className="space-y-4">
                         <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-800">
-                            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                                <Package className="w-5 h-5 text-indigo-600" />
-                                Invoice Line Items ({items.length})
-                            </h3>
+                            <div>
+                                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                    <Package className="w-5 h-5 text-indigo-600" />
+                                    Invoice Line Items ({items.length})
+                                </h3>
+                            </div>
                             <button
                                 type="button"
                                 onClick={addItem}
-                                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 transition-colors shadow-sm"
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 rounded-xl hover:bg-indigo-100 transition-colors shadow-sm cursor-pointer"
                             >
-                                <Plus size={16} /> Add Row
+                                <Plus size={16} /> Add Item
                             </button>
                         </div>
 
-                        <div className="space-y-4">
-                            {items.map((entry, index) => (
-                                <div key={index} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl relative group shadow-sm space-y-3">
-                                    {items.length > 1 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => removeItem(index)}
-                                            className="absolute -top-2.5 -right-2.5 p-1.5 bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-300 rounded-full hover:scale-110 transition-transform shadow-md"
-                                            title="Remove Row"
-                                        >
-                                            <Trash2 size={13} />
-                                        </button>
-                                    )}
+                        {/* Line Items List */}
+                        <div className="space-y-3.5">
+                            {items.map((entry, index) => {
+                                const currentItemId = entry.fgItem || entry.rawMaterial || entry.boughtOut || entry.consumableItem || '';
+                                const currentOptions = categoryInitialOptions[invoiceMaterialType] || [];
+                                const isLastItem = index === items.length - 1;
+                                
+                                // Ensure current item is present in options list
+                                const rowOptions = [...currentOptions];
+                                if (currentItemId && entry.materialName && !rowOptions.some(o => o.value === currentItemId)) {
+                                    rowOptions.unshift({
+                                        value: currentItemId,
+                                        label: entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName,
+                                        description: entry.description,
+                                        name: entry.materialName,
+                                        unit: entry.unit,
+                                        hsnCode: entry.hsnCode,
+                                        currentStock: entry.availableStock
+                                    });
+                                }
 
-                                    {/* Category Pill Switcher */}
-                                    <div className="flex flex-wrap items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Category:</span>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCategoryChange(index, 'fg')}
-                                            className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                                entry.itemType === 'fg'
-                                                    ? 'bg-indigo-600 text-white shadow-sm'
-                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                                            }`}
-                                        >
-                                            <Package size={13} /> Finished Good (FG)
-                                        </button>
+                                return (
+                                    <div key={index} className="p-4 bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xs space-y-3 transition-all hover:border-slate-300 dark:hover:border-slate-600">
+                                        
+                                        {/* Row Top Header: Item Number, Category Badge & Action Buttons */}
+                                        <div className="flex items-center justify-between pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                            <div className="flex items-center gap-2">
+                                                <span className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center text-[11px] font-bold">
+                                                    {index + 1}
+                                                </span>
+                                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                                    Item #{index + 1}
+                                                </span>
+                                                <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                                    {invoiceMaterialType.toUpperCase()}
+                                                </span>
+                                            </div>
 
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCategoryChange(index, 'rm')}
-                                            className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                                entry.itemType === 'rm'
-                                                    ? 'bg-amber-600 text-white shadow-sm'
-                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                                            }`}
-                                        >
-                                            <Cog size={13} /> Raw Material (RM)
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCategoryChange(index, 'bo')}
-                                            className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                                entry.itemType === 'bo'
-                                                    ? 'bg-purple-600 text-white shadow-sm'
-                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                                            }`}
-                                        >
-                                            <Layers size={13} /> Bought-Out (BO)
-                                        </button>
-
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCategoryChange(index, 'consumable')}
-                                            className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all ${
-                                                entry.itemType === 'consumable'
-                                                    ? 'bg-teal-600 text-white shadow-sm'
-                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                                            }`}
-                                        >
-                                            <FlaskConical size={13} /> Consumable
-                                        </button>
-                                    </div>
-
-                                    {/* Line Item Inputs */}
-                                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-start">
-                                        {/* Master Item Search */}
-                                        <div className="md:col-span-4 space-y-1.5" data-has-error={!!formErrors[`item_${index}_id`]}>
-                                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase flex items-center justify-between">
-                                                <span>Item Name <span className="text-red-500">*</span></span>
-                                                {formErrors[`item_${index}_id`] && (
-                                                    <span className="text-[10px] text-rose-600 font-bold lowercase">
-                                                        {formErrors[`item_${index}_id`]}
-                                                    </span>
+                                            {/* Action Buttons: Add Item on last row + Delete Item */}
+                                            <div className="flex items-center gap-1.5">
+                                                {isLastItem && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={addItem}
+                                                        className="px-2.5 py-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/70 border border-indigo-200 dark:border-indigo-800 rounded-xl flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                                                        title="Add another item"
+                                                    >
+                                                        <Plus size={14} />
+                                                        <span>Add Item</span>
+                                                    </button>
                                                 )}
-                                            </label>
 
-                                            <SearchableSelect
-                                                options={getItemOptions(entry.itemType)}
-                                                value={entry.fgItem || entry.rawMaterial || entry.boughtOut || entry.consumableItem || ''}
-                                                hasError={!!formErrors[`item_${index}_id`]}
-                                                onChange={(val: string) => handleItemSelection(index, val)}
-                                                placeholder={`Select ${entry.itemType.toUpperCase()} item...`}
-                                            />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeItem(index)}
+                                                    disabled={items.length <= 1}
+                                                    className="px-2 py-1 text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-xl transition-all disabled:opacity-20 disabled:pointer-events-none cursor-pointer border border-transparent hover:border-rose-200 dark:hover:border-rose-800 flex items-center gap-1 text-xs font-semibold"
+                                                    title={items.length <= 1 ? "At least one item is required" : "Delete this line item"}
+                                                >
+                                                    <Trash2 size={14} />
+                                                    <span className="hidden sm:inline">Delete</span>
+                                                </button>
+                                            </div>
+                                        </div>
 
-                                            {/* Real-time Stock Badge */}
-                                            {entry.materialName && (
-                                                <div className="mt-1">
-                                                    {(entry.availableStock || 0) <= 0 ? (
-                                                        <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-lg border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
-                                                            <AlertTriangle size={12} /> Out of Stock (0 {entry.unit}) — Deduction Blocked
-                                                        </span>
-                                                    ) : Number(entry.quantity) > Number(entry.availableStock) ? (
-                                                        <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
-                                                            <AlertTriangle size={12} /> Available Stock: {entry.availableStock} {entry.unit} (Req: {entry.quantity})
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
-                                                            <CheckCircle2 size={12} /> Available Stock: {entry.availableStock} {entry.unit}
+                                        {/* Line Item Inputs */}
+                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-start">
+                                            {/* Item Search via On-Demand Debounced asyncSearch */}
+                                            <div className="md:col-span-4 space-y-1.5" data-has-error={!!formErrors[`item_${index}_id`]}>
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase flex items-center justify-between">
+                                                    <span>Item Name & Description <span className="text-red-500">*</span></span>
+                                                    {formErrors[`item_${index}_id`] && (
+                                                        <span className="text-[10px] text-rose-600 font-bold lowercase">
+                                                            {formErrors[`item_${index}_id`]}
                                                         </span>
                                                     )}
-                                                </div>
-                                            )}
-                                        </div>
+                                                </label>
 
-                                        {/* HSN & Remarks */}
-                                        <div className="md:col-span-2 space-y-1.5">
-                                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">HSN Code</label>
-                                            <input
-                                                type="text"
-                                                value={entry.hsnCode || ''}
-                                                onChange={e => updateItem(index, 'hsnCode', e.target.value)}
-                                                placeholder="HSN Code"
-                                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
-                                            />
-                                        </div>
-
-                                        {/* Quantity & Unit */}
-                                        <div className="md:col-span-2 space-y-1.5" data-has-error={!!formErrors[`item_${index}_quantity`]}>
-                                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">Qty & Unit</label>
-                                            <div className="flex gap-1.5">
-                                                <input
-                                                    type="number"
-                                                    min="0.01"
-                                                    step="0.01"
-                                                    value={entry.quantity || ''}
-                                                    onChange={e => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center dark:text-white"
-                                                    placeholder="Qty"
-                                                    required
+                                                <SearchableSelect
+                                                    options={rowOptions}
+                                                    value={currentItemId}
+                                                    displayLabel={entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName}
+                                                    hasError={!!formErrors[`item_${index}_id`]}
+                                                    asyncSearch={async (q: string) => searchItemsAsync(invoiceMaterialType, q)}
+                                                    onChange={(val: string) => handleItemSelection(index, val)}
+                                                    placeholder={`Search ${invoiceMaterialType.toUpperCase()} by keyword...`}
                                                 />
+
+                                                {/* Editable Technical Description input directly below item name */}
                                                 <input
                                                     type="text"
-                                                    value={entry.unit || 'PCS'}
-                                                    onChange={e => updateItem(index, 'unit', e.target.value)}
-                                                    className="w-14 px-1.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-center font-semibold dark:text-white"
-                                                    placeholder="Unit"
+                                                    value={entry.description || ''}
+                                                    onChange={e => updateItem(index, 'description', e.target.value)}
+                                                    placeholder="Technical Description / Specification..."
+                                                    className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 rounded-lg text-[11px] text-slate-600 dark:text-slate-300 italic placeholder:not-italic focus:ring-1 focus:ring-indigo-500/30"
+                                                    title="Item Technical Description"
+                                                />
+
+                                                {/* Stock badge */}
+                                                {entry.materialName && entry.availableStock !== undefined && (
+                                                    <div className="mt-0.5">
+                                                        {entry.availableStock <= 0 ? (
+                                                            <span className="text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800 inline-flex items-center gap-1">
+                                                                <AlertTriangle size={11} /> Low / Out of Stock (Avail: 0 {entry.unit})
+                                                            </span>
+                                                        ) : Number(entry.quantity) > Number(entry.availableStock) ? (
+                                                            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1">
+                                                                <AlertTriangle size={11} /> Stock: {entry.availableStock} {entry.unit} (Req: {entry.quantity})
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1">
+                                                                <CheckCircle2 size={11} /> Available Stock: {entry.availableStock} {entry.unit}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* HSN */}
+                                            <div className="md:col-span-2 space-y-1.5">
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">HSN Code</label>
+                                                <input
+                                                    type="text"
+                                                    value={entry.hsnCode || ''}
+                                                    onChange={e => updateItem(index, 'hsnCode', e.target.value)}
+                                                    placeholder="HSN Code"
+                                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
                                                 />
                                             </div>
-                                        </div>
 
-                                        {/* Rate */}
-                                        <div className="md:col-span-2 space-y-1.5">
-                                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
-                                                Unit Rate ({getCurrencySymbol(currency)})
-                                            </label>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="0.01"
-                                                value={entry.rate || ''}
-                                                onChange={e => updateItem(index, 'rate', parseFloat(e.target.value) || 0)}
-                                                className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium dark:text-white"
-                                                placeholder="Rate"
-                                                required
-                                            />
-                                        </div>
+                                            {/* Quantity & Unit */}
+                                            <div className="md:col-span-2 space-y-1.5" data-has-error={!!formErrors[`item_${index}_quantity`]}>
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">Qty & Unit</label>
+                                                <div className="flex gap-1.5">
+                                                    <input
+                                                        type="number"
+                                                        min="0.01"
+                                                        step="0.01"
+                                                        value={entry.quantity || ''}
+                                                        onChange={e => updateItem(index, 'quantity', parseFloat(e.target.value) || 0)}
+                                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center dark:text-white"
+                                                        placeholder="Qty"
+                                                        required
+                                                    />
+                                                    <input
+                                                        type="text"
+                                                        value={entry.unit || 'PCS'}
+                                                        onChange={e => updateItem(index, 'unit', e.target.value)}
+                                                        className="w-14 px-1.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-center font-semibold dark:text-white"
+                                                        placeholder="Unit"
+                                                    />
+                                                </div>
+                                            </div>
 
-                                        {/* Tax Rate & Amount */}
-                                        <div className="md:col-span-2 space-y-1.5">
-                                            <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
-                                                Tax & Total
-                                            </label>
-                                            <div className="flex gap-1.5">
-                                                <select
-                                                    value={entry.taxRate || 0}
-                                                    onChange={e => updateItem(index, 'taxRate', parseFloat(e.target.value) || 0)}
-                                                    className="w-16 px-1 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white"
-                                                >
-                                                    <option value={0}>0%</option>
-                                                    <option value={5}>5%</option>
-                                                    <option value={12}>12%</option>
-                                                    <option value={18}>18%</option>
-                                                    <option value={28}>28%</option>
-                                                </select>
-                                                <div className="flex-1 px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-end truncate">
-                                                    {getCurrencySymbol(currency)} {((entry.amount || 0) + (entry.taxAmount || 0)).toFixed(2)}
+                                            {/* Rate */}
+                                            <div className="md:col-span-2 space-y-1.5">
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                                                    Unit Rate ({getCurrencySymbol(currency)})
+                                                </label>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="0.01"
+                                                    value={entry.rate || ''}
+                                                    onChange={e => updateItem(index, 'rate', parseFloat(e.target.value) || 0)}
+                                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-medium dark:text-white"
+                                                    placeholder="Rate"
+                                                    required
+                                                />
+                                            </div>
+
+                                            {/* Tax Rate & Total */}
+                                            <div className="md:col-span-2 space-y-1.5">
+                                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase">
+                                                    Tax & Total
+                                                </label>
+                                                <div className="flex gap-1.5">
+                                                    <select
+                                                        value={entry.taxRate || 0}
+                                                        onChange={e => updateItem(index, 'taxRate', parseFloat(e.target.value) || 0)}
+                                                        className="w-16 px-1 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold dark:text-white"
+                                                    >
+                                                        <option value={0}>0%</option>
+                                                        <option value={5}>5%</option>
+                                                        <option value={12}>12%</option>
+                                                        <option value={18}>18%</option>
+                                                        <option value={28}>28%</option>
+                                                    </select>
+                                                    <div className="flex-1 px-2 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center justify-end truncate">
+                                                        {getCurrencySymbol(currency)} {((entry.amount || 0) + (entry.taxAmount || 0)).toFixed(2)}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Bottom Add Item Area */}
+                        <div className="pt-2">
+                            <button
+                                type="button"
+                                onClick={addItem}
+                                className="w-full py-3 px-4 border-2 border-dashed border-indigo-200 dark:border-indigo-800/80 hover:border-indigo-500 dark:hover:border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer active:scale-[0.99]"
+                            >
+                                <Plus size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                <span>+ Add Another {invoiceMaterialType.toUpperCase()} Item</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Company Bank Details (From Master Company Info) */}
+                    <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-700/80 pb-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-xl">
+                                    <Building2 size={18} />
                                 </div>
-                            ))}
+                                <div>
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        Company Bank Details
+                                    </h4>
+                                </div>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setBankDetails(getMasterBankDetails())}
+                                className="px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-lg shadow-xs hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <RotateCcw size={13} /> Reset to Master
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Account Holder Name</label>
+                                <input
+                                    type="text"
+                                    value={bankDetails.accountName}
+                                    onChange={e => setBankDetails(prev => ({ ...prev, accountName: e.target.value }))}
+                                    placeholder="Company Name"
+                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Bank Name</label>
+                                <input
+                                    type="text"
+                                    value={bankDetails.bankName}
+                                    onChange={e => setBankDetails(prev => ({ ...prev, bankName: e.target.value }))}
+                                    placeholder="e.g. HDFC Bank"
+                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Account Number</label>
+                                <input
+                                    type="text"
+                                    value={bankDetails.accountNumber}
+                                    onChange={e => setBankDetails(prev => ({ ...prev, accountNumber: e.target.value }))}
+                                    placeholder="Account Number"
+                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono font-bold"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">IFSC Code</label>
+                                <input
+                                    type="text"
+                                    value={bankDetails.ifscCode}
+                                    onChange={e => setBankDetails(prev => ({ ...prev, ifscCode: e.target.value.toUpperCase() }))}
+                                    placeholder="IFSC Code"
+                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono font-bold uppercase"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Branch Name</label>
+                                <input
+                                    type="text"
+                                    value={bankDetails.branch}
+                                    onChange={e => setBankDetails(prev => ({ ...prev, branch: e.target.value }))}
+                                    placeholder="Branch Name"
+                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-medium"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Custom Terms & Conditions & Logistics Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                        {/* LEFT: Custom Terms & Conditions */}
+                        <div className="lg:col-span-7 bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <FileText size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                        Terms & Conditions (Customizable)
+                                    </h4>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setTermsAndConditions(getMasterTerms())}
+                                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                                >
+                                    <RotateCcw size={11} /> Reset to Default
+                                </button>
+                            </div>
+
+                            {/* Quick Clause Chips */}
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">Quick Presets:</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Payment due within 30 days from invoice date.` : `• Payment due within 30 days from invoice date.`)}
+                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                >
+                                    + 30-Day Credit
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Goods once sold will not be accepted back or exchanged.` : `• Goods once sold will not be accepted back or exchanged.`)}
+                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                >
+                                    + No Return Policy
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Overdue interest @ 18% p.a. will be levied after due date.` : `• Overdue interest @ 18% p.a. will be levied after due date.`)}
+                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                >
+                                    + 18% Overdue Interest
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setTermsAndConditions(prev => prev ? `${prev}\n• Subject to local jurisdiction only.` : `• Subject to local jurisdiction only.`)}
+                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-semibold rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                >
+                                    + Local Jurisdiction
+                                </button>
+                            </div>
+
+                            <textarea
+                                rows={4}
+                                value={termsAndConditions}
+                                onChange={e => setTermsAndConditions(e.target.value)}
+                                placeholder="Enter custom terms and conditions for this invoice..."
+                                className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white leading-relaxed resize-y font-mono"
+                            />
+                        </div>
+
+                        {/* RIGHT: Logistics, Charges & Other Details */}
+                        <div className="lg:col-span-5 bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                            <div className="flex items-center gap-2">
+                                <Truck size={16} className="text-indigo-600 dark:text-indigo-400" />
+                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                                    Logistics & Additional Charges
+                                </h4>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Transport Mode</label>
+                                    <input
+                                        type="text"
+                                        value={transportationType}
+                                        onChange={e => setTransportationType(e.target.value)}
+                                        placeholder="e.g. Road Transport"
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Vehicle Number</label>
+                                    <input
+                                        type="text"
+                                        value={vehicleNumber}
+                                        onChange={e => setVehicleNumber(e.target.value.toUpperCase())}
+                                        placeholder="e.g. MH-12-AB-1234"
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white font-mono uppercase"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Freight ({getCurrencySymbol(currency)})</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={transportationCharges || ''}
+                                        onChange={e => setTransportationCharges(parseFloat(e.target.value) || 0)}
+                                        placeholder="0.00"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Packaging ({getCurrencySymbol(currency)})</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={packagingCharges || ''}
+                                        onChange={e => setPackagingCharges(parseFloat(e.target.value) || 0)}
+                                        placeholder="0.00"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Discount ({getCurrencySymbol(currency)})</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={discount || ''}
+                                        onChange={e => setDiscount(parseFloat(e.target.value) || 0)}
+                                        placeholder="0.00"
+                                        className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Remarks / Other Details</label>
+                                <input
+                                    type="text"
+                                    value={otherDetails}
+                                    onChange={e => setOtherDetails(e.target.value)}
+                                    placeholder="Dispatched via, notes, or payment remarks..."
+                                    className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs dark:text-white"
+                                />
+                            </div>
                         </div>
                     </div>
 
                     {/* Summary & Live Currency Conversion Area */}
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-4 border-t border-slate-200 dark:border-slate-800">
-                        {/* LEFT: Live Currency Conversion Informational Card (7 Cols) */}
+                        {/* LEFT: Multi-Currency preview or notice */}
                         <div className="lg:col-span-7">
                             {inrConversion.isForeign ? (
                                 <div className="bg-gradient-to-br from-indigo-50 via-blue-50 to-emerald-50 dark:from-slate-800/90 dark:to-slate-800/40 border border-blue-200/80 dark:border-slate-700 rounded-2xl p-5 shadow-sm space-y-3">
@@ -854,8 +1429,8 @@ export default function BillingModal({
                                             <ArrowRightLeft size={16} className="text-blue-600 dark:text-blue-400" />
                                             Live Multi-Currency Conversion to INR (₹)
                                         </h4>
-                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-600 text-white rounded-full">
-                                            Informational Preview
+                                        <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 rounded-md border border-indigo-200 dark:border-indigo-800">
+                                            Currency Conversion
                                         </span>
                                     </div>
 
@@ -877,7 +1452,7 @@ export default function BillingModal({
                                                     <button
                                                         type="button"
                                                         onClick={() => setIsEditingExchangeRate(false)}
-                                                        className="text-xs text-indigo-600 font-bold"
+                                                        className="text-xs text-indigo-600 font-bold cursor-pointer"
                                                     >
                                                         Save
                                                     </button>
@@ -890,7 +1465,7 @@ export default function BillingModal({
                                                     <button
                                                         type="button"
                                                         onClick={() => setIsEditingExchangeRate(true)}
-                                                        className="text-[11px] text-slate-500 hover:text-indigo-600 underline font-medium"
+                                                        className="text-[11px] text-slate-500 hover:text-indigo-600 underline font-medium cursor-pointer"
                                                     >
                                                         Custom Rate
                                                     </button>
@@ -907,20 +1482,11 @@ export default function BillingModal({
                                             </span>
                                         </div>
                                     </div>
-
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 italic">
-                                        Note: The invoice is billed in <strong>{currency}</strong>. INR values are displayed for business calculation and reference only.
-                                    </p>
                                 </div>
-                            ) : (
-                                <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-200/80 dark:border-slate-700 text-xs text-slate-500 space-y-1">
-                                    <p className="font-semibold text-slate-700 dark:text-slate-300">💡 Multi-Category Direct Billing:</p>
-                                    <p>Line items can contain Finished Goods, Raw Materials, Bought-Out parts, and Consumables. Inventory stock is deducted directly upon invoice generation.</p>
-                                </div>
-                            )}
+                            ) : null}
                         </div>
 
-                        {/* RIGHT: Financial Totals Summary (5 Cols) */}
+                        {/* RIGHT: Financial Totals Summary */}
                         <div className="lg:col-span-5 space-y-2 bg-slate-50/80 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 text-xs">
                             <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                 <span>Subtotal:</span>
@@ -977,14 +1543,14 @@ export default function BillingModal({
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={loading}
-                            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-500/20 transition-all active:scale-95 flex items-center gap-2"
+                            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs shadow-md shadow-indigo-500/20 transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
                         >
                             {loading && <RefreshCw size={14} className="animate-spin" />}
                             {isEditing ? "Update Tax Invoice" : "Create Tax Invoice"}

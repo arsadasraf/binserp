@@ -85,7 +85,7 @@ export const searchStoreItems = async (req, res) => {
     if (includeRM) {
       promises.push(
         RawMaterial.find(searchFilter)
-          .select('_id name code descriptions unit categoryId locationId minimumStock currentStock quantity')
+          .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
           .populate('categoryId', 'name')
           .populate('locationId', 'name')
           .limit(maxLimit)
@@ -97,7 +97,7 @@ export const searchStoreItems = async (req, res) => {
     if (includeBO) {
       promises.push(
         BoughtOut.find(searchFilter)
-          .select('_id name code descriptions unit categoryId locationId minimumStock currentStock quantity')
+          .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
           .populate('categoryId', 'name')
           .populate('locationId', 'name')
           .limit(maxLimit)
@@ -109,7 +109,7 @@ export const searchStoreItems = async (req, res) => {
     if (includeConsumable) {
       promises.push(
         ConsumableItem.find(searchFilter)
-          .select('_id name code descriptions unit categoryId locationId minimumStock currentStock quantity')
+          .select('_id name code descriptions hsnCode unit categoryId locationId minimumStock currentStock quantity')
           .populate('categoryId', 'name')
           .populate('locationId', 'name')
           .limit(maxLimit)
@@ -121,7 +121,7 @@ export const searchStoreItems = async (req, res) => {
     if (includeFG) {
       promises.push(
         FGItem.find(searchFilter)
-          .select('_id name code descriptions description unit type revisionNumber currentStock quantity')
+          .select('_id name code descriptions description hsnCode unit type revisionNumber currentStock quantity')
           .limit(maxLimit)
           .lean()
           .then(items => items.map(item => ({ ...item, _type: 'Finished Good', _itemCategory: 'fg' })))
@@ -151,15 +151,15 @@ export const searchStoreItems = async (req, res) => {
         : (item.currentStock !== undefined ? item.currentStock : (item.quantity || 0));
       const qcPendingStock = inv?.qcPendingStock || 0;
 
-      const codeStr = item.code ? ` (${item.code})` : '';
       const descStr = item.descriptions || item.description || '';
 
       return {
         value: String(item._id),
-        label: `${item.name}${codeStr}${descStr ? ` — ${descStr}` : ''}`,
+        label: descStr ? `${item.name} — ${descStr}` : item.name,
         name: item.name,
         code: item.code || '',
         description: descStr,
+        hsnCode: item.hsnCode || '',
         unit: item.unit || 'PCS',
         itemType: item._type,
         itemCategory: item._itemCategory,

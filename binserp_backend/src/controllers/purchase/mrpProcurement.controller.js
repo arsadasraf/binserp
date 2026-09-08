@@ -120,7 +120,7 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     Component.find({ company: companyId }).lean(),
     FGItem.find({ company: companyId }).lean(),
     BOM.find({ company: companyId, status: { $ne: "Inactive" } }).lean(),
-    VendorPriceList.find({ company: companyId }).populate("vendor", "name code email phone").populate("material", "name code").lean(),
+    VendorPriceList.find({ company: companyId }).populate("vendor", "name code email phone").lean(),
     Category.find({ company: companyId }).lean()
   ]);
 
@@ -361,15 +361,26 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
     setStockEntry([cleanStr(code), cleanStr(name), cleanKey(code), cleanKey(name)], info);
   });
 
+  // Material master lookup map for VendorPriceList resolution
+  const allMaterialsLookupMap = new Map();
+  (rmBoStock || []).forEach(m => m._id && allMaterialsLookupMap.set(m._id.toString(), m));
+  (rmStock || []).forEach(m => m._id && allMaterialsLookupMap.set(m._id.toString(), m));
+  (boStock || []).forEach(m => m._id && allMaterialsLookupMap.set(m._id.toString(), m));
+  (consumables || []).forEach(m => m._id && allMaterialsLookupMap.set(m._id.toString(), m));
+
   // Vendor Price List Lookup
   const priceListMap = new Map();
   vendorPriceLists.forEach(vpl => {
+    // Resolve material object if stored as ID or unpopulated
+    const rawMatId = (vpl.material?._id || vpl.material)?.toString();
+    const resolvedMat = (rawMatId && allMaterialsLookupMap.get(rawMatId)) || vpl.material;
+
     // 1. Direct VendorPriceList document with material reference
-    if (vpl.material) {
-      const mat = vpl.material;
+    if (resolvedMat || rawMatId) {
+      const mat = resolvedMat;
       const matName = typeof mat === 'object' ? (mat.name || mat.materialName || "") : "";
       const matCode = typeof mat === 'object' ? (mat.code || mat.materialCode || "") : "";
-      const matId = typeof mat === 'object' ? (mat._id?.toString() || "") : (mat ? mat.toString() : "");
+      const matId = rawMatId || (typeof mat === 'object' ? (mat._id?.toString() || "") : (mat ? mat.toString() : ""));
 
       const entry = {
         vendorId: vpl.vendor?._id || vpl.vendor,

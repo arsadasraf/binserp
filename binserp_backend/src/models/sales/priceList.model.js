@@ -24,7 +24,7 @@ export const priceListSchema = new mongoose.Schema(
     },
     hsnCode: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
     },
     remarks: {

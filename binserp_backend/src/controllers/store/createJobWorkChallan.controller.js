@@ -67,6 +67,8 @@ export const createJobWorkChallan = async (req, res) => {
       mrpPlan,
       mrpNumber,
       routeCardRef,
+      operationMode = "discrete",
+      assemblyOutputItem,
       items
     } = req.body;
 
@@ -357,6 +359,39 @@ export const createJobWorkChallan = async (req, res) => {
       processedItems.push(processedItem);
     }
 
+    // Process assemblyOutputItem if operationMode === 'assembly'
+    let processedAssemblyOutput = null;
+    if (operationMode === "assembly" && assemblyOutputItem) {
+      let outItemId = isValidObjectId(assemblyOutputItem.item) ? assemblyOutputItem.item : null;
+      let outName = assemblyOutputItem.itemName || "";
+      const outType = assemblyOutputItem.itemType || "fg";
+
+      if ((outType === "inhouse" || outType === "fg" || outType === "Component" || outType === "SubAssembly" || outType === "Assembly") && outItemId) {
+        const fgDoc = await FGItem.findById(outItemId);
+        if (fgDoc) outName = fgDoc.name || fgDoc.componentName || outName;
+      } else if (outType === "bo" && outItemId) {
+        const matDoc = await Material.findById(outItemId);
+        if (matDoc) outName = matDoc.name || outName;
+      }
+
+      const outQty = Number(assemblyOutputItem.quantityToBeReceived) || 1;
+      const rateVal = Number(assemblyOutputItem.processRate) || 0;
+
+      processedAssemblyOutput = {
+        item: outItemId || undefined,
+        itemName: outName || "Assembled / Welded Product",
+        itemType: outType,
+        quantityToBeReceived: outQty,
+        quantityReceived: 0,
+        receivingUnit: assemblyOutputItem.receivingUnit || "PCS",
+        processType: assemblyOutputItem.processType || "Assembly",
+        processRate: rateVal,
+        processAmount: Number(assemblyOutputItem.processAmount) || (outQty * rateVal),
+        description: assemblyOutputItem.description || "",
+        status: "Sent"
+      };
+    }
+
     const Job = req.getModel("Job", jobSchema);
 
     // Create Challan
@@ -373,6 +408,8 @@ export const createJobWorkChallan = async (req, res) => {
       estimatedWeight: Number(estimatedWeight) || 0,
       estimatedPrice: Number(estimatedPrice) || 0,
       jobWorkType,
+      operationMode: operationMode || "discrete",
+      assemblyOutputItem: processedAssemblyOutput || undefined,
       mrpPlan: mrpPlan || undefined,
       mrpNumber: mrpNumber || undefined,
       routeCardRef,

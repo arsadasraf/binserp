@@ -233,7 +233,7 @@ export default function QuotationModal({
           newItems[index].taxRate = Number(resolvedTax);
         }
 
-        const resolvedHsn = priceConfig?.hsnCode || selectedFg?.hsnCode;
+        const resolvedHsn = selectedFg?.hsnCode || priceConfig?.hsnCode;
         if (resolvedHsn) {
           (newItems[index] as any).hsnCode = resolvedHsn;
         }

@@ -76,6 +76,52 @@ export const jobWorkSchema = new mongoose.Schema(
       enum: ["Open", "Partial", "Closed", "Overdue"],
       default: "Open",
     },
+    operationMode: {
+      type: String,
+      enum: ["discrete", "assembly"],
+      default: "discrete",
+    },
+    assemblyOutputItem: {
+      item: {
+        type: mongoose.Schema.Types.ObjectId,
+      },
+      itemName: String,
+      itemType: {
+        type: String,
+        enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+        default: "fg",
+      },
+      quantityToBeReceived: {
+        type: Number,
+        default: 0,
+      },
+      quantityReceived: {
+        type: Number,
+        default: 0,
+      },
+      receivingUnit: {
+        type: String,
+        default: "PCS",
+      },
+      processType: {
+        type: String,
+        default: "Assembly",
+      },
+      processRate: {
+        type: Number,
+        default: 0,
+      },
+      processAmount: {
+        type: Number,
+        default: 0,
+      },
+      description: String,
+      status: {
+        type: String,
+        enum: ["Sent", "Partial", "Completed"],
+        default: "Sent",
+      },
+    },
 
     items: [
       {

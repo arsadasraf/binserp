@@ -157,36 +157,50 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
     const handleFillAllPending = () => {
         const fullList: any[] = [];
         
-        challan.items.forEach(sentItem => {
-            const parentId = sentItem._id || sentItem.item || '';
-            if (Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0) {
-                sentItem.returningItems.forEach(ret => {
-                    const retId = ret._id || '';
-                    const expectedQty = Number(ret.quantityToBeReceived) || 0;
-                    const receivedQty = Number(ret.quantityReceived) || 0;
+        if (challan.operationMode === 'assembly' && challan.assemblyOutputItem) {
+            const out = challan.assemblyOutputItem;
+            const expectedQty = Number(out.quantityToBeReceived) || 0;
+            const receivedQty = Number(out.quantityReceived) || 0;
+            const pendingQty = Math.max(0, expectedQty - receivedQty);
+
+            if (pendingQty > 0) {
+                fullList.push({
+                    itemId: (challan._id || out.item || 'assembly_output') as string,
+                    quantity: pendingQty
+                });
+            }
+        } else {
+            challan.items.forEach(sentItem => {
+                const parentId = sentItem._id || sentItem.item || '';
+                if (Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0) {
+                    sentItem.returningItems.forEach(ret => {
+                        const retId = ret._id || '';
+                        const expectedQty = Number(ret.quantityToBeReceived) || 0;
+                        const receivedQty = Number(ret.quantityReceived) || 0;
+                        const pendingQty = Math.max(0, expectedQty - receivedQty);
+
+                        if (pendingQty > 0) {
+                            fullList.push({
+                                itemId: parentId,
+                                returningItemId: retId,
+                                quantity: pendingQty
+                            });
+                        }
+                    });
+                } else {
+                    const expectedQty = Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0;
+                    const receivedQty = Number(sentItem.quantityReceived) || 0;
                     const pendingQty = Math.max(0, expectedQty - receivedQty);
 
                     if (pendingQty > 0) {
                         fullList.push({
                             itemId: parentId,
-                            returningItemId: retId,
                             quantity: pendingQty
                         });
                     }
-                });
-            } else {
-                const expectedQty = Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0;
-                const receivedQty = Number(sentItem.quantityReceived) || 0;
-                const pendingQty = Math.max(0, expectedQty - receivedQty);
-
-                if (pendingQty > 0) {
-                    fullList.push({
-                        itemId: parentId,
-                        quantity: pendingQty
-                    });
                 }
-            }
-        });
+            });
+        }
 
         setReceiveData(fullList);
     };
@@ -346,7 +360,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                     <div className="space-y-2.5">
                         <div className="flex justify-between items-center">
                             <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                                Items to Receive
+                                {challan.operationMode === 'assembly' ? 'Target Assembled / Welded Product to Receive' : 'Items to Receive'}
                             </span>
                             <button
                                 type="button"
@@ -357,6 +371,102 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                             </button>
                         </div>
 
+                        {/* ASSEMBLY / WELDING CONSOLIDATION RECEIVE CARD (Single Consolidated Output Item) */}
+                        {challan.operationMode === 'assembly' && challan.assemblyOutputItem ? (() => {
+                            const out = challan.assemblyOutputItem;
+                            const targetKey = (challan._id || out.item || 'assembly_output') as string;
+                            const expectedQty = Number(out.quantityToBeReceived) || 0;
+                            const alreadyReceived = Number(out.quantityReceived) || 0;
+                            const pendingQty = Math.max(0, expectedQty - alreadyReceived);
+                            const isDone = out.status === 'Completed' || pendingQty <= 0;
+                            const enteredQty = getItemQuantity(targetKey);
+
+                            return (
+                                <div className="p-4 rounded-2xl border-2 border-teal-300 dark:border-teal-800 bg-teal-50/20 dark:bg-slate-900 shadow-sm space-y-3">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-100 dark:border-slate-800 pb-2.5">
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="bg-teal-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                                    Many ➔ 1 Inward Item
+                                                </span>
+                                                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                                                    Consolidation of {challan.items.length} outward material{challan.items.length > 1 ? 's' : ''}
+                                                </span>
+                                            </div>
+                                            <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-1">
+                                                {out.itemName || 'Assembled / Welded Product'}
+                                            </h4>
+                                            {out.description && (
+                                                <p className="text-xs text-slate-500 italic mt-0.5">{out.description}</p>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                                            <span className="text-xs font-bold text-slate-500">
+                                                Exp: <b className="text-slate-900 dark:text-white">{expectedQty}</b>
+                                            </span>
+                                            <span className="text-slate-300">•</span>
+                                            <span className="text-xs font-bold text-slate-500">
+                                                Recv: <b className="text-slate-400">{alreadyReceived}</b>
+                                            </span>
+                                            <span className="text-slate-300">•</span>
+                                            <span className="text-xs font-black text-teal-600 dark:text-teal-400">
+                                                Pending: {pendingQty} {out.receivingUnit || 'PCS'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                                        <div className="text-xs text-slate-500">
+                                            <span>Destination: </span>
+                                            <b className="text-slate-700 dark:text-slate-300">Shopfloor WIP FG Inventory</b>
+                                        </div>
+
+                                        {isDone ? (
+                                            <span className="px-3 py-1.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-xs font-black rounded-xl">
+                                                ✓ Fully Received & Completed
+                                            </span>
+                                        ) : (
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                                    Receive Today:
+                                                </span>
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleItemChange(targetKey, undefined, Math.max(0, enteredQty - 1))}
+                                                        className="w-8 h-8 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg flex items-center justify-center font-bold cursor-pointer"
+                                                    >
+                                                        <Minus size={14} />
+                                                    </button>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max={pendingQty}
+                                                        step="any"
+                                                        value={enteredQty || ''}
+                                                        onChange={(e) => handleItemChange(targetKey, undefined, e.target.value)}
+                                                        placeholder="0"
+                                                        className="w-24 px-2 py-1 bg-white dark:bg-slate-800 border-2 border-teal-500 rounded-lg font-black text-center text-sm text-slate-900 dark:text-white"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleItemChange(targetKey, undefined, Math.min(pendingQty, enteredQty + 1))}
+                                                        className="w-8 h-8 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg flex items-center justify-center font-bold cursor-pointer"
+                                                    >
+                                                        <Plus size={14} />
+                                                    </button>
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-400">
+                                                    {out.receivingUnit || 'PCS'}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })() : (
+                            <>
                         {/* MOBILE VIEW (< 768px): Touch-Friendly Item Cards */}
                         <div className="md:hidden space-y-2.5">
                             {challan.items.map((sentItem, sentIdx) => {
@@ -540,6 +650,8 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                 </tbody>
                             </table>
                         </div>
+                        </>
+                        )}
                     </div>
 
                     {/* Section 3: Delivery Photos Toolbar */}

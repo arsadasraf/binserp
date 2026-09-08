@@ -82,6 +82,10 @@ export const invoiceSchema = new mongoose.Schema(
         amount: { type: Number, required: true },
         taxRate: { type: Number, default: 0 },
         taxAmount: { type: Number, default: 0 },
+        description: String,
+        poItemId: {
+          type: mongoose.Schema.Types.ObjectId,
+        },
       },
     ],
     subtotal: { type: Number, required: true },
@@ -94,6 +98,14 @@ export const invoiceSchema = new mongoose.Schema(
     packagingType: String,
     packagingCharges: { type: Number, default: 0 },
     otherDetails: String,
+    bankDetails: {
+      accountName: String,
+      bankName: String,
+      accountNumber: String,
+      ifscCode: String,
+      branch: String,
+    },
+    termsAndConditions: String,
     preparedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

@@ -20,6 +20,9 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
     const [viewRequest, setViewRequest] = useState<any>(null);
     const [viewIssue, setViewIssue] = useState<any>(null);
 
+    // Filter States for requests
+    const [requestSearchQuery, setRequestSearchQuery] = useState<string>('');
+
     // Filter States for history
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [historyTypeFilter, setHistoryTypeFilter] = useState<'all' | 'rm' | 'bo' | 'consumable' | 'fg'>('all');
@@ -44,27 +47,44 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
         loading
     } = storeData;
 
-    // Filter pending requests strictly by category
+    // Filter pending requests strictly by category and search
     const pendingRequests = useMemo(() => {
         return (materialRequests || []).filter((r: any) => {
             const isPending = r.status === 'Pending' || r.status === 'Approved';
             if (!isPending) return false;
 
-            if (!requestTypeFilter || requestTypeFilter === 'all') return true;
+            if (requestTypeFilter && requestTypeFilter !== 'all') {
+                const rType = (r.type || 'rm').toLowerCase();
+                if (requestTypeFilter === 'consumable') {
+                    if (rType !== 'consumable') return false;
+                } else if (requestTypeFilter === 'fg' || requestTypeFilter === 'inhouse') {
+                    if (rType !== 'fg' && rType !== 'inhouse') return false;
+                } else if (requestTypeFilter === 'bo') {
+                    if (rType !== 'bo' && rType !== 'bought-out') return false;
+                } else if (requestTypeFilter === 'rm') {
+                    const isRm = rType === 'rm' || rType === 'raw-material' || (!r.type && rType !== 'bo' && rType !== 'bought-out' && rType !== 'consumable' && rType !== 'fg' && rType !== 'inhouse');
+                    if (!isRm) return false;
+                }
+            }
 
-            const rType = (r.type || 'rm').toLowerCase();
-            if (requestTypeFilter === 'consumable') return rType === 'consumable';
-            if (requestTypeFilter === 'fg' || requestTypeFilter === 'inhouse') return rType === 'fg' || rType === 'inhouse';
-            if (requestTypeFilter === 'bo') return rType === 'bo' || rType === 'bought-out';
-            if (requestTypeFilter === 'rm') {
-                return rType === 'rm' || rType === 'raw-material' || (!r.type && rType !== 'bo' && rType !== 'bought-out' && rType !== 'consumable' && rType !== 'fg' && rType !== 'inhouse');
+            if (requestSearchQuery.trim()) {
+                const query = requestSearchQuery.toLowerCase().trim();
+                const reqNo = (r.requestNumber || '').toLowerCase();
+                const targetNo = (r.mrpNumber || r.soNumber || r.salesOrder?.orderNumber || '').toLowerCase();
+                const requester = (typeof r.requestedBy === 'object' ? r.requestedBy?.name : r.requestedBy || r.createdByName || '').toLowerCase();
+                const dept = (r.department || '').toLowerCase();
+                const matchesItems = Array.isArray(r.items) && r.items.some((it: any) => {
+                    const name = (it.materialName || it.name || '').toLowerCase();
+                    const desc = (it.description || it.descriptions || '').toLowerCase();
+                    return name.includes(query) || desc.includes(query);
+                });
+                const matches = reqNo.includes(query) || targetNo.includes(query) || requester.includes(query) || dept.includes(query) || matchesItems;
+                if (!matches) return false;
             }
-            if (requestTypeFilter === 'rm-bo') {
-                return rType === 'bo' || rType === 'bought-out' || rType === 'rm' || rType === 'raw-material' || (!r.type && rType !== 'consumable' && rType !== 'fg' && rType !== 'inhouse');
-            }
+
             return true;
         });
-    }, [materialRequests, requestTypeFilter]);
+    }, [materialRequests, requestTypeFilter, requestSearchQuery]);
 
     // Filter History: Search + Type-wise Dropdown + Day-wise / Month-wise / Year-wise Date
     const filteredHistory = useMemo(() => {
@@ -271,13 +291,47 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
             {/* Content Container */}
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
                 {activeSubTab === 'requests' ? (
-                    <div className="p-1">
-                        <MaterialRequestTable
-                            requests={pendingRequests}
-                            onIssue={handleIssueRequest}
-                            onReject={handleRejectRequest}
-                            onView={(req) => setViewRequest(req)}
-                        />
+                    <div className="flex flex-col h-full">
+                        {/* Header & Filter Bar for Requests */}
+                        <div className="p-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                                {/* Search Bar */}
+                                <div className="relative flex-1 min-w-[200px] max-w-sm">
+                                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                    <input
+                                        type="text"
+                                        value={requestSearchQuery}
+                                        onChange={(e) => setRequestSearchQuery(e.target.value)}
+                                        placeholder="Search Request #, SO/MRP, material, requester..."
+                                        className="w-full h-9 pl-9 pr-7 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder-gray-400"
+                                    />
+                                    {requestSearchQuery && (
+                                        <button
+                                            onClick={() => setRequestSearchQuery('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
+                                        >
+                                            <XCircle size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold text-slate-500">Pending:</span>
+                                <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                    {pendingRequests.length} Requests
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="p-1">
+                            <MaterialRequestTable
+                                requests={pendingRequests}
+                                onIssue={handleIssueRequest}
+                                onReject={handleRejectRequest}
+                                onView={(req) => setViewRequest(req)}
+                            />
+                        </div>
                     </div>
                 ) : (
                     <div className="flex flex-col h-full">
