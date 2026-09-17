@@ -204,6 +204,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
                 reorderLevel: m.minimumStock !== undefined ? m.minimumStock : (invItem?.reorderLevel || 0),
                 unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                hasSecondaryUnit: Boolean(m.hasSecondaryUnit || invItem?.hasSecondaryUnit),
+                secondaryUnit: m.secondaryUnit || invItem?.secondaryUnit || '',
+                conversionFactor: m.conversionFactor !== undefined ? Number(m.conversionFactor) : (invItem?.conversionFactor !== undefined ? Number(invItem.conversionFactor) : 1),
                 category: m.categoryId, 
                 location: m.locationId, 
                 monthlyData: invItem?.monthlyData ? {
@@ -244,6 +247,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 qcPendingStock: invItem ? invItem.qcPendingStock || 0 : 0,
                 reorderLevel: m.minimumStock !== undefined ? m.minimumStock : (invItem?.reorderLevel || 0),
                 unit: m.unit || (m.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                hasSecondaryUnit: Boolean(m.hasSecondaryUnit || invItem?.hasSecondaryUnit),
+                secondaryUnit: m.secondaryUnit || invItem?.secondaryUnit || '',
+                conversionFactor: m.conversionFactor !== undefined ? Number(m.conversionFactor) : (invItem?.conversionFactor !== undefined ? Number(invItem.conversionFactor) : 1),
                 category: m.categoryId, 
                 location: m.locationId, 
                 monthlyData: invItem?.monthlyData ? {
@@ -297,6 +303,9 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     qcPendingStock: qcPending,
                     reorderLevel: c.minimumStock !== undefined ? c.minimumStock : (invItem?.reorderLevel || 0),
                     unit: c.unit || (c.categoryId as any)?.unit || invItem?.unit || 'PCS',
+                    hasSecondaryUnit: Boolean(c.hasSecondaryUnit || invItem?.hasSecondaryUnit),
+                    secondaryUnit: c.secondaryUnit || invItem?.secondaryUnit || '',
+                    conversionFactor: c.conversionFactor !== undefined ? Number(c.conversionFactor) : (invItem?.conversionFactor !== undefined ? Number(invItem.conversionFactor) : 1),
                     category: c.categoryId,
                     location: c.locationId,
                     monthlyData: invItem?.monthlyData ? {

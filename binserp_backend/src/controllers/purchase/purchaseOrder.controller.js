@@ -182,8 +182,8 @@ export const getAllPOs = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
   const pos = await PurchaseOrder.find({ company: companyId })
     .populate("vendor", "name code email phone address gst")
-    .populate("material", "name code")
-    .populate("items.material", "name code unit category")
+    .populate("material", "name code descriptions description specification")
+    .populate("items.material", "name code unit category descriptions description specification")
     .populate("createdBy", "name username email")
     .populate("updatedBy", "name username email")
     .sort({ createdAt: -1 });

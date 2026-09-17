@@ -19,6 +19,20 @@ export const inventorySchema = new mongoose.Schema(
       type: String,
       default: "PCS",
     },
+    hasSecondaryUnit: {
+      type: Boolean,
+      default: false,
+    },
+    secondaryUnit: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    conversionFactor: {
+      type: Number,
+      default: 1,
+      min: 0,
+    },
     currentStock: {
       type: Number,
       required: true,

@@ -474,7 +474,6 @@ export default function CustomerDirectory() {
                                 <h3 className="font-extrabold text-base">
                                     {editingCustomer ? "Edit Customer Account" : "Add New Customer Account"}
                                 </h3>
-                                <p className="text-xs text-slate-400 mt-0.5">Enterprise & Commercial Profile</p>
                             </div>
                             <button onClick={() => setIsModalOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
                                 <X size={16} />

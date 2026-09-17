@@ -429,7 +429,10 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                                 {issue.items?.length > 0 ? (
                                                     <>
                                                         <span className="font-bold text-gray-900 dark:text-white">{issue.items[0].materialName}</span>
-                                                        <span className="text-gray-400 text-xs ml-1 font-mono">({issue.items[0].quantity} {issue.items[0].unit})</span>
+                                                        <span className="text-gray-400 text-xs ml-1 font-mono">
+                                                            ({issue.items[0].quantity} {issue.items[0].unit}
+                                                            {issue.items[0].hasSecondaryUnit && issue.items[0].secondaryUnit ? ` / ${issue.items[0].secondaryQuantity} ${issue.items[0].secondaryUnit}` : ''})
+                                                        </span>
                                                         {issue.items.length > 1 && (
                                                             <span className="text-blue-600 dark:text-blue-400 text-xs font-bold ml-1">
                                                                 +{issue.items.length - 1} more
@@ -513,7 +516,10 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
                                     <div className="text-right">
                                         {issue.items?.length > 0 ? (
                                             <>
-                                                <span className="font-bold text-gray-900 dark:text-white block">{issue.items[0].materialName} ({issue.items[0].quantity} {issue.items[0].unit})</span>
+                                                <span className="font-bold text-gray-900 dark:text-white block">
+                                                    {issue.items[0].materialName} ({issue.items[0].quantity} {issue.items[0].unit}
+                                                    {issue.items[0].hasSecondaryUnit && issue.items[0].secondaryUnit ? ` / ${issue.items[0].secondaryQuantity} ${issue.items[0].secondaryUnit}` : ''})
+                                                </span>
                                                 {issue.items.length > 1 && <span className="text-blue-600 dark:text-blue-400 text-[11px] font-semibold block">+{issue.items.length - 1} more items</span>}
                                             </>
                                         ) : '-'}

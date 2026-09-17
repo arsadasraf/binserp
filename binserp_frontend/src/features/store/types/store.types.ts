@@ -19,12 +19,17 @@ export interface BankDetails {
     swiftCode?: string;
 }
 
-// Item interface for transaction items (GRN, DC, PO, Billing)
+// Item interface for transaction items (GRN, DC, PO, Billing, MR)
 export interface Item {
     materialName: string;
     quantity: string | number;
     unit: string;
     rate?: string | number;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number | string;
+    secondaryQuantity?: number | string;
+    selectedUnit?: string;
 }
 
 // Form data interface - flexible to accommodate all form types
@@ -65,6 +70,9 @@ export interface StoreFormData {
     minimumStock?: number; // For RM/BO item
     photos?: any[]; // For RM/BO item and FG item
     unit?: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number | string;
     hsnCode?: string;
     categoryId?: string;  // For material master
 
@@ -277,11 +285,18 @@ export interface InventoryItem {
     currentStock: number;
     reorderLevel: number;
     unit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
     locationId?: string | Location;  // Can be ID or populated Location object
     categoryId?: string | Category;  // Can be ID or populated Category object
     location?: Location;  // Populated location data (alternative field)
     category?: Category;  // Populated category data (alternative field)
     qcPendingStock?: number; // Added
+    descriptions?: string;
+    description?: string;
+    monthlyData?: any;
+    [key: string]: any;
 }
 
 // Transaction interfaces

@@ -134,8 +134,26 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
-                                                    <span className="font-bold text-gray-900 dark:text-white text-sm">{item.quantity}</span>
-                                                    <span className="text-xs text-gray-500 ml-1 font-semibold">{item.unit || 'PCS'}</span>
+                                                    <div>
+                                                        <span className="font-bold text-gray-900 dark:text-white text-sm">
+                                                            {item.selectedUnit === item.secondaryUnit ? item.secondaryQuantity : item.quantity}
+                                                        </span>
+                                                        <span className="text-xs text-gray-500 ml-1 font-semibold">
+                                                            {item.selectedUnit || item.unit || 'PCS'}
+                                                        </span>
+                                                        {item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit && (
+                                                            <span className="ml-1 px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[9px] font-bold">2nd</span>
+                                                        )}
+                                                    </div>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
+                                                            {item.selectedUnit === item.secondaryUnit ? (
+                                                                <span>↳ = {item.quantity} {item.unit}</span>
+                                                            ) : (
+                                                                <span>↳ = {item.secondaryQuantity} {item.secondaryUnit}</span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[220px]" title={item.purpose}>
                                                     {item.purpose || '-'}

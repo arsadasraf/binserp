@@ -8,7 +8,7 @@ const PPC_TAB_ROUTES = [
   { id: "overview", href: "/dashboard/ppc/overview" },
   { id: "orders", href: "/dashboard/ppc/orders" },
   { id: "planning", href: "/dashboard/ppc/planning" },
-  { id: "tracing", href: "/dashboard/ppc/tracing" },
+  { id: "auto-planning", href: "/dashboard/ppc/auto-planning" },
   { id: "masters", href: "/dashboard/ppc/master/shop-floor/workstation" },
 ];
 
@@ -30,8 +30,9 @@ function PPCRedirectContent() {
         router.replace("/dashboard/ppc/planning");
         return;
       }
-      if ((tabParam === "tracing" || tabParam === "trace") && (isFullAdmin || hasTabAccess("PPC", "tracing"))) {
-        router.replace("/dashboard/ppc/tracing");
+      if ((tabParam === "auto-planning" || tabParam === "tracing" || tabParam === "trace") && 
+          (isFullAdmin || hasTabAccess("PPC", "auto-planning") || hasTabAccess("PPC", "planning") || hasTabAccess("PPC", "tracing"))) {
+        router.replace("/dashboard/ppc/auto-planning");
         return;
       }
       if ((tabParam === "masters" || tabParam === "master") && (isFullAdmin || hasTabAccess("PPC", "masters"))) {

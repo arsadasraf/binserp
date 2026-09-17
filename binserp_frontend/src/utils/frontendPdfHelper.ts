@@ -2418,6 +2418,24 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
         const name = item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || 'Item';
         const desc = item.description || item.descriptions || item.material?.description || item.material?.descriptions || '';
 
+        const hasSec = Boolean(item.hasSecondaryUnit);
+        const secUnit = item.secondaryUnit || '';
+        const secQty = Number(item.secondaryQuantity || item.secondaryReceivedQuantity || 0);
+        const secAccQty = Number(item.secondaryAcceptedQuantity !== undefined ? item.secondaryAcceptedQuantity : secQty);
+        const secRejQty = Number(item.secondaryRejectedQuantity || 0);
+
+        const rcvDisplay = hasSec && secUnit
+            ? `<div>${qty}</div><div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(${secQty} ${secUnit})</div>`
+            : `${qty}`;
+
+        const accDisplay = hasSec && secUnit
+            ? `<div>${accQty}</div><div style="font-size: 9px; color: #16a34a; font-weight: bold;">(${secAccQty} ${secUnit})</div>`
+            : `${accQty}`;
+
+        const rejDisplay = hasSec && secUnit && secRejQty > 0
+            ? `<div>${rejQty}</div><div style="font-size: 9px; color: #dc2626; font-weight: bold;">(${secRejQty} ${secUnit})</div>`
+            : (rejQty > 0 ? `${rejQty}` : '-');
+
         itemsTableRowsHtml += `
             <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
                 <td style="padding: 6px 8px; text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
@@ -2425,10 +2443,13 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                     <div style="font-weight: bold; color: #0f172a;">${name}</div>
                     ${desc ? `<div style="font-size: 10px; color: #64748b; margin-top: 2px;">📝 ${desc}</div>` : ''}
                 </td>
-                <td style="padding: 6px 8px; text-align: center; font-weight: bold;">${qty}</td>
-                <td style="padding: 6px 8px; text-align: center; color: #16a34a; font-weight: bold;">${accQty}</td>
-                <td style="padding: 6px 8px; text-align: center; color: ${rejQty > 0 ? '#dc2626' : '#94a3b8'}; font-weight: bold;">${rejQty}</td>
-                <td style="padding: 6px 8px; text-align: center; font-weight: 600;">${item.unit || 'PCS'}</td>
+                <td style="padding: 6px 8px; text-align: center; font-weight: bold;">${rcvDisplay}</td>
+                <td style="padding: 6px 8px; text-align: center; color: #16a34a; font-weight: bold;">${accDisplay}</td>
+                <td style="padding: 6px 8px; text-align: center; color: ${rejQty > 0 ? '#dc2626' : '#94a3b8'}; font-weight: bold;">${rejDisplay}</td>
+                <td style="padding: 6px 8px; text-align: center; font-weight: 600;">
+                    <div>${item.unit || 'PCS'}</div>
+                    ${hasSec && secUnit ? `<div style="font-size: 9px; color: #4f46e5; font-weight: bold;">(${secUnit})</div>` : ''}
+                </td>
                 <td style="padding: 6px 8px; text-align: right;">₹${rate.toFixed(2)}</td>
                 <td style="padding: 6px 8px; text-align: right; font-weight: bold; color: #0f172a;">₹${lineTotal.toFixed(2)}</td>
             </tr>

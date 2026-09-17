@@ -600,11 +600,22 @@ export default function MaterialRequestLedgerTable({
                         </td>
                         <td className="p-3.5 text-center">
                           <div className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {totalQty}
+                            {req.items?.[0]?.selectedUnit === req.items?.[0]?.secondaryUnit 
+                              ? (Number(req.items?.[0]?.secondaryQuantity) || totalQty) 
+                              : totalQty}
                           </div>
                           <span className="text-[10px] text-slate-400">
-                            {req.items?.[0]?.unit || 'Units'}
+                            {req.items?.[0]?.selectedUnit || req.items?.[0]?.unit || 'Units'}
                           </span>
+                          {req.items?.[0]?.hasSecondaryUnit && req.items?.[0]?.secondaryUnit && (
+                            <div className="text-[9.5px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
+                              {req.items?.[0]?.selectedUnit === req.items?.[0]?.secondaryUnit ? (
+                                <span>(= {totalQty} {req.items?.[0]?.unit})</span>
+                              ) : (
+                                <span>(= {req.items.reduce((acc: number, it: any) => acc + (Number(it.secondaryQuantity) || 0), 0)} {req.items[0].secondaryUnit})</span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="p-3.5 text-center">
                           {renderStatusBadge(req.status)}

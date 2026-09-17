@@ -542,7 +542,6 @@ export default function LeadKanban() {
                                 <h3 className="font-extrabold text-base">
                                     {editingLead ? "Edit Lead Details" : "Add New Lead"}
                                 </h3>
-                                <p className="text-xs text-slate-400 mt-0.5">Pipeline contact & commercial parameters</p>
                             </div>
                             <button onClick={() => setIsCreateModalOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
                                 <X size={16} />
@@ -733,10 +732,6 @@ export default function LeadKanban() {
                         </div>
 
                         <div className="p-6 space-y-4 text-xs">
-                            <p className="text-slate-600 dark:text-slate-400">
-                                This will automatically create an Account in the Customer Directory and initialize an active Deal in your revenue pipeline.
-                            </p>
-
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
                                     Opportunity / Deal Title

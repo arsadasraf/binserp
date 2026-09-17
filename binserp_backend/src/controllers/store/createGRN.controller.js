@@ -238,7 +238,22 @@ export const createGRN = async (req, res) => {
           }
         }
 
-        const qty = parseFloat(item.quantity);
+        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
+        const selectedUnit = item.selectedUnit || itemUnit;
+
+        let qty = parseFloat(item.quantity);
+        let secQty = hasSec ? (parseFloat(item.secondaryQuantity) || 0) : 0;
+
+        if (hasSec && convFactor > 0) {
+          if (selectedUnit === secUnit && (!qty || isNaN(qty) || qty <= 0) && secQty > 0) {
+            qty = Number((secQty / convFactor).toFixed(4));
+          } else if ((!secQty || secQty <= 0) && !isNaN(qty) && qty > 0) {
+            secQty = Number((qty * convFactor).toFixed(4));
+          }
+        }
+
         if (isNaN(qty) || qty <= 0) {
           return res.status(400).json({ message: "Valid quantity is required for each item" });
         }
@@ -256,6 +271,14 @@ export const createGRN = async (req, res) => {
           receivedQuantity: qty,
           acceptedQuantity: qcRequired ? 0 : qty,
           rate: parseFloat(item.rate) || 0,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          secondaryReceivedQuantity: secQty,
+          secondaryAcceptedQuantity: qcRequired ? 0 : secQty,
+          secondaryRejectedQuantity: 0,
+          selectedUnit: selectedUnit,
         });
       }
     } else if (material && quantity) {
@@ -472,6 +495,9 @@ export const createGRN = async (req, res) => {
                 referenceDocNumber: grnNumber,
                 recipientOrSource: supplierName || "Supplier",
                 purpose: `Goods Receipt Note (${itemTypeOption})`,
+                hasSecondaryUnit: item.hasSecondaryUnit || false,
+                secondaryUnit: item.secondaryUnit || "",
+                secondaryQuantity: item.secondaryQuantity || 0,
                 performedBy: userId,
                 performedByName: userName
               }
@@ -519,6 +545,9 @@ export const createGRN = async (req, res) => {
                 referenceDocNumber: grnNumber,
                 recipientOrSource: supplierName || "In-House Production",
                 purpose: "Goods Receipt Note (Finished Goods)",
+                hasSecondaryUnit: item.hasSecondaryUnit || false,
+                secondaryUnit: item.secondaryUnit || "",
+                secondaryQuantity: item.secondaryQuantity || 0,
                 performedBy: userId,
                 performedByName: userName
               }

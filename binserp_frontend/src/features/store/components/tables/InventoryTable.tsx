@@ -6,12 +6,12 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { InventoryItem } from "@/src/features/store/types/store.types";
-import { Package, Factory, Download, Search, Edit2, FileSpreadsheet, ChevronDown, ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw } from 'lucide-react';
+import { Package, Factory, Download, Search, FileSpreadsheet, ChevronDown, ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
-import { apiPost } from '@/src/lib/api';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+import { ItemNameAndDescription } from '@/src/utils/itemDisplayHelper';
 
 const getPageNumbers = (current: number, total: number): (number | string)[] => {
   if (total <= 5) {
@@ -57,9 +57,6 @@ export default function InventoryTable({
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
 
-    const [editingStockId, setEditingStockId] = useState<string | null>(null);
-    const [editingStockValue, setEditingStockValue] = useState<number>(0);
-    const [isUpdating, setIsUpdating] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     const handleRefresh = async () => {
@@ -85,43 +82,6 @@ export default function InventoryTable({
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
-
-    const handleOpeningStockEditClick = (e: React.MouseEvent, item: any) => {
-        e.stopPropagation();
-        setEditingStockId(item._id);
-        setEditingStockValue(item.monthlyData?.openingStock || 0);
-    };
-
-    const handleOpeningStockSave = async (e: React.MouseEvent | React.KeyboardEvent, item: any) => {
-        e.stopPropagation();
-        setIsUpdating(true);
-        try {
-            const token = localStorage.getItem('token');
-            const currentDate = new Date();
-            const currentMonthStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-
-            const isRmOrBoOrConsumable = activeSubTab === 'bo' || activeSubTab === 'rm' || activeSubTab === 'consumable';
-            const endpoint = isRmOrBoOrConsumable ? '/api/store/monthly-inventory/rm' : '/api/store/monthly-inventory/fg';
-            const payload = isRmOrBoOrConsumable ? {
-                materialId: item.material || item._id,
-                month: currentMonthStr,
-                openingStock: editingStockValue
-            } : {
-                fgItemId: item._id,
-                month: currentMonthStr,
-                openingStock: editingStockValue
-            };
-
-            await apiPost(endpoint, payload, token);
-
-            if (refetch) refetch();
-        } catch (error) {
-            console.error("Failed to update opening stock", error);
-        } finally {
-            setIsUpdating(false);
-            setEditingStockId(null);
-        }
-    };
 
     const handleFilterChange = (column: string, values: string[]) => {
         setFilters(prev => {
@@ -149,6 +109,14 @@ export default function InventoryTable({
         setSearchQuery('');
     };
 
+    // Format quantities cleanly (up to 3 decimal places without trailing zeros)
+    const formatQty = (val: number | string | undefined | null): string => {
+        if (val === undefined || val === null || val === '') return '0';
+        const num = Number(val);
+        if (isNaN(num)) return '0';
+        return Number(num.toFixed(3)).toString();
+    };
+
     // Helpers to extract column string/number values
     const getCategoryValue = (item: any) =>
         (typeof item.categoryId === 'object' && item.categoryId?.name) ||
@@ -161,10 +129,40 @@ export default function InventoryTable({
     };
 
     const getDescriptionValue = (item: any) => item.descriptions || item.description || '-';
-    const getStockValue = (item: any) => String(item.currentStock ?? item.quantity ?? 0);
+    
+    const getStockValue = (item: any) => {
+        const stock = Number(item.currentStock ?? item.quantity ?? 0);
+        return `${formatQty(stock)} ${item.unit || 'PCS'}`;
+    };
+    const getPrimaryStockValue = getStockValue;
+
+    const getSecondaryStockValue = (item: any) => {
+        if (!item.hasSecondaryUnit || !item.secondaryUnit) return '-';
+        const factor = Number(item.conversionFactor) || 1;
+        const stock = Number(item.currentStock ?? item.quantity ?? 0);
+        return `${formatQty(stock * factor)} ${item.secondaryUnit}`;
+    };
+
     const getMonthlyFlowValue = (item: any) => {
         if (!item.monthlyData) return '-';
-        return `+${item.monthlyData.totalInwardQuantity || 0} / -${item.monthlyData.totalOutwardQuantity || 0}`;
+        const inQty = item.monthlyData.totalInwardQuantity || item.monthlyData.received || 0;
+        const outQty = item.monthlyData.totalOutwardQuantity || item.monthlyData.issued || 0;
+        let flowStr = `+${formatQty(inQty)} / -${formatQty(outQty)} ${item.unit || 'PCS'}`;
+        if (item.hasSecondaryUnit && item.secondaryUnit) {
+            const factor = Number(item.conversionFactor) || 1;
+            flowStr += ` (+${formatQty(inQty * factor)} / -${formatQty(outQty * factor)} ${item.secondaryUnit})`;
+        }
+        return flowStr;
+    };
+
+    const getMinStockValue = (item: any) => {
+        const min = Number(item.reorderLevel ?? item.minimumStock ?? 0);
+        let minStr = `${formatQty(min)} ${item.unit || 'PCS'}`;
+        if (item.hasSecondaryUnit && item.secondaryUnit) {
+            const factor = Number(item.conversionFactor) || 1;
+            minStr += ` (${formatQty(min * factor)} ${item.secondaryUnit})`;
+        }
+        return minStr;
     };
 
     const applyFiltersAndSort = (items: any[], isInHouse: boolean = false) => {
@@ -195,8 +193,12 @@ export default function InventoryTable({
                     itemValue = getDescriptionValue(item);
                 } else if (key === 'currentStock' || key === 'quantity') {
                     itemValue = getStockValue(item);
+                } else if (key === 'secondaryStock') {
+                    itemValue = getSecondaryStockValue(item);
                 } else if (key === 'monthlyFlow') {
                     itemValue = getMonthlyFlowValue(item);
+                } else if (key === 'reorderLevel') {
+                    itemValue = getMinStockValue(item);
                 } else if (key === 'unit') {
                     itemValue = item.unit || '-';
                 } else if (key === 'type') {
@@ -215,8 +217,8 @@ export default function InventoryTable({
         if (sortConfig) {
             const { key, direction } = sortConfig;
             result.sort((a, b) => {
-                let valA = '';
-                let valB = '';
+                let valA: any = '';
+                let valB: any = '';
 
                 if (key === 'category') {
                     valA = getCategoryValue(a);
@@ -231,8 +233,19 @@ export default function InventoryTable({
                     valA = getDescriptionValue(a);
                     valB = getDescriptionValue(b);
                 } else if (key === 'currentStock' || key === 'quantity') {
-                    valA = String(a.currentStock ?? a.quantity ?? 0);
-                    valB = String(b.currentStock ?? b.quantity ?? 0);
+                    valA = Number(a.currentStock ?? a.quantity ?? 0);
+                    valB = Number(b.currentStock ?? b.quantity ?? 0);
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                } else if (key === 'secondaryStock') {
+                    const factorA = a.hasSecondaryUnit ? (Number(a.conversionFactor) || 1) : 0;
+                    const factorB = b.hasSecondaryUnit ? (Number(b.conversionFactor) || 1) : 0;
+                    valA = Number(a.currentStock ?? a.quantity ?? 0) * factorA;
+                    valB = Number(b.currentStock ?? b.quantity ?? 0) * factorB;
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                } else if (key === 'reorderLevel') {
+                    valA = Number(a.reorderLevel ?? a.minimumStock ?? 0);
+                    valB = Number(b.reorderLevel ?? b.minimumStock ?? 0);
+                    return direction === 'asc' ? valA - valB : valB - valA;
                 } else if (key === 'allocatedQuantity') {
                     valA = String(a.allocatedQuantity ?? 0);
                     valB = String(b.allocatedQuantity ?? 0);
@@ -254,7 +267,7 @@ export default function InventoryTable({
                 if (!isNaN(numA) && !isNaN(numB)) {
                     cmp = numA - numB;
                 } else {
-                    cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+                    cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
                 }
 
                 return direction === 'asc' ? cmp : -cmp;
@@ -299,15 +312,33 @@ export default function InventoryTable({
 
     const exportToExcel = () => {
         const currentData = activeSubTab !== 'inhouse' ? filteredData : filteredInHouseData;
-        const exportData = currentData.map((item, idx) => ({
-            'S.No': idx + 1,
-            'Material Name': item.materialName || item.componentName || item.name || '-',
-            'Description': item.descriptions || item.description || '-',
-            'Stock': item.currentStock ?? item.quantity ?? 0,
-            'Unit': item.unit || '-',
-            'Category': getCategoryValue(item),
-            'Location': getLocationValue(item)
-        }));
+        const exportData = currentData.map((item, idx) => {
+            const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+            const factor = Number(item.conversionFactor) || 1;
+            const currentStock = Number(item.currentStock ?? item.quantity ?? 0);
+            const reorderLevel = Number(item.reorderLevel ?? item.minimumStock ?? 0);
+            const inward = Number(item.monthlyData?.totalInwardQuantity || item.monthlyData?.received || 0);
+            const outward = Number(item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0);
+
+            return {
+                'S.No': idx + 1,
+                'Item Name': item.materialName || item.componentName || item.name || '-',
+                'Description': item.descriptions || item.description || '-',
+                'Category': getCategoryValue(item),
+                'Location': getLocationValue(item),
+                'Primary Stock': currentStock,
+                'Primary Unit': item.unit || 'PCS',
+                'Secondary Stock': hasSec ? formatQty(currentStock * factor) : '-',
+                'Secondary Unit': hasSec ? item.secondaryUnit : '-',
+                'Conversion Factor': hasSec ? `1 ${item.unit || 'Unit'} = ${factor} ${item.secondaryUnit}` : '-',
+                'Monthly Inward (Primary)': inward,
+                'Monthly Outward (Primary)': outward,
+                'Monthly Inward (Secondary)': hasSec ? formatQty(inward * factor) : '-',
+                'Monthly Outward (Secondary)': hasSec ? formatQty(outward * factor) : '-',
+                'Min Stock (Primary)': reorderLevel,
+                'Min Stock (Secondary)': hasSec ? formatQty(reorderLevel * factor) : '-',
+            };
+        });
 
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
@@ -483,59 +514,11 @@ export default function InventoryTable({
                                     <th className="px-5 py-3 text-left">
                                         <ColumnFilter
                                             column="materialName"
-                                            title="Material Name"
+                                            title="Item Details"
                                             data={data}
                                             currentFilters={filters['materialName'] || []}
                                             onFilterChange={(vals) => handleFilterChange('materialName', vals)}
                                             getValue={(item) => item.materialName || item.name || '-'}
-                                            sortConfig={sortConfig}
-                                            onSortChange={handleSortChange}
-                                        />
-                                    </th>
-                                    <th className="px-5 py-3 text-left">
-                                        <ColumnFilter
-                                            column="descriptions"
-                                            title="Description"
-                                            data={data}
-                                            currentFilters={filters['descriptions'] || []}
-                                            onFilterChange={(vals) => handleFilterChange('descriptions', vals)}
-                                            getValue={getDescriptionValue}
-                                            sortConfig={sortConfig}
-                                            onSortChange={handleSortChange}
-                                        />
-                                    </th>
-                                    <th className="px-5 py-3 text-left">
-                                        <ColumnFilter
-                                            column="currentStock"
-                                            title="Stock"
-                                            data={data}
-                                            currentFilters={filters['currentStock'] || []}
-                                            onFilterChange={(vals) => handleFilterChange('currentStock', vals)}
-                                            getValue={getStockValue}
-                                            sortConfig={sortConfig}
-                                            onSortChange={handleSortChange}
-                                        />
-                                    </th>
-                                    <th className="px-5 py-3 text-left">
-                                        <ColumnFilter
-                                            column="monthlyFlow"
-                                            title="Monthly Flow"
-                                            data={data}
-                                            currentFilters={filters['monthlyFlow'] || []}
-                                            onFilterChange={(vals) => handleFilterChange('monthlyFlow', vals)}
-                                            getValue={getMonthlyFlowValue}
-                                            sortConfig={sortConfig}
-                                            onSortChange={handleSortChange}
-                                        />
-                                    </th>
-                                    <th className="px-5 py-3 text-left">
-                                        <ColumnFilter
-                                            column="unit"
-                                            title="Unit"
-                                            data={data}
-                                            currentFilters={filters['unit'] || []}
-                                            onFilterChange={(vals) => handleFilterChange('unit', vals)}
-                                            getValue={(item) => item.unit || '-'}
                                             sortConfig={sortConfig}
                                             onSortChange={handleSortChange}
                                         />
@@ -564,6 +547,54 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
+                                    <th className="px-5 py-3 text-left">
+                                        <ColumnFilter
+                                            column="currentStock"
+                                            title="Primary Stock"
+                                            data={data}
+                                            currentFilters={filters['currentStock'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('currentStock', vals)}
+                                            getValue={getPrimaryStockValue}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-5 py-3 text-left">
+                                        <ColumnFilter
+                                            column="secondaryStock"
+                                            title="Secondary Stock"
+                                            data={data}
+                                            currentFilters={filters['secondaryStock'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('secondaryStock', vals)}
+                                            getValue={getSecondaryStockValue}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-5 py-3 text-left">
+                                        <ColumnFilter
+                                            column="monthlyFlow"
+                                            title="Monthly Flow"
+                                            data={data}
+                                            currentFilters={filters['monthlyFlow'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('monthlyFlow', vals)}
+                                            getValue={getMonthlyFlowValue}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-5 py-3 text-left">
+                                        <ColumnFilter
+                                            column="reorderLevel"
+                                            title="Min Stock"
+                                            data={data}
+                                            currentFilters={filters['reorderLevel'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('reorderLevel', vals)}
+                                            getValue={getMinStockValue}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
@@ -574,66 +605,109 @@ export default function InventoryTable({
                                         </td>
                                     </tr>
                                 ) : (
-                                    paginatedData.map((item, index) => (
-                                        <tr
-                                            key={`${item._id}-${index}`}
-                                            onClick={() => onItemClick && onItemClick(item)}
-                                            className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer"
-                                        >
-                                            <td className="px-5 py-3.5 font-bold text-gray-900 dark:text-white">
-                                                {item.materialName || item.name || '-'}
-                                            </td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300 max-w-xs truncate" title={item.descriptions || item.description || '-'}>
-                                                {item.descriptions || item.description || '-'}
-                                            </td>
-                                            <td className={`px-5 py-3.5 font-mono font-bold ${item.currentStock < item.reorderLevel ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                                {item.currentStock}
-                                                {item.qcPendingStock ? <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">({item.qcPendingStock})</span> : null}
-                                            </td>
-                                            <td className="px-5 py-3.5" onDoubleClick={(e) => handleOpeningStockEditClick(e, item)}>
-                                                {editingStockId === item._id ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <input
-                                                            type="number"
-                                                            value={editingStockValue}
-                                                            onChange={(e) => setEditingStockValue(Number(e.target.value))}
-                                                            className="w-20 px-2 py-1 border rounded text-xs text-gray-900"
-                                                            onClick={e => e.stopPropagation()}
-                                                            onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
-                                                            autoFocus
-                                                        />
-                                                        <button
-                                                            onClick={(e) => handleOpeningStockSave(e, item)}
-                                                            disabled={isUpdating}
-                                                            className="px-2 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
-                                                        >
-                                                            {isUpdating ? '...' : 'Save'}
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }}
-                                                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
-                                                        >
-                                                            X
-                                                        </button>
-                                                    </div>
-                                                ) : item.monthlyData ? (
-                                                    <span className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300 cursor-pointer" title="Double click to edit opening stock">
-                                                        <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || item.monthlyData.received || 0})</span>
-                                                        <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || item.monthlyData.issued || 0})</span>
+                                    paginatedData.map((item, index) => {
+                                        const isLowStock = (item.currentStock || 0) < (item.reorderLevel || 0);
+                                        const hasSec = item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0;
+                                        const secStock = hasSec ? (item.currentStock || 0) * (item.conversionFactor || 1) : 0;
+                                        const inward = item.monthlyData?.totalInwardQuantity || item.monthlyData?.received || 0;
+                                        const outward = item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0;
+
+                                        return (
+                                            <tr
+                                                key={`${item._id}-${index}`}
+                                                onClick={() => onItemClick && onItemClick(item)}
+                                                className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer"
+                                            >
+                                                {/* 1. Item Details */}
+                                                <td className="px-5 py-3.5 max-w-xs">
+                                                    <ItemNameAndDescription
+                                                        name={item.materialName || item.name || '-'}
+                                                        description={item.descriptions || item.description || ''}
+                                                    />
+                                                </td>
+
+                                                {/* 2. Category */}
+                                                <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                                    {getCategoryValue(item)}
+                                                </td>
+
+                                                {/* 3. Location */}
+                                                <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                                    {getLocationValue(item)}
+                                                </td>
+
+                                                {/* 4. Primary Stock */}
+                                                <td className="px-5 py-3.5 font-mono">
+                                                    <span className={`font-bold ${isLowStock ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                        {formatQty(item.currentStock)} {item.unit || ''}
                                                     </span>
-                                                ) : (
-                                                    <span className="text-gray-400 cursor-pointer hover:text-gray-600" title="Double click to edit opening stock">-</span>
-                                                )}
-                                            </td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">{item.unit || '-'}</td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
-                                                {getCategoryValue(item)}
-                                            </td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
-                                                {getLocationValue(item)}
-                                            </td>
-                                        </tr>
-                                    ))
+                                                    {item.qcPendingStock ? (
+                                                        <span className="text-gray-400 text-xs ml-1 font-normal" title="Pending QC">
+                                                            (+{formatQty(item.qcPendingStock)} QC)
+                                                        </span>
+                                                    ) : null}
+                                                </td>
+
+                                                {/* 5. Secondary Stock */}
+                                                <td className="px-5 py-3.5">
+                                                    {hasSec ? (
+                                                        <div className="flex flex-col">
+                                                            <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                                                {formatQty(secStock)} {item.secondaryUnit}
+                                                            </span>
+                                                            <span className="text-[10px] text-gray-400 font-mono">
+                                                                1 {item.unit} = {item.conversionFactor} {item.secondaryUnit}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-gray-400 font-mono text-xs">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* 6. Monthly Flow */}
+                                                <td className="px-5 py-3.5">
+                                                    {item.monthlyData ? (
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <div className="flex items-center gap-1 font-medium text-xs font-mono">
+                                                                <span className="text-emerald-600 font-bold" title="Inward">
+                                                                    (+{formatQty(inward)})
+                                                                </span>
+                                                                <span className="text-rose-600 font-bold" title="Outward">
+                                                                    (-{formatQty(outward)})
+                                                                </span>
+                                                                <span className="text-gray-500 text-[11px] font-normal">{item.unit || ''}</span>
+                                                            </div>
+                                                            {hasSec && (
+                                                                <div className="flex items-center gap-1 text-[11px] font-mono text-gray-500 dark:text-gray-400">
+                                                                    <span className="text-emerald-500" title="Secondary Inward">
+                                                                        (+{formatQty(inward * (item.conversionFactor || 1))})
+                                                                    </span>
+                                                                    <span className="text-rose-500" title="Secondary Outward">
+                                                                        (-{formatQty(outward * (item.conversionFactor || 1))})
+                                                                    </span>
+                                                                    <span className="text-[10px]">{item.secondaryUnit}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-gray-400">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* 7. Min Stock */}
+                                                <td className="px-5 py-3.5 font-mono">
+                                                    <div className="font-bold text-gray-700 dark:text-gray-300">
+                                                        {formatQty(item.reorderLevel || 0)} {item.unit || ''}
+                                                    </div>
+                                                    {hasSec && (
+                                                        <div className="text-[11px] text-gray-400 font-normal">
+                                                            {formatQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>
@@ -644,72 +718,86 @@ export default function InventoryTable({
                         {paginatedData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No inventory items found.</div>
                         ) : (
-                            paginatedData.map((item, index) => (
-                                <div
-                                    key={`${item._id}-${index}`}
-                                    onClick={() => onItemClick && onItemClick(item)}
-                                    className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-2 active:scale-95 transition-transform"
-                                >
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h4 className="font-bold text-gray-900 dark:text-white text-sm">{item.materialName || item.name}</h4>
-                                            <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">{item.descriptions || item.description || '-'}</p>
-                                        </div>
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.currentStock <= item.reorderLevel ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
-                                            {item.currentStock} {item.qcPendingStock ? `(${item.qcPendingStock})` : ''} {item.unit}
-                                        </span>
-                                    </div>
+                            paginatedData.map((item, index) => {
+                                const isLowStock = (item.currentStock || 0) <= (item.reorderLevel || 0);
+                                const hasSec = item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0;
+                                const inward = item.monthlyData?.totalInwardQuantity || item.monthlyData?.received || 0;
+                                const outward = item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0;
 
-                                    {item.monthlyData && (
-                                        <div className="flex items-center gap-2 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit group">
-                                            {editingStockId === item._id ? (
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="number"
-                                                        value={editingStockValue}
-                                                        onChange={(e) => setEditingStockValue(Number(e.target.value))}
-                                                        className="w-16 px-1 py-1 border rounded text-xs text-gray-900"
-                                                        onClick={e => e.stopPropagation()}
-                                                        onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
-                                                        autoFocus
-                                                    />
-                                                    <button onClick={(e) => handleOpeningStockSave(e, item)} disabled={isUpdating} className="px-2 py-1 bg-indigo-600 text-white rounded text-[10px]">Save</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px]">X</button>
+                                return (
+                                    <div
+                                        key={`${item._id}-${index}`}
+                                        onClick={() => onItemClick && onItemClick(item)}
+                                        className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-2.5 active:scale-95 transition-transform"
+                                    >
+                                        <div className="flex justify-between items-start gap-2">
+                                            <div className="flex-1">
+                                                <ItemNameAndDescription
+                                                    name={item.materialName || item.name || '-'}
+                                                    description={item.descriptions || item.description || ''}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-bold font-mono ${isLowStock ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
+                                                    {formatQty(item.currentStock)} {item.qcPendingStock ? `(+${formatQty(item.qcPendingStock)} QC)` : ''} {item.unit}
+                                                </span>
+                                                {hasSec && (
+                                                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                        {formatQty((item.currentStock || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Monthly Flow (Both Units) */}
+                                        {item.monthlyData && (
+                                            <div className="flex flex-col gap-1 bg-gray-50 dark:bg-gray-700/40 p-2 rounded-lg border border-gray-100 dark:border-gray-700 text-xs">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-gray-500 dark:text-gray-400 font-medium">Monthly Flow:</span>
+                                                    <div className="flex items-center gap-1 font-mono">
+                                                        <span className="text-emerald-600 font-bold" title="Inward">(+{formatQty(inward)})</span>
+                                                        <span className="text-rose-600 font-bold" title="Outward">(-{formatQty(outward)})</span>
+                                                        <span className="text-gray-500 text-[10px]">{item.unit}</span>
+                                                    </div>
                                                 </div>
-                                            ) : (
-                                                <>
-                                                    <span className="text-gray-500 dark:text-gray-400 font-medium">Opening:</span>
-                                                    <span className="font-bold text-gray-800 dark:text-gray-200">{item.monthlyData.openingStock}</span>
-                                                    <button
-                                                        onClick={(e) => handleOpeningStockEditClick(e, item)}
-                                                        className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors opacity-60 group-hover:opacity-100"
-                                                        title="Edit opening stock"
-                                                    >
-                                                        <Edit2 size={12} />
-                                                    </button>
-                                                    <span className="text-emerald-600 font-medium ml-1">(+{item.monthlyData.totalInwardQuantity || item.monthlyData.received || 0})</span>
-                                                    <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || item.monthlyData.issued || 0})</span>
-                                                </>
-                                            )}
-                                        </div>
-                                    )}
+                                                {hasSec && (
+                                                    <div className="flex items-center justify-end gap-1 font-mono text-[11px] text-gray-500">
+                                                        <span className="text-emerald-500">(+{formatQty(inward * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-rose-500">(-{formatQty(outward * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-[10px]">{item.secondaryUnit}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
-                                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-50 dark:border-gray-700 text-xs">
-                                        <div>
-                                            <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Category</span>
-                                            <span className="text-gray-700 dark:text-gray-200 font-medium">
-                                                {getCategoryValue(item)}
-                                            </span>
-                                        </div>
-                                        <div>
-                                            <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Location</span>
-                                            <span className="text-gray-700 dark:text-gray-200 font-medium">
-                                                {getLocationValue(item)}
-                                            </span>
+                                        <div className="grid grid-cols-3 gap-2 mt-1 pt-2 border-t border-gray-50 dark:border-gray-700 text-xs">
+                                            <div>
+                                                <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Category</span>
+                                                <span className="text-gray-700 dark:text-gray-200 font-medium truncate block">
+                                                    {getCategoryValue(item)}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Location</span>
+                                                <span className="text-gray-700 dark:text-gray-200 font-medium truncate block">
+                                                    {getLocationValue(item)}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Min Stock</span>
+                                                <span className="text-gray-700 dark:text-gray-200 font-medium font-mono block">
+                                                    {formatQty(item.reorderLevel || 0)} {item.unit}
+                                                    {hasSec && (
+                                                        <span className="block text-[10px] text-gray-400 font-normal">
+                                                            {formatQty((item.reorderLevel || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </>
@@ -832,32 +920,7 @@ export default function InventoryTable({
                                                 {item.quantity}
                                             </td>
                                             <td className="px-5 py-3.5">
-                                                {editingStockId === item._id ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <input
-                                                            type="number"
-                                                            value={editingStockValue}
-                                                            onChange={(e) => setEditingStockValue(Number(e.target.value))}
-                                                            className="w-20 px-2 py-1 border rounded text-xs text-gray-900"
-                                                            onClick={e => e.stopPropagation()}
-                                                            onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
-                                                            autoFocus
-                                                        />
-                                                        <button
-                                                            onClick={(e) => handleOpeningStockSave(e, item)}
-                                                            disabled={isUpdating}
-                                                            className="px-2 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
-                                                        >
-                                                            {isUpdating ? '...' : 'Save'}
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }}
-                                                            className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-xs hover:bg-gray-300"
-                                                        >
-                                                            X
-                                                        </button>
-                                                    </div>
-                                                ) : item.monthlyData ? (
+                                                {item.monthlyData ? (
                                                     <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300">
                                                         <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || 0})</span>
                                                         <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
@@ -901,36 +964,9 @@ export default function InventoryTable({
                                     </div>
 
                                     {item.monthlyData && (
-                                        <div className="flex items-center gap-2 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit group">
-                                            {editingStockId === item._id ? (
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        type="number"
-                                                        value={editingStockValue}
-                                                        onChange={(e) => setEditingStockValue(Number(e.target.value))}
-                                                        className="w-16 px-1 py-1 border rounded text-xs text-gray-900"
-                                                        onClick={e => e.stopPropagation()}
-                                                        onKeyDown={(e) => e.key === 'Enter' && handleOpeningStockSave(e, item)}
-                                                        autoFocus
-                                                    />
-                                                    <button onClick={(e) => handleOpeningStockSave(e, item)} disabled={isUpdating} className="px-2 py-1 bg-indigo-600 text-white rounded text-[10px]">Save</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); setEditingStockId(null); }} className="px-2 py-1 bg-gray-200 text-gray-700 rounded text-[10px]">X</button>
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    <span className="text-gray-500 dark:text-gray-400 font-medium">Opening:</span>
-                                                    <span className="font-bold text-gray-800 dark:text-gray-200">{item.monthlyData.openingStock}</span>
-                                                    <button
-                                                        onClick={(e) => handleOpeningStockEditClick(e, item)}
-                                                        className="p-1 text-gray-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition-colors opacity-60 group-hover:opacity-100"
-                                                        title="Edit opening stock"
-                                                    >
-                                                        <Edit2 size={12} />
-                                                    </button>
-                                                    <span className="text-emerald-600 font-medium ml-1">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                                    <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
-                                                </>
-                                            )}
+                                        <div className="flex items-center gap-2 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit">
+                                            <span className="text-emerald-600 font-medium">(+{item.monthlyData.totalInwardQuantity || 0})</span>
+                                            <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
                                         </div>
                                     )}
 

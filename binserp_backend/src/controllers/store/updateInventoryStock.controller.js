@@ -63,6 +63,9 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
     purpose,
     performedBy,
     performedByName,
+    hasSecondaryUnit,
+    secondaryUnit,
+    secondaryQuantity,
   } = options;
 
   console.log(`>>> [updateInventoryStock] Updating MatID: ${materialId}, Qty: ${quantity}, Unit: ${unit}, isPending: ${isPending}, isQCRelease: ${isQCRelease}`);
@@ -273,12 +276,21 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       const movementType = (isPending || isQCRelease || quantity >= 0) ? "INWARD" : "OUTWARD";
       const transactionItemType = options.itemType || itemMasterType;
 
+      const resolvedHasSec = hasSecondaryUnit !== undefined ? Boolean(hasSecondaryUnit) : Boolean(material?.hasSecondaryUnit);
+      const resolvedSecUnit = secondaryUnit !== undefined ? secondaryUnit : (material?.secondaryUnit || "");
+      const resolvedSecQty = secondaryQuantity !== undefined 
+        ? Math.abs(secondaryQuantity) 
+        : (resolvedHasSec && material?.conversionFactor ? Math.abs(quantity * material.conversionFactor) : 0);
+
       await recordStockTransaction(req, {
         itemType: transactionItemType,
         item: actualMatId,
         itemCode: materialCode,
         itemName: materialName,
         unit: resolvedUnit,
+        hasSecondaryUnit: resolvedHasSec,
+        secondaryUnit: resolvedSecUnit,
+        secondaryQuantity: resolvedSecQty,
         movementType,
         transactionCategory: transactionCategory || defaultCategory,
         quantity: Math.abs(quantity),

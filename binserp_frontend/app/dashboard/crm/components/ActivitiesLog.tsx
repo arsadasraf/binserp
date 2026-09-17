@@ -195,7 +195,7 @@ export default function ActivitiesLog() {
                 <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                     <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                         <Clock size={16} className="text-blue-600" />
-                        CRM Follow-up Scheduler & Interaction Ledger
+                        Activities & Follow-ups
                     </h3>
                     <span className="text-xs font-mono text-slate-400 font-bold">{activities.length} Recorded</span>
                 </div>
@@ -287,7 +287,6 @@ export default function ActivitiesLog() {
                         <div className="p-5 bg-slate-900 text-white flex justify-between items-center border-b border-slate-800">
                             <div>
                                 <h3 className="font-extrabold text-base">Schedule Activity / Follow-up</h3>
-                                <p className="text-xs text-slate-400 mt-0.5">Interaction reminders & call logs</p>
                             </div>
                             <button onClick={() => setIsModalOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
                                 <X size={16} />

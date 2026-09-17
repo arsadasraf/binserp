@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useHeader } from "@/src/context/HeaderContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-    BarChart3, Users, Target, Calendar, DollarSign, 
+    BarChart3, Users, Target, Calendar, IndianRupee, 
     FileSpreadsheet, Zap, Layers 
 } from "lucide-react";
 
@@ -25,13 +25,13 @@ export default function CRMDashboard() {
     const [activeTab, setActiveTab] = useState<Tab>("overview");
 
     useEffect(() => {
-        setHeader("CRM & Sales", "Lead Ingestion, Deals Pipeline, Customer 360 & Integrations");
+        setHeader("CRM & Sales", "Lead Management, Deals Pipeline & Customer Directory");
     }, [setHeader]);
 
     const tabs = [
         { id: "overview", label: "Overview", icon: BarChart3 },
         { id: "leads", label: "Leads Pipeline", icon: Target },
-        { id: "deals", label: "Deals & Revenue", icon: DollarSign },
+        { id: "deals", label: "Deals & Revenue", icon: IndianRupee },
         { id: "customers", label: "Customer 360", icon: Users },
         { id: "activities", label: "Follow-ups & Tasks", icon: Calendar },
         { id: "datahub", label: "Data Hub (Excel)", icon: FileSpreadsheet },

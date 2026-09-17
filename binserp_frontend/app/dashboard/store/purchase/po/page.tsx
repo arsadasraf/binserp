@@ -21,6 +21,7 @@ export default function PurchasePOPage() {
       <POTable
         data={poList || []}
         vendors={vendors || []}
+        materials={materials || []}
         companyInfo={companyInfo}
         onCreatePO={() => { setEditingPO(null); setShowModal(true); }}
         onEdit={(po) => { setEditingPO(po); setShowModal(true); }}

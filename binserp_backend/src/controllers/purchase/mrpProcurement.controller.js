@@ -980,6 +980,7 @@ export const getMRPPPCIntakeBucket = asyncHandler(async (req, res) => {
         deliveryDate: order.deliveryDate,
         createdAt: order.createdAt,
         totalItemsCount: 0,
+        totalMovedCount: 0,
         orders: [],
         items: []
       });
@@ -987,9 +988,23 @@ export const getMRPPPCIntakeBucket = asyncHandler(async (req, res) => {
     const bucket = mrpMap.get(key);
     bucket.orders.push(order);
     (order.items || []).forEach(it => {
-      bucket.totalItemsCount += (Number(it.quantity) || 1);
+      const qty = Number(it.quantity) || 1;
+      const moved = Number(it.movedQuantity) || 0;
+      bucket.totalItemsCount += qty;
+      bucket.totalMovedCount += moved;
+
+      const itemMoStatus = it.linkedMoNumber 
+        ? (moved >= qty ? "MO Created" : "Partially Created") 
+        : "Pending MO Creation";
+
       bucket.items.push({
         ...it,
+        quantity: qty,
+        movedQuantity: moved,
+        remainingQuantity: Math.max(0, qty - moved),
+        linkedMoNumber: it.linkedMoNumber || null,
+        linkedMoId: it.linkedMoId || null,
+        moStatus: itemMoStatus,
         orderId: order._id,
         orderNumber: order.orderNumber,
         orderStatus: order.status,
@@ -998,7 +1013,25 @@ export const getMRPPPCIntakeBucket = asyncHandler(async (req, res) => {
     });
   });
 
-  const mrpBuckets = Array.from(mrpMap.values());
+  // Calculate bucket-level status
+  const mrpBuckets = Array.from(mrpMap.values()).map(bucket => {
+    const items = bucket.items || [];
+    const allMoved = items.length > 0 && items.every(i => (i.movedQuantity || 0) >= i.quantity);
+    const someMoved = items.some(i => (i.movedQuantity || 0) > 0);
+
+    let bucketStatus = "Pending MO Creation";
+    if (allMoved) {
+      bucketStatus = "All MOs Created";
+    } else if (someMoved) {
+      bucketStatus = "Partially Created";
+    }
+
+    return {
+      ...bucket,
+      bucketStatus,
+      completedItemsCount: items.filter(i => (i.movedQuantity || 0) >= i.quantity).length
+    };
+  });
 
   return res.status(200).json(new ApiResponse(200, { mrpBuckets, totalOrders: orders.length }, "MRP PPC Intake Bucket retrieved successfully"));
 });

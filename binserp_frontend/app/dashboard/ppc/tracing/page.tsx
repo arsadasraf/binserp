@@ -1,26 +1,18 @@
 "use client";
 
-import React, { useEffect } from 'react';
-import PPCTabs from "../components/PPCTabs";
-import PPCTraceTab from "../components/PPCTraceTab";
-import { useHeader } from "@/src/context/HeaderContext";
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function PPCTracingPage() {
-  const { setHeader } = useHeader();
+  const router = useRouter();
 
   useEffect(() => {
-    setHeader("Production Traceability", "Trace each process, component, work order, and manufacturing order in real time.");
-  }, [setHeader]);
+    router.replace("/dashboard/ppc/overview/traceability");
+  }, [router]);
 
   return (
-    <div className="min-h-screen bg-gray-50/50 dark:bg-gray-950 pb-24 sm:pb-8">
-      <div className="p-4 max-w-[1600px] mx-auto">
-        <PPCTabs activeTab="tracing" />
-
-        <div className="mt-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <PPCTraceTab />
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
     </div>
   );
 }

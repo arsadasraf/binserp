@@ -138,7 +138,6 @@ export default function CRMDataHub() {
                                 </div>
                                 <div>
                                     <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Bulk Spreadsheet Importer</h3>
-                                    <p className="text-xs text-slate-400">Import hundreds of Leads or Customers in seconds</p>
                                 </div>
                             </div>
                             
@@ -149,7 +148,7 @@ export default function CRMDataHub() {
                                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                                         importType === "leads" 
                                             ? "bg-white dark:bg-slate-800 text-blue-600 shadow-xs" 
-                                            : "text-slate-500 hover:text-slate-700"
+                                             : "text-slate-500 hover:text-slate-700"
                                     }`}
                                 >
                                     Leads
@@ -171,7 +170,6 @@ export default function CRMDataHub() {
                         <div className="mt-5 p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
                             <div className="text-xs">
                                 <span className="font-bold text-slate-800 dark:text-slate-200 block">Step 1: Download Standard Excel Template</span>
-                                <span className="text-slate-400">Contains pre-formatted columns, sample data & field guidelines.</span>
                             </div>
                             <button
                                 onClick={() => handleDownloadTemplate(importType)}
@@ -259,7 +257,6 @@ export default function CRMDataHub() {
                                 </div>
                                 <div>
                                     <h3 className="font-extrabold text-base text-slate-900 dark:text-white">Custom Excel Data Exporter</h3>
-                                    <p className="text-xs text-slate-400">Download filtered CRM datasets into clean .xlsx spreadsheets</p>
                                 </div>
                             </div>
 
@@ -372,13 +369,6 @@ export default function CRMDataHub() {
                                         className="w-full px-3.5 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl font-semibold outline-none"
                                     />
                                 </div>
-                            </div>
-
-                            <div className="p-4 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-900/50 space-y-1">
-                                <span className="font-extrabold text-emerald-900 dark:text-emerald-300 block">Export Includes:</span>
-                                <p className="text-slate-600 dark:text-slate-400 text-[11px]">
-                                    Complete contact coordinates, company name, requirements, lead warmth score, deal value, assigned sales rep, and creation timestamps formatted for reporting and offline analysis.
-                                </p>
                             </div>
                         </div>
                     </div>

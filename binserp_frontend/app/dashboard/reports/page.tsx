@@ -17,22 +17,19 @@ export default function ReportsPage() {
             <div className="p-4 max-w-[1600px] mx-auto">
 
                 {/* Header Section */}
-                {/* <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                            <FileText className="text-indigo-600" />
-                            Operational Reports
+                        <h1 className="text-2xl font-black text-gray-900 dark:text-white flex items-center gap-2.5">
+                            <span className="p-2 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-500/20">
+                                <FileText size={20} />
+                            </span>
+                            Operational Intelligence & Reports
                         </h1>
-                        <p className="text-gray-500 dark:text-gray-400 mt-1">
-                            Real-time insights into manufacturing performance, workforce, and inventory.
+                        <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                            Live dynamic performance analytics across Workstations & OEE, Workforce & Productivity, and Complete Store Inventory.
                         </p>
                     </div>
-
-                    <button className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-sm">
-                        <Download size={16} className="text-gray-500" />
-                        Export Monthly Report
-                    </button>
-                </div> */}
+                </div>
 
                 {/* Tab Navigation */}
                 <div className="flex flex-wrap gap-2 mb-8 p-1.5 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 w-fit shadow-sm">

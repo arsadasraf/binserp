@@ -281,6 +281,11 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       const finalStatus = (rawStatus.toLowerCase() === 'deactivated' || rawStatus.toLowerCase() === 'inactive' || item.isActive === false) ? 'Deactivated' : 'Active';
       const finalActive = finalStatus === 'Active';
 
+      const rawHasSecUnit = (item.hasSecondaryUnit ?? item.secondaryUnitApplicable ?? '').toString().trim().toLowerCase();
+      const isDualUnit = rawHasSecUnit === 'true' || rawHasSecUnit === 'yes' || rawHasSecUnit === 'y' || item.hasSecondaryUnit === true;
+      const secUnit = isDualUnit ? (item.secondaryUnit || '').toString().trim() : '';
+      const convFactor = isDualUnit && Number(item.conversionFactor) > 0 ? Number(item.conversionFactor) : 1;
+
       const defaultPrefix = isConsumable ? 'CON' : (determinedItemType === 'Bought Out' ? 'BO' : 'RM');
       const materialCode = (item.code || item.materialCode || '').toString().trim() || `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
 
@@ -294,6 +299,9 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         descriptions: item.descriptions || item.description || '',
         minimumStock: Number(item.minStock ?? item.minimumStock ?? 0),
         unit: rawUnit,
+        hasSecondaryUnit: isDualUnit,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
         hsnCode: rawHsn,
         categoryId: category?._id,
         ...(locationId ? { locationId } : {}),

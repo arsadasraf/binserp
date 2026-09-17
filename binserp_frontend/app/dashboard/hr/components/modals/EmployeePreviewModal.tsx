@@ -44,6 +44,18 @@ export default function EmployeePreviewModal({
 
   const isDownloading = downloadingCardId === employee._id;
 
+  const getEmployeePerDay = (emp: Employee) => {
+    const basis = emp.salary?.perDayCalculationBasis || "Gross";
+    const divisorBasis = emp.salary?.dailyDivisorBasis || "TotalMonthDays";
+    let base = 0;
+    if (basis === "Gross") base = emp.salary?.grossSalary || 0;
+    else if (basis === "Net") base = emp.salary?.netSalary || 0;
+    else base = emp.salary?.basic || 0;
+
+    const divisor = divisorBasis === "ApplicableWorkingDays" ? 26 : 30;
+    return divisor > 0 ? Math.round((base / divisor) * 100) / 100 : 0;
+  };
+
   return (
     <div className="animate-in backdrop-blur-sm bg-black/60 duration-200 fade-in fixed flex inset-0 items-center justify-center p-4 z-[999]">
       <div className="bg-white dark:bg-slate-900 flex flex-col max-h-[92vh] max-w-4xl overflow-hidden rounded-2xl shadow-2xl w-full border border-gray-100 dark:border-slate-800">
@@ -334,22 +346,34 @@ export default function EmployeePreviewModal({
                 <IndianRupee size={14} className="text-emerald-500" /> Salary & Bank Details
               </h4>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 p-3 rounded-xl">
+              <div className="grid grid-cols-3 gap-2.5">
+                <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/50 p-2.5 rounded-xl">
                   <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase block mb-1">
                     Gross Salary
                   </span>
-                  <span className="text-base font-black text-emerald-700 dark:text-emerald-300 font-mono">
+                  <span className="text-sm font-black text-emerald-700 dark:text-emerald-300 font-mono">
                     ₹{(employee.salary?.grossSalary || 0).toLocaleString()}
                   </span>
                 </div>
 
-                <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 p-3 rounded-xl">
+                <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/50 p-2.5 rounded-xl">
                   <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase block mb-1">
                     Net Salary
                   </span>
-                  <span className="text-base font-black text-blue-700 dark:text-blue-300 font-mono">
+                  <span className="text-sm font-black text-blue-700 dark:text-blue-300 font-mono">
                     ₹{(employee.salary?.netSalary || 0).toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 p-2.5 rounded-xl">
+                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase block mb-1 flex items-center justify-between">
+                    <span>Per Day</span>
+                    <span className="text-[9px] font-normal text-indigo-500 lowercase">
+                      {employee.salary?.perDayCalculationBasis || "Gross"}/{employee.salary?.dailyDivisorBasis === "ApplicableWorkingDays" ? "26d" : "30d"}
+                    </span>
+                  </span>
+                  <span className="text-sm font-black text-indigo-700 dark:text-indigo-300 font-mono">
+                    ₹{getEmployeePerDay(employee).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
               </div>

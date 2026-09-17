@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { 
-    Plus, Search, Filter, RefreshCw, DollarSign, Calendar, User, 
+    Plus, Search, Filter, RefreshCw, IndianRupee, Calendar, User, 
     Building2, CheckCircle2, XCircle, ArrowRight, Edit2, Trash2, X, Tag 
 } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/src/lib/api";
@@ -314,7 +314,6 @@ export default function DealsPipeline() {
                                 <h3 className="font-extrabold text-base">
                                     {editingDeal ? "Edit Deal & Opportunity" : "Create New Deal"}
                                 </h3>
-                                <p className="text-xs text-slate-400 mt-0.5">Pipeline revenue tracking</p>
                             </div>
                             <button onClick={() => setIsModalOpen(false)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300">
                                 <X size={16} />

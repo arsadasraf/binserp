@@ -1,44 +1,18 @@
 import React, { useState } from 'react';
-import { 
-  useGetProductionOrdersQuery, 
-  useAutoScheduleMutation 
-} from "@/src/store/services/ppcService";
-import { ClipboardList, Sliders, Calendar } from 'lucide-react';
+import { ClipboardList, Calendar, Cpu, Users } from 'lucide-react';
 import MachineAssignmentBoard from './MachineAssignmentBoard';
 import PlanningBoard from './PlanningBoard';
 import PPCDailyAssignmentTab from './PPCDailyAssignmentTab';
-import { Cpu, Users } from 'lucide-react';
 
-type PlanningSubTab = "auto" | "board" | "assignments";
+type PlanningSubTab = "assignments" | "board";
 
 export default function PPCPlanningTab() {
   const [subTab, setSubTab] = useState<PlanningSubTab>("assignments");
   const [assignmentType, setAssignmentType] = useState<"machines" | "employees">("machines");
-  const [schedulingId, setSchedulingId] = useState<string | null>(null);
-
-  const { data: allOrders = [], isLoading: loading } = useGetProductionOrdersQuery();
-  const [autoSchedule] = useAutoScheduleMutation();
-
-  const pendingOrders = allOrders.filter((o: any) => o.status === "Pending" || o.status === "Planning");
-
-  const handleAutoPlan = async (orderId: string) => {
-    setSchedulingId(orderId);
-    try {
-      const res = await autoSchedule({ orderId }).unwrap();
-      alert("Order scheduled successfully!");
-      setSubTab("board");
-    } catch (e: any) {
-      console.error(e);
-      alert(e?.data?.message || "Error scheduling order");
-    } finally {
-      setSchedulingId(null);
-    }
-  };
 
   const tabs = [
-    { id: "assignments" as PlanningSubTab, label: "Assignments",   icon: ClipboardList },
-    { id: "auto"        as PlanningSubTab, label: "Auto-Planning", icon: Sliders },
-    { id: "board"       as PlanningSubTab, label: "Planning Board",icon: Calendar },
+    { id: "assignments" as PlanningSubTab, label: "Assignments", icon: ClipboardList },
+    { id: "board" as PlanningSubTab, label: "Planning Board", icon: Calendar },
   ];
 
   return (
@@ -93,56 +67,6 @@ export default function PPCPlanningTab() {
             </div>
 
             {assignmentType === "machines" ? <MachineAssignmentBoard /> : <PPCDailyAssignmentTab />}
-          </div>
-        )}
-
-        {/* AUTO-PLANNING TAB */}
-        {subTab === "auto" && (
-          <div>
-            <h3 className="font-bold text-gray-900 dark:text-white mb-2">Auto-Schedule Orders</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              Select an order to automatically assign machine and manpower resources based on raw material availability and process constraints.
-            </p>
-            {loading ? (
-              <div className="py-8 text-center text-gray-500">Loading orders...</div>
-            ) : pendingOrders.length === 0 ? (
-              <div className="py-8 text-center bg-gray-50 dark:bg-gray-800 rounded-xl text-gray-500">
-                No pending orders for planning.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left border rounded-xl overflow-hidden">
-                  <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 font-medium border-b">
-                    <tr>
-                      <th className="px-4 py-3">Order #</th>
-                      <th className="px-4 py-3">Customer</th>
-                      <th className="px-4 py-3">Target Date</th>
-                      <th className="px-4 py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {pendingOrders.map(o => (
-                      <tr key={o._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{o.orderNumber}</td>
-                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{o.customerName}</td>
-                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
-                          {o.dispatchDate ? new Date(o.dispatchDate).toLocaleDateString() : "N/A"}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => handleAutoPlan(o._id)}
-                            disabled={schedulingId === o._id}
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-                          >
-                            {schedulingId === o._id ? "Planning..." : "Auto Plan"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
         )}
 

@@ -40,14 +40,13 @@ export default function CRMOverview() {
             {/* Header Refresh Bar */}
             <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-xs">
                 <div>
-                    <h2 className="text-base font-extrabold text-slate-900 dark:text-white">CRM Performance & Revenue Command Center</h2>
-                    <p className="text-xs text-slate-500 mt-0.5">Real-time pipeline velocity, conversion ratios, and lead channel ROI</p>
+                    <h2 className="text-base font-extrabold text-slate-900 dark:text-white">CRM Overview</h2>
                 </div>
                 <button
                     onClick={fetchStats}
                     className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
                 >
-                    <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh Analytics
+                    <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
                 </button>
             </div>
 
@@ -139,11 +138,10 @@ export default function CRMOverview() {
                 
                 {/* 1. Conversion Funnel */}
                 <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs">
-                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                         <BarChart2 size={16} className="text-blue-600" />
                         Lead Pipeline Funnel
                     </h3>
-                    <p className="text-xs text-slate-400 mb-4">Volume distribution across pipeline progression stages</p>
 
                     <div className="space-y-3">
                         {stageFunnel.length === 0 ? (
@@ -173,11 +171,10 @@ export default function CRMOverview() {
 
                 {/* 2. Channel & Source ROI */}
                 <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs">
-                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                    <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                         <TrendingUp size={16} className="text-emerald-600" />
                         Lead Source Performance
                     </h3>
-                    <p className="text-xs text-slate-400 mb-4">Inquiry generation and win rate per acquisition channel</p>
 
                     <div className="space-y-3">
                         {sourceStats.length === 0 ? (
@@ -202,11 +199,10 @@ export default function CRMOverview() {
                 {/* 3. Warmth Score & Health */}
                 <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs flex flex-col justify-between">
                     <div>
-                        <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                        <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                             <Flame size={16} className="text-rose-500" />
                             Lead Warmth Breakdown
                         </h3>
-                        <p className="text-xs text-slate-400 mb-4">Readiness to buy and deal urgency distribution</p>
 
                         <div className="space-y-3">
                             <div className="p-3 bg-rose-50/70 dark:bg-rose-950/30 rounded-2xl border border-rose-100 dark:border-rose-900/40 flex items-center justify-between">
@@ -237,11 +233,10 @@ export default function CRMOverview() {
 
             {/* Bottom: Recent Activity Stream */}
             <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 p-5 shadow-xs">
-                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white mb-4 flex items-center gap-2">
                     <Clock size={16} className="text-blue-600" />
-                    Recent CRM Interactions & Follow-up Log
+                    Recent Interactions
                 </h3>
-                <p className="text-xs text-slate-400 mb-4">Latest calls, client meetings, demos, and site visits</p>
 
                 <div className="overflow-x-auto">
                     <table className="w-full text-xs text-left">

@@ -28,7 +28,7 @@ export const createConsumableItem = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, descriptions, minimumStock, categoryId, locationId, unit, hsnCode } = req.body;
+    let { name, code, descriptions, minimumStock, categoryId, locationId, unit, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
 
     if (!name || !name.toString().trim()) {
       return res.status(400).json({ message: "Name is required" });
@@ -36,6 +36,9 @@ export const createConsumableItem = async (req, res) => {
     const cleanName = name.toString().trim();
     const itemUnit = (unit || 'PCS').toString().trim();
     const itemHsn = (hsnCode || '').toString().trim();
+    const isDualUnit = String(hasSecondaryUnit) === 'true' || hasSecondaryUnit === true;
+    const cleanSecondaryUnit = isDualUnit ? (secondaryUnit || '').toString().trim() : '';
+    const cleanConversionFactor = isDualUnit && Number(conversionFactor) > 0 ? Number(conversionFactor) : 1;
 
     // Pre-validate uniqueness
     const uniqueness = await validateMasterUniqueness({
@@ -153,6 +156,9 @@ export const createConsumableItem = async (req, res) => {
       minimumStock: Number(minimumStock || 0),
       ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
       unit: itemUnit,
+      hasSecondaryUnit: isDualUnit,
+      secondaryUnit: cleanSecondaryUnit,
+      conversionFactor: cleanConversionFactor,
       hsnCode: itemHsn,
       ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
       photos: photoUrls,
@@ -174,6 +180,9 @@ export const createConsumableItem = async (req, res) => {
             materialName: cleanName,
             itemType: 'Consumable',
             unit: itemUnit,
+            hasSecondaryUnit: isDualUnit,
+            secondaryUnit: cleanSecondaryUnit,
+            conversionFactor: cleanConversionFactor,
             currentStock: 0,
             reorderLevel: Number(minimumStock || 0),
             reorderQuantity: 0,
@@ -396,6 +405,17 @@ export const updateConsumableItem = async (req, res) => {
     req.body.updatedBy = userId;
     req.body.updatedByName = userName;
 
+    if (req.body.hasSecondaryUnit !== undefined) {
+      req.body.hasSecondaryUnit = String(req.body.hasSecondaryUnit) === 'true' || req.body.hasSecondaryUnit === true;
+      if (!req.body.hasSecondaryUnit) {
+        req.body.secondaryUnit = '';
+        req.body.conversionFactor = 1;
+      } else {
+        req.body.secondaryUnit = (req.body.secondaryUnit || '').toString().trim();
+        req.body.conversionFactor = Number(req.body.conversionFactor) > 0 ? Number(req.body.conversionFactor) : 1;
+      }
+    }
+
     // Pre-validate uniqueness if name or code is being updated
     if (req.body.name || req.body.code) {
       const uniqueness = await validateMasterUniqueness({
@@ -445,6 +465,9 @@ export const updateConsumableItem = async (req, res) => {
       if (req.body.unit) invUpdates.unit = req.body.unit.toString().trim();
       if (req.body.name) invUpdates.materialName = req.body.name.toString().trim();
       if (req.body.minimumStock !== undefined) invUpdates.reorderLevel = Number(req.body.minimumStock);
+      if (req.body.hasSecondaryUnit !== undefined) invUpdates.hasSecondaryUnit = req.body.hasSecondaryUnit;
+      if (req.body.secondaryUnit !== undefined) invUpdates.secondaryUnit = req.body.secondaryUnit;
+      if (req.body.conversionFactor !== undefined) invUpdates.conversionFactor = req.body.conversionFactor;
 
       if (Object.keys(invUpdates).length > 0) {
         await Inventory.findOneAndUpdate(

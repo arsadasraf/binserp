@@ -35,6 +35,8 @@ export default function ConsumableTable({
       'Consumable Code': item.code || '-',
       'Category': item.category || (typeof item.categoryId === 'object' ? item.categoryId?.name : item.categoryId) || '-',
       'Unit': item.unit || '-',
+      'Secondary Unit': item.hasSecondaryUnit ? (item.secondaryUnit || '-') : 'N/A',
+      'Conversion Factor': item.hasSecondaryUnit ? (item.conversionFactor ?? 1) : 'N/A',
       'HSN Code': item.hsnCode || '-',
       'Status': item.status || (item.isActive === false ? 'Deactivated' : 'Active'),
       'Min Stock': item.minimumStock ?? item.minStock ?? 0,
@@ -120,9 +122,19 @@ export default function ConsumableTable({
       label: 'Unit',
       getValue: (item) => item.unit || 'PCS',
       render: (item) => (
-        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-          {item.unit || 'PCS'}
-        </span>
+        <div className="flex flex-col">
+          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+            {item.unit || 'PCS'}
+          </span>
+          {item.hasSecondaryUnit && item.secondaryUnit && (
+            <span 
+              className="text-[10px] font-mono text-teal-600 dark:text-teal-400 mt-0.5 bg-teal-50 dark:bg-teal-950/60 px-1.5 py-0.5 rounded border border-teal-100 dark:border-teal-900/60 w-fit inline-block"
+              title={`Dual Unit: 1 ${item.unit || 'Unit'} = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
+            >
+              1 = {item.conversionFactor ?? 1} {item.secondaryUnit}
+            </span>
+          )}
+        </div>
       )
     },
     {

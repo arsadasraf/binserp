@@ -93,7 +93,7 @@ import {
   savePPCProduct,
   uploadRoutingAttachment
 } from "../controllers/ppc/index.js";
-import { moveProductionToManufacturing } from "../controllers/ppc/moveToManufacturing.controller.js";
+import { moveProductionToManufacturing, getAllManufacturingOrders } from "../controllers/ppc/moveToManufacturing.controller.js";
 import { getMRPPPCIntakeBucket } from "../controllers/purchase/index.js";
 import { verifyJWT, restrictExecutive } from "../middlewares/auth.middleware.js";
 
@@ -127,6 +127,7 @@ router.get("/production-orders", getAllProductionOrders);
 router.post("/production-orders", upload.array('photos', 5), createProductionOrder);
 router.put("/production-orders/:id", upload.array('photos', 5), updateProductionOrder);
 router.post("/production-order/:id/move", moveProductionToManufacturing);
+router.get("/manufacturing-orders", getAllManufacturingOrders);
 
 router.get("/orders", getAllPPCOrders);
 

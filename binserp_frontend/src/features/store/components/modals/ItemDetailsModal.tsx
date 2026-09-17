@@ -388,9 +388,21 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                 {/* Current Stock Card */}
                                 <div className="bg-gray-50 dark:bg-gray-800/80 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-bold block mb-1">Current Stock</span>
-                                    <span className={`text-xl font-black ${stock <= minStock ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                        {stock} <span className="text-xs font-semibold text-gray-500">{item.unit || ''}</span>
-                                    </span>
+                                    <div className="flex flex-col">
+                                        <span className={`text-xl font-black ${stock <= minStock ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                            {stock} <span className="text-xs font-semibold text-gray-500">{item.unit || ''}</span>
+                                        </span>
+                                        {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
+                                            <div className="flex flex-col mt-0.5">
+                                                <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                    {Number((stock * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                </span>
+                                                <span className="text-[10px] text-gray-400 font-mono">
+                                                    1 {item.unit} = {item.conversionFactor} {item.secondaryUnit}
+                                                </span>
+                                            </div>
+                                        ) : null}
+                                    </div>
 
                                     {/* Opening Stock Quick Edit */}
                                     <div className="mt-2 pt-2 border-t border-gray-200/50 dark:border-gray-700/50 flex items-center justify-between text-xs">
@@ -441,6 +453,11 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                     <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
                                         {minStock} <span className="text-xs font-normal text-gray-500">{item.unit}</span>
                                     </span>
+                                    {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
+                                        <div className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                                            {Number((minStock * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                        </div>
+                                    ) : null}
                                 </div>
 
                                 {/* Storage Location */}
@@ -494,6 +511,14 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                             {item.rackNumber || item.binNumber ? `${item.rackNumber || ''} / ${item.binNumber || ''}` : '-'}
                                         </span>
                                     </div>
+                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                        <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-xl border border-gray-100 dark:border-gray-800">
+                                            <span className="text-gray-400 block text-[10px] font-semibold uppercase">Secondary Unit & Ratio</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                1 {item.unit} = {item.conversionFactor} {item.secondaryUnit}
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -522,19 +547,39 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                     <div className="grid grid-cols-4 gap-3 text-center text-xs">
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-gray-400 block text-[10px] font-semibold uppercase">Opening</span>
-                                            <span className="font-bold text-gray-800 dark:text-gray-200">{item.monthlyData.openingStock || 0}</span>
+                                            <span className="font-bold text-gray-800 dark:text-gray-200">{item.monthlyData.openingStock || 0} {item.unit}</span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
+                                                <span className="block text-[10px] text-gray-500 font-mono mt-0.5">
+                                                    {Number(((item.monthlyData.openingStock || 0) * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-emerald-600 block text-[10px] font-semibold uppercase">Total Inward</span>
-                                            <span className="font-bold text-emerald-600">+{item.monthlyData.totalInwardQuantity || 0}</span>
+                                            <span className="font-bold text-emerald-600">+{item.monthlyData.totalInwardQuantity || 0} {item.unit}</span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
+                                                <span className="block text-[10px] text-emerald-600/80 font-mono mt-0.5">
+                                                    +{Number(((item.monthlyData.totalInwardQuantity || 0) * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-rose-600 block text-[10px] font-semibold uppercase">Total Outward</span>
-                                            <span className="font-bold text-rose-600">-{item.monthlyData.totalOutwardQuantity || 0}</span>
+                                            <span className="font-bold text-rose-600">-{item.monthlyData.totalOutwardQuantity || 0} {item.unit}</span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
+                                                <span className="block text-[10px] text-rose-600/80 font-mono mt-0.5">
+                                                    -{Number(((item.monthlyData.totalOutwardQuantity || 0) * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div className="bg-white dark:bg-gray-900 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800">
                                             <span className="text-indigo-600 block text-[10px] font-semibold uppercase">Net Closing</span>
-                                            <span className="font-extrabold text-indigo-600">{stock}</span>
+                                            <span className="font-extrabold text-indigo-600">{stock} {item.unit}</span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && item.conversionFactor ? (
+                                                <span className="block text-[10px] text-indigo-600/80 font-mono mt-0.5">
+                                                    {Number((stock * item.conversionFactor).toFixed(4))} {item.secondaryUnit}
+                                                </span>
+                                            ) : null}
                                         </div>
                                     </div>
                                 </div>

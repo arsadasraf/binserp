@@ -23,6 +23,9 @@ export const consumableItemSchema = new mongoose.Schema(
       ref: "Location",
     },
     unit: { type: String, default: "PCS", trim: true },
+    hasSecondaryUnit: { type: Boolean, default: false },
+    secondaryUnit: { type: String, trim: true, default: "" },
+    conversionFactor: { type: Number, default: 1, min: 0 },
     hsnCode: { type: String, default: "", trim: true },
     photos: {
       type: [String],

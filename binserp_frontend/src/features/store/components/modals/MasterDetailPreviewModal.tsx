@@ -384,11 +384,27 @@ export default function MasterDetailPreviewModal({
                                             </span>
                                         </div>
                                         <div className="flex justify-between py-1">
-                                            <span className="text-slate-500 dark:text-slate-400">Default Unit:</span>
+                                            <span className="text-slate-500 dark:text-slate-400">Primary Unit:</span>
                                             <span className="font-bold text-slate-800 dark:text-slate-200">
                                                 {item.unit || 'PCS'}
                                             </span>
                                         </div>
+                                        {item.hasSecondaryUnit && item.secondaryUnit && (
+                                            <>
+                                                <div className="flex justify-between py-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                                                    <span className="text-slate-500 dark:text-slate-400">Secondary Unit:</span>
+                                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                                        {item.secondaryUnit}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between py-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                                                    <span className="text-slate-500 dark:text-slate-400">Conversion Ratio:</span>
+                                                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                        1 {item.unit || 'Unit'} = {item.conversionFactor ?? 1} {item.secondaryUnit}
+                                                    </span>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 

@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
 import { usePermission } from "@/src/hooks/usePermission";
-import { LayoutDashboard, FileText, Calendar, Database, Activity } from "lucide-react";
+import { LayoutDashboard, FileText, Calendar, Database, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 
-type PPCTab = "overview" | "orders" | "planning" | "tracing" | "master";
+type PPCTab = "overview" | "orders" | "planning" | "auto-planning" | "tracing" | "master";
 
 interface PPCTabsProps {
     activeTab?: PPCTab;
@@ -22,7 +22,8 @@ export default function PPCTabs({ activeTab }: PPCTabsProps) {
     const currentTab = activeTab || (
         pathname?.includes("/dashboard/ppc/orders") ? "orders" :
         pathname?.includes("/dashboard/ppc/planning") ? "planning" :
-        pathname?.includes("/dashboard/ppc/tracing") ? "tracing" :
+        pathname?.includes("/dashboard/ppc/auto-planning") ? "auto-planning" :
+        pathname?.includes("/dashboard/ppc/tracing") ? "auto-planning" :
         pathname?.includes("/dashboard/ppc/master") ? "master" :
         "overview"
     );
@@ -31,12 +32,15 @@ export default function PPCTabs({ activeTab }: PPCTabsProps) {
         { id: "overview", key: "overview", label: "Overview", icon: LayoutDashboard, href: "/dashboard/ppc/overview" },
         { id: "orders", key: "orders", label: "Orders", icon: FileText, href: "/dashboard/ppc/orders" },
         { id: "planning", key: "planning", label: "Planning", icon: Calendar, href: "/dashboard/ppc/planning" },
-        { id: "tracing", key: "tracing", label: "Traceability", icon: Activity, href: "/dashboard/ppc/tracing" },
+        { id: "auto-planning", key: "auto-planning", label: "Auto Planning & Scheduling", icon: Sparkles, href: "/dashboard/ppc/auto-planning" },
         { id: "master", key: "masters", label: "Master", icon: Database, href: "/dashboard/ppc/master/shop-floor/workstation" },
     ];
 
     const tabs = allTabs.filter(tab => {
         if (userType === "saasadmin" || userType === "company") return true;
+        if (tab.id === "auto-planning") {
+            return hasTabAccess("PPC", "auto-planning") || hasTabAccess("PPC", "planning") || hasTabAccess("PPC", "tracing");
+        }
         return hasTabAccess("PPC", tab.key) || hasTabAccess("PPC", tab.id);
     });
 

@@ -69,6 +69,11 @@ export default function MaterialRequestModal({
             materialDescription: "" as string | undefined,
             quantity: 1,
             unit: initialType === 'fg' ? "Nos" : "PCS",
+            hasSecondaryUnit: false,
+            secondaryUnit: "",
+            conversionFactor: 0,
+            secondaryQuantity: 0,
+            selectedUnit: initialType === 'fg' ? "Nos" : "PCS",
             purpose: "",
             component: undefined as string | undefined,
             consumable: undefined as string | undefined,
@@ -103,6 +108,11 @@ export default function MaterialRequestModal({
                     materialDescription: "" as string | undefined,
                     quantity: 1,
                     unit: currentInitial === 'fg' ? "Nos" : "PCS",
+                    hasSecondaryUnit: false,
+                    secondaryUnit: "",
+                    conversionFactor: 0,
+                    secondaryQuantity: 0,
+                    selectedUnit: currentInitial === 'fg' ? "Nos" : "PCS",
                     purpose: "",
                     component: undefined,
                     consumable: undefined,
@@ -186,12 +196,22 @@ export default function MaterialRequestModal({
         if (formData.type === 'fg' && Array.isArray(selectedPlan.fgItems) && selectedPlan.fgItems.length > 0) {
             populatedItems = selectedPlan.fgItems.map((f: any) => {
                 const comp = effectiveFGList.find((c: any) => (c._id === f.fgItem || c.name === f.fgItemName));
+                const hasSec = Boolean(comp?.hasSecondaryUnit);
+                const secUnit = comp?.secondaryUnit || "";
+                const convFactor = Number(comp?.conversionFactor) || 0;
+                const qty = f.quantity || 1;
+                const secQty = hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0;
                 return {
                     material: comp?._id || f.fgItem || '',
                     materialName: f.fgItemName,
                     materialCode: f.fgItemCode || '',
-                    quantity: f.quantity || 1,
+                    quantity: qty,
                     unit: f.unit || 'Nos',
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: secUnit,
+                    conversionFactor: convFactor,
+                    secondaryQuantity: secQty,
+                    selectedUnit: f.unit || 'Nos',
                     purpose: `Production for MRP: ${selectedPlan.mrpNumber}`,
                     component: comp?._id || f.fgItem,
                     fgItem: comp?._id || f.fgItem,
@@ -203,12 +223,22 @@ export default function MaterialRequestModal({
             populatedItems = selectedPlan.rmRequirements.map((r: any) => {
                 const searchList = formData.type === 'bo' ? effectiveBOList : effectiveRMList;
                 const mat = searchList.find((m: any) => (m._id === r.material || m.name === r.materialName));
+                const hasSec = Boolean(mat?.hasSecondaryUnit);
+                const secUnit = mat?.secondaryUnit || "";
+                const convFactor = Number(mat?.conversionFactor) || 0;
+                const qty = r.shortage > 0 ? r.shortage : (r.requiredQuantity || 1);
+                const secQty = hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0;
                 return {
                     material: mat?._id || r.material || '',
                     materialName: r.materialName,
                     materialCode: r.materialCode || '',
-                    quantity: r.shortage > 0 ? r.shortage : (r.requiredQuantity || 1),
+                    quantity: qty,
                     unit: r.unit || 'PCS',
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: secUnit,
+                    conversionFactor: convFactor,
+                    secondaryQuantity: secQty,
+                    selectedUnit: r.unit || 'PCS',
                     purpose: `Demand for MRP: ${selectedPlan.mrpNumber}`,
                     consumable: undefined,
                     component: undefined,
@@ -302,6 +332,11 @@ export default function MaterialRequestModal({
 
         const currentStock = getStock(materialId, selectedItem?.code || selectedItem?.componentCode, selectedItem?.name || selectedItem?.componentName);
         const materialDesc = selectedItem?.description || selectedItem?.specification || selectedItem?.grade || "";
+        const hasSecondaryUnit = Boolean(selectedItem?.hasSecondaryUnit);
+        const secondaryUnit = selectedItem?.secondaryUnit || "";
+        const conversionFactor = Number(selectedItem?.conversionFactor) || 0;
+        const currentQty = formData.items[index]?.quantity || 1;
+        const secondaryQuantity = hasSecondaryUnit && conversionFactor ? parseFloat((currentQty * conversionFactor).toFixed(4)) : 0;
 
         const newItems = [...formData.items];
         newItems[index] = {
@@ -311,6 +346,11 @@ export default function MaterialRequestModal({
             materialCode: selectedItem?.code || selectedItem?.componentCode || "",
             materialDescription: materialDesc,
             unit: unitVal,
+            hasSecondaryUnit,
+            secondaryUnit,
+            conversionFactor,
+            secondaryQuantity,
+            selectedUnit: unitVal,
             currentStock,
             consumable: formData.type === 'consumable' ? materialId : undefined,
             component: formData.type === 'fg' ? materialId : undefined,
@@ -335,6 +375,11 @@ export default function MaterialRequestModal({
                 materialDescription: "",
                 quantity: 1,
                 unit: formData.type === 'fg' ? "Nos" : "PCS",
+                hasSecondaryUnit: false,
+                secondaryUnit: "",
+                conversionFactor: 0,
+                secondaryQuantity: 0,
+                selectedUnit: formData.type === 'fg' ? "Nos" : "PCS",
                 purpose: "",
                 component: undefined,
                 consumable: undefined,
@@ -360,6 +405,11 @@ export default function MaterialRequestModal({
                 materialDescription: "",
                 quantity: 1,
                 unit: newType === 'fg' ? "Nos" : "PCS",
+                hasSecondaryUnit: false,
+                secondaryUnit: "",
+                conversionFactor: 0,
+                secondaryQuantity: 0,
+                selectedUnit: newType === 'fg' ? "Nos" : "PCS",
                 purpose: "",
                 component: undefined,
                 consumable: undefined,
@@ -514,7 +564,15 @@ export default function MaterialRequestModal({
                         <div className="space-y-3">
                             {formData.items.map((item: any, index) => {
                                 const currentStock = getStock(item.material, item.materialCode, item.materialName);
-                                const isExceedingStock = item.material && item.quantity > currentStock;
+                                const secStock = item.hasSecondaryUnit && item.conversionFactor ? currentStock * item.conversionFactor : 0;
+                                const isOperatingInSecondary = Boolean(item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit);
+                                const isExceedingStock = Boolean(
+                                    item.material && (
+                                        isOperatingInSecondary
+                                            ? (item.secondaryQuantity > secStock || item.quantity > currentStock)
+                                            : (item.quantity > currentStock)
+                                    )
+                                );
 
                                 // Options generation strictly filtered per category with Name and Description ONLY
                                 const currentOptions = (
@@ -568,8 +626,8 @@ export default function MaterialRequestModal({
                                             )}
                                         </div>
 
-                                        {/* Current Stock Field */}
-                                        <div className="w-full sm:w-32">
+                                        {/* Current Stock Field (Dual-Unit Aware) */}
+                                        <div className="w-full sm:w-36">
                                             <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center gap-1">
                                                 <Package size={12} /> Stock
                                             </label>
@@ -579,34 +637,115 @@ export default function MaterialRequestModal({
                                                     : 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800 text-red-600 dark:text-red-300'
                                                 : 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400'
                                                 }`}>
-                                                {item.material ? `${currentStock} ${item.unit}` : '-'}
+                                                {item.material ? (
+                                                    <div>
+                                                        <div>{currentStock} {item.unit}</div>
+                                                        {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                            <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
+                                                                ({secStock.toFixed(2)} {item.secondaryUnit})
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : '-'}
                                             </div>
                                         </div>
 
+                                        {/* Unit Selector Dropdown */}
                                         <div className="w-full sm:w-32">
-                                            <label className="block text-xs font-semibold text-gray-500 mb-1">Quantity</label>
+                                            <label className="block text-xs font-semibold text-gray-500 mb-1">
+                                                Unit
+                                            </label>
+                                            {item.hasSecondaryUnit ? (
+                                                <select
+                                                    value={item.selectedUnit || item.unit}
+                                                    onChange={(e) => {
+                                                        const newUnit = e.target.value;
+                                                        const newItems = [...formData.items];
+                                                        newItems[index] = {
+                                                            ...newItems[index],
+                                                            selectedUnit: newUnit
+                                                        };
+                                                        setFormData({ ...formData, items: newItems });
+                                                    }}
+                                                    className="w-full px-2.5 py-2 bg-white dark:bg-gray-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-xs"
+                                                >
+                                                    <option value={item.unit}>{item.unit} (Primary)</option>
+                                                    <option value={item.secondaryUnit}>{item.secondaryUnit} (Secondary)</option>
+                                                </select>
+                                            ) : (
+                                                <div className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 flex items-center justify-between">
+                                                    <span>{item.unit || 'PCS'}</span>
+                                                    <span className="text-[9px] text-gray-400 font-semibold uppercase">Pri</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Dynamic Quantity Input based on Selected Unit */}
+                                        <div className="w-full sm:w-36">
+                                            <label className="block text-xs font-semibold text-gray-500 mb-1 flex items-center justify-between">
+                                                <span>Qty ({isOperatingInSecondary ? item.secondaryUnit : item.unit || 'Unit'})</span>
+                                                {isOperatingInSecondary && (
+                                                    <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">2nd</span>
+                                                )}
+                                            </label>
                                             <div className="relative">
                                                 <input
                                                     type="number"
-                                                    value={isNaN(item.quantity) ? '' : item.quantity}
+                                                    value={
+                                                        isOperatingInSecondary
+                                                            ? (isNaN(item.secondaryQuantity) ? '' : item.secondaryQuantity)
+                                                            : (isNaN(item.quantity) ? '' : item.quantity)
+                                                    }
                                                     onChange={(e) => {
                                                         const val = e.target.value === '' ? NaN : parseFloat(e.target.value);
-                                                        updateItem(index, "quantity", val);
+                                                        const newItems = [...formData.items];
+                                                        if (isOperatingInSecondary) {
+                                                            const priVal = (!isNaN(val) && item.conversionFactor > 0)
+                                                                ? parseFloat((val / item.conversionFactor).toFixed(4))
+                                                                : 0;
+                                                            newItems[index] = {
+                                                                ...newItems[index],
+                                                                secondaryQuantity: val,
+                                                                quantity: priVal
+                                                            };
+                                                        } else {
+                                                            const secVal = (!isNaN(val) && item.hasSecondaryUnit && item.conversionFactor > 0)
+                                                                ? parseFloat((val * item.conversionFactor).toFixed(4))
+                                                                : 0;
+                                                            newItems[index] = {
+                                                                ...newItems[index],
+                                                                quantity: val,
+                                                                secondaryQuantity: secVal
+                                                            };
+                                                        }
+                                                        setFormData({ ...formData, items: newItems });
                                                     }}
                                                     className={`w-full px-3 py-2 bg-white dark:bg-gray-900 border rounded-xl focus:ring-2 focus:ring-blue-500 text-xs font-bold ${isExceedingStock ? 'border-red-500 text-red-600 focus:border-red-500 focus:ring-red-200' : 'border-gray-200 dark:border-gray-700'}`}
-                                                    min="0.01"
-                                                    step="0.01"
+                                                    min="0.0001"
+                                                    step="any"
+                                                    placeholder="0"
                                                     required
                                                 />
                                                 {isExceedingStock && (
                                                     <span className="absolute -bottom-5 left-0 text-[10px] text-red-500 font-medium whitespace-nowrap">
-                                                        Max available: {currentStock}
+                                                        Max: {isOperatingInSecondary ? `${secStock.toFixed(2)} ${item.secondaryUnit}` : `${currentStock} ${item.unit}`}
                                                     </span>
                                                 )}
                                             </div>
+
+                                            {/* Live Auto-Conversion Display */}
+                                            {item.hasSecondaryUnit && item.conversionFactor > 0 && (
+                                                <div className="mt-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 truncate" title={`1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
+                                                    {isOperatingInSecondary ? (
+                                                        <span>↳ = <strong className="font-bold">{item.quantity || 0}</strong> {item.unit}</span>
+                                                    ) : (
+                                                        <span>↳ = <strong className="font-bold">{item.secondaryQuantity || 0}</strong> {item.secondaryUnit}</span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
 
-                                        <div className="flex-1">
+                                        <div className="flex-1 min-w-[140px]">
                                             <label className="block text-xs font-semibold text-gray-500 mb-1">Purpose/Remarks</label>
                                             <input
                                                 type="text"
@@ -653,7 +792,15 @@ export default function MaterialRequestModal({
                         }}
                         disabled={loading || isMrpMissing || formData.items.some(item => {
                             const currentStock = getStock(item.material, item.materialCode, item.materialName);
-                            return (item.material && item.quantity > currentStock) || !item.quantity || item.quantity <= 0;
+                            const secStock = item.hasSecondaryUnit && item.conversionFactor ? currentStock * item.conversionFactor : 0;
+                            const isSecondary = item.hasSecondaryUnit && item.selectedUnit === item.secondaryUnit;
+                            const exceeds = isSecondary 
+                                ? (item.secondaryQuantity > secStock || item.quantity > currentStock)
+                                : (item.quantity > currentStock);
+                            const isZeroOrNegative = isSecondary 
+                                ? (!item.secondaryQuantity || item.secondaryQuantity <= 0)
+                                : (!item.quantity || item.quantity <= 0);
+                            return exceeds || isZeroOrNegative;
                         })}
                         className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs font-bold rounded-xl hover:shadow-lg hover:shadow-blue-200 dark:hover:shadow-none transition-all transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:shadow-none cursor-pointer"
                     >

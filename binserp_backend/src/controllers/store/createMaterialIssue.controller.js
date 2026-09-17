@@ -141,14 +141,25 @@ export const createMaterialIssue = async (req, res) => {
           return res.status(400).json({ message: `Consumable item details missing` });
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? consumableDoc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || consumableDoc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? consumableDoc?.conversionFactor ?? 1);
+        const priQty = Number(item.quantity) || 1;
+        const secQty = hasSec ? Number(item.secondaryQuantity || (priQty * convFactor)) : 0;
+
         processedItems.push({
           ...item,
           consumable: resolvedId,
           material: resolvedId,
           materialCode: consumableDoc?.code || item.materialCode || '',
           materialName: consumableDoc?.name || cleanName || 'Consumable Item',
-          quantity: Number(item.quantity) || 1,
-          unit: item.unit || consumableDoc?.unit || "PCS"
+          quantity: priQty,
+          unit: item.unit || consumableDoc?.unit || "PCS",
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: item.selectedUnit || item.unit || consumableDoc?.unit || "PCS"
         });
       } else if (isInhouse) {
         // Inhouse / FG Logic
@@ -179,6 +190,12 @@ export const createMaterialIssue = async (req, res) => {
           return res.status(400).json({ message: `FG Item / Component not found: ${cleanName || 'Unknown'}` });
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? compDoc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || compDoc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? compDoc?.conversionFactor ?? 1);
+        const priQty = Number(item.quantity) || 1;
+        const secQty = hasSec ? Number(item.secondaryQuantity || (priQty * convFactor)) : 0;
+
         processedItems.push({
           ...item,
           component: resolvedCompId,
@@ -186,8 +203,13 @@ export const createMaterialIssue = async (req, res) => {
           material: resolvedCompId,
           materialCode: compDoc?.code || item.materialCode || '',
           materialName: compDoc?.name || cleanName || 'FG Item',
-          quantity: Number(item.quantity) || 1,
-          unit: item.unit || compDoc?.unit || "Nos"
+          quantity: priQty,
+          unit: item.unit || compDoc?.unit || "Nos",
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: item.selectedUnit || item.unit || compDoc?.unit || "Nos"
         });
       } else {
         // Raw Material (RM) / Bought Out (BO) Logic
@@ -226,13 +248,24 @@ export const createMaterialIssue = async (req, res) => {
           return res.status(400).json({ message: `Material not found: ${cleanName || 'Unknown'}` });
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? materialDoc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || materialDoc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? materialDoc?.conversionFactor ?? 1);
+        const priQty = Number(item.quantity) || 1;
+        const secQty = hasSec ? Number(item.secondaryQuantity || (priQty * convFactor)) : 0;
+
         processedItems.push({
           ...item,
           material: resolvedMaterialId,
           materialCode: materialDoc?.code || item.materialCode || '',
           materialName: materialDoc?.name || cleanName || 'Material',
-          quantity: Number(item.quantity) || 1,
-          unit: item.unit || materialDoc?.unit || "PCS"
+          quantity: priQty,
+          unit: item.unit || materialDoc?.unit || "PCS",
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: item.selectedUnit || item.unit || materialDoc?.unit || "PCS"
         });
       }
     }
@@ -335,6 +368,9 @@ export const createMaterialIssue = async (req, res) => {
             referenceDocNumber: issueNumber,
             recipientOrSource: issueDestination,
             purpose: issuePurpose,
+            hasSecondaryUnit: item.hasSecondaryUnit || false,
+            secondaryUnit: item.secondaryUnit || "",
+            secondaryQuantity: item.secondaryQuantity || 0,
             performedBy: req.user?.id || req.user?._id,
           });
         } else {
@@ -359,6 +395,9 @@ export const createMaterialIssue = async (req, res) => {
               referenceDocNumber: issueNumber,
               recipientOrSource: issueDestination,
               purpose: issuePurpose,
+              hasSecondaryUnit: item.hasSecondaryUnit || false,
+              secondaryUnit: item.secondaryUnit || "",
+              secondaryQuantity: item.secondaryQuantity || 0,
               performedBy: req.user?.id || req.user?._id,
             }
           );

@@ -40,6 +40,13 @@ interface MaterialEntry {
     category?: string;
     locationId?: string;
     rate?: number;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantity?: number;
+    currentStock?: number;
+    secondaryCurrentStock?: number;
+    selectedUnit?: string;
 }
 
 export default function GRNModal({
@@ -113,6 +120,13 @@ export default function GRNModal({
         category: '',
         locationId: '',
         rate: 0,
+        hasSecondaryUnit: false,
+        secondaryUnit: '',
+        conversionFactor: 0,
+        secondaryQuantity: 0,
+        currentStock: 0,
+        secondaryCurrentStock: 0,
+        selectedUnit: '',
     }]);
 
     // Refs for file inputs
@@ -211,15 +225,30 @@ export default function GRNModal({
                         const mObj = item.material || item.component || item.fgItem;
                         const matId = typeof mObj === 'object' && mObj !== null ? mObj._id : (mObj || '');
                         const desc = item.description || item.descriptions || (typeof mObj === 'object' ? (mObj.descriptions || mObj.description) : '');
+                        const hasSec = Boolean(item.hasSecondaryUnit ?? (typeof mObj === 'object' ? mObj?.hasSecondaryUnit : false));
+                        const secUnit = item.secondaryUnit || (typeof mObj === 'object' ? mObj?.secondaryUnit : '') || '';
+                        const convFactor = Number(item.conversionFactor ?? (typeof mObj === 'object' ? mObj?.conversionFactor : 0)) || 0;
+                        const curStock = Number((typeof mObj === 'object' ? (mObj?.quantity ?? mObj?.currentStock) : 0)) || 0;
+                        const secStock = hasSec && convFactor ? curStock * convFactor : 0;
+                        const priQty = Number(item.quantity || item.receivedQuantity || 0);
+                        const secQty = Number(item.secondaryQuantity || item.secondaryReceivedQuantity || (hasSec && convFactor ? priQty * convFactor : 0));
+
                         return {
                             material: matId,
                             materialName: item.materialName || (typeof mObj === 'object' ? mObj.name : '') || '',
                             description: desc || '',
-                            quantity: item.quantity || 0,
+                            quantity: priQty,
                             unit: item.unit || '',
                             category: item.category || '',
                             locationId: item.locationId?._id || item.locationId || item.location?._id || item.location || '',
                             rate: item.rate || 0,
+                            hasSecondaryUnit: hasSec,
+                            secondaryUnit: secUnit,
+                            conversionFactor: convFactor,
+                            secondaryQuantity: secQty,
+                            currentStock: curStock,
+                            secondaryCurrentStock: secStock,
+                            selectedUnit: item.selectedUnit || item.unit || '',
                         };
                     });
                     setMaterialEntries(entries);
@@ -251,6 +280,13 @@ export default function GRNModal({
                     category: '',
                     locationId: '',
                     rate: 0,
+                    hasSecondaryUnit: false,
+                    secondaryUnit: '',
+                    conversionFactor: 0,
+                    secondaryQuantity: 0,
+                    currentStock: 0,
+                    secondaryCurrentStock: 0,
+                    selectedUnit: '',
                 }]);
             }
         }
@@ -418,15 +454,30 @@ export default function GRNModal({
 
                 const rate = Number(poItem.rate ?? poItem.unitPrice ?? poItem.price ?? foundPO.rate ?? matchedSafeMat?.rate ?? 0);
 
+                const hasSec = Boolean(matchedSafeMat?.hasSecondaryUnit || poItem?.hasSecondaryUnit);
+                const secUnit = matchedSafeMat?.secondaryUnit || poItem?.secondaryUnit || '';
+                const convFactor = Number(matchedSafeMat?.conversionFactor || poItem?.conversionFactor) || 0;
+                const curStock = Number(matchedSafeMat?.quantity ?? matchedSafeMat?.currentStock ?? 0);
+                const secStock = hasSec && convFactor ? curStock * convFactor : 0;
+                const finalPriQty = qtyRemaining > 0 ? qtyRemaining : (qty > 0 ? qty : 1);
+                const finalSecQty = hasSec && convFactor ? parseFloat((finalPriQty * convFactor).toFixed(4)) : 0;
+
                 return {
                     material: matId,
                     materialName: matName || 'Material Item',
                     description: desc || '',
-                    quantity: qtyRemaining > 0 ? qtyRemaining : (qty > 0 ? qty : 1),
+                    quantity: finalPriQty,
                     unit: unit || 'PCS',
                     category: category || '',
                     locationId: locationId || '',
-                    rate: rate
+                    rate: rate,
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: secUnit,
+                    conversionFactor: convFactor,
+                    secondaryQuantity: finalSecQty,
+                    currentStock: curStock,
+                    secondaryCurrentStock: secStock,
+                    selectedUnit: unit || 'PCS',
                 };
             });
 
@@ -472,15 +523,30 @@ export default function GRNModal({
                     ? Number(mrpItem.pendingQuantity) 
                     : Math.max(0, plannedQty - receivedQty);
 
+                const hasSec = Boolean((typeof fgObj === 'object' && fgObj?.hasSecondaryUnit) || mrpItem.hasSecondaryUnit);
+                const secUnit = (typeof fgObj === 'object' ? fgObj?.secondaryUnit : mrpItem.secondaryUnit) || '';
+                const convFactor = Number((typeof fgObj === 'object' ? fgObj?.conversionFactor : mrpItem.conversionFactor)) || 0;
+                const curStock = Number(typeof fgObj === 'object' ? (fgObj.quantity ?? fgObj.currentStock) : 0) || 0;
+                const secStock = hasSec && convFactor ? curStock * convFactor : 0;
+                const finalPriQty = qtyRemaining > 0 ? qtyRemaining : plannedQty;
+                const finalSecQty = hasSec && convFactor ? parseFloat((finalPriQty * convFactor).toFixed(4)) : 0;
+
                 return {
                     material: fgId,
                     materialName: fgName,
                     description: desc,
-                    quantity: qtyRemaining > 0 ? qtyRemaining : plannedQty,
+                    quantity: finalPriQty,
                     unit: unit,
                     category: 'Finished Goods',
                     locationId: '',
-                    rate: Number(mrpItem.rate) || 0
+                    rate: Number(mrpItem.rate) || 0,
+                    hasSecondaryUnit: hasSec,
+                    secondaryUnit: secUnit,
+                    conversionFactor: convFactor,
+                    secondaryQuantity: finalSecQty,
+                    currentStock: curStock,
+                    secondaryCurrentStock: secStock,
+                    selectedUnit: unit,
                 };
             });
             setMaterialEntries(newEntries);
@@ -499,6 +565,13 @@ export default function GRNModal({
             category: '',
             locationId: '',
             rate: 0,
+            hasSecondaryUnit: false,
+            secondaryUnit: '',
+            conversionFactor: 0,
+            secondaryQuantity: 0,
+            currentStock: 0,
+            secondaryCurrentStock: 0,
+            selectedUnit: '',
         }]);
     };
 
@@ -539,8 +612,37 @@ export default function GRNModal({
                             : (selectedMaterial as any).locationId;
                         updated[index].locationId = locId;
                     }
+
+                    const hasSec = Boolean(selectedMaterial.hasSecondaryUnit);
+                    const secUnit = selectedMaterial.secondaryUnit || '';
+                    const convFactor = Number(selectedMaterial.conversionFactor) || 0;
+                    const curStock = Number(selectedMaterial.quantity ?? (selectedMaterial as any).currentStock ?? 0);
+                    const secStock = hasSec && convFactor ? curStock * convFactor : 0;
+                    const priQty = Number(updated[index].quantity) || 0;
+                    const secQty = hasSec && convFactor ? parseFloat((priQty * convFactor).toFixed(4)) : 0;
+
+                    updated[index].hasSecondaryUnit = hasSec;
+                    updated[index].secondaryUnit = secUnit;
+                    updated[index].conversionFactor = convFactor;
+                    updated[index].currentStock = curStock;
+                    updated[index].secondaryCurrentStock = secStock;
+                    updated[index].secondaryQuantity = secQty;
+                    updated[index].selectedUnit = unitVal || 'PCS';
                 }
+            } else if (field === 'quantity') {
+                const pVal = Number(value) || 0;
+                if (updated[index].hasSecondaryUnit && updated[index].conversionFactor) {
+                    updated[index].secondaryQuantity = parseFloat((pVal * updated[index].conversionFactor).toFixed(4));
+                }
+            } else if (field === 'secondaryQuantity') {
+                const sVal = Number(value) || 0;
+                if (updated[index].conversionFactor && updated[index].conversionFactor > 0) {
+                    updated[index].quantity = parseFloat((sVal / updated[index].conversionFactor).toFixed(4));
+                }
+            } else if (field === 'selectedUnit') {
+                updated[index].selectedUnit = value;
             }
+
             return updated;
         });
     };
@@ -633,6 +735,12 @@ export default function GRNModal({
                 if (matched) matId = String(matched._id);
             }
 
+            const priQty = Number(entry.quantity) || 0;
+            const hasSec = Boolean(entry.hasSecondaryUnit);
+            const secUnit = entry.secondaryUnit || '';
+            const convFactor = Number(entry.conversionFactor) || 0;
+            const secQty = hasSec ? Number(entry.secondaryQuantity || (priQty * convFactor)) : 0;
+
             return {
                 material: matId || undefined,
                 consumable: matId || undefined,
@@ -640,8 +748,14 @@ export default function GRNModal({
                 materialName: entry.materialName || 'Material Item',
                 description: entry.description || '',
                 descriptions: entry.description || '',
-                quantity: Number(entry.quantity),
+                quantity: priQty,
                 unit: entry.unit || 'PCS',
+                hasSecondaryUnit: hasSec,
+                secondaryUnit: secUnit,
+                conversionFactor: convFactor,
+                secondaryQuantity: secQty,
+                secondaryReceivedQuantity: secQty,
+                selectedUnit: entry.selectedUnit || entry.unit || 'PCS',
                 category: entry.category,
                 locationId: entry.locationId || undefined,
                 rate: Number(entry.rate) || 0,
@@ -825,7 +939,10 @@ export default function GRNModal({
                                             )}
                                         </div>
                                         <div className="text-right whitespace-nowrap">
-                                            <span className="font-bold text-slate-800 dark:text-slate-200">{item.quantity} {item.unit || 'PCS'}</span>
+                                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                {item.quantity} {item.unit || 'PCS'}
+                                                {item.hasSecondaryUnit && item.secondaryUnit ? ` (${item.secondaryQuantity} ${item.secondaryUnit})` : ''}
+                                            </span>
                                             {item.rate > 0 && (
                                                 <div className="text-[10px] text-slate-400">@ ₹{item.rate} = ₹{(item.quantity * item.rate).toFixed(2)}</div>
                                             )}
@@ -1373,6 +1490,7 @@ export default function GRNModal({
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                     {materialEntries.map((entry, index) => {
+                                        const isSecSelected = Boolean(entry.hasSecondaryUnit && entry.selectedUnit === entry.secondaryUnit);
                                         const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
                                         const hasMaterialError = !!formErrors[`item_${index}_material`];
                                         const hasQuantityError = !!formErrors[`item_${index}_quantity`];
@@ -1410,33 +1528,78 @@ export default function GRNModal({
                                                     )}
                                                 </td>
                                                 <td className="py-2 px-3" data-has-error={hasQuantityError}>
-                                                    <input
-                                                        type="number"
-                                                        min="0.001"
-                                                        step="any"
-                                                        value={entry.quantity || ''}
-                                                        onChange={(e) => {
-                                                            const val = parseFloat(e.target.value) || 0;
-                                                            handleMaterialChange(index, 'quantity', val);
-                                                            if (val > 0) clearError(`item_${index}_quantity`);
-                                                        }}
-                                                        placeholder="0"
-                                                        className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
-                                                            hasQuantityError
-                                                                ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
-                                                                : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500'
-                                                        }`}
-                                                    />
-                                                    {hasQuantityError && (
-                                                        <div className="text-[9px] text-rose-600 dark:text-rose-400 font-bold mt-0.5 text-center">
-                                                            {formErrors[`item_${index}_quantity`]}
+                                                    <div className="space-y-1">
+                                                        <div className="relative">
+                                                            <input
+                                                                type="number"
+                                                                min="0.0001"
+                                                                step="any"
+                                                                value={isSecSelected ? (entry.secondaryQuantity || '') : (entry.quantity || '')}
+                                                                onChange={(e) => {
+                                                                    const val = parseFloat(e.target.value) || 0;
+                                                                    if (isSecSelected) {
+                                                                        handleMaterialChange(index, 'secondaryQuantity', val);
+                                                                    } else {
+                                                                        handleMaterialChange(index, 'quantity', val);
+                                                                    }
+                                                                    if (val > 0) clearError(`item_${index}_quantity`);
+                                                                }}
+                                                                placeholder="0"
+                                                                className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                                    hasQuantityError
+                                                                        ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                                        : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500'
+                                                                }`}
+                                                            />
+                                                            {hasQuantityError && (
+                                                                <div className="text-[9px] text-rose-600 dark:text-rose-400 font-bold mt-0.5 text-center">
+                                                                    {formErrors[`item_${index}_quantity`]}
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    )}
+
+                                                        {/* Real-time Auto-Conversion Preview */}
+                                                        {entry.hasSecondaryUnit && (entry.conversionFactor || 0) > 0 && (
+                                                            <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 text-center whitespace-nowrap">
+                                                                {isSecSelected ? (
+                                                                    <span>↳ = <strong className="font-bold">{entry.quantity || 0}</strong> {entry.unit}</span>
+                                                                ) : (
+                                                                    <span>↳ = <strong className="font-bold">{entry.secondaryQuantity || 0}</strong> {entry.secondaryUnit}</span>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="py-2 px-3 text-center">
-                                                    <span className="inline-block px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700">
-                                                        {entry.unit || 'PCS'}
-                                                    </span>
+                                                    <div className="flex flex-col items-center">
+                                                        {entry.hasSecondaryUnit ? (
+                                                            <select
+                                                                value={entry.selectedUnit || entry.unit}
+                                                                onChange={(e) => handleMaterialChange(index, 'selectedUnit', e.target.value)}
+                                                                className="px-2 py-1 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-lg text-[11px] font-bold text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                                                            >
+                                                                <option value={entry.unit}>{entry.unit} (Pri)</option>
+                                                                <option value={entry.secondaryUnit}>{entry.secondaryUnit} (Sec)</option>
+                                                            </select>
+                                                        ) : (
+                                                            <span className="inline-block px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700">
+                                                                {entry.unit || 'PCS'}
+                                                            </span>
+                                                        )}
+                                                        {entry.hasSecondaryUnit && (
+                                                            <div className="text-[9.5px] font-bold text-indigo-600 dark:text-indigo-400 mt-1 whitespace-nowrap">
+                                                                1 {entry.unit} = {entry.conversionFactor} {entry.secondaryUnit}
+                                                            </div>
+                                                        )}
+                                                        {entry.material && (
+                                                            <div className="text-[9.5px] text-slate-400 mt-0.5" title="Live Stock in Store">
+                                                                Stock: {entry.currentStock || 0} {entry.unit}
+                                                                {entry.hasSecondaryUnit && entry.secondaryUnit && (
+                                                                    <div>({(Number(entry.secondaryCurrentStock) || 0).toFixed(2)} {entry.secondaryUnit})</div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="py-2 px-3">
                                                     <input
@@ -1448,6 +1611,11 @@ export default function GRNModal({
                                                         placeholder="0.00"
                                                         className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                     />
+                                                    {entry.hasSecondaryUnit && (entry.conversionFactor || 0) > 0 && (Number(entry.rate) || 0) > 0 && (
+                                                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">
+                                                            ₹{((entry.rate || 0) / entry.conversionFactor!).toFixed(2)} / {entry.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </td>
                                                 <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
                                                     ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1474,6 +1642,7 @@ export default function GRNModal({
                         {/* Mobile View: Touch-Friendly Compact Cards with Upward Dropdowns */}
                         <div className="block md:hidden p-3 space-y-3 bg-slate-50/70 dark:bg-slate-800/40">
                             {materialEntries.map((entry, index) => {
+                                const isSecSelected = Boolean(entry.hasSecondaryUnit && entry.selectedUnit === entry.secondaryUnit);
                                 const rowTotal = (Number(entry.quantity) || 0) * (Number(entry.rate) || 0);
                                 const hasMaterialError = !!formErrors[`item_${index}_material`];
                                 const hasQuantityError = !!formErrors[`item_${index}_quantity`];
@@ -1524,32 +1693,68 @@ export default function GRNModal({
                                         </div>
 
                                         {/* Qty, Unit & Rate Grid */}
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <div data-has-error={hasQuantityError}>
+                                        <div className="grid grid-cols-3 gap-2 items-start">
+                                            <div className="col-span-1" data-has-error={hasQuantityError}>
                                                 <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 flex items-center justify-between">
-                                                    <span>Qty ({entry.unit || 'PCS'}) <span className="text-red-500">*</span></span>
+                                                    <span>Qty <span className="text-red-500">*</span></span>
                                                     {hasQuantityError && <span className="text-rose-600 font-bold">Req</span>}
                                                 </label>
                                                 <input
                                                     type="number"
-                                                    min="0.001"
+                                                    min="0.0001"
                                                     step="any"
-                                                    value={entry.quantity || ''}
+                                                    value={isSecSelected ? (entry.secondaryQuantity || '') : (entry.quantity || '')}
                                                     onChange={(e) => {
                                                         const val = parseFloat(e.target.value) || 0;
-                                                        handleMaterialChange(index, 'quantity', val);
+                                                        if (isSecSelected) {
+                                                            handleMaterialChange(index, 'secondaryQuantity', val);
+                                                        } else {
+                                                            handleMaterialChange(index, 'quantity', val);
+                                                        }
                                                         if (val > 0) clearError(`item_${index}_quantity`);
                                                     }}
                                                     placeholder="Qty"
-                                                    className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                    className={`w-full h-9 px-2 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
                                                         hasQuantityError
                                                             ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
                                                             : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500'
                                                     }`}
                                                 />
+                                                {entry.hasSecondaryUnit && (entry.conversionFactor || 0) > 0 && (
+                                                    <div className="text-[9px] font-semibold text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                                                        {isSecSelected
+                                                            ? `↳ = ${entry.quantity || 0} ${entry.unit}`
+                                                            : `↳ = ${entry.secondaryQuantity || 0} ${entry.secondaryUnit}`
+                                                        }
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div>
+                                            <div className="col-span-1">
                                                 <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                                                    Unit
+                                                </label>
+                                                {entry.hasSecondaryUnit ? (
+                                                    <select
+                                                        value={entry.selectedUnit || entry.unit}
+                                                        onChange={(e) => handleMaterialChange(index, 'selectedUnit', e.target.value)}
+                                                        className="w-full h-9 px-1.5 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 outline-none cursor-pointer"
+                                                    >
+                                                        <option value={entry.unit}>{entry.unit} (Pri)</option>
+                                                        <option value={entry.secondaryUnit}>{entry.secondaryUnit} (Sec)</option>
+                                                    </select>
+                                                ) : (
+                                                    <div className="w-full h-9 flex items-center justify-center bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300">
+                                                        {entry.unit || 'PCS'}
+                                                    </div>
+                                                )}
+                                                {entry.hasSecondaryUnit && (
+                                                    <div className="text-[8.5px] font-bold text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                                                        1 {entry.unit} = {entry.conversionFactor} {entry.secondaryUnit}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="col-span-1">
+                                                <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1 truncate">
                                                     Rate (₹)
                                                 </label>
                                                 <input
@@ -1559,10 +1764,26 @@ export default function GRNModal({
                                                     value={entry.rate || ''}
                                                     onChange={(e) => handleMaterialChange(index, 'rate', parseFloat(e.target.value) || 0)}
                                                     placeholder="Rate"
-                                                    className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                    className="w-full h-9 px-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
                                                 />
+                                                {entry.hasSecondaryUnit && (entry.conversionFactor || 0) > 0 && (Number(entry.rate) || 0) > 0 && (
+                                                    <div className="text-[8.5px] text-indigo-600 dark:text-indigo-400 font-medium mt-1 truncate">
+                                                        ₹{((entry.rate || 0) / entry.conversionFactor!).toFixed(2)}/{entry.secondaryUnit}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
+
+                                        {/* Mobile Stock Info */}
+                                        {entry.material && (
+                                            <div className="text-[10px] text-slate-500 flex justify-between bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                                                <span>Live Stock:</span>
+                                                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                                    {entry.currentStock || 0} {entry.unit}
+                                                    {entry.hasSecondaryUnit && entry.secondaryUnit && ` (${(Number(entry.secondaryCurrentStock) || 0).toFixed(2)} ${entry.secondaryUnit})`}
+                                                </span>
+                                            </div>
+                                        )}
 
                                         {/* Total Amount Bar */}
                                         <div className="flex items-center justify-between pt-1 text-xs">

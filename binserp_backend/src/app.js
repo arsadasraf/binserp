@@ -106,6 +106,7 @@ import accountsRoutes from "./routes/accounts.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import purchaseRoutes from "./routes/purchase.routes.js";
 import roleRoutes from "./routes/role.routes.js";
+import reportsRoutes from "./routes/reports.routes.js";
 
 //routes declaration
 app.use("/api/company", companyRoutes);
@@ -128,6 +129,7 @@ app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/purchase", purchaseRoutes);
 app.use("/api/roles", roleRoutes);
+app.use("/api/reports", reportsRoutes);
 
 app.use(globalErrorHandler);
 // http://localhost:8000/api/v1/users/register

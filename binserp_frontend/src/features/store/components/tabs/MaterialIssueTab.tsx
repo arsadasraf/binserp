@@ -179,6 +179,12 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 mrpNumber: request.mrpNumber || undefined,
                 items: (request.items || []).map((item: any) => {
                     const masterId = item.material?._id || item.material || item.consumable?._id || item.consumable || item.component?._id || item.component || item.fgItem?._id || item.fgItem;
+                    const hasSec = Boolean(item.hasSecondaryUnit);
+                    const secUnit = item.secondaryUnit || '';
+                    const convFactor = Number(item.conversionFactor) || 0;
+                    const priQty = Number(item.quantity) || 1;
+                    const secQty = hasSec ? Number(item.secondaryQuantity || (priQty * convFactor)) : 0;
+
                     return {
                         material: !isInhouse && !isConsumable ? masterId : undefined,
                         consumable: isConsumable ? masterId : undefined,
@@ -186,8 +192,12 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                         fgItem: isInhouse ? masterId : undefined,
                         materialName: item.materialName || item.name || '',
                         materialCode: item.materialCode || item.code || '',
-                        quantity: Number(item.quantity) || 1,
+                        quantity: priQty,
                         unit: item.unit || 'PCS',
+                        hasSecondaryUnit: hasSec,
+                        secondaryUnit: secUnit,
+                        conversionFactor: convFactor,
+                        secondaryQuantity: secQty,
                         purpose: item.purpose || ''
                     };
                 }),

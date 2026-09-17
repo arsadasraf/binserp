@@ -62,15 +62,41 @@ export const createMaterialRequest = async (req, res) => {
           });
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
+        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'PCS';
+        let priQty = Number(item.quantity) || 0;
+        let secQty = Number(item.secondaryQuantity) || 0;
+
+        if (hasSec && convFactor > 0) {
+          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
+            priQty = Number((secQty / convFactor).toFixed(4));
+          } else if ((!secQty || secQty === 0) && priQty > 0) {
+            secQty = Number((priQty * convFactor).toFixed(4));
+          }
+        }
+        if (!priQty) priQty = 1;
+        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+
+        const curStock = Number(item.currentStock ?? doc?.quantity ?? 0);
+        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+
         processedItems.push({
           consumable: doc?._id || validId || undefined,
           material: doc?._id || validId || undefined,
           itemType: 'Consumable',
           materialName: doc?.name || cleanName || 'Consumable Item',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: Number(item.quantity) || 1,
+          quantity: priQty,
           unit: item.unit || doc?.unit || 'PCS',
-          currentStock: Number(item.currentStock ?? doc?.quantity ?? 0),
+          currentStock: curStock,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: selectedUnit,
+          secondaryCurrentStock: secCurStock,
           purpose: item.purpose || ''
         });
       } else if (isFG) {
@@ -93,6 +119,26 @@ export const createMaterialRequest = async (req, res) => {
           }
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
+        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'Nos';
+        let priQty = Number(item.quantity) || 0;
+        let secQty = Number(item.secondaryQuantity) || 0;
+
+        if (hasSec && convFactor > 0) {
+          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
+            priQty = Number((secQty / convFactor).toFixed(4));
+          } else if ((!secQty || secQty === 0) && priQty > 0) {
+            secQty = Number((priQty * convFactor).toFixed(4));
+          }
+        }
+        if (!priQty) priQty = 1;
+        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+
+        const curStock = Number(item.currentStock ?? doc?.quantity ?? 0);
+        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+
         processedItems.push({
           fgItem: doc?._id || validId || undefined,
           component: doc?._id || validId || undefined,
@@ -100,9 +146,15 @@ export const createMaterialRequest = async (req, res) => {
           itemType: 'FG Item',
           materialName: doc?.name || cleanName || 'FG Item',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: Number(item.quantity) || 1,
+          quantity: priQty,
           unit: item.unit || doc?.unit || 'Nos',
-          currentStock: Number(item.currentStock ?? doc?.quantity ?? 0),
+          currentStock: curStock,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: selectedUnit,
+          secondaryCurrentStock: secCurStock,
           purpose: item.purpose || ''
         });
       } else if (isBO) {
@@ -126,14 +178,40 @@ export const createMaterialRequest = async (req, res) => {
           }
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
+        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'PCS';
+        let priQty = Number(item.quantity) || 0;
+        let secQty = Number(item.secondaryQuantity) || 0;
+
+        if (hasSec && convFactor > 0) {
+          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
+            priQty = Number((secQty / convFactor).toFixed(4));
+          } else if ((!secQty || secQty === 0) && priQty > 0) {
+            secQty = Number((priQty * convFactor).toFixed(4));
+          }
+        }
+        if (!priQty) priQty = 1;
+        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+
+        const curStock = Number(item.currentStock ?? doc?.quantity ?? doc?.minimumStock ?? 0);
+        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+
         processedItems.push({
           material: doc?._id || validId || undefined,
           itemType: 'Bought Out',
           materialName: doc?.name || cleanName || 'Bought Out Item',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: Number(item.quantity) || 1,
+          quantity: priQty,
           unit: item.unit || doc?.unit || 'PCS',
-          currentStock: Number(item.currentStock ?? doc?.minimumStock ?? 0),
+          currentStock: curStock,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: selectedUnit,
+          secondaryCurrentStock: secCurStock,
           purpose: item.purpose || ''
         });
       } else {
@@ -157,14 +235,40 @@ export const createMaterialRequest = async (req, res) => {
           }
         }
 
+        const hasSec = Boolean(item.hasSecondaryUnit ?? doc?.hasSecondaryUnit ?? false);
+        const secUnit = item.secondaryUnit || doc?.secondaryUnit || '';
+        const convFactor = Number(item.conversionFactor ?? doc?.conversionFactor ?? 1);
+        const selectedUnit = item.selectedUnit || item.unit || doc?.unit || 'PCS';
+        let priQty = Number(item.quantity) || 0;
+        let secQty = Number(item.secondaryQuantity) || 0;
+
+        if (hasSec && convFactor > 0) {
+          if (selectedUnit === secUnit && (!priQty || priQty === 0) && secQty > 0) {
+            priQty = Number((secQty / convFactor).toFixed(4));
+          } else if ((!secQty || secQty === 0) && priQty > 0) {
+            secQty = Number((priQty * convFactor).toFixed(4));
+          }
+        }
+        if (!priQty) priQty = 1;
+        if (!secQty && hasSec && convFactor > 0) secQty = Number((priQty * convFactor).toFixed(4));
+
+        const curStock = Number(item.currentStock ?? doc?.quantity ?? doc?.minimumStock ?? 0);
+        const secCurStock = hasSec ? (curStock * convFactor) : 0;
+
         processedItems.push({
           material: doc?._id || validId || undefined,
           itemType: 'Raw Material',
           materialName: doc?.name || cleanName || 'Raw Material',
           materialCode: doc?.code || item.materialCode || '',
-          quantity: Number(item.quantity) || 1,
+          quantity: priQty,
           unit: item.unit || doc?.unit || 'PCS',
-          currentStock: Number(item.currentStock ?? doc?.minimumStock ?? 0),
+          currentStock: curStock,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
+          secondaryQuantity: secQty,
+          selectedUnit: selectedUnit,
+          secondaryCurrentStock: secCurStock,
           purpose: item.purpose || ''
         });
       }

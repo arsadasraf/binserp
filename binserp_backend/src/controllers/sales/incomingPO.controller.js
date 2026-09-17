@@ -168,7 +168,7 @@ export const getAllIncomingPOs = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email")
     .populate("updatedBy", "name email")
     .populate("statusHistory.updatedBy", "name email")
-    .populate("items.fgItem", "name code unit");
+    .populate("items.fgItem", "name code unit description specification category");
 
   // Sync real-time fulfillment status for each PO based on DCs & Invoices
   for (const po of pos) {
@@ -318,7 +318,7 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email")
     .populate("updatedBy", "name email")
     .populate("statusHistory.updatedBy", "name email")
-    .populate("items.fgItem", "name code unit");
+    .populate("items.fgItem", "name code unit description specification category");
 
   // Auto-sync linked Sales Order if one was already generated for this PO
   try {
@@ -457,7 +457,7 @@ export const acknowledgeIncomingPO = asyncHandler(async (req, res) => {
     .populate("createdBy", "name email")
     .populate("updatedBy", "name email")
     .populate("statusHistory.updatedBy", "name email")
-    .populate("items.fgItem", "name code unit sellingPrice hsnCode");
+    .populate("items.fgItem", "name code unit description specification category sellingPrice hsnCode");
 
   res.status(200).json({
     message: "Order Acknowledgement & Commitment saved successfully",

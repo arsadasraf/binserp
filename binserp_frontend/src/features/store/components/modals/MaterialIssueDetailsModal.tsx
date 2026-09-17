@@ -98,8 +98,15 @@ export default function MaterialIssueDetailsModal({ isOpen, onClose, issue }: Ma
                                                 <div className="text-xs text-gray-500 font-mono">{item.materialCode}</div>
                                             </td>
                                             <td className="px-4 py-3 text-center">
-                                                <span className="font-semibold text-gray-900">{item.quantity}</span>
-                                                <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
+                                                <div>
+                                                    <span className="font-semibold text-gray-900">{item.quantity}</span>
+                                                    <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
+                                                </div>
+                                                {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                    <div className="text-[11px] text-indigo-600 font-semibold mt-0.5">
+                                                        ({item.secondaryQuantity} {item.secondaryUnit})
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-4 py-3 text-gray-600 truncate max-w-[200px]" title={item.purpose || item.description}>
                                                 {item.purpose || item.description || '-'}

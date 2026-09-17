@@ -4,11 +4,12 @@ import {
     ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, 
     History, ShieldCheck, Download, ShoppingBag, ShoppingCart, Truck, IndianRupee, 
     FileText, CheckCircle, PackageCheck, Lock, Upload, Paperclip, ExternalLink, Image as ImageIcon,
-    AlertTriangle
+    AlertTriangle, Package
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import OrderAcknowledgementModal from '../modals/OrderAcknowledgementModal';
+import CustomerPOItemWiseView from '../views/CustomerPOItemWiseView';
 import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
 import { getCurrencySymbol, CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
 
@@ -29,6 +30,22 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
     const [filterCustomer, setFilterCustomer] = useState<string>('All');
+    const [viewMode, setViewMode] = useState<'po' | 'items'>('po');
+
+    const uniquePoItemsCount = useMemo(() => {
+        const itemKeys = new Set<string>();
+        (Array.isArray(poList) ? poList : []).forEach(po => {
+            if (po.status === 'Cancelled') return;
+            (po.items || []).forEach((it: any) => {
+                const fgObj = it.fgItem && typeof it.fgItem === 'object' ? it.fgItem : null;
+                const fgId = fgObj?._id || (typeof it.fgItem === 'string' ? it.fgItem : null);
+                const rawName = (it.productName || fgObj?.name || '').trim();
+                const key = fgId || (rawName ? `name_${rawName.toLowerCase()}` : null);
+                if (key) itemKeys.add(key.toString());
+            });
+        });
+        return itemKeys.size;
+    }, [poList]);
 
     // Create / Edit Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -618,7 +635,6 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
-            
             {/* Search, Filter & Action Toolbar */}
             <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
@@ -626,11 +642,41 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
                             type="text"
-                            placeholder="Search PO #, Customer or Item..."
+                            placeholder={viewMode === 'items' ? "Search Item Name, Description, PO #..." : "Search PO #, Customer or Item..."}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
+                    </div>
+
+                    {/* Small View Mode Toggle Button next to search bar */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80 self-stretch sm:self-auto">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('po')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                viewMode === 'po'
+                                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                            title="View Customer Purchase Orders"
+                        >
+                            <FileCheck size={14} />
+                            <span>POs ({poList.length})</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('items')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                viewMode === 'items'
+                                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                            title="View All Items and their Customer POs"
+                        >
+                            <Package size={14} />
+                            <span>Items ({uniquePoItemsCount})</span>
+                        </button>
                     </div>
 
                     {/* Customer Filter Dropdown */}
@@ -653,17 +699,19 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                 {/* Right Side: Status Filter Tabs + Log Customer PO Button */}
                 <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                        {['All', 'Received', 'Accepted', 'MRP Done', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
-                            >
-                                {status}
-                            </button>
-                        ))}
-                    </div>
+                    {viewMode === 'po' && (
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
+                            {['All', 'Received', 'Accepted', 'MRP Done', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
+                                <button
+                                    key={status}
+                                    onClick={() => setFilterStatus(status)}
+                                    className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                                >
+                                    {status}
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     <button
                         onClick={handleOpenCreateModal}
@@ -673,6 +721,18 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     </button>
                 </div>
             </div>
+
+            {viewMode === 'items' ? (
+                <CustomerPOItemWiseView
+                    poList={poList}
+                    fgItems={fgItems}
+                    customers={customers}
+                    onViewPo={(po) => setSelectedPo(po)}
+                    searchTerm={searchTerm}
+                    filterCustomer={filterCustomer}
+                />
+            ) : (
+                <>
 
             {loading ? (
                 <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
@@ -970,6 +1030,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         })}
                     </div>
                 </div>
+            )}
+                </>
             )}
 
             {/* Create / Edit Customer PO Modal */}

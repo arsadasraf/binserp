@@ -116,7 +116,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                                     <div className="flex flex-wrap gap-1 max-w-xs">
                                         {(request.items || []).slice(0, 2).map((item: any, i: number) => (
                                             <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs border border-gray-200 dark:border-gray-700 font-medium">
-                                                {item.materialName} ({item.quantity} {item.unit || 'PCS'})
+                                                {item.materialName} ({item.quantity} {item.unit || 'PCS'}{item.hasSecondaryUnit && item.secondaryUnit ? ` / ${item.secondaryQuantity} ${item.secondaryUnit}` : ''})
                                             </span>
                                         ))}
                                         {(request.items || []).length > 2 && (
@@ -192,7 +192,7 @@ export default function MaterialRequestTable({ requests, onIssue, onReject, onVi
                             <div className="mt-2 flex flex-wrap gap-1">
                                 {(request.items || []).slice(0, 3).map((item: any, i: number) => (
                                     <span key={i} className="text-xs bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-md border border-gray-200 dark:border-gray-700 font-medium">
-                                        {item.materialName} ({item.quantity} {item.unit || 'PCS'})
+                                        {item.materialName} ({item.quantity} {item.unit || 'PCS'}{item.hasSecondaryUnit && item.secondaryUnit ? ` / ${item.secondaryQuantity} ${item.secondaryUnit}` : ''})
                                     </span>
                                 ))}
                                 {(request.items || []).length > 3 && <span className="text-xs text-gray-400">+{request.items.length - 3}</span>}

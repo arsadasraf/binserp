@@ -187,10 +187,6 @@ export default function CRMIntegrationsHub() {
                             </span>
                         </div>
 
-                        <p className="text-[11px] text-slate-500">
-                            Automatically ingests buy leads, RFQs, and buyer contact details directly from your IndiaMART seller account.
-                        </p>
-
                         <div className="space-y-3 text-xs">
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1">
@@ -256,10 +252,6 @@ export default function CRMIntegrationsHub() {
                             </span>
                         </div>
 
-                        <p className="text-[11px] text-slate-500">
-                            Configure TradeIndia Seller Profile ID and Key to capture buyer requests directly into the Lead Pipeline.
-                        </p>
-
                         <div className="space-y-3 text-xs">
                             <div>
                                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -318,13 +310,9 @@ export default function CRMIntegrationsHub() {
                             </span>
                         </div>
 
-                        <p className="text-[11px] text-slate-500">
-                            Connect your website contact forms, Google Lead Ads, or Zapier to push inquiries in real-time.
-                        </p>
-
                         <div className="space-y-2 text-xs">
                             <label className="block font-bold text-slate-700 dark:text-slate-300">
-                                Your Dedicated Webhook URL:
+                                Dedicated Webhook URL:
                             </label>
                             <div className="flex items-center gap-1.5 p-2 bg-slate-100 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
                                 <span className="font-mono text-[10px] text-slate-700 dark:text-slate-300 truncate flex-1 select-all">
@@ -355,11 +343,7 @@ export default function CRMIntegrationsHub() {
             </div>
 
             {/* Save All Settings Global Bar */}
-            <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 font-medium">
-                    <ShieldCheck size={16} className="text-blue-600" />
-                    All API keys are securely hashed and stored in your isolated tenant repository.
-                </div>
+            <div className="p-4 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200 dark:border-slate-800 flex justify-end items-center gap-3">
                 <button
                     onClick={handleSaveSettings}
                     disabled={saving}
@@ -375,7 +359,7 @@ export default function CRMIntegrationsHub() {
                 <div className="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
                     <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                         <History size={16} className="text-blue-600" />
-                        Integration Synchronization Audit Logs
+                        Sync Logs
                     </h3>
                     <button
                         onClick={fetchIntegrationData}

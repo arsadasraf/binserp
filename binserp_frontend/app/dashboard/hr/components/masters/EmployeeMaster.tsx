@@ -600,6 +600,17 @@ export default function EmployeeMaster() {
             }
         }
     };
+    const getPerDaySalary = () => {
+        const { perDayCalculationBasis, dailyDivisorBasis, basic, grossSalary, netSalary } = formData;
+        let monthlyBase = 0;
+        if (perDayCalculationBasis === "Gross") monthlyBase = grossSalary || 0;
+        else if (perDayCalculationBasis === "Net") monthlyBase = netSalary || 0;
+        else monthlyBase = Number(basic || 0);
+
+        const divisor = dailyDivisorBasis === "ApplicableWorkingDays" ? 26 : 30;
+        return divisor > 0 ? Math.round((monthlyBase / divisor) * 100) / 100 : 0;
+    };
+
     const getBaseHourlyRate = () => {
         const { perDayCalculationBasis, basic, grossSalary, netSalary, standardWorkingHours } = formData;
         let monthlyBase = 0;
@@ -1300,6 +1311,18 @@ export default function EmployeeMaster() {
                                                     <div>
                                                         <label className="block font-semibold mb-1 text-green-600 text-xs tracking-wider uppercase">Net Salary</label>
                                                         <div className="font-bold text-green-600 text-xl px-4 py-1.5">₹ {formData.netSalary.toLocaleString()}</div>
+                                                    </div>
+
+                                                    <div>
+                                                        <label className="block font-semibold mb-1 text-blue-600 dark:text-blue-400 text-xs tracking-wider uppercase">
+                                                            Per Day Salary
+                                                        </label>
+                                                        <div className="font-bold text-blue-600 dark:text-blue-400 text-xl px-4 py-1.5 flex flex-wrap items-baseline gap-2">
+                                                            <span>₹ {getPerDaySalary().toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                            <span className="text-[10px] font-medium text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/40 border border-blue-200 dark:border-blue-800/50 px-1.5 py-0.5 rounded">
+                                                                {formData.perDayCalculationBasis || "Gross"} / {formData.dailyDivisorBasis === "ApplicableWorkingDays" ? "26d" : "30d"}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
 

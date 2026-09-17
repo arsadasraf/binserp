@@ -28,9 +28,14 @@ export const ppcOrderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "MRPPlan",
     },
+    originOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PPCOrder",
+    },
+    originMrpNumber: String,
     sourceType: {
       type: String,
-      enum: ["SALES_SHORTFALL", "MRP_DEMAND", "MANUAL"],
+      enum: ["SALES_SHORTFALL", "MRP_DEMAND", "MANUFACTURING_ORDER", "MANUAL"],
       default: "MANUAL",
     },
     photos: [String], // Added for Order Photos
@@ -69,6 +74,19 @@ export const ppcOrderSchema = new mongoose.Schema(
           type: Number,
           required: true,
           min: 1,
+        },
+        movedQuantity: {
+          type: Number,
+          default: 0,
+        },
+        linkedMoNumber: String,
+        linkedMoId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "PPCOrder",
+        },
+        moStatus: {
+          type: String,
+          default: "Pending",
         },
         trackingType: {
           type: String,

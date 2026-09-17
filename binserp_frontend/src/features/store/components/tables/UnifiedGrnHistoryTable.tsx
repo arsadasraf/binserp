@@ -625,7 +625,12 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
                         {/* Total Quantity */}
                         <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap text-gray-900 dark:text-gray-100">
-                          {grn.totalQuantity} {grn.items?.[0]?.unit || "PCS"}
+                          <div>{grn.totalQuantity} {grn.items?.[0]?.unit || "PCS"}</div>
+                          {grn.items?.[0]?.hasSecondaryUnit && grn.items?.[0]?.secondaryUnit && (
+                            <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold">
+                              ({grn.items.reduce((s: number, it: any) => s + (Number(it.secondaryQuantity || it.secondaryReceivedQuantity) || 0), 0)} {grn.items[0].secondaryUnit})
+                            </div>
+                          )}
                         </td>
 
                         {/* QC Status */}

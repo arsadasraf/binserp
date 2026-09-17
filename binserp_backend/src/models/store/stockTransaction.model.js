@@ -29,6 +29,18 @@ export const stockTransactionSchema = new mongoose.Schema(
       type: String,
       default: "PCS",
     },
+    hasSecondaryUnit: {
+      type: Boolean,
+      default: false,
+    },
+    secondaryUnit: {
+      type: String,
+      default: "",
+    },
+    secondaryQuantity: {
+      type: Number,
+      default: 0,
+    },
     movementType: {
       type: String,
       enum: ["INWARD", "OUTWARD"],

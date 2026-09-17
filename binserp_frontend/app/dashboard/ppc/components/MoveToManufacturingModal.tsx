@@ -1,22 +1,33 @@
 import React, { useState, useEffect } from "react";
-import { X, Package, ArrowRight, Loader2 } from "lucide-react";
+import { X, Hammer, Loader2, ShieldCheck, Tag } from "lucide-react";
 import { useGetStoreDataQuery } from "@/src/store/services/storeService";
 
-export default function MoveToManufacturingModal({ isOpen, onClose, order, onMove }: { isOpen: boolean; onClose: () => void; order: any; onMove: (itemsToMove: { productId: string; quantity: number }[]) => void }) {
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+interface MoveModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  order: any;
+  onMove: (itemsToMove: any[]) => void;
+}
+
+export default function MoveToManufacturingModal({ isOpen, onClose, order, onMove }: MoveModalProps) {
+  const [itemConfigs, setItemConfigs] = useState<Record<string, { quantity: number; trackingType: "Individual" | "Batch" }>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Fetch Inventory to show current FG stock
+  // Fetch Inventory to display current available stock
   const { data: inventory = [], isLoading: invLoading } = useGetStoreDataQuery("inventory");
 
   useEffect(() => {
     if (isOpen && order) {
-      const initial: Record<string, number> = {};
-      order.items?.forEach((item: any) => {
-        // Default to moving the full quantity minus what was already moved
-        initial[item.product?._id || item.product] = Math.max(0, item.quantity - (item.movedQuantity || 0));
+      const initial: Record<string, { quantity: number; trackingType: "Individual" | "Batch" }> = {};
+      order.items?.forEach((item: any, idx: number) => {
+        const key = item._id || item.product?._id || item.product || `item_${idx}`;
+        const remaining = Math.max(0, (Number(item.quantity) || 0) - (Number(item.movedQuantity) || 0));
+        initial[key] = {
+          quantity: remaining > 0 ? remaining : Number(item.quantity) || 1,
+          trackingType: item.trackingType || "Individual"
+        };
       });
-      setQuantities(initial);
+      setItemConfigs(initial);
     }
   }, [isOpen, order]);
 
@@ -25,101 +36,194 @@ export default function MoveToManufacturingModal({ isOpen, onClose, order, onMov
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
-      const payload = Object.keys(quantities)
-        .map(productId => ({ productId, quantity: quantities[productId] }))
-        .filter(i => i.quantity > 0);
-      
+      const payload: any[] = [];
+      order.items?.forEach((item: any, idx: number) => {
+        const key = item._id || item.product?._id || item.product || `item_${idx}`;
+        const config = itemConfigs[key];
+        const qty = config?.quantity || 0;
+        if (qty > 0) {
+          payload.push({
+            itemId: item._id,
+            itemIndex: idx,
+            productId: item.product?._id || item.product,
+            productName: item.productName || item.materialName,
+            quantity: qty,
+            trackingType: config?.trackingType || "Individual"
+          });
+        }
+      });
+
+      if (payload.length === 0) {
+        alert("Please enter a valid quantity to manufacture.");
+        return;
+      }
+
       await onMove(payload);
       onClose();
     } catch (error) {
-      console.error(error);
+      console.error("Manufacturing Order creation failed:", error);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getStock = (productId: string) => {
+  const getStock = (productId: string, productName?: string) => {
     if (!inventory || !Array.isArray(inventory)) return 0;
-    const itemStock = inventory.find(i => i.item === productId || i.item?._id === productId);
+    const itemStock = inventory.find(i => 
+      (productId && (i.item === productId || i.item?._id === productId)) ||
+      (productName && i.item?.name?.toLowerCase() === productName.toLowerCase())
+    );
     return itemStock?.currentStock || 0;
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-gray-100 dark:border-gray-800">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150">
+      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <ArrowRight className="w-6 h-6 text-indigo-600" />
-              Push to Manufacturing
-            </h2>
-            <p className="text-sm text-gray-500 mt-1">Order {order.orderNumber} • {order.customerName}</p>
+        <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400 rounded-xl">
+              <Hammer size={20} />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
+                Create Manufacturing Order
+              </h2>
+              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 font-medium">
+                {order.mrpNumber && (
+                  <span className="font-bold text-purple-700 dark:text-purple-300">
+                    MRP #{order.mrpNumber}
+                  </span>
+                )}
+                <span>•</span>
+                <span>{order.customerName || "Internal Production Demand"}</span>
+                {order.poReference && (
+                  <>
+                    <span>•</span>
+                    <span className="font-mono text-slate-400">PO: {order.poReference}</span>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors">
-            <X className="w-5 h-5 text-gray-500" />
+          <button 
+            onClick={onClose} 
+            className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-500 transition-colors"
+          >
+            <X size={16} />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 p-4 rounded-xl text-sm border border-blue-100 dark:border-blue-800/30 flex gap-3">
-            <Package className="w-5 h-5 shrink-0" />
-            <p>
-              Review the current inventory stock for the FG items below. 
-              You can fulfill partial quantities from stock, and push the remaining quantity to the shop floor for manufacturing.
-            </p>
-          </div>
-
-          <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 font-medium">
+        {/* Content Table */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 font-bold uppercase">
                 <tr>
-                  <th className="px-4 py-3">FG Item</th>
-                  <th className="px-4 py-3 text-center">Requested Qty</th>
-                  <th className="px-4 py-3 text-center">Already Moved</th>
-                  <th className="px-4 py-3 text-center">In Stock</th>
+                  <th className="px-4 py-3">Item & Technical Description</th>
+                  <th className="px-3 py-3 text-center">Required</th>
+                  <th className="px-3 py-3 text-center">Moved to MO</th>
+                  <th className="px-3 py-3 text-center">In Store</th>
                   <th className="px-4 py-3 text-center">Qty to Manufacture</th>
+                  <th className="px-4 py-3 text-center">Tracking Traceability</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {order.items?.map((item: any) => {
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {order.items?.map((item: any, idx: number) => {
+                  const key = item._id || item.product?._id || item.product || `item_${idx}`;
                   const productId = item.product?._id || item.product;
-                  const stock = getStock(productId);
-                  const requested = item.quantity;
-                  const moved = item.movedQuantity || 0;
+                  const name = item.productName || item.materialName || "Part Item";
+                  const desc = item.description || item.descriptions || item.specification;
+                  const stock = getStock(productId, name);
+                  const requested = Number(item.quantity) || 1;
+                  const moved = Number(item.movedQuantity) || 0;
                   const maxToMove = Math.max(0, requested - moved);
-                  
+                  const config = itemConfigs[key] || { quantity: maxToMove, trackingType: "Individual" };
+                  const type = item.itemType || "Component";
+
                   return (
-                    <tr key={productId} className="bg-white dark:bg-gray-900">
-                      <td className="px-4 py-4">
-                        <div className="font-medium text-gray-900 dark:text-white">{item.productName || "Unknown Item"}</div>
-                        {item.productCode && <div className="text-xs text-gray-500">{item.productCode}</div>}
+                    <tr key={key} className="bg-white dark:bg-slate-900 hover:bg-slate-50/50">
+                      
+                      {/* Name & Technical Description per AGENTS.md */}
+                      <td className="px-4 py-3.5">
+                        <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                          {name}
+                        </div>
+                        {desc && (
+                          <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">
+                            {desc}
+                          </div>
+                        )}
+                        <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-extrabold ${
+                          type.toLowerCase().includes('sub') ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300' :
+                          type.toLowerCase().includes('assembly') ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                          'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300'
+                        }`}>
+                          {type}
+                        </span>
                       </td>
-                      <td className="px-4 py-4 text-center font-medium text-gray-900 dark:text-gray-200">{requested}</td>
-                      <td className="px-4 py-4 text-center text-gray-500">{moved}</td>
-                      <td className="px-4 py-4 text-center">
+
+                      {/* Required */}
+                      <td className="px-3 py-3.5 text-center font-bold text-slate-900 dark:text-white">
+                        {requested} <span className="text-[10px] text-slate-400 font-normal">{item.unit || "PCS"}</span>
+                      </td>
+
+                      {/* Moved */}
+                      <td className="px-3 py-3.5 text-center font-mono font-semibold text-slate-500">
+                        {moved}
+                      </td>
+
+                      {/* In Store Stock */}
+                      <td className="px-3 py-3.5 text-center">
                         {invLoading ? (
-                           <Loader2 className="w-4 h-4 animate-spin mx-auto text-gray-400" />
+                          <Loader2 size={12} className="animate-spin mx-auto text-slate-400" />
                         ) : (
-                          <span className={`font-semibold ${stock >= maxToMove ? 'text-green-600' : (stock > 0 ? 'text-amber-600' : 'text-red-500')}`}>
+                          <span className={`font-mono font-bold ${stock >= maxToMove ? 'text-emerald-600' : (stock > 0 ? 'text-amber-600' : 'text-slate-400')}`}>
                             {stock}
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-4">
+
+                      {/* Qty to Manufacture */}
+                      <td className="px-4 py-3.5">
                         <div className="flex justify-center">
                           <input 
                             type="number"
-                            min="0"
-                            max={maxToMove}
-                            value={quantities[productId] ?? 0}
-                            onChange={(e) => setQuantities({ ...quantities, [productId]: Number(e.target.value) })}
-                            className="w-24 px-3 py-1.5 border border-gray-300 dark:border-gray-700 rounded-lg text-center bg-gray-50 dark:bg-gray-800 focus:ring-2 focus:ring-indigo-500"
+                            min="1"
+                            max={maxToMove > 0 ? maxToMove : requested}
+                            value={config.quantity}
+                            onChange={(e) => {
+                              const val = Math.max(1, Number(e.target.value));
+                              setItemConfigs({
+                                ...itemConfigs,
+                                [key]: { ...config, quantity: val }
+                              });
+                            }}
+                            className="w-24 px-3 py-1.5 border border-slate-300 dark:border-slate-700 rounded-xl text-center font-bold text-xs bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none"
                           />
                         </div>
                       </td>
+
+                      {/* Tracking Type (Individual vs Batch) */}
+                      <td className="px-4 py-3.5">
+                        <div className="flex justify-center">
+                          <select
+                            value={config.trackingType}
+                            onChange={(e) => {
+                              setItemConfigs({
+                                ...itemConfigs,
+                                [key]: { ...config, trackingType: e.target.value as "Individual" | "Batch" }
+                              });
+                            }}
+                            className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-[11px] font-bold text-slate-700 dark:text-slate-300 outline-none"
+                          >
+                            <option value="Individual">Individual (Serial)</option>
+                            <option value="Batch">Batch (Lot)</option>
+                          </select>
+                        </div>
+                      </td>
+
                     </tr>
                   );
                 })}
@@ -129,16 +233,25 @@ export default function MoveToManufacturingModal({ isOpen, onClose, order, onMov
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 flex justify-end gap-3">
-          <button onClick={onClose} disabled={isSubmitting} className="px-5 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm transition-all hover:bg-gray-50">
+        <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 flex justify-end gap-2.5">
+          <button 
+            onClick={onClose} 
+            disabled={isSubmitting} 
+            className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all shadow-2xs"
+          >
             Cancel
           </button>
-          <button onClick={handleSubmit} disabled={isSubmitting} className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition-all disabled:opacity-70">
-            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            Confirm Push
+          <button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting} 
+            className="px-5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-sm shadow-purple-600/20 transition-all flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {isSubmitting ? <Loader2 size={13} className="animate-spin" /> : <Hammer size={13} />}
+            <span>Create Manufacturing Order</span>
           </button>
         </div>
       </div>
     </div>
   );
 }
+

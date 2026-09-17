@@ -6,12 +6,12 @@ export const ppcService = binsApi.injectEndpoints({
     // ─── Orders ────────────────────────────────────────────────────────
     getOrders: builder.query<any[], void>({
       query: () => "/api/ppc/order",
-      transformResponse: (response: any) => response.orders || [],
+      transformResponse: (response: any) => response.orders || response.data?.orders || response.data || [],
       providesTags: ["Orders"],
     }),
     getOrder: builder.query<any, string>({
       query: (id) => `/api/ppc/order/${id}`,
-      transformResponse: (response: any) => response.order || response,
+      transformResponse: (response: any) => response.order || response.data?.order || response,
       providesTags: (_r, _e, id) => [{ type: "Orders", id }],
     }),
     deleteOrder: builder.mutation<any, string>({
@@ -20,7 +20,7 @@ export const ppcService = binsApi.injectEndpoints({
     }),
     getPpcOrders: builder.query<any[], void>({
       query: () => "/api/ppc/ppc-order",
-      transformResponse: (response: any) => response.orders || [],
+      transformResponse: (response: any) => response.orders || response.data?.orders || response.data || [],
       providesTags: ["PpcOrders"],
     }),
     createOrder: builder.mutation<any, FormData>({
@@ -43,7 +43,7 @@ export const ppcService = binsApi.injectEndpoints({
     // NEW PRODUCTION ORDERS API (Exclusive for PPC Tab)
     getProductionOrders: builder.query<any[], void>({
       query: () => "/api/ppc/production-orders",
-      transformResponse: (response: any) => response.orders || [],
+      transformResponse: (response: any) => response.orders || response.data?.orders || response.data || [],
       providesTags: ["ProductionOrders"],
     }),
     createProductionOrder: builder.mutation<any, any>({
@@ -54,9 +54,14 @@ export const ppcService = binsApi.injectEndpoints({
       query: ({ id, body }) => ({ url: `/api/ppc/production-orders/${id}`, method: "PUT", body }),
       invalidatesTags: ["ProductionOrders"],
     }),
-    moveToManufacturing: builder.mutation<any, { id: string; itemsToMove: { productId: string, quantity: number }[] }>({
+    moveToManufacturing: builder.mutation<any, { id: string; itemsToMove: { itemId?: string; productId?: string; productName?: string; itemIndex?: number; quantity: number; trackingType?: string }[] }>({
       query: ({ id, ...body }) => ({ url: `/api/ppc/production-order/${id}/move`, method: "POST", body }),
       invalidatesTags: ["ProductionOrders", "PpcOrders", "Orders"],
+    }),
+    getManufacturingOrders: builder.query<any[], void>({
+      query: () => "/api/ppc/manufacturing-orders",
+      transformResponse: (response: any) => response.orders || response.data?.orders || response.data || [],
+      providesTags: ["PpcOrders", "ProductionOrders"],
     }),
     updatePpcOrderStatus: builder.mutation<any, { id: string; status: string }>({
       query: ({ id, status }) => ({
@@ -454,10 +459,14 @@ export const ppcService = binsApi.injectEndpoints({
       invalidatesTags: ["Workstations"],
     }),
 
-    // ─── Auto Schedule ───────────────────────────────────────────────
+    // ─── Auto Schedule & Assignment ───────────────────────────────────
     autoSchedule: builder.mutation<any, { orderId: string }>({
       query: ({ orderId }) => ({ url: `/api/ppc/auto-schedule/${orderId}`, method: "POST" }),
       invalidatesTags: ["Orders", "Jobs", "RouteCards", "PpcOrders"],
+    }),
+    assignJobProcess: builder.mutation<any, { jobId: string; processId: string; machineId?: string; startTime?: string; endTime?: string; team?: any[]; isJobWork?: boolean; vendorId?: string }>({
+      query: (body) => ({ url: "/api/ppc/planning/assign", method: "POST", body }),
+      invalidatesTags: ["Jobs", "PpcOrders", "ProductionOrders"],
     }),
   }),
   overrideExisting: false,
@@ -471,6 +480,7 @@ export const {
   useUpdatePpcOrderStatusMutation,
   useDeleteOrderMutation,
   useGetProductionOrdersQuery, useCreateProductionOrderMutation, useUpdateProductionOrderMutation, useMoveToManufacturingMutation,
+  useGetManufacturingOrdersQuery,
   useGetDispatchQueueQuery, useConfirmDispatchMutation,
   useGetGlobalMRPQuery, useUpdateMRPItemMutation,
   useGetMaterialPlanQuery, useUpdateMaterialRequirementStatusMutation, useGetJobsByOrderQuery,
@@ -509,8 +519,9 @@ export const {
   useGetMaterialsQuery, useGetCustomersQuery,
   // Procurement
   useGetProcurementDashboardQuery,
-  // Auto Scheduling
+  // Auto Scheduling & Assignment
   useAutoScheduleMutation,
+  useAssignJobProcessMutation,
   // Allotments
   useGetAllotmentsQuery,
   useGetManpowerAllotmentsQuery,

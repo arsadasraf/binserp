@@ -27,6 +27,9 @@ export const recordStockTransaction = async (req, params) => {
       purpose = "",
       performedBy,
       performedByName = "",
+      hasSecondaryUnit = false,
+      secondaryUnit = "",
+      secondaryQuantity = 0,
     } = params;
 
     const userId = performedBy || req.user?.id || req.user?._id;
@@ -39,6 +42,9 @@ export const recordStockTransaction = async (req, params) => {
       itemCode,
       itemName,
       unit,
+      hasSecondaryUnit,
+      secondaryUnit,
+      secondaryQuantity,
       movementType,
       transactionCategory,
       quantity: Math.abs(quantity),

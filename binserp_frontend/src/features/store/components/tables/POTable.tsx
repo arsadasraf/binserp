@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock } from 'lucide-react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
@@ -19,10 +19,12 @@ import { CompanyInfo } from "@/src/features/store/types/store.types";
 import { API_BASE_URL } from '@/src/utils/config';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
+import OutwardPOItemWiseView from '../views/OutwardPOItemWiseView';
 
 interface POTableProps {
     data: any[];
     vendors?: any[];
+    materials?: any[];
     companyInfo?: CompanyInfo;
     onEdit: (item: any) => void;
     onDelete: (id: string) => void;
@@ -71,14 +73,36 @@ const getVendorGstStr = (vendorObj: any): string => {
     return vendorObj.gst || vendorObj.gstNumber || vendorObj.gstin || '';
 };
 
-export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendors = [], companyInfo, onStatusChange }: POTableProps) {
+export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendors = [], materials = [], companyInfo, onStatusChange }: POTableProps) {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedPoPreview, setSelectedPoPreview] = useState<any | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterVendor, setFilterVendor] = useState<string>('All');
     const [filterStatus, setFilterStatus] = useState<string>('All');
+    const [viewMode, setViewMode] = useState<'po' | 'items'>('po');
     const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
     const [fetchedCompanyInfo, setFetchedCompanyInfo] = useState<any>(null);
+
+    const uniqueItemCount = useMemo(() => {
+        const itemKeys = new Set<string>();
+        (Array.isArray(data) ? data : []).forEach(po => {
+            if (po.status === 'Cancelled') return;
+            if (Array.isArray(po.items) && po.items.length > 0) {
+                po.items.forEach((it: any) => {
+                    const matId = it.material && typeof it.material === 'object' ? it.material._id : it.material;
+                    const name = (it.materialName || '').trim();
+                    const key = matId || (name ? `name_${name.toLowerCase()}` : null);
+                    if (key) itemKeys.add(key.toString());
+                });
+            } else if (po.materialName || po.material) {
+                const matId = po.material && typeof po.material === 'object' ? po.material._id : po.material;
+                const name = (po.materialName || '').trim();
+                const key = matId || (name ? `name_${name.toLowerCase()}` : null);
+                if (key) itemKeys.add(key.toString());
+            }
+        });
+        return itemKeys.size;
+    }, [data]);
 
     // Fetch company info if not passed
     useEffect(() => {
@@ -353,7 +377,133 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
     return (
         <div className="w-full space-y-4">
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-[200px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                        <input
+                            type="text"
+                            placeholder={viewMode === 'items' ? "Search Material Name, Description, PO #..." : "Search PO #, Vendor, or Material..."}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                        />
+                    </div>
 
+                    {/* Small View Mode Toggle Button next to search bar */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80 self-stretch sm:self-auto">
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('po')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                viewMode === 'po'
+                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                            title="View Outward Purchase Orders"
+                        >
+                            <ShoppingCart size={13} />
+                            <span>POs ({data.length})</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setViewMode('items')}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                viewMode === 'items'
+                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                            }`}
+                            title="View All Materials & Linked Outward POs"
+                        >
+                            <Package size={13} />
+                            <span>Items ({uniqueItemCount})</span>
+                        </button>
+                    </div>
+
+                    {/* Vendor Selector */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Vendor:</label>
+                        <select
+                            value={filterVendor}
+                            onChange={(e) => setFilterVendor(e.target.value)}
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[200px] truncate"
+                        >
+                            <option value="All">All Vendors ({vendors.length})</option>
+                            {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
+                                <option key={v._id || v.id} value={(v._id || v.id)?.toString()}>
+                                    {v.name || v.companyName}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Material Type Selector */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Type:</label>
+                        <select
+                            value={filterType}
+                            onChange={(e) => setFilterType(e.target.value)}
+                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20"
+                        >
+                            <option value="All">All Types</option>
+                            <option value="RM">Raw Material (RM)</option>
+                            <option value="BO">Bought Out (BO)</option>
+                            <option value="Consumable">Consumable Item</option>
+                        </select>
+                    </div>
+                </div>
+
+                {/* Right Side: Status Buttons & Action Buttons */}
+                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
+                    {viewMode === 'po' && (
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0 gap-0.5">
+                            {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
+                                <button
+                                    key={status}
+                                    onClick={() => setFilterStatus(status)}
+                                    className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
+                                        filterStatus === status
+                                            ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
+                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                    }`}
+                                >
+                                    <span>{status}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                                        filterStatus === status 
+                                            ? 'bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300' 
+                                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
+                                    }`}>
+                                        {statusCounts[status] || 0}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {onCreatePO && (
+                        <button
+                            onClick={onCreatePO}
+                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                            <Plus size={15} /> Create Outward PO
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {viewMode === 'items' ? (
+                <OutwardPOItemWiseView
+                    data={data}
+                    materials={materials}
+                    vendors={vendors}
+                    onViewPo={(po) => setSelectedPoPreview(po)}
+                    searchTerm={searchTerm}
+                    filterVendor={filterVendor}
+                    filterType={filterType}
+                />
+            ) : (
+                <>
             {/* Top Summary Metrics & KPI Cards Banner */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                 <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
@@ -413,89 +563,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     </div>
                 </div>
             </div>
-            
-            {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Search PO #, Vendor, or Material..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                    </div>
 
-                    {/* Vendor Selector */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Vendor:</label>
-                        <select
-                            value={filterVendor}
-                            onChange={(e) => setFilterVendor(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[200px] truncate"
-                        >
-                            <option value="All">All Vendors ({vendors.length})</option>
-                            {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
-                                <option key={v._id || v.id} value={(v._id || v.id)?.toString()}>
-                                    {v.name || v.companyName}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-
-                    {/* Material Type Selector */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Type:</label>
-                        <select
-                            value={filterType}
-                            onChange={(e) => setFilterType(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20"
-                        >
-                            <option value="All">All Types</option>
-                            <option value="RM">Raw Material (RM)</option>
-                            <option value="BO">Bought Out (BO)</option>
-                            <option value="Consumable">Consumable Item</option>
-                        </select>
-                    </div>
-                </div>
-
-                {/* Right Side: Status Buttons & Action Buttons */}
-                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0 gap-0.5">
-                        {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
-                                    filterStatus === status
-                                        ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
-                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                }`}
-                            >
-                                <span>{status}</span>
-                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                                    filterStatus === status 
-                                        ? 'bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300' 
-                                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
-                                }`}>
-                                    {statusCounts[status] || 0}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-
-                    {onCreatePO && (
-                        <button
-                            onClick={onCreatePO}
-                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
-                        >
-                            <Plus size={15} /> Create Outward PO
-                        </button>
-                    )}
-                </div>
-            </div>
 
             {/* Filter and Search Match Count Bar */}
             <div className="flex items-center justify-between text-xs px-1 text-slate-500 dark:text-slate-400">
@@ -851,6 +919,8 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             );
                         })}
                     </div>
+                </>
+            )}
                 </>
             )}
 
