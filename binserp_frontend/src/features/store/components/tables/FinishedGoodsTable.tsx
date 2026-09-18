@@ -119,9 +119,19 @@ export default function FinishedGoodsTable({
       label: 'Unit',
       getValue: (item) => item.unit || 'Nos',
       render: (item) => (
-        <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
-          {item.unit || 'Nos'}
-        </span>
+        <div className="flex flex-col">
+          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+            {item.unit || 'Nos'}
+          </span>
+          {item.hasSecondaryUnit && item.secondaryUnit && (
+            <span
+              className="inline-flex items-center gap-1 text-[10px] text-purple-600 dark:text-purple-400 font-mono font-bold mt-0.5"
+              title={`Dual Unit: 1 ${item.unit || 'Unit'} = ${item.conversionFactor ?? 1} ${item.secondaryUnit}`}
+            >
+              1 = {item.conversionFactor ?? 1} {item.secondaryUnit}
+            </span>
+          )}
+        </div>
       )
     },
     {

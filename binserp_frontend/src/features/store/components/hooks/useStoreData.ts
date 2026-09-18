@@ -238,6 +238,9 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
 
                 if (formData.locationId) formDataPayload.append('location', formData.locationId);
                 if (formData.unit) formDataPayload.append('unit', formData.unit);
+                formDataPayload.append('hasSecondaryUnit', String(Boolean(formData.hasSecondaryUnit)));
+                if (formData.secondaryUnit) formDataPayload.append('secondaryUnit', formData.secondaryUnit.toString().trim());
+                if (formData.conversionFactor) formDataPayload.append('conversionFactor', formData.conversionFactor.toString());
                 if (formData.hsnCode !== undefined) formDataPayload.append('hsnCode', (formData.hsnCode || '').toString().trim());
                 if (formData.revisionNumber) formDataPayload.append('revisionNumber', formData.revisionNumber);
                 if (formData.bom && formData.bom.length > 0) formDataPayload.append('bom', JSON.stringify(formData.bom));
@@ -345,10 +348,15 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         if (!confirm("Are you sure you want to delete this record?")) return;
         
         try {
-            // Proceed with normal deletion for all items including fg-items
-            const tab = activeTab === "masters" ? masterTab : activeTab;
-            // Map fg-items to fg-item for the backend route
-            const deleteTab = tab === "fg-items" ? "fg-item" : tab;
+            let tab: any = activeTab === "masters" ? masterTab : activeTab;
+            if (tab === "home") {
+                tab = masterTab;
+            }
+            let deleteTab: any = tab;
+            if (tab === "fg-items") deleteTab = "fg-item";
+            if (tab === "grn-history" || tab === "history") deleteTab = "grn";
+            if (tab === "fg-grn-history" || tab === "fg-history") deleteTab = "fg-grn";
+
             await deleteRecord({ tab: deleteTab as any, id }).unwrap();
             setSuccess("Record deleted successfully");
         } catch (err: any) {
@@ -411,7 +419,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             const type = isFormData
                 ? (grnData.get('type') as string | null)
                 : grnData.type;
-            const tabName = type === 'inhouse' ? 'fg-grn' : 'grn';
+            const tabName = (type === 'inhouse' || type === 'fg') ? 'fg-grn' : 'grn';
 
             await createRecord({
                 tab: tabName as any,
@@ -421,6 +429,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             setSuccess("GRN created successfully");
             fetchData();
         } catch (err: any) {
+            console.error("useStoreData handleGRNSubmit failed:", err, "data:", err?.data, "status:", err?.status);
             setError(err.data?.message || err.message || "Failed to create GRN");
             throw err;
         }
@@ -439,7 +448,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             const type = isFormData
                 ? (grnData.get('type') as string | null)
                 : grnData.type;
-            const tabName = type === 'inhouse' ? 'fg-grn' : 'grn';
+            const tabName = (type === 'inhouse' || type === 'fg') ? 'fg-grn' : 'grn';
 
             await updateRecord({
                 tab: tabName as any,
@@ -450,6 +459,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
             setSuccess("GRN updated successfully");
             fetchData();
         } catch (err: any) {
+            console.error("useStoreData handleGRNUpdate failed:", err, "data:", err?.data, "status:", err?.status);
             setError(err.data?.message || err.message || "Failed to update GRN");
             throw err;
         }

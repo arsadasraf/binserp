@@ -66,7 +66,10 @@ export default function FinishedGoodsPage() {
       ...item,
       hsnCode: item.hsnCode || '',
       type: item.type || 'Component',
-      unit: item.unit || 'Nos'
+      unit: item.unit || 'Nos',
+      hasSecondaryUnit: Boolean(item.hasSecondaryUnit),
+      secondaryUnit: item.secondaryUnit || '',
+      conversionFactor: item.conversionFactor !== undefined ? item.conversionFactor : 1
     });
     setPhotos([]);
     setFormError(null);
@@ -151,6 +154,9 @@ export default function FinishedGoodsPage() {
       }
       submitData.append('type', formData.type || 'Component');
       submitData.append('unit', formData.unit || 'Nos');
+      submitData.append('hasSecondaryUnit', String(Boolean(formData.hasSecondaryUnit)));
+      submitData.append('secondaryUnit', (formData.secondaryUnit || '').toString().trim());
+      submitData.append('conversionFactor', String(Number(formData.conversionFactor) > 0 ? formData.conversionFactor : 1));
       submitData.append('description', formData.description || '');
       submitData.append('hsnCode', (formData.hsnCode || '').toString().trim());
       submitData.append('revisionNumber', (formData.revisionNumber || '').toString().trim());
@@ -201,7 +207,7 @@ export default function FinishedGoodsPage() {
         setToast({ type: 'success', message: `"${cleanName}" created successfully!` });
       }
       setIsModalOpen(false);
-      setFormData({ type: 'Component', unit: 'Nos' });
+      setFormData({ type: 'Component', unit: 'Nos', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1 });
       setPhotos([]);
       setEditingItem(null);
       setFormError(null);

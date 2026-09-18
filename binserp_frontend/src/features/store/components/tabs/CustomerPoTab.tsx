@@ -755,6 +755,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     <th className="px-4 py-3.5">Customer PO #</th>
                                     <th className="px-4 py-3.5">Customer Name</th>
                                     <th className="px-4 py-3.5 text-center">PO Date</th>
+                                    <th className="px-4 py-3.5 text-center">Committed Date / Day</th>
                                     <th className="px-4 py-3.5 text-right">Total Amount</th>
                                     <th className="px-4 py-3.5 text-center">Fulfillment Status</th>
                                     <th className="px-4 py-3.5 text-center">Created By</th>
@@ -764,6 +765,14 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                 {filteredPoList.map((po) => {
                                     const total = Number(po.totalAmount || po.subtotal || 0);
+                                    const hasOA = Boolean(po.acknowledgementNumber || po.acknowledgementDate || po.committedDispatchDate);
+                                    const commitDate = po.committedDispatchDate;
+                                    const leadDays = commitDate && po.date
+                                        ? Math.max(0, Math.round((new Date(commitDate).getTime() - new Date(po.date).getTime()) / (1000 * 60 * 60 * 24)))
+                                        : null;
+                                    const remDays = commitDate
+                                        ? Math.ceil((new Date(commitDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                                        : null;
 
                                     return (
                                         <tr key={po._id || po.poNumber} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
@@ -802,8 +811,60 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
                                             </td>
 
-                                            <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 text-xs">
+                                            <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 text-xs whitespace-nowrap">
                                                 {po.date ? new Date(po.date).toLocaleDateString('en-GB') : 'N/A'}
+                                            </td>
+
+                                            <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                                                {hasOA && commitDate ? (
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        <div className="font-bold text-indigo-600 dark:text-indigo-400 text-xs flex items-center justify-center gap-1">
+                                                            <Calendar size={12} className="text-indigo-500 shrink-0" />
+                                                            <span>{new Date(commitDate).toLocaleDateString('en-GB')}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1 justify-center flex-wrap">
+                                                            {leadDays !== null && (
+                                                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title={`Committed lead time: ${leadDays} days from PO Date`}>
+                                                                    {leadDays} Day{leadDays !== 1 ? 's' : ''}
+                                                                </span>
+                                                            )}
+                                                            {po.status === 'Completed' ? (
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                                                                    ✓ Dispatched
+                                                                </span>
+                                                            ) : remDays !== null ? (
+                                                                remDays > 0 ? (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200">
+                                                                        {remDays}d left
+                                                                    </span>
+                                                                ) : remDays === 0 ? (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 animate-pulse">
+                                                                        Due Today
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200">
+                                                                        {Math.abs(remDays)}d overdue
+                                                                    </span>
+                                                                )
+                                                            ) : null}
+                                                        </div>
+                                                        {po.acknowledgementNumber && (
+                                                            <span className="text-[9px] font-mono text-slate-400 dark:text-slate-500" title="Order Acknowledgement Number">
+                                                                {po.acknowledgementNumber}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setAcknowledgingPo(po)}
+                                                        title="Order Acknowledgement not generated. Click to accept and commit date."
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 hover:bg-indigo-50 text-slate-500 hover:text-indigo-700 dark:bg-slate-800 dark:hover:bg-indigo-950/60 dark:text-slate-400 dark:hover:text-indigo-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-300 transition-colors"
+                                                    >
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                                                        Pending OA
+                                                    </button>
+                                                )}
                                             </td>
 
                                             <td className="px-4 py-3.5 text-right font-mono font-extrabold text-blue-600 dark:text-blue-400 text-sm">
@@ -850,10 +911,14 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                                                 <button
                                                     onClick={() => setAcknowledgingPo(po)}
-                                                    title="Order Acknowledgement & Commitment Schedule"
-                                                    className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1"
+                                                    title={hasOA ? `Order Acknowledgement Created (${po.acknowledgementNumber || 'OA'}) - Click to view/edit schedule` : "Order Acknowledgement & Commitment Schedule"}
+                                                    className={`px-2.5 py-1.5 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 ${
+                                                        hasOA 
+                                                            ? "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" 
+                                                            : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                                                    }`}
                                                 >
-                                                    <FileText size={13} /> OA / Accept
+                                                    <FileText size={13} /> {hasOA ? '✓ OA' : 'OA / Accept'}
                                                 </button>
 
                                                 {(() => {
@@ -908,6 +973,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             const total = Number(po.totalAmount || po.subtotal || 0);
                             const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
                             const isWithin24h = remainingSecs > 0;
+                            const hasOA = Boolean(po.acknowledgementNumber || po.acknowledgementDate || po.committedDispatchDate);
+                            const commitDate = po.committedDispatchDate;
+                            const leadDays = commitDate && po.date
+                                ? Math.max(0, Math.round((new Date(commitDate).getTime() - new Date(po.date).getTime()) / (1000 * 60 * 60 * 24)))
+                                : null;
 
                             return (
                                 <div
@@ -981,14 +1051,26 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <p className="font-medium text-slate-700 dark:text-slate-300">{po.date ? new Date(po.date).toLocaleDateString('en-GB') : 'N/A'}</p>
                                         </div>
                                         <div>
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Created By</span>
-                                            <p className="text-slate-600 dark:text-slate-400">{getUserName(po.createdBy || po.receivedBy)}</p>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Committed Date / Day</span>
+                                            {hasOA && commitDate ? (
+                                                <p className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                                                    <Calendar size={11} className="text-indigo-500 shrink-0" />
+                                                    <span>{new Date(commitDate).toLocaleDateString('en-GB')}</span>
+                                                    {leadDays !== null && <span className="text-[10px] text-indigo-500 font-mono">({leadDays}d)</span>}
+                                                </p>
+                                            ) : (
+                                                <p className="text-slate-400 italic text-[11px]">Pending OA</p>
+                                            )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 uppercase">Total Amount</span>
                                             <p className="font-extrabold text-sm text-blue-600 dark:text-blue-400 font-mono">
                                                 {getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </p>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Created By</span>
+                                            <p className="text-slate-600 dark:text-slate-400">{getUserName(po.createdBy || po.receivedBy)}</p>
                                         </div>
                                     </div>
 
@@ -1001,9 +1083,13 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </button>
                                         <button
                                             onClick={() => setAcknowledgingPo(po)}
-                                            className="flex-1 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center gap-1 border border-indigo-200 dark:border-indigo-800"
+                                            className={`flex-1 py-1.5 text-xs font-bold rounded-lg flex items-center justify-center gap-1 border ${
+                                                hasOA 
+                                                    ? "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800" 
+                                                    : "text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-800"
+                                            }`}
                                         >
-                                            <FileText size={13} /> OA / Accept
+                                            <FileText size={13} /> {hasOA ? '✓ OA' : 'OA / Accept'}
                                         </button>
 
                                         {isWithin24h ? (
@@ -1595,7 +1681,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 /* TAB 1: OVERVIEW & ITEMS */
                                 <div className="space-y-6">
                                     {/* General Status & Interactive Control */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3.5 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                                         <div>
                                             <span className="text-slate-400 block mb-0.5">Linked Quotation Ref:</span>
                                             <strong className="text-blue-600 dark:text-blue-400 font-mono font-bold">
@@ -1608,6 +1694,30 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <strong className="text-slate-800 dark:text-slate-200 font-bold">
                                                 {selectedPo.date ? new Date(selectedPo.date).toLocaleDateString('en-GB') : 'N/A'}
                                             </strong>
+                                        </div>
+
+                                        <div>
+                                            <span className="text-slate-400 block mb-0.5">OA Committed Date / Day:</span>
+                                            {selectedPo.committedDispatchDate ? (
+                                                <div className="flex items-center gap-1 flex-wrap">
+                                                    <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
+                                                        {new Date(selectedPo.committedDispatchDate).toLocaleDateString('en-GB')}
+                                                    </strong>
+                                                    {(() => {
+                                                        if (selectedPo.date && selectedPo.committedDispatchDate) {
+                                                            const d = Math.max(0, Math.round((new Date(selectedPo.committedDispatchDate).getTime() - new Date(selectedPo.date).getTime()) / (1000 * 60 * 60 * 24)));
+                                                            return (
+                                                                <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                                                    {d}d
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-400 italic text-xs">Pending OA</span>
+                                            )}
                                         </div>
 
                                         <div>

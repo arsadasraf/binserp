@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Check, ChevronDown, Plus, Loader2 } from 'lucide-react';
+import { Search, Check, ChevronDown, Plus, Loader2, PackagePlus } from 'lucide-react';
 
 export interface SearchableOption {
     value: string;
@@ -27,6 +27,7 @@ interface SearchableSelectProps {
     disabled?: boolean;
     hasError?: boolean;
     asyncSearch?: (query: string) => Promise<SearchableOption[]>;
+    onCreateCustom?: (query: string) => void;
 }
 
 const MAX_RENDER_STEP = 50;
@@ -43,7 +44,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     allowCustom = false,
     disabled = false,
     hasError = false,
-    asyncSearch
+    asyncSearch,
+    onCreateCustom
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
@@ -366,7 +368,12 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     setSearchTerm("");
                 }
             } else if (allowCustom && searchTerm.trim() && !exactMatch) {
-                onChange(searchTerm.trim());
+                const customVal = searchTerm.trim();
+                if (onCreateCustom) {
+                    onCreateCustom(customVal);
+                } else {
+                    onChange(customVal);
+                }
                 setIsOpen(false);
                 setSearchTerm("");
             }
@@ -520,21 +527,49 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                             </div>
                         ) : allowCustom && searchTerm.trim() && !exactMatch ? (
                             <div
-                                className="px-3.5 py-2.5 text-xs text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 cursor-pointer font-bold flex items-center gap-1.5 transition-colors"
+                                className="px-3.5 py-2.5 text-xs text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 cursor-pointer font-bold flex items-center gap-1.5 transition-colors border-b border-emerald-100 dark:border-emerald-900/40"
                                 onMouseDown={(e) => {
                                     e.preventDefault();
-                                    onChange(searchTerm.trim());
+                                    e.stopPropagation();
+                                    const customVal = searchTerm.trim();
+                                    if (onCreateCustom) {
+                                        onCreateCustom(customVal);
+                                    } else {
+                                        onChange(customVal);
+                                    }
                                     setIsOpen(false);
                                     setSearchTerm("");
                                 }}
                             >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Create &quot;{searchTerm.trim()}&quot;</span>
+                                <PackagePlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                <span>Create &quot;{searchTerm.trim()}&quot; in Master</span>
                             </div>
                         ) : (
-                            <div className="px-3 py-6 text-xs text-gray-400 dark:text-slate-500 text-center flex flex-col items-center gap-1">
+                            <div className="px-3 py-6 text-xs text-gray-400 dark:text-slate-500 text-center flex flex-col items-center gap-2">
                                 <span className="font-semibold">No matching items found</span>
-                                <span className="text-[10px] text-gray-400">Try a different keyword or item code</span>
+                                {onCreateCustom ? (
+                                    <button
+                                        type="button"
+                                        onMouseDown={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            const customVal = searchTerm.trim();
+                                            onCreateCustom(customVal);
+                                            setIsOpen(false);
+                                            setSearchTerm("");
+                                        }}
+                                        className="mt-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                                    >
+                                        <PackagePlus className="w-3.5 h-3.5" />
+                                        <span>
+                                            {searchTerm.trim()
+                                                ? `Register "${searchTerm.trim()}" in Master`
+                                                : "+ Add New Master Item"}
+                                        </span>
+                                    </button>
+                                ) : (
+                                    <span className="text-[10px] text-gray-400">Try a different keyword or item code</span>
+                                )}
                             </div>
                         )}
                     </div>
@@ -558,6 +593,31 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
                                     +50 more
                                 </button>
                             )}
+                        </div>
+                    )}
+
+                    {/* Quick Register Master Action Bar Footer */}
+                    {onCreateCustom && (
+                        <div className="p-2 bg-slate-50 dark:bg-slate-800/95 border-t border-slate-200 dark:border-slate-700/80 flex items-center justify-between gap-2 flex-shrink-0">
+                            <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const queryVal = searchTerm.trim();
+                                    onCreateCustom(queryVal);
+                                    setIsOpen(false);
+                                    setSearchTerm("");
+                                }}
+                                className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+                            >
+                                <PackagePlus className="w-3.5 h-3.5" />
+                                <span>
+                                    {searchTerm.trim() && !exactMatch
+                                        ? `+ Create "${searchTerm.trim()}" in Master`
+                                        : "+ Add New Master Item"}
+                                </span>
+                            </button>
                         </div>
                     )}
                 </div>,

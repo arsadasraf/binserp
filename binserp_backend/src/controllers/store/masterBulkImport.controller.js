@@ -623,6 +623,10 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
       const finalStatus = (rawStatus.toLowerCase() === 'deactivated' || rawStatus.toLowerCase() === 'inactive' || item.isActive === false) ? 'Deactivated' : 'Active';
       const finalActive = finalStatus === 'Active';
       const rawHsn = (item.hsnCode || item.hsn || '').toString().trim();
+      const rawHasSec = item.hasSecondaryUnit;
+      const finalHasSec = rawHasSec === true || String(rawHasSec).toLowerCase() === 'yes' || String(rawHasSec).toLowerCase() === 'true';
+      const finalSecUnit = (item.secondaryUnit || '').toString().trim();
+      const finalConvFactor = Number(item.conversionFactor) > 0 ? Number(item.conversionFactor) : 1;
 
       const doc = {
         company: companyId,
@@ -630,6 +634,9 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         code: finalCode,
         type: validType,
         unit: item.unit || 'Nos',
+        hasSecondaryUnit: finalHasSec,
+        secondaryUnit: finalSecUnit,
+        conversionFactor: finalConvFactor,
         hsnCode: rawHsn,
         status: finalStatus,
         isActive: finalActive,

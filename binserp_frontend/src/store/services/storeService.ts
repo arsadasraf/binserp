@@ -79,6 +79,10 @@ export const storeService = binsApi.injectEndpoints({
           if (!tags.includes("StoreDc")) tags.push("StoreDc");
           if (!tags.includes("StorePo")) tags.push("StorePo");
         }
+        if (tab === "raw-material" || tab === "raw-materials" || tab === "bought-out" || tab === "rm-bo-item" || tab === "consumable-item" || tab === "fg-item") {
+          if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+          if (!tags.includes("StoreMasters")) tags.push("StoreMasters");
+        }
         return tags;
       },
     }),
@@ -103,6 +107,10 @@ export const storeService = binsApi.injectEndpoints({
           if (!tags.includes("StoreDc")) tags.push("StoreDc");
           if (!tags.includes("StorePo")) tags.push("StorePo");
         }
+        if (tab === "raw-material" || tab === "raw-materials" || tab === "bought-out" || tab === "rm-bo-item" || tab === "consumable-item" || tab === "fg-item") {
+          if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+          if (!tags.includes("StoreMasters")) tags.push("StoreMasters");
+        }
         return tags;
       },
     }),
@@ -119,7 +127,12 @@ export const storeService = binsApi.injectEndpoints({
         const tags = endpoint ? [endpoint.tag as any] : [];
         if (tab === "material-issue" || tab === "grn" || tab === "fg-grn" || tab === "dc" || tab === "invoice" || tab === "billing") {
           if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+          if (!tags.includes("StoreGrn")) tags.push("StoreGrn");
           if (!tags.includes("StorePo")) tags.push("StorePo");
+        }
+        if (tab === "raw-material" || tab === "raw-materials" || tab === "bought-out" || tab === "rm-bo-item" || tab === "consumable-item" || tab === "fg-item") {
+          if (!tags.includes("StoreInventory")) tags.push("StoreInventory");
+          if (!tags.includes("StoreMasters")) tags.push("StoreMasters");
         }
         return tags;
       },

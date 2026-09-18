@@ -14,6 +14,7 @@ import MRPOutwardRfqModal from '../modals/MRPOutwardRfqModal';
 import POModal from '../modals/POModal';
 import MRPProcurementWorkbench from './MRPProcurementWorkbench';
 import MRP360WipDrawer from '../modals/MRP360WipDrawer';
+import MRPItemWiseView from '../views/MRPItemWiseView';
 
 interface MRPTabProps {
   token?: string | null;
@@ -24,6 +25,7 @@ interface MRPTabProps {
 export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabProps) {
   const [loading, setLoading] = useState(true);
   const [mainView, setMainView] = useState<'plans' | 'workbench'>('plans');
+  const [viewMode, setViewMode] = useState<'plans' | 'items'>('plans');
   const [mrpPlans, setMrpPlans] = useState<any[]>([]);
   const [selectedDemandPlan, setSelectedDemandPlan] = useState<any | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -227,6 +229,20 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     });
   }, [mrpPlans, searchTerm, filterStatus, dateFilter, startDate, endDate, dateType]);
 
+  // Compute unique FG items count across all MRP plans
+  const uniqueFgItemsCount = useMemo(() => {
+    const keys = new Set<string>();
+    (Array.isArray(mrpPlans) ? mrpPlans : []).forEach((plan: any) => {
+      (plan.fgItems || []).forEach((it: any) => {
+        const fgId = it.fgItem && typeof it.fgItem === 'object' ? it.fgItem._id : it.fgItem;
+        const name = (it.fgItemName || it.name || '').trim().toLowerCase();
+        const key = fgId ? String(fgId) : name;
+        if (key) keys.add(key);
+      });
+    });
+    return keys.size;
+  }, [mrpPlans]);
+
   // Submit PO directly
   const handlePOSubmit = async (formData: any) => {
     try {
@@ -411,6 +427,36 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   />
                 </div>
 
+                {/* View Mode Toggle: Plans vs Items */}
+                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('plans')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      viewMode === 'plans'
+                        ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="View MRP Demand Plans"
+                  >
+                    <Layers size={14} />
+                    <span>Plans ({mrpPlans.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('items')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      viewMode === 'items'
+                        ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="View Finished Goods Demand Item Wise"
+                  >
+                    <Package size={14} />
+                    <span>Items ({uniqueFgItemsCount})</span>
+                  </button>
+                </div>
+
                 {/* Status Filter Pills & Create Button */}
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
                   <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold overflow-x-auto no-scrollbar gap-0.5">
@@ -449,8 +495,22 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                 </div>
               </div>
 
-              {/* Date & Day Filter Bar */}
-              <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
+              {/* View Mode: Items vs Plans */}
+              {viewMode === 'items' ? (
+                <MRPItemWiseView
+                  mrpPlans={mrpPlans}
+                  fgItems={inHouseItems}
+                  onViewPlanDetails={(plan) => {
+                    setSelectedPlanForDetails(plan);
+                    setIsDetailsModalOpen(true);
+                  }}
+                  searchTerm={searchTerm}
+                  filterStatus={filterStatus}
+                />
+              ) : (
+                <>
+                  {/* Date & Day Filter Bar */}
+                  <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full lg:w-auto flex-wrap sm:flex-nowrap">
                   
                   {/* Date Type Selector */}
@@ -469,7 +529,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         dateType === 'target' ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-2xs font-bold' : 'text-slate-500'
                       }`}
                     >
-                      Target Date
+                      Committed Date
                     </button>
                   </div>
 
@@ -555,6 +615,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           <th className="p-3.5">MRP Number</th>
                           <th className="p-3.5">Customer & Order Ref</th>
                           <th className="p-3.5 text-center">Plan Date & User</th>
+                          <th className="p-3.5 text-center">Committed Date</th>
                           <th className="p-3.5 text-center">24h Window / Lock Status</th>
                           <th className="p-3.5">Finished Goods (FG) Demand</th>
                           <th className="p-3.5 text-center">Total Order vs GRN Received</th>
@@ -606,6 +667,24 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                                   <div className="text-[9.5px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
                                     Edited: {plan.updatedByName}
                                   </div>
+                                )}
+                              </td>
+
+                              {/* Committed Date (OA Committed Date / Target Due Date) */}
+                              <td className="p-3.5 text-center">
+                                {plan.targetDate ? (
+                                  <div>
+                                    <span className="font-bold text-emerald-700 dark:text-emerald-400 block text-xs">
+                                      {new Date(plan.targetDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    </span>
+                                    {plan.poDate && (
+                                      <span className="text-[10px] text-slate-400 block font-normal">
+                                        PO: {new Date(plan.poDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 font-medium">-</span>
                                 )}
                               </td>
 
@@ -723,9 +802,11 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                   </div>
                 </div>
               )}
-
-            </div>
+            </>
           )}
+
+        </div>
+      )}
 
           {/* ========================================================================= */}
           {/* STEP 2: SELECTED MRP DEMAND PLAN — FINISHED GOODS (FG) ITEMS EXPLORER      */}

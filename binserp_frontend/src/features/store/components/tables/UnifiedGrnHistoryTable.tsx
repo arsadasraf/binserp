@@ -22,13 +22,15 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Boxes,
-  ArrowUpDown
+  ArrowUpDown,
+  Lock
 } from "lucide-react";
-import { useGetStoreDataQuery } from "@/src/store/services/storeService";
+import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
 import GRNDetailModal from "../modals/GRNDetailModal";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
+import Swal from "sweetalert2";
 
 interface UnifiedGrnHistoryTableProps {
   onEdit?: (item: any) => void;
@@ -37,14 +39,6 @@ interface UnifiedGrnHistoryTableProps {
 }
 
 type DateFilterMode = "preset" | "day" | "month" | "range";
-
-const isWithin12Hours = (createdAt: string | Date): boolean => {
-  if (!createdAt) return true;
-  const now = new Date().getTime();
-  const created = new Date(createdAt).getTime();
-  const hoursDiff = (now - created) / (1000 * 60 * 60);
-  return hoursDiff <= 12;
-};
 
 import { generateFrontendGrnPDF } from "@/src/utils/frontendPdfHelper";
 
@@ -61,6 +55,95 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
   // Fetch standard GRNs and FG GRNs
   const { data: standardGrns = [], isLoading: isLoadingGrn, refetch: refetchGrn } = useGetStoreDataQuery("grn");
   const { data: fgGrns = [], isLoading: isLoadingFgGrn, refetch: refetchFgGrn } = useGetStoreDataQuery("fg-grn");
+  const [deleteStoreRecord, { isLoading: isDeleting }] = useDeleteStoreRecordMutation();
+
+  // Live 1-second ticking timer for 24h edit/delete countdown
+  const [nowTime, setNowTime] = useState(Date.now());
+  React.useEffect(() => {
+    const timer = setInterval(() => setNowTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
+    if (!createdAt) return 0;
+    const created = new Date(createdAt).getTime();
+    const elapsed = Math.floor((nowTime - created) / 1000);
+    const limit = 24 * 3600; // 24 hours standard
+    return Math.max(0, limit - elapsed);
+  };
+
+  const formatRemainingTime = (totalSeconds: number) => {
+    if (totalSeconds <= 0) return '00:00:00';
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const handleDeleteGrn = async (grn: any) => {
+    const rem = getRemainingEditSeconds(grn.createdAt || grn.date);
+    if (rem <= 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Action Expired',
+        text: 'This GRN cannot be deleted because the 24-hour edit/delete window has expired.',
+      });
+      return;
+    }
+
+    const grnNum = grn.grnNumber || 'Selected';
+    const result = await Swal.fire({
+      title: `Delete GRN #${grnNum}?`,
+      html: `
+        <div class="text-left text-sm space-y-2">
+          <p>Are you sure you want to delete this GRN?</p>
+          <div class="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-lg text-rose-700 dark:text-rose-300 text-xs">
+            ⚠️ <strong>Warning:</strong> Deleting this GRN will <strong>automatically reverse the received stock</strong> from inventory. This action cannot be undone.
+          </div>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#e11d48',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Yes, Delete & Reverse Stock',
+      cancelButtonText: 'Cancel'
+    });
+
+    if (result.isConfirmed) {
+      try {
+        const targetTab = grn.isFgGrn ? "fg-grn" : "grn";
+        await deleteStoreRecord({ tab: targetTab, id: grn._id }).unwrap();
+
+        // Refetch queries
+        refetchGrn();
+        refetchFgGrn();
+
+        // Also call parent onDelete if provided
+        if (onDelete) {
+          try {
+            onDelete(grn._id);
+          } catch (e) {}
+        }
+
+        Swal.fire({
+          icon: 'success',
+          title: 'GRN Deleted',
+          text: `GRN #${grnNum} deleted successfully and inventory stock reversed.`,
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      } catch (err: any) {
+        console.error("Failed to delete GRN:", err);
+        const errMsg = err?.data?.message || err?.message || 'Failed to delete GRN';
+        Swal.fire({
+          icon: 'error',
+          title: 'Delete Failed',
+          text: errMsg,
+        });
+      }
+    }
+  };
 
   const [selectedGrn, setSelectedGrn] = useState<any>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
@@ -565,7 +648,8 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                       year: "numeric",
                     });
 
-                    const canEditOrDelete = isWithin12Hours(grn.createdAt);
+                    const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
+                    const canEditOrDelete = remainingSecs > 0;
 
                     return (
                       <tr
@@ -709,28 +793,45 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                               </a>
                             )}
 
-                            {/* Edit */}
-                            {onEdit && (
-                              <button
-                                onClick={() => onEdit(grn)}
-                                disabled={!canEditOrDelete}
-                                title={canEditOrDelete ? "Edit GRN" : "Editing window expired (12h limit)"}
-                                className="p-1.5 hover:bg-gray-100 text-gray-600 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-colors"
-                              >
-                                <Edit2 size={15} />
-                              </button>
-                            )}
+                            {/* Edit & Delete Countdown & Action Buttons */}
+                            {canEditOrDelete ? (
+                              <>
+                                <span 
+                                  title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                  className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-lg font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                >
+                                  <Clock size={11} className="text-amber-600 animate-pulse" />
+                                  {formatRemainingTime(remainingSecs)}
+                                </span>
 
-                            {/* Delete */}
-                            {onDelete && (
-                              <button
-                                onClick={() => onDelete(grn._id)}
-                                disabled={!canEditOrDelete}
-                                title={canEditOrDelete ? "Delete GRN" : "Deletion window expired (12h limit)"}
-                                className="p-1.5 hover:bg-rose-50 text-rose-600 dark:hover:bg-rose-950/50 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-colors"
+                                {/* Edit */}
+                                {onEdit && (
+                                  <button
+                                    onClick={() => onEdit(grn)}
+                                    title={`Edit GRN (${formatRemainingTime(remainingSecs)} left)`}
+                                    className="p-1.5 hover:bg-gray-100 text-indigo-600 dark:hover:bg-gray-800 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Edit2 size={15} />
+                                  </button>
+                                )}
+
+                                {/* Delete */}
+                                <button
+                                  onClick={() => handleDeleteGrn(grn)}
+                                  disabled={isDeleting}
+                                  title={`Delete GRN (${formatRemainingTime(remainingSecs)} left)`}
+                                  className="p-1.5 hover:bg-rose-50 text-rose-600 dark:hover:bg-rose-950/50 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg transition-colors cursor-pointer"
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </>
+                            ) : (
+                              <span 
+                                title="Editing and deleting window expired (24h limit)" 
+                                className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-lg inline-flex items-center gap-1 opacity-70"
                               >
-                                <Trash2 size={15} />
-                              </button>
+                                <Lock size={11} /> Locked
+                              </span>
                             )}
                           </div>
                         </td>

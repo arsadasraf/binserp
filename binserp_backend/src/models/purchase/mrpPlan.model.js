@@ -23,6 +23,9 @@ export const mrpPlanSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    poDate: {
+      type: Date,
+    },
     targetDate: {
       type: Date,
     },
@@ -48,6 +51,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         quantity: { type: Number, required: true },
         receivedQuantity: { type: Number, default: 0 },
         unit: { type: String, default: "PCS" },
+        poDeliveryDate: { type: Date },
         targetDate: { type: Date },
         bomId: {
           type: mongoose.Schema.Types.ObjectId,

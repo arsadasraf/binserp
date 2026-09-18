@@ -418,7 +418,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
             refetch();
             Swal.fire('Success', 'GRN submitted successfully!', 'success');
         } catch (err: any) {
-            console.error("GRN Submit Error:", err);
+            console.error("GRN Submit Error:", err, "message:", err?.data?.message || err?.message);
             const errorMessage = 
                 err?.data?.message || 
                 err?.data?.error || 
@@ -426,6 +426,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 err?.message || 
                 (typeof err === 'string' ? err : "Failed to submit GRN");
             Swal.fire('Error', errorMessage, 'error');
+            throw err;
         }
     };
 

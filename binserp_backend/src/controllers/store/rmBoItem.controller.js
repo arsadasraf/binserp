@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema, rawMaterialSchema, boughtOutSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
@@ -46,6 +46,8 @@ const updateComponentStock = async (req, componentId, quantity) => {
 export const createRmBoItem = async (req, res) => {
   try {
     const RmBoItem = req.getModel('RmBoItem', rmBoItemSchema);
+    const RawMaterial = req.getModel('RawMaterial', rawMaterialSchema);
+    const BoughtOut = req.getModel('BoughtOut', boughtOutSchema);
     const Category = req.getModel('Category', categorySchema);
     const Location = req.getModel('Location', locationSchema);
     const Inventory = req.getModel('Inventory', inventorySchema);
@@ -170,6 +172,60 @@ export const createRmBoItem = async (req, res) => {
       company: companyId 
     });
 
+    // Bidirectional sync: Also sync to primary RawMaterial or BoughtOut collection
+    try {
+      const defaultPrefix = finalItemType === 'Bought Out' ? 'BO' : 'RM';
+      const genCode = `${defaultPrefix}-${Math.floor(10000 + Math.random() * 90000)}`;
+
+      if (finalItemType === 'Bought Out') {
+        await BoughtOut.findOneAndUpdate(
+          { _id: rmBoItem._id },
+          {
+            $set: {
+              company: companyId,
+              name: cleanName,
+              code: genCode,
+              descriptions: descriptions || '',
+              minimumStock: Number(minimumStock || 0),
+              unit: itemUnit,
+              hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
+              secondaryUnit: req.body.secondaryUnit || '',
+              conversionFactor: Number(req.body.conversionFactor) || 1,
+              hsnCode: itemHsn,
+              ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
+              ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
+              photos: photoUrls,
+            }
+          },
+          { upsert: true, new: true }
+        );
+      } else {
+        await RawMaterial.findOneAndUpdate(
+          { _id: rmBoItem._id },
+          {
+            $set: {
+              company: companyId,
+              name: cleanName,
+              code: genCode,
+              descriptions: descriptions || '',
+              minimumStock: Number(minimumStock || 0),
+              unit: itemUnit,
+              hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
+              secondaryUnit: req.body.secondaryUnit || '',
+              conversionFactor: Number(req.body.conversionFactor) || 1,
+              hsnCode: itemHsn,
+              ...(resolvedCategoryId ? { categoryId: resolvedCategoryId } : {}),
+              ...(resolvedLocationId ? { locationId: resolvedLocationId } : {}),
+              photos: photoUrls,
+            }
+          },
+          { upsert: true, new: true }
+        );
+      }
+    } catch (syncErr) {
+      console.error("Master collection sync error on rmBoItem create:", syncErr);
+    }
+
     // Also ensure Inventory record exists
     try {
       const defaultPrefix = finalItemType === 'Bought Out' ? 'BO' : 'RM';
@@ -200,7 +256,7 @@ export const createRmBoItem = async (req, res) => {
     // Populate category and location before sending response
     await rmBoItem.populate(['categoryId', 'locationId']);
 
-    res.status(201).json({ message: "RM/BO Item created successfully", rmBoItem });
+    res.status(201).json({ message: "RM/BO Item created successfully", rmBoItem, rawMaterial: rmBoItem, boughtOut: rmBoItem });
   } catch (error) {
     console.error("Create RM/BO Item Error:", error);
     if (error.code === 11000) {

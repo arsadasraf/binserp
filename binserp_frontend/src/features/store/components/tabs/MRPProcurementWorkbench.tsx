@@ -36,6 +36,7 @@ export default function MRPProcurementWorkbench({
   const [data, setData] = useState<any>(null);
   const [selectedPlan, setSelectedPlan] = useState<any | null>(null);
   const [viewMode, setViewMode] = useState<'nested-tree' | 'consolidated-types'>('nested-tree');
+  const [workbenchViewMode, setWorkbenchViewMode] = useState<'plans' | 'items'>('plans');
   const [activeTypeTab, setActiveTypeTab] = useState<'rm' | 'bo' | 'component' | 'subassembly' | 'assembly'>('rm');
   const [searchTerm, setSearchTerm] = useState('');
   const [onlyShortages, setOnlyShortages] = useState(false);
@@ -97,6 +98,16 @@ export default function MRPProcurementWorkbench({
     subAssemblyList: [],
     assemblyList: []
   };
+
+  const totalWorkbenchMaterialsCount = useMemo(() => {
+    return (
+      (classifiedLists.rmList?.length || 0) +
+      (classifiedLists.boList?.length || 0) +
+      (classifiedLists.componentList?.length || 0) +
+      (classifiedLists.subAssemblyList?.length || 0) +
+      (classifiedLists.assemblyList?.length || 0)
+    );
+  }, [classifiedLists]);
 
   // Filtered MRP list for the initial selection view
   const filteredMrpList = useMemo(() => {
@@ -560,6 +571,437 @@ export default function MRPProcurementWorkbench({
   // Is active tab eligible for PPC dispatch
   const isPpcEligibleTab = activeTypeTab === 'component' || activeTypeTab === 'subassembly' || activeTypeTab === 'assembly';
 
+  // Render Consolidated Types Classification View (Reusable for Single Plan and All Active Plans Consolidated)
+  const renderTypesClassificationView = (isConsolidated: boolean = false) => (
+    <div className="space-y-3">
+      {/* Informative Banner when in Consolidated Cross-Plan Mode */}
+      {isConsolidated && (
+        <div className="bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+              <Package size={18} />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Consolidated Shortages Across All Active MRP Plans</span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-[10px] font-mono font-bold">
+                  {mrpTreeList.length} Active Plans
+                </span>
+              </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Consolidated material shortages across all active MRP plans. Raise RFQs, auto-generate purchase orders grouped by vendor, or dispatch to PPC.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Total Items:</span>
+            <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
+              {totalWorkbenchMaterialsCount} items
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Type Switcher Pills */}
+      <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold overflow-x-auto no-scrollbar gap-1">
+        <button
+          onClick={() => {
+            setActiveTypeTab('rm');
+            setSelectedCategoryFilter('all');
+            setSelectedVendorFilter('all');
+            setSelectedKeys(new Set());
+          }}
+          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeTypeTab === 'rm'
+              ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <Package size={13} />
+          <span>🔩 Raw Materials ({classifiedLists.rmList?.length || 0})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTypeTab('bo');
+            setSelectedCategoryFilter('all');
+            setSelectedVendorFilter('all');
+            setSelectedKeys(new Set());
+          }}
+          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeTypeTab === 'bo'
+              ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <Boxes size={13} />
+          <span>📦 Bought Out Items ({classifiedLists.boList?.length || 0})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTypeTab('component');
+            setSelectedCategoryFilter('all');
+            setSelectedVendorFilter('all');
+            setSelectedKeys(new Set());
+          }}
+          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeTypeTab === 'component'
+              ? 'bg-white dark:bg-slate-900 text-purple-600 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <Factory size={13} />
+          <span>⚙️ Components ({classifiedLists.componentList?.length || 0})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTypeTab('subassembly');
+            setSelectedCategoryFilter('all');
+            setSelectedVendorFilter('all');
+            setSelectedKeys(new Set());
+          }}
+          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeTypeTab === 'subassembly'
+              ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <GitBranch size={13} />
+          <span>🧩 Sub-Assemblies ({classifiedLists.subAssemblyList?.length || 0})</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTypeTab('assembly');
+            setSelectedCategoryFilter('all');
+            setSelectedVendorFilter('all');
+            setSelectedKeys(new Set());
+          }}
+          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeTypeTab === 'assembly'
+              ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+          }`}
+        >
+          <CheckCircle2 size={13} />
+          <span>🏆 Assemblies ({classifiedLists.assemblyList?.length || 0})</span>
+        </button>
+      </div>
+
+      {/* Filter Bar: Category & Vendor */}
+      <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          
+          {/* Category Filter */}
+          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+            <Tag size={13} className="text-slate-400" />
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Category:</span>
+            <select
+              value={selectedCategoryFilter}
+              onChange={(e) => {
+                setSelectedCategoryFilter(e.target.value);
+                setSelectedKeys(new Set());
+              }}
+              className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
+            >
+              <option value="all">All Categories ({currentTypeList.length})</option>
+              {availableCategories.map((cat) => {
+                const count = currentTypeList.filter((it: any) => it.category === cat).length;
+                return (
+                  <option key={cat} value={cat}>
+                    {cat} ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* Vendor / Preferred Filter */}
+          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
+            <Building2 size={13} className="text-slate-400" />
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Supplier:</span>
+            <select
+              value={selectedVendorFilter}
+              onChange={(e) => {
+                setSelectedVendorFilter(e.target.value);
+                setSelectedKeys(new Set());
+              }}
+              className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[200px] truncate"
+            >
+              <option value="all">All Suppliers ({currentTypeList.length})</option>
+              <option value="preferred_only">⭐ Preferred Suppliers Only ({currentTypeList.filter((it: any) => it.bestVendor?.isPreferred).length})</option>
+              {availableVendors.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.isPreferred ? "⭐ " : ""}{v.name} ({v.count})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Reset Filters */}
+          {(selectedCategoryFilter !== 'all' || selectedVendorFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setSelectedCategoryFilter('all');
+                setSelectedVendorFilter('all');
+                setSelectedKeys(new Set());
+              }}
+              className="px-2.5 py-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold cursor-pointer rounded-lg hover:bg-slate-200/60"
+            >
+              Reset Filters
+            </button>
+          )}
+        </div>
+
+        <div className="text-xs font-semibold text-slate-500">
+          Showing <b>{filteredConsolidatedList.length}</b> of <b>{currentTypeList.length}</b> items
+        </div>
+      </div>
+
+      {/* Action Toolbar for Selected Items */}
+      <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+            {selectedKeys.size} item(s) selected in {activeTypeTab.toUpperCase()}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+          
+          {/* Manual Status Bulk Dropdown */}
+          <div className="flex items-center">
+            <select
+              disabled={selectedKeys.size === 0}
+              onChange={(e) => {
+                if (e.target.value) {
+                  handleUpdateItemStatus(e.target.value);
+                  e.target.value = '';
+                }
+              }}
+              defaultValue=""
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700"
+            >
+              <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Common Purchasing Actions: RFQ & PO */}
+          <button
+            onClick={handleCreateRFQ}
+            disabled={selectedKeys.size === 0}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all flex items-center gap-1 cursor-pointer"
+          >
+            <FileText size={12} />
+            <span>Create RFQ ({selectedKeys.size})</span>
+          </button>
+
+          <button
+            onClick={handleOpenManualPO}
+            disabled={selectedKeys.size === 0}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Open Outward PO Form prefilled with selected items"
+          >
+            <ShoppingCart size={12} />
+            <span>
+              {selectedVendorFilter !== 'all' && selectedVendorFilter !== 'preferred_only'
+                ? `📝 Release PO to ${availableVendors.find(v => v.id === selectedVendorFilter)?.name || 'Vendor'} (${selectedKeys.size})`
+                : `📝 Create Outward PO (${selectedKeys.size})`}
+            </span>
+          </button>
+
+          <button
+            onClick={handleBulkGeneratePO}
+            disabled={selectedKeys.size === 0 || submittingPO}
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+            title="1-Click Auto Generate Purchase Orders grouped by vendor"
+          >
+            <Sparkles size={12} className="text-amber-400 dark:text-amber-600" />
+            <span>{submittingPO ? "Generating..." : `⚡ Auto PO (${selectedKeys.size})`}</span>
+          </button>
+
+          {/* Dual Action: Send to PPC Intake Bucket (Only for Components, Sub-Assemblies, Assemblies) */}
+          {isPpcEligibleTab && (
+            <button
+              onClick={handleSendToPPC}
+              disabled={selectedKeys.size === 0 || submittingPPC}
+              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+              title="Dispatch to PPC Order Intake for in-house manufacturing"
+            >
+              <Factory size={12} />
+              <span>{submittingPPC ? "Sending to PPC..." : `🏭 ⚡ Send to PPC Intake (${selectedKeys.size})`}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Table with Selection Checkboxes & Inline Status Selector */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <th className="p-3 w-8 text-center">
+                  <button onClick={toggleSelectAll} className="text-slate-400 hover:text-emerald-600">
+                    {selectedKeys.size === filteredConsolidatedList.length && filteredConsolidatedList.length > 0 ? (
+                      <CheckSquare size={14} className="text-emerald-600" />
+                    ) : (
+                      <Square size={14} />
+                    )}
+                  </button>
+                </th>
+                <th className="p-3">Material Name & Description</th>
+                <th className="p-3">Category</th>
+                <th className="p-3 text-center">Gross Required</th>
+                <th className="p-3 text-center">Live Stock</th>
+                <th className="p-3 text-center">In-Transit PO</th>
+                <th className="p-3 text-center">True Net Shortage</th>
+                <th className="p-3">Preferred Supplier</th>
+                <th className="p-3 text-center">BOM Item Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {filteredConsolidatedList.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-slate-400">
+                    No {activeTypeTab.toUpperCase()} items found matching the selected filters.
+                  </td>
+                </tr>
+              ) : (
+                filteredConsolidatedList.map((item: any) => {
+                  const isSelected = selectedKeys.has(item.materialKey);
+                  const currentStatus = item.status || 'Pending';
+
+                  return (
+                    <tr key={item.materialKey} className={`hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isSelected ? "bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}>
+                      <td className="p-3 text-center">
+                        <button onClick={() => toggleSelect(item.materialKey)} className="text-slate-400 hover:text-emerald-600">
+                          {isSelected ? <CheckSquare size={14} className="text-emerald-600" /> : <Square size={14} />}
+                        </button>
+                      </td>
+
+                      <td className="p-3">
+                        <div className="font-bold text-slate-900 dark:text-white">{item.materialName}</div>
+                        {item.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{item.description}</span>}
+                        {Array.isArray(item.mrpSources) && item.mrpSources.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            <span className="text-[10px] text-slate-400 font-medium">Demanded in:</span>
+                            {item.mrpSources.map((src: any, sIdx: number) => {
+                              const mrpNum = src.mrpNumber || src;
+                              const matchedPlan = mrpTreeList.find((p: any) => p.mrpNumber === mrpNum);
+                              return (
+                                <button
+                                  key={sIdx}
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (matchedPlan) handleSelectPlan(matchedPlan);
+                                  }}
+                                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
+                                    matchedPlan 
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 cursor-pointer' 
+                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                                  }`}
+                                  title={matchedPlan ? `Click to inspect ${mrpNum} Nested BOM` : mrpNum}
+                                >
+                                  {mrpNum} {src.quantity ? `(${src.quantity} ${item.unit})` : ''}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="p-3">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                          activeTypeTab === 'rm'
+                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
+                            : activeTypeTab === 'bo'
+                            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                        }`}>
+                          {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
+                        </span>
+                      </td>
+
+                      <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
+                        {item.grossRequired || item.requiredQuantity} {item.unit}
+                      </td>
+
+                      <td className="p-3 text-center font-semibold text-slate-600 dark:text-slate-400">
+                        {item.currentPhysicalStock} {item.unit}
+                      </td>
+
+                      <td className="p-3 text-center">
+                        {item.totalInTransitPO > 0 ? (
+                          <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded text-[10px]">
+                            {item.totalInTransitPO} {item.unit}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+
+                      <td className="p-3 text-center">
+                        {item.netShortage > 0 ? (
+                          <span className="font-black text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded text-[11px]">
+                            {item.netShortage} {item.unit}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 font-bold text-[11px]">Covered</span>
+                        )}
+                      </td>
+
+                      <td className="p-3">
+                        {item.bestVendor ? (
+                          <div className="text-[11px]">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{item.bestVendor.vendorName}</span>
+                              {item.bestVendor.isPreferred && (
+                                <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                                  ⭐ Preferred
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-slate-400 block text-[10px] font-mono">₹{Number(item.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {item.unit}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
+                        )}
+                      </td>
+
+                      {/* Interactive Manual Status Selector (Last Column) */}
+                      <td className="p-3 text-center">
+                        <div className="inline-block relative">
+                          <select
+                            value={currentStatus}
+                            onChange={(e) => handleUpdateItemStatus(e.target.value, item)}
+                            className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
+                          >
+                            {STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       
@@ -571,11 +1013,47 @@ export default function MRPProcurementWorkbench({
           
           {/* Header & Search */}
           <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-            <div>
+            <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
                 <ShoppingCart className="text-emerald-600 w-5 h-5" />
                 <span>Procurement Workbench</span>
               </h2>
+
+              {/* View Mode Toggle: Plans vs Items Wise */}
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkbenchViewMode('plans');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchViewMode === 'plans'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="View MRP Plans"
+                >
+                  <Layers size={14} />
+                  <span>Plans ({mrpTreeList.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWorkbenchViewMode('items');
+                    setSelectedKeys(new Set());
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    workbenchViewMode === 'items'
+                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                  title="Consolidated Shortages across All Active MRP Plans"
+                >
+                  <Package size={14} />
+                  <span>Items Wise ({totalWorkbenchMaterialsCount})</span>
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -585,7 +1063,7 @@ export default function MRPProcurementWorkbench({
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search MRP #, Customer..."
+                  placeholder={workbenchViewMode === 'plans' ? "Search MRP #, Customer..." : "Search Material, Category, Supplier..."}
                   className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none"
                 />
               </div>
@@ -600,8 +1078,13 @@ export default function MRPProcurementWorkbench({
             </div>
           </div>
 
-          {/* Date & Day Filter Bar */}
-          <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
+          {/* Conditional View: Consolidated Items vs Plans List */}
+          {workbenchViewMode === 'items' ? (
+            renderTypesClassificationView(true)
+          ) : (
+            <>
+              {/* Date & Day Filter Bar */}
+              <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full lg:w-auto flex-wrap sm:flex-nowrap">
               
               {/* Date Type Selector */}
@@ -796,8 +1279,10 @@ export default function MRPProcurementWorkbench({
               </div>
             </div>
           )}
-        </div>
+        </>
       )}
+    </div>
+  )}
 
       {/* ========================================================================= */}
       {/* VIEW 2: SELECTED MRP PLAN WORKBENCH WITH NESTED BOM & CLASSIFICATIONS     */}
@@ -1074,382 +1559,7 @@ export default function MRPProcurementWorkbench({
           {/* ========================================================================= */}
           {/* TAB 2: TYPES CLASSIFICATION VIEW (SELECTION, MANUAL STATUS & ACTIONS)      */}
           {/* ========================================================================= */}
-          {viewMode === 'consolidated-types' && (
-            <div className="space-y-3">
-              
-              {/* Type Switcher Pills */}
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold overflow-x-auto no-scrollbar gap-1">
-                <button
-                  onClick={() => {
-                    setActiveTypeTab('rm');
-                    setSelectedCategoryFilter('all');
-                    setSelectedVendorFilter('all');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                    activeTypeTab === 'rm'
-                      ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                >
-                  <Package size={13} />
-                  <span>🔩 Raw Materials ({classifiedLists.rmList?.length || 0})</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveTypeTab('bo');
-                    setSelectedCategoryFilter('all');
-                    setSelectedVendorFilter('all');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                    activeTypeTab === 'bo'
-                      ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                >
-                  <Boxes size={13} />
-                  <span>📦 Bought Out Items ({classifiedLists.boList?.length || 0})</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveTypeTab('component');
-                    setSelectedCategoryFilter('all');
-                    setSelectedVendorFilter('all');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                    activeTypeTab === 'component'
-                      ? 'bg-white dark:bg-slate-900 text-purple-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                >
-                  <Factory size={13} />
-                  <span>⚙️ Components ({classifiedLists.componentList?.length || 0})</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveTypeTab('subassembly');
-                    setSelectedCategoryFilter('all');
-                    setSelectedVendorFilter('all');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                    activeTypeTab === 'subassembly'
-                      ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                >
-                  <GitBranch size={13} />
-                  <span>🧩 Sub-Assemblies ({classifiedLists.subAssemblyList?.length || 0})</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveTypeTab('assembly');
-                    setSelectedCategoryFilter('all');
-                    setSelectedVendorFilter('all');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                    activeTypeTab === 'assembly'
-                      ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                  }`}
-                >
-                  <CheckCircle2 size={13} />
-                  <span>🏆 Assemblies ({classifiedLists.assemblyList?.length || 0})</span>
-                </button>
-              </div>
-
-              {/* Filter Bar: Category & Vendor */}
-              <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  
-                  {/* Category Filter */}
-                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
-                    <Tag size={13} className="text-slate-400" />
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Category:</span>
-                    <select
-                      value={selectedCategoryFilter}
-                      onChange={(e) => {
-                        setSelectedCategoryFilter(e.target.value);
-                        setSelectedKeys(new Set());
-                      }}
-                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
-                    >
-                      <option value="all">All Categories ({currentTypeList.length})</option>
-                      {availableCategories.map((cat) => {
-                        const count = currentTypeList.filter((it: any) => it.category === cat).length;
-                        return (
-                          <option key={cat} value={cat}>
-                            {cat} ({count})
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </div>
-
-                  {/* Vendor / Preferred Filter */}
-                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
-                    <Building2 size={13} className="text-slate-400" />
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Supplier:</span>
-                    <select
-                      value={selectedVendorFilter}
-                      onChange={(e) => {
-                        setSelectedVendorFilter(e.target.value);
-                        setSelectedKeys(new Set());
-                      }}
-                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[200px] truncate"
-                    >
-                      <option value="all">All Suppliers ({currentTypeList.length})</option>
-                      <option value="preferred_only">⭐ Preferred Suppliers Only ({currentTypeList.filter((it: any) => it.bestVendor?.isPreferred).length})</option>
-                      {availableVendors.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.isPreferred ? "⭐ " : ""}{v.name} ({v.count})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Reset Filters */}
-                  {(selectedCategoryFilter !== 'all' || selectedVendorFilter !== 'all') && (
-                    <button
-                      onClick={() => {
-                        setSelectedCategoryFilter('all');
-                        setSelectedVendorFilter('all');
-                        setSelectedKeys(new Set());
-                      }}
-                      className="px-2.5 py-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold cursor-pointer rounded-lg hover:bg-slate-200/60"
-                    >
-                      Reset Filters
-                    </button>
-                  )}
-                </div>
-
-                <div className="text-xs font-semibold text-slate-500">
-                  Showing <b>{filteredConsolidatedList.length}</b> of <b>{currentTypeList.length}</b> items
-                </div>
-              </div>
-
-              {/* Action Toolbar for Selected Items */}
-              <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    {selectedKeys.size} item(s) selected in {activeTypeTab.toUpperCase()}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
-                  
-                  {/* Manual Status Bulk Dropdown */}
-                  <div className="flex items-center">
-                    <select
-                      disabled={selectedKeys.size === 0}
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleUpdateItemStatus(e.target.value);
-                          e.target.value = '';
-                        }
-                      }}
-                      defaultValue=""
-                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700"
-                    >
-                      <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
-                      {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Common Purchasing Actions: RFQ & PO */}
-                  <button
-                    onClick={handleCreateRFQ}
-                    disabled={selectedKeys.size === 0}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all flex items-center gap-1 cursor-pointer"
-                  >
-                    <FileText size={12} />
-                    <span>Create RFQ ({selectedKeys.size})</span>
-                  </button>
-
-                  <button
-                    onClick={handleOpenManualPO}
-                    disabled={selectedKeys.size === 0}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
-                    title="Open Outward PO Form prefilled with selected items"
-                  >
-                    <ShoppingCart size={12} />
-                    <span>
-                      {selectedVendorFilter !== 'all' && selectedVendorFilter !== 'preferred_only'
-                        ? `📝 Release PO to ${availableVendors.find(v => v.id === selectedVendorFilter)?.name || 'Vendor'} (${selectedKeys.size})`
-                        : `📝 Create Outward PO (${selectedKeys.size})`}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={handleBulkGeneratePO}
-                    disabled={selectedKeys.size === 0 || submittingPO}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
-                    title="1-Click Auto Generate Purchase Orders grouped by vendor"
-                  >
-                    <Sparkles size={12} className="text-amber-400 dark:text-amber-600" />
-                    <span>{submittingPO ? "Generating..." : `⚡ Auto PO (${selectedKeys.size})`}</span>
-                  </button>
-
-                  {/* Dual Action: Send to PPC Intake Bucket (Only for Components, Sub-Assemblies, Assemblies) */}
-                  {isPpcEligibleTab && (
-                    <button
-                      onClick={handleSendToPPC}
-                      disabled={selectedKeys.size === 0 || submittingPPC}
-                      className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
-                      title="Dispatch to PPC Order Intake for in-house manufacturing"
-                    >
-                      <Factory size={12} />
-                      <span>{submittingPPC ? "Sending to PPC..." : `🏭 ⚡ Send to PPC Intake (${selectedKeys.size})`}</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Table with Selection Checkboxes & Inline Status Selector */}
-              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
-                      <tr>
-                        <th className="p-3 w-8 text-center">
-                          <button onClick={toggleSelectAll} className="text-slate-400 hover:text-emerald-600">
-                            {selectedKeys.size === filteredConsolidatedList.length && filteredConsolidatedList.length > 0 ? (
-                              <CheckSquare size={14} className="text-emerald-600" />
-                            ) : (
-                              <Square size={14} />
-                            )}
-                          </button>
-                        </th>
-                        <th className="p-3">Material Name & Description</th>
-                        <th className="p-3">Category</th>
-                        <th className="p-3 text-center">Gross Required</th>
-                        <th className="p-3 text-center">Live Stock</th>
-                        <th className="p-3 text-center">In-Transit PO</th>
-                        <th className="p-3 text-center">True Net Shortage</th>
-                        <th className="p-3">Preferred Supplier</th>
-                        <th className="p-3 text-center">BOM Item Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {filteredConsolidatedList.length === 0 ? (
-                        <tr>
-                          <td colSpan={9} className="p-8 text-center text-slate-400">
-                            No {activeTypeTab.toUpperCase()} items found matching the selected filters.
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredConsolidatedList.map((item: any) => {
-                          const isSelected = selectedKeys.has(item.materialKey);
-                          const currentStatus = item.status || 'Pending';
-
-                          return (
-                            <tr key={item.materialKey} className={`hover:bg-slate-50 dark:hover:bg-slate-800/60 ${isSelected ? "bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}>
-                              <td className="p-3 text-center">
-                                <button onClick={() => toggleSelect(item.materialKey)} className="text-slate-400 hover:text-emerald-600">
-                                  {isSelected ? <CheckSquare size={14} className="text-emerald-600" /> : <Square size={14} />}
-                                </button>
-                              </td>
-
-                              <td className="p-3">
-                                <div className="font-bold text-slate-900 dark:text-white">{item.materialName}</div>
-                                {item.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{item.description}</span>}
-                              </td>
-
-                              <td className="p-3">
-                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                                  activeTypeTab === 'rm'
-                                    ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/80 dark:border-blue-800/50'
-                                    : activeTypeTab === 'bo'
-                                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/80 dark:border-indigo-800/50'
-                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                                }`}>
-                                  {item.category || (activeTypeTab === 'rm' ? 'Raw Material' : activeTypeTab === 'bo' ? 'Bought Out' : 'Component')}
-                                </span>
-                              </td>
-
-                              <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
-                                {item.grossRequired || item.requiredQuantity} {item.unit}
-                              </td>
-
-                              <td className="p-3 text-center font-semibold text-slate-600 dark:text-slate-400">
-                                {item.currentPhysicalStock} {item.unit}
-                              </td>
-
-                              <td className="p-3 text-center">
-                                {item.totalInTransitPO > 0 ? (
-                                  <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded text-[10px]">
-                                    {item.totalInTransitPO} {item.unit}
-                                  </span>
-                                ) : (
-                                  <span className="text-slate-300">-</span>
-                                )}
-                              </td>
-
-                              <td className="p-3 text-center">
-                                {item.netShortage > 0 ? (
-                                  <span className="font-black text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded text-[11px]">
-                                    {item.netShortage} {item.unit}
-                                  </span>
-                                ) : (
-                                  <span className="text-emerald-600 font-bold text-[11px]">Covered</span>
-                                )}
-                              </td>
-
-                              <td className="p-3">
-                                {item.bestVendor ? (
-                                  <div className="text-[11px]">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-bold text-slate-800 dark:text-slate-200">{item.bestVendor.vendorName}</span>
-                                      {item.bestVendor.isPreferred && (
-                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
-                                          ⭐ Preferred
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span className="text-slate-400 block text-[10px] font-mono">₹{Number(item.bestVendor.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })} / {item.unit}</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-400 italic text-[10px]">No vendor quote</span>
-                                )}
-                              </td>
-
-                              {/* Interactive Manual Status Selector (Last Column) */}
-                              <td className="p-3 text-center">
-                                <div className="inline-block relative">
-                                  <select
-                                    value={currentStatus}
-                                    onChange={(e) => handleUpdateItemStatus(e.target.value, item)}
-                                    className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border outline-none cursor-pointer appearance-none pr-5 text-center transition-all ${getStatusBadgeClass(currentStatus)}`}
-                                  >
-                                    {STATUS_OPTIONS.map((opt) => (
-                                      <option key={opt} value={opt} className="text-slate-800 bg-white dark:bg-slate-900 dark:text-slate-200">
-                                        {opt}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
+          {viewMode === 'consolidated-types' && renderTypesClassificationView(false)}
         </div>
       )}
 

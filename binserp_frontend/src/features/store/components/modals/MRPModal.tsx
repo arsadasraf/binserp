@@ -35,9 +35,11 @@ interface FGRow {
     description: string;
     quantity: number;
     unit: string;
+    poDeliveryDate?: string;
     targetDate: string;
     bomId?: string;
     bomNumber?: string;
+    isFromOA?: boolean;
 }
 
 export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData }: MRPModalProps) {
@@ -57,6 +59,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const [customerName, setCustomerName] = useState('');
     const [selectedPOId, setSelectedPOId] = useState('');
     const [customerPoNumber, setCustomerPoNumber] = useState('');
+    const [poDate, setPoDate] = useState('');
     const [targetDate, setTargetDate] = useState('');
     const [remarks, setRemarks] = useState('');
 
@@ -76,7 +79,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
     // FG Items Table
     const [fgRows, setFgRows] = useState<FGRow[]>([
-        { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', targetDate: '' }
+        { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate: '' }
     ]);
 
     // Close dropdowns on outside click
@@ -108,6 +111,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 setCustomerPoNumber(initialData.customerPoNumber || '');
                 setPoSearch(initialData.customerPoNumber || '');
                 setRemarks(initialData.remarks || '');
+                setPoDate(initialData.poDate ? new Date(initialData.poDate).toISOString().split('T')[0] : '');
                 setTargetDate(initialData.targetDate ? new Date(initialData.targetDate).toISOString().split('T')[0] : '');
                 if (Array.isArray(initialData.fgItems) && initialData.fgItems.length > 0) {
                     setFgRows(initialData.fgItems.map((f: any) => ({
@@ -117,6 +121,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                         description: f.description || '',
                         quantity: Number(f.quantity) || 1,
                         unit: f.unit || 'PCS',
+                        poDeliveryDate: f.poDeliveryDate ? new Date(f.poDeliveryDate).toISOString().split('T')[0] : '',
                         targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
                         bomId: f.bomId || '',
                         bomNumber: f.bomNumber || ''
@@ -134,6 +139,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 setCustomerPoNumber('');
                 setPoSearch('');
                 setRemarks('');
+                setPoDate('');
 
                 // Default target date: 7 days in future
                 const future = new Date();
@@ -142,7 +148,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 setTargetDate(defaultDate);
 
                 setFgRows([
-                    { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', targetDate: defaultDate }
+                    { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate: defaultDate }
                 ]);
             }
 
@@ -281,7 +287,14 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setSelectedPOId('');
             setCustomerPoNumber('');
             setPoSearch('');
+            setPoDate('');
             setIsPoDropdownOpen(false);
+            if (mrpNumber === customerPoNumber) {
+                const now = new Date();
+                const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+                const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+                setMrpNumber(`MRP-${dateStr}-${randomSuffix}`);
+            }
             return;
         }
 
@@ -289,6 +302,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         setCustomerPoNumber(po.poNumber || '');
         setPoSearch(`PO #${po.poNumber}`);
         setIsPoDropdownOpen(false);
+
+        // Per requirement: If MRP is made with Customer PO, MRP number is the Customer PO number
+        if (po.poNumber) {
+            setMrpNumber(po.poNumber);
+        }
 
         // Auto-fill customer if not already selected
         const cName = po.customerName || (typeof po.customer === 'object' ? po.customer?.name : '') || '';
@@ -301,13 +319,24 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setSelectedCustomerId(cId);
         }
 
-        // Auto-fill target date
-        if (po.deliveryDate || po.targetDate || po.date) {
-            const dateVal = new Date(po.deliveryDate || po.targetDate || po.date).toISOString().split('T')[0];
-            setTargetDate(dateVal);
+        // 1. Resolve Customer PO Date (deliveryDate or date)
+        const resolvedPoDate = po.deliveryDate
+            ? new Date(po.deliveryDate).toISOString().split('T')[0]
+            : (po.date ? new Date(po.date).toISOString().split('T')[0] : '');
+        setPoDate(resolvedPoDate);
+
+        // 2. Resolve Overall OA Committed Date
+        let resolvedCommittedDate = '';
+        if (po.committedDispatchDate) {
+            resolvedCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
+        } else if (resolvedPoDate) {
+            resolvedCommittedDate = resolvedPoDate;
+        }
+        if (resolvedCommittedDate) {
+            setTargetDate(resolvedCommittedDate);
         }
 
-        // Auto-populate FG items from PO
+        // 3. Auto-populate FG items from PO
         if (Array.isArray(po.items) && po.items.length > 0) {
             const mappedRows: FGRow[] = po.items.map((item: any) => {
                 const pName = item.productName || item.name || item.itemName || '';
@@ -330,6 +359,24 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
                 const qty = (item.quantity || 1) - (item.dispatchedQuantity || item.billedQuantity || 0);
 
+                // Row PO Date
+                const itemPoDate = item.expectedDeliveryDate
+                    ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
+                    : resolvedPoDate;
+
+                // Row Committed Date
+                let itemCommittedDate = '';
+                let isFromOA = false;
+                if (item.committedDeliveryDate) {
+                    itemCommittedDate = new Date(item.committedDeliveryDate).toISOString().split('T')[0];
+                    isFromOA = true;
+                } else if (po.committedDispatchDate) {
+                    itemCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
+                    isFromOA = true;
+                } else {
+                    itemCommittedDate = itemPoDate || resolvedCommittedDate;
+                }
+
                 return {
                     fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
                     fgItemName: fgObj?.name || pName || 'Finished Good',
@@ -337,8 +384,9 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     description: item.description || fgObj?.description || fgObj?.descriptions || '',
                     quantity: qty > 0 ? qty : Number(item.quantity) || 1,
                     unit: item.unit || fgObj?.unit || 'PCS',
-                    targetDate:
-                        targetDate || (po.deliveryDate ? new Date(po.deliveryDate).toISOString().split('T')[0] : ''),
+                    poDeliveryDate: itemPoDate,
+                    targetDate: itemCommittedDate,
+                    isFromOA,
                     bomId: matchedBom?._id,
                     bomNumber: matchedBom?.bomNumber || (fgObj?.bom?.length > 0 ? `BOM-${fgObj.code || fgObj.name}` : undefined)
                 };
@@ -400,6 +448,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 description: '',
                 quantity: 1,
                 unit: 'PCS',
+                poDeliveryDate: poDate || '',
                 targetDate: targetDate || ''
             }
         ]);
@@ -415,6 +464,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     description: '',
                     quantity: 1,
                     unit: 'PCS',
+                    poDeliveryDate: poDate || '',
                     targetDate: targetDate || ''
                 }
             ]);
@@ -452,6 +502,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 customerPo: selectedPOId || undefined,
                 customerPoNumber: customerPoNumber || undefined,
                 customerName: customerName || 'Internal Production',
+                poDate: poDate || undefined,
                 targetDate,
                 remarks,
                 fgItems: validItems
@@ -504,9 +555,6 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             <h2 className="text-lg sm:text-xl font-black">
                                 {initialData ? `Edit MRP Demand Plan (${initialData.mrpNumber || mrpNumber})` : 'Create MRP Demand Plan'}
                             </h2>
-                            <p className="text-xs text-indigo-200 mt-0.5">
-                                Select Customer / Open PO or enter manual FG requirements to explode nested BOM
-                            </p>
                         </div>
                     </div>
                     <button
@@ -522,18 +570,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                     {/* Top Bar: Customer Search & Open PO Quick Selector */}
                     <div className="bg-gradient-to-r from-indigo-50/90 to-blue-50/70 dark:from-indigo-950/40 dark:to-slate-900 p-4 rounded-2xl border border-indigo-200/80 dark:border-indigo-800 space-y-3">
                         <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs">
-                                    <Sparkles size={14} />
-                                </div>
-                                <div>
-                                    <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
-                                        Customer & Open Purchase Order Linkage (Optional)
-                                    </h3>
-                                    <p className="text-[11px] text-indigo-700/80 dark:text-indigo-300/80">
-                                        Search customer to filter open POs, or pick an open PO to auto-populate finished goods.
-                                    </p>
-                                </div>
+                            <div className="flex items-center gap-2">
+                                <Sparkles size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                                    Customer & PO Linkage
+                                </h3>
                             </div>
                             {(selectedCustomerId || selectedPOId || customerName) && (
                                 <button
@@ -545,6 +586,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                         setSelectedPOId('');
                                         setCustomerPoNumber('');
                                         setPoSearch('');
+                                        setPoDate('');
                                     }}
                                     className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
                                 >
@@ -555,16 +597,16 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
                         {/* Customer Search & PO Select Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* 1. Keyword-Searchable Customer Master Dropdown */}
+                            {/* Customer Dropdown */}
                             <div className="relative" ref={customerDropdownRef}>
                                 <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block mb-1">
-                                    1. Search Customer (Optional)
+                                    Customer
                                 </label>
                                 <div className="relative">
                                     <Building className="absolute left-3 top-2.5 text-indigo-500" size={15} />
                                     <input
                                         type="text"
-                                        placeholder="Type customer name, code or city..."
+                                        placeholder="Search customer..."
                                         value={customerSearch}
                                         onFocus={() => setIsCustomerDropdownOpen(true)}
                                         onChange={(e) => {
@@ -593,11 +635,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                             onClick={() => handleSelectCustomer(null)}
                                             className="w-full text-left px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
                                         >
-                                            -- Internal Production / No Customer Link --
+                                            -- Internal Production (No Customer) --
                                         </button>
                                         {filteredCustomers.length === 0 ? (
                                             <div className="p-3 text-center text-xs text-slate-400">
-                                                No customer found. Custom name &quot;{customerSearch}&quot; will be used.
+                                                No customer found
                                             </div>
                                         ) : (
                                             filteredCustomers.map((cust: any) => {
@@ -628,11 +670,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                 )}
                             </div>
 
-                            {/* 2. Keyword-Searchable Open Customer PO Dropdown */}
+                            {/* Customer PO Dropdown */}
                             <div className="relative" ref={poDropdownRef}>
                                 <div className="flex items-center justify-between mb-1">
                                     <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">
-                                        2. Select Open Customer PO (Optional)
+                                        Customer PO
                                     </label>
                                     <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-indigo-200/80 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
                                         {availablePOs.length} Open POs
@@ -674,7 +716,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                         </button>
                                         {availablePOs.length === 0 ? (
                                             <div className="p-3 text-center text-xs text-slate-400">
-                                                No open purchase orders found{selectedCustomerId ? ' for selected customer' : ''}.
+                                                No open purchase orders found.
                                             </div>
                                         ) : (
                                             availablePOs.map((po: any) => {
@@ -697,15 +739,24 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                         }`}
                                                     >
                                                         <div>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
                                                                 <span className="font-mono font-bold">PO #{po.poNumber}</span>
+                                                                {po.committedDispatchDate ? (
+                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                                        OA Committed: {new Date(po.committedDispatchDate).toLocaleDateString()}
+                                                                    </span>
+                                                                ) : po.deliveryDate ? (
+                                                                    <span className="text-[9px] font-medium text-slate-500">
+                                                                        Due: {new Date(po.deliveryDate).toLocaleDateString()}
+                                                                    </span>
+                                                                ) : null}
                                                                 {hasMrp && (
                                                                     <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
                                                                         MRP Exists
                                                                     </span>
                                                                 )}
                                                             </div>
-                                                            <span className="text-[10px] text-slate-500 block">
+                                                            <span className="text-[10px] text-slate-500 block mt-0.5">
                                                                 {po.customerName || po.customer?.name || 'Customer'} •{' '}
                                                                 {po.items?.length || 0} items
                                                             </span>
@@ -722,53 +773,65 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
                         {/* Duplicate MRP Alert Warning */}
                         {duplicateMrpPlan && (
-                            <div className="p-3 bg-amber-100/90 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl flex items-start gap-2.5 text-amber-900 dark:text-amber-200 text-xs animate-in fade-in">
-                                <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-                                <div>
-                                    <span className="font-bold block">
-                                        Notice: MRP Demand Plan ({duplicateMrpPlan.mrpNumber}) has already been created for this PO #{customerPoNumber}.
-                                    </span>
-                                    <span className="text-[11px] text-amber-800 dark:text-amber-300">
-                                        You may still proceed if you are issuing a split or supplementary demand batch for this order.
-                                    </span>
-                                </div>
+                            <div className="px-3 py-2 bg-amber-100/90 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center gap-2 text-amber-900 dark:text-amber-200 text-xs animate-in fade-in">
+                                <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                                <span className="font-bold">
+                                    MRP Plan ({duplicateMrpPlan.mrpNumber}) already exists for PO #{customerPoNumber}
+                                </span>
                             </div>
                         )}
                     </div>
 
                     {/* Metadata Header Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
-                        {/* Auto-generated MRP Number */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+                        {/* MRP Number */}
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                                MRP Demand #
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                MRP Number
                             </label>
-                            <div className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-black text-indigo-600 dark:text-indigo-400 shadow-2xs">
-                                {mrpNumber}
-                            </div>
+                            <input
+                                type="text"
+                                value={mrpNumber}
+                                onChange={(e) => setMrpNumber(e.target.value)}
+                                required
+                                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono font-black text-indigo-600 dark:text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
                         </div>
 
-                        {/* Customer Name Display / Override */}
+                        {/* Customer Name */}
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
                                 Customer Name
                             </label>
                             <input
                                 type="text"
-                                placeholder="Internal Production"
+                                placeholder="Customer / Internal"
                                 value={customerName}
                                 onChange={(e) => {
                                     setCustomerName(e.target.value);
                                     setCustomerSearch(e.target.value);
                                 }}
-                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                             />
                         </div>
 
-                        {/* Target Due Date */}
+                        {/* Customer PO Date */}
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                                Target Due Date
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                PO Date
+                            </label>
+                            <input
+                                type="date"
+                                value={poDate}
+                                onChange={(e) => setPoDate(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
+                        </div>
+
+                        {/* Committed Date (OA Committed Date / Target Due Date) */}
+                        <div>
+                            <label className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider block mb-1">
+                                Committed Date
                             </label>
                             <input
                                 type="date"
@@ -780,21 +843,21 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                     );
                                 }}
                                 required
-                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                className="w-full px-3 py-2 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 text-xs font-bold text-emerald-900 dark:text-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                             />
                         </div>
 
-                        {/* Purpose / Remarks */}
+                        {/* Remarks */}
                         <div>
-                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1">
-                                Purpose / Remarks
+                            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                                Remarks
                             </label>
                             <input
                                 type="text"
-                                placeholder="e.g. Batch #1 Production"
+                                placeholder="Remarks..."
                                 value={remarks}
                                 onChange={(e) => setRemarks(e.target.value)}
-                                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                             />
                         </div>
                     </div>
@@ -805,11 +868,8 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                             <div>
                                 <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
                                     <Boxes className="text-indigo-600" size={18} />
-                                    Finished Goods (FG) Items Entry
+                                    Finished Goods (FG) Items
                                 </h3>
-                                <p className="text-xs text-slate-500 mt-0.5">
-                                    Search and select FG items from master. Multi-level BOM hierarchy will be exploded automatically.
-                                </p>
                             </div>
 
                             <button
@@ -827,12 +887,13 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                 <thead className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 uppercase border-b border-slate-200 dark:border-slate-700">
                                     <tr>
                                         <th className="px-3 py-3 w-10 text-center">#</th>
-                                        <th className="px-3 py-3 min-w-[240px]">Finished Goods (FG) Item (Searchable)</th>
-                                        <th className="px-3 py-3 min-w-[160px]">Description</th>
-                                        <th className="px-3 py-3 w-28 text-center">Qty</th>
-                                        <th className="px-3 py-3 w-20 text-center">Unit</th>
-                                        <th className="px-3 py-3 min-w-[130px]">Target Date</th>
-                                        <th className="px-3 py-3 w-12 text-right"></th>
+                                        <th className="px-3 py-3 min-w-[220px]">Finished Goods (FG) Item</th>
+                                        <th className="px-3 py-3 min-w-[150px]">Description</th>
+                                        <th className="px-3 py-3 w-24 text-center">Qty</th>
+                                        <th className="px-3 py-3 w-16 text-center">Unit</th>
+                                        <th className="px-3 py-3 min-w-[125px]">PO Date</th>
+                                        <th className="px-3 py-3 min-w-[135px]">Committed Date</th>
+                                        <th className="px-3 py-3 w-10 text-right"></th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -883,7 +944,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                     >
                                                         {filteredFGItems.length === 0 ? (
                                                             <div className="p-3 text-center text-xs text-slate-400">
-                                                                No FG master found for &quot;{fgSearchQuery}&quot;.
+                                                                No FG master found
                                                             </div>
                                                         ) : (
                                                             filteredFGItems.map((fg: any) => {
@@ -959,14 +1020,33 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                 {row.unit || 'PCS'}
                                             </td>
 
-                                            {/* Row Target Date */}
+                                            {/* Row PO Date */}
+                                            <td className="px-3 py-3">
+                                                <input
+                                                    type="date"
+                                                    value={row.poDeliveryDate || ''}
+                                                    onChange={(e) => handleRowChange(idx, 'poDeliveryDate', e.target.value)}
+                                                    className="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                />
+                                            </td>
+
+                                            {/* Row Committed Date */}
                                             <td className="px-3 py-3">
                                                 <input
                                                     type="date"
                                                     value={row.targetDate}
                                                     onChange={(e) => handleRowChange(idx, 'targetDate', e.target.value)}
-                                                    className="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                                    className={`w-full px-2.5 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ${
+                                                        row.isFromOA
+                                                            ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 font-bold text-emerald-900 dark:text-emerald-200'
+                                                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                                                    }`}
                                                 />
+                                                {row.isFromOA && (
+                                                    <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                                                        OA Committed
+                                                    </span>
+                                                )}
                                             </td>
 
                                             {/* Delete Row */}

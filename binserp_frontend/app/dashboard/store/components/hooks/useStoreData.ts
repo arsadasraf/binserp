@@ -331,9 +331,15 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         
         try {
             // Proceed with normal deletion for all items including fg-items
-            const tab = activeTab === "masters" ? masterTab : activeTab;
-            // Map fg-items to fg-item for the backend route
-            const deleteTab = tab === "fg-items" ? "fg-item" : tab;
+            let tab: any = activeTab === "masters" ? masterTab : activeTab;
+            if (tab === "home") {
+                tab = masterTab;
+            }
+            let deleteTab: any = tab;
+            if (tab === "fg-items") deleteTab = "fg-item";
+            if (tab === "grn-history" || tab === "history") deleteTab = "grn";
+            if (tab === "fg-grn-history" || tab === "fg-history") deleteTab = "fg-grn";
+
             await deleteRecord({ tab: deleteTab as any, id }).unwrap();
             setSuccess("Record deleted successfully");
         } catch (err: any) {

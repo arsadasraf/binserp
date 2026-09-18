@@ -916,20 +916,48 @@ export default function InventoryTable({
                                                     {item.type || 'Component'}
                                                 </span>
                                             </td>
-                                            <td className={`px-5 py-3.5 font-mono font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                                {item.quantity}
+                                            <td className="px-5 py-3.5">
+                                                <div className="flex flex-col">
+                                                    <span className={`font-mono font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                        {item.quantity} {item.unit || 'Nos'}
+                                                    </span>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
+                                                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                                                            {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             <td className="px-5 py-3.5">
                                                 {item.monthlyData ? (
-                                                    <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300">
-                                                        <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                                        <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300 text-xs">
+                                                            <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || 0})</span>
+                                                            <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                            <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
+                                                        </div>
+                                                        {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                            <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
+                                                                <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                                <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                                <span>{item.secondaryUnit}</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ) : (
                                                     <span className="text-gray-400">-</span>
                                                 )}
                                             </td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">{item.unit || '-'}</td>
+                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                                <div className="flex flex-col">
+                                                    <span className="font-semibold">{item.unit || '-'}</span>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono" title={`1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
+                                                            1 = {item.conversionFactor} {item.secondaryUnit}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
                                             <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
                                                 {getLocationValue(item)}
                                             </td>
@@ -958,15 +986,32 @@ export default function InventoryTable({
                                                 {item.type || "Component"}
                                             </span>
                                         </div>
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity <= (item.reorderLevel || 0) ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
-                                            {item.quantity} {item.unit || ''}
-                                        </span>
+                                        <div className="flex flex-col items-end gap-1">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity <= (item.reorderLevel || 0) ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
+                                                {item.quantity} {item.unit || ''}
+                                            </span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
+                                                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                    {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {item.monthlyData && (
-                                        <div className="flex items-center gap-2 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit">
-                                            <span className="text-emerald-600 font-medium">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                            <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                        <div className="flex flex-col gap-0.5 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-emerald-600 font-medium">(+{item.monthlyData.totalInwardQuantity || 0})</span>
+                                                <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
+                                            </div>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
+                                                    <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                    <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                    <span>{item.secondaryUnit}</span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 

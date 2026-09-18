@@ -76,6 +76,15 @@ export const createGRN = async (req, res) => {
     const isBO = normalizedType === 'bo' || normalizedType === 'bought-out';
     const isRM = normalizedType === 'rm' || normalizedType === 'raw-material';
 
+    console.log(">>> [createGRN] Incoming request:", {
+      grnNumber,
+      date,
+      type,
+      supplier,
+      isFG,
+      itemsCount: Array.isArray(items) ? items.length : typeof items
+    });
+
     status = status || "Received";
 
     if (!grnNumber) {
@@ -84,6 +93,7 @@ export const createGRN = async (req, res) => {
 
     let supplierName = "";
     let supplierAddress = "";
+    let finalSupplierId = undefined;
 
     const rawSupplierId = typeof supplier === 'object' && supplier !== null 
       ? (supplier._id || supplier.id) 
@@ -106,10 +116,24 @@ export const createGRN = async (req, res) => {
         return res.status(400).json({ message: "Supplier / Vendor is required" });
       }
       if (isValidObjectId(rawSupplierId.toString())) {
-        const vendorData = await Vendor.findOne({ _id: rawSupplierId, company: companyId });
+        finalSupplierId = rawSupplierId.toString();
+        const vendorData = await Vendor.findOne({ _id: finalSupplierId, company: companyId });
         if (vendorData) {
           supplierName = vendorData.name || "";
           supplierAddress = vendorData.address || "";
+        }
+      } else {
+        // Fallback: match vendor by name if name was passed
+        const vendorData = await Vendor.findOne({ 
+          company: companyId, 
+          name: { $regex: new RegExp(`^${rawSupplierId.toString().trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } 
+        });
+        if (vendorData) {
+          finalSupplierId = vendorData._id.toString();
+          supplierName = vendorData.name || "";
+          supplierAddress = vendorData.address || "";
+        } else {
+          supplierName = rawSupplierId.toString().trim();
         }
       }
     }
@@ -161,13 +185,13 @@ export const createGRN = async (req, res) => {
         let fgItemId = null;
         let itemUnit = item.unit || "PCS";
         let itemLocationId = item.locationId || null;
+        let doc = null;
 
         const targetId = item.material || item.consumable || item.fgItem || item.component || item._id;
         const validId = targetId && isValidObjectId(targetId.toString()) ? targetId.toString() : null;
 
         if (isConsumable) {
           // Consumable item
-          let doc = null;
           if (validId) doc = await ConsumableItem.findOne({ _id: validId, company: companyId });
           if (!doc && itemName) {
             doc = await ConsumableItem.findOne({ company: companyId, name: itemName });
@@ -185,7 +209,6 @@ export const createGRN = async (req, res) => {
           }
         } else if (isFG) {
           // Finished Goods / Component
-          let doc = null;
           if (validId) {
             doc = await FGItem.findOne({ _id: validId, company: companyId });
             if (!doc) doc = await Component.findOne({ _id: validId, company: companyId });
@@ -208,7 +231,6 @@ export const createGRN = async (req, res) => {
           }
         } else {
           // RM or BO Material
-          let doc = null;
           if (validId) {
             if (isRM) doc = await RawMaterial.findOne({ _id: validId, company: companyId });
             else if (isBO) doc = await BoughtOut.findOne({ _id: validId, company: companyId });
@@ -258,16 +280,30 @@ export const createGRN = async (req, res) => {
           return res.status(400).json({ message: "Valid quantity is required for each item" });
         }
 
+        let validLocationId = undefined;
+        if (itemLocationId) {
+          if (isValidObjectId(itemLocationId.toString())) {
+            validLocationId = itemLocationId.toString();
+          } else if (typeof itemLocationId === 'object' && itemLocationId._id && isValidObjectId(itemLocationId._id.toString())) {
+            validLocationId = itemLocationId._id.toString();
+          }
+        }
+
+        const validMaterialId = materialId && isValidObjectId(materialId.toString()) ? materialId.toString() : undefined;
+        const validConsumableId = consumableId && isValidObjectId(consumableId.toString()) ? consumableId.toString() : undefined;
+        const validFgItemId = fgItemId && isValidObjectId(fgItemId.toString()) ? fgItemId.toString() : undefined;
+        const validComponentId = componentId && isValidObjectId(componentId.toString()) ? componentId.toString() : undefined;
+
         itemsArray.push({
-          material: materialId || undefined,
-          consumable: consumableId || undefined,
-          fgItem: fgItemId || undefined,
-          component: componentId || undefined,
+          material: validMaterialId,
+          consumable: validConsumableId,
+          fgItem: validFgItemId,
+          component: validComponentId,
           materialName: itemName || 'Received Item',
-          description: item.description || item.descriptions || undefined,
+          description: item.description || item.descriptions || doc?.descriptions || doc?.description || undefined,
           quantity: qty,
           unit: itemUnit,
-          locationId: itemLocationId || undefined,
+          locationId: validLocationId,
           receivedQuantity: qty,
           acceptedQuantity: qcRequired ? 0 : qty,
           rate: parseFloat(item.rate) || 0,
@@ -284,13 +320,22 @@ export const createGRN = async (req, res) => {
     } else if (material && quantity) {
       // Single material fallback
       const qty = parseFloat(quantity);
+      let validLocationId = undefined;
+      if (req.body.locationId) {
+        if (isValidObjectId(req.body.locationId.toString())) {
+          validLocationId = req.body.locationId.toString();
+        } else if (typeof req.body.locationId === 'object' && req.body.locationId._id && isValidObjectId(req.body.locationId._id.toString())) {
+          validLocationId = req.body.locationId._id.toString();
+        }
+      }
+
       itemsArray.push({
-        material: isValidObjectId(material.toString()) ? material : undefined,
+        material: isValidObjectId(material.toString()) ? material.toString() : undefined,
         materialName: req.body.materialName || 'Material Item',
         description: req.body.description || req.body.descriptions || undefined,
         quantity: qty,
         unit: req.body.unit || 'PCS',
-        locationId: req.body.locationId || undefined,
+        locationId: validLocationId,
         receivedQuantity: qty,
         acceptedQuantity: qcRequired ? 0 : qty,
         rate: parseFloat(req.body.rate) || 0,
@@ -312,19 +357,27 @@ export const createGRN = async (req, res) => {
       ? parseFloat(totalAmount)
       : computedSubtotal + computedTaxAmount;
 
+    // Check for duplicate grnNumber and auto-suffix if needed
+    const existingGRN = await GRN.findOne({ company: companyId, grnNumber });
+    if (existingGRN) {
+      const uniqueSuffix = Math.floor(100 + Math.random() * 900);
+      grnNumber = `${grnNumber}-${uniqueSuffix}`;
+      console.log(`[createGRN] Adjusted duplicate grnNumber to: ${grnNumber}`);
+    }
+
     const grn = await GRN.create({
       company: companyId,
       type: normalizedType,
       grnNumber,
       date: date || new Date(),
-      supplier: rawSupplierId && isValidObjectId(rawSupplierId.toString()) ? rawSupplierId : undefined,
+      supplier: finalSupplierId,
       supplierName: supplierName || undefined,
       supplierAddress: supplierAddress || undefined,
-      customer: rawCustomerId && isValidObjectId(rawCustomerId.toString()) ? rawCustomerId : undefined,
-      purchaseOrder: purchaseOrder && isValidObjectId(purchaseOrder.toString()) ? purchaseOrder : undefined,
+      customer: rawCustomerId && isValidObjectId(rawCustomerId.toString()) ? rawCustomerId.toString() : undefined,
+      purchaseOrder: purchaseOrder && isValidObjectId(purchaseOrder.toString()) ? purchaseOrder.toString() : undefined,
       poNumber: poReference || "",
       poReference: poReference || "",
-      mrpPlan: mrpPlan && isValidObjectId(mrpPlan.toString()) ? mrpPlan : undefined,
+      mrpPlan: mrpPlan && isValidObjectId(mrpPlan.toString()) ? mrpPlan.toString() : undefined,
       mrpNumber: mrpNumber || "",
       items: itemsArray,
       taxRate: parsedTaxRate,
@@ -571,9 +624,12 @@ export const createGRN = async (req, res) => {
 
     res.status(201).json({ message: "GRN created successfully", grn });
   } catch (error) {
-    console.error("GRN Creation Error:", error);
+    console.error(">>> [createGRN] Creation Error:", error);
+    const msg = error.code === 11000 
+      ? `GRN with this number already exists (${JSON.stringify(error.keyValue)})` 
+      : (error.message || "Failed to create GRN");
     res.status(500).json({
-      message: error.message || "Failed to create GRN",
+      message: msg,
       error: process.env.NODE_ENV === "development" ? error.stack : undefined
     });
   }

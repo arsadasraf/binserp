@@ -15,7 +15,11 @@ export const createFGItem = async (req, res) => {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode } = req.body;
+    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
+
+    const parsedHasSecondary = hasSecondaryUnit === 'true' || hasSecondaryUnit === true;
+    const parsedSecondaryUnit = (secondaryUnit || "").toString().trim();
+    const parsedConversionFactor = isNaN(Number(conversionFactor)) || Number(conversionFactor) <= 0 ? 1 : Number(conversionFactor);
 
     if (!name || !type) {
       return res.status(400).json({ message: "Name and Type are required" });
@@ -97,6 +101,9 @@ export const createFGItem = async (req, res) => {
       description: description || "",
       location: validLocation,
       unit: (unit || "Nos").toString().trim(),
+      hasSecondaryUnit: parsedHasSecondary,
+      secondaryUnit: parsedSecondaryUnit,
+      conversionFactor: parsedConversionFactor,
       hsnCode: (hsnCode || "").toString().trim(),
       reorderLevel: isNaN(Number(reorderLevel)) ? 0 : Number(reorderLevel),
       bom: cleanedBom,
@@ -260,11 +267,21 @@ export const updateFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     
-    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode } = req.body;
+    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
 
     let updateData = { name, code, type, description, revisionNumber };
     if (unit !== undefined) updateData.unit = (unit || "Nos").toString().trim();
     if (hsnCode !== undefined) updateData.hsnCode = (hsnCode || "").toString().trim();
+
+    if (hasSecondaryUnit !== undefined) {
+      updateData.hasSecondaryUnit = hasSecondaryUnit === 'true' || hasSecondaryUnit === true;
+    }
+    if (secondaryUnit !== undefined) {
+      updateData.secondaryUnit = (secondaryUnit || "").toString().trim();
+    }
+    if (conversionFactor !== undefined) {
+      updateData.conversionFactor = isNaN(Number(conversionFactor)) || Number(conversionFactor) <= 0 ? 1 : Number(conversionFactor);
+    }
 
     if (reorderLevel !== undefined) {
       updateData.reorderLevel = isNaN(Number(reorderLevel)) ? 0 : Number(reorderLevel);

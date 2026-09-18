@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
     X, Download, Edit3, Trash2, Building2, User, Phone, Mail, Globe, 
     MapPin, CreditCard, ShieldCheck, Tag, Layers, Box, Package, 
     Calendar, CheckCircle2, AlertCircle, FileText, Printer, FileSpreadsheet,
-    Eye, ExternalLink, Hash, Info, Layers3
+    Eye, ExternalLink, Hash, Info, Layers3, ChevronRight, ChevronDown, ChevronsUpDown, Sparkles
 } from 'lucide-react';
 import { generateMasterRecordPDF } from '@/src/utils/masterPdfHelper';
 import { useGetStoreDataQuery } from '@/src/store/services/storeService';
+import { explodeFGBOMHierarchy, ExplodedBOMNode, ExplodedBOMResult } from '@/src/utils/bomHierarchyHelper';
 
 export interface MasterDetailPreviewModalProps {
     isOpen: boolean;
@@ -18,6 +19,9 @@ export interface MasterDetailPreviewModalProps {
     onEdit?: (item: any) => void;
     onDelete?: (id: string) => void;
     companyInfo?: any;
+    allFGItems?: any[];
+    allRMItems?: any[];
+    allBOItems?: any[];
 }
 
 export default function MasterDetailPreviewModal({
@@ -27,16 +31,63 @@ export default function MasterDetailPreviewModal({
     masterTab,
     onEdit,
     onDelete,
-    companyInfo: initialCompanyInfo
+    companyInfo: initialCompanyInfo,
+    allFGItems: initialAllFGItems,
+    allRMItems: initialAllRMItems,
+    allBOItems: initialAllBOItems
 }: MasterDetailPreviewModalProps) {
     const { data: fetchedCompanyInfo } = useGetStoreDataQuery("company-info", { skip: !isOpen });
     const companyInfo = initialCompanyInfo || fetchedCompanyInfo;
 
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
-    if (!isOpen || !item) return null;
-
     const tabKey = (masterTab || '').toLowerCase();
+    const isFG = tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods';
+
+    // Fetch master item pools for BOM hierarchy explosion if FG
+    const { data: fetchedFG = [] } = useGetStoreDataQuery("fg-item", { skip: !isOpen || !isFG });
+    const { data: fetchedRM = [] } = useGetStoreDataQuery("raw-material", { skip: !isOpen || !isFG });
+    const { data: fetchedBO = [] } = useGetStoreDataQuery("bought-out", { skip: !isOpen || !isFG });
+
+    const fgList = initialAllFGItems || fetchedFG || [];
+    const rmList = initialAllRMItems || fetchedRM || [];
+    const boList = initialAllBOItems || fetchedBO || [];
+
+    // Explode multi-level nested BOM hierarchy recursively
+    const explodedBOM: ExplodedBOMResult | null = useMemo(() => {
+        if (!isFG || !item) return null;
+        return explodeFGBOMHierarchy(item, fgList, rmList, boList);
+    }, [isFG, item, fgList, rmList, boList]);
+
+    // Tree collapse state for parent sub-assemblies
+    const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(new Set());
+
+    const toggleCollapse = (key: string) => {
+        setCollapsedKeys(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) {
+                next.delete(key);
+            } else {
+                next.add(key);
+            }
+            return next;
+        });
+    };
+
+    const handleExpandAll = () => {
+        setCollapsedKeys(new Set());
+    };
+
+    const handleCollapseAll = () => {
+        if (!explodedBOM) return;
+        const parentKeys = new Set<string>();
+        explodedBOM.flatTree.forEach(node => {
+            if (node.hasChildren) parentKeys.add(node.key);
+        });
+        setCollapsedKeys(parentKeys);
+    };
+
+    if (!isOpen || !item) return null;
 
     // Determine color schemes and icons per master type
     let theme = {
@@ -155,7 +206,15 @@ export default function MasterDetailPreviewModal({
     const Icon = theme.icon;
 
     const handleDownloadPDF = () => {
-        generateMasterRecordPDF({ masterTab, item, companyInfo });
+        generateMasterRecordPDF({ 
+            masterTab, 
+            item, 
+            companyInfo,
+            allFGItems: fgList,
+            allRMItems: rmList,
+            allBOItems: boList,
+            explodedBOM: explodedBOM || undefined
+        });
     };
 
     return (
@@ -489,30 +548,38 @@ export default function MasterDetailPreviewModal({
                             {/* Master Summary Bar */}
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Item Type</div>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assembly Type</div>
                                     <div className="text-sm font-extrabold font-mono text-purple-600 dark:text-purple-400 mt-1">
                                         {item.type || item.category || 'Component'}
                                     </div>
                                 </div>
 
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Primary Unit</div>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Units of Measure</div>
                                     <div className="text-sm font-extrabold font-mono text-slate-900 dark:text-white mt-1">
                                         {item.unit || 'Nos'}
                                     </div>
+                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                        <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 mt-0.5">
+                                            1 {item.unit || 'Unit'} = {item.conversionFactor ?? 1} {item.secondaryUnit}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Location</div>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Storage Location</div>
                                     <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200 mt-1 truncate">
                                         {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
                                     </div>
                                 </div>
 
                                 <div className="p-4 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900/50 text-center">
-                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">BOM Components</div>
+                                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-400">BOM Hierarchy</div>
                                     <div className="text-sm font-extrabold font-mono text-amber-800 dark:text-amber-300 mt-1">
-                                        {Array.isArray(item.bom) ? item.bom.length : 0} Items
+                                        {explodedBOM?.summary.totalItemCount ?? (Array.isArray(item.bom) ? item.bom.length : 0)} Items
+                                    </div>
+                                    <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5 font-medium">
+                                        {explodedBOM?.summary.totalLevels ? `${explodedBOM.summary.totalLevels} Level Tree` : '1 Level Direct'}
                                     </div>
                                 </div>
                             </div>
@@ -536,6 +603,24 @@ export default function MasterDetailPreviewModal({
                                         <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || item.category || 'Component'}</span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                        <span className="text-slate-500 dark:text-slate-400">Primary Unit:</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.unit || 'Nos'}</span>
+                                    </div>
+                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                        <>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Secondary Unit:</span>
+                                                <span className="font-bold text-indigo-600 dark:text-indigo-400">{item.secondaryUnit}</span>
+                                            </div>
+                                            <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                                <span className="text-slate-500 dark:text-slate-400">Conversion Ratio:</span>
+                                                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                    1 {item.unit || 'Unit'} = {item.conversionFactor ?? 1} {item.secondaryUnit}
+                                                </span>
+                                            </div>
+                                        </>
+                                    )}
+                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                         <span className="text-slate-500 dark:text-slate-400">Storage Location:</span>
                                         <span className="font-bold text-slate-800 dark:text-slate-200">
                                             {typeof item.location === 'object' ? item.location?.name : (typeof item.locationId === 'object' ? item.locationId?.name : (item.location || '-'))}
@@ -556,67 +641,198 @@ export default function MasterDetailPreviewModal({
                                 </div>
                             </div>
 
-                            {/* BOM Table */}
-                            {item.bom && item.bom.length > 0 && (
-                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
-                                    <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                        <Layers3 size={14} className={theme.accentColor} /> Bill of Materials (BOM)
+                            {/* Multi-Level Nested Bill of Materials (BOM) Tree */}
+                            {explodedBOM && explodedBOM.flatTree.length > 0 ? (
+                                <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-4">
+                                    {/* Header & Hierarchy Summary */}
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-700/80">
+                                        <div>
+                                            <div className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                                                <Layers3 size={15} className="text-purple-500" /> Multi-Level Engineering BOM Tree
+                                            </div>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                Recursive explosion of assemblies, sub-assemblies, components, bought-outs & raw materials.
+                                            </p>
+                                        </div>
+
+                                        {/* Action Toggles: Expand/Collapse All */}
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleExpandAll}
+                                                className="px-2.5 py-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors"
+                                            >
+                                                Expand All
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleCollapseAll}
+                                                className="px-2.5 py-1 text-[11px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
+                                            >
+                                                Collapse All
+                                            </button>
+                                        </div>
                                     </div>
-                                    <div className="overflow-x-auto">
+
+                                    {/* Hierarchy Metric Badges */}
+                                    <div className="flex flex-wrap gap-2 text-xs">
+                                        <div className="px-2.5 py-1 bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800/60 rounded-lg text-purple-700 dark:text-purple-300 font-bold text-[11px]">
+                                            Levels: <span className="font-mono">{explodedBOM.summary.totalLevels}</span>
+                                        </div>
+                                        <div className="px-2.5 py-1 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/60 rounded-lg text-indigo-700 dark:text-indigo-300 font-bold text-[11px]">
+                                            Sub-Assemblies: <span className="font-mono">{explodedBOM.summary.subAssemblyCount}</span>
+                                        </div>
+                                        <div className="px-2.5 py-1 bg-sky-50 dark:bg-sky-950/50 border border-sky-200 dark:border-sky-800/60 rounded-lg text-sky-700 dark:text-sky-300 font-bold text-[11px]">
+                                            In-House Components: <span className="font-mono">{explodedBOM.summary.componentCount}</span>
+                                        </div>
+                                        <div className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800/60 rounded-lg text-amber-700 dark:text-amber-300 font-bold text-[11px]">
+                                            Bought Out (BO): <span className="font-mono">{explodedBOM.summary.boCount}</span>
+                                        </div>
+                                        <div className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/60 rounded-lg text-blue-700 dark:text-blue-300 font-bold text-[11px]">
+                                            Raw Materials (RM): <span className="font-mono">{explodedBOM.summary.rmCount}</span>
+                                        </div>
+                                        <div className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-300 font-bold text-[11px] ml-auto">
+                                            Total BOM Items: <span className="font-mono text-indigo-600 dark:text-indigo-400">{explodedBOM.summary.totalItemCount}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Multi-Level BOM Tree Table */}
+                                    <div className="overflow-x-auto rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-900/60">
                                         <table className="w-full text-xs text-left">
-                                            <thead className="text-[10px] text-slate-500 uppercase bg-slate-200/60 dark:bg-slate-700/60 rounded-lg">
+                                            <thead className="text-[10px] text-slate-500 dark:text-slate-400 uppercase bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700/80">
                                                 <tr>
-                                                    <th className="px-3 py-2">#</th>
-                                                    <th className="px-3 py-2">Component / Item Name</th>
-                                                    <th className="px-3 py-2">Item Type</th>
-                                                    <th className="px-3 py-2 text-right">Quantity Required</th>
+                                                    <th className="px-3 py-2.5 text-center w-14">Level</th>
+                                                    <th className="px-3 py-2.5">Component / Item Name & Description</th>
+                                                    <th className="px-3 py-2.5 text-center w-36">Classification</th>
+                                                    <th className="px-3 py-2.5 text-right w-32">Qty / Parent</th>
+                                                    <th className="px-3 py-2.5 text-right w-32">Cumulative Qty</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-200/60 dark:divide-slate-700/60">
-                                                {item.bom.map((b: any, idx: number) => (
-                                                    <tr key={idx}>
-                                                        <td className="px-3 py-2 font-mono text-slate-400">{idx + 1}</td>
-                                                        <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{b.itemName || '-'}</td>
-                                                        <td className="px-3 py-2">
-                                                            {(() => {
-                                                                const rawType = (b.itemType || 'RawMaterial').toString();
-                                                                if (rawType === 'FGItem' || rawType.toLowerCase().includes('fg')) {
-                                                                    const specificType = b.fgType || b.itemClassification || b.item?.type || 'Component';
-                                                                    const isSubAssy = specificType === 'Sub Assembly' || (b.itemName || '').toLowerCase().includes('sub');
-                                                                    return (
-                                                                        <span className={`px-2.5 py-0.5 font-bold rounded-md text-[10px] border ${
-                                                                            isSubAssy
-                                                                                ? 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300'
-                                                                                : specificType === 'Assembly'
-                                                                                ? 'bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-300'
-                                                                                : 'bg-sky-100 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border-sky-300'
-                                                                        }`}>
-                                                                            {isSubAssy ? '🧩 FG Sub-Assembly' : `FG ${specificType}`}
-                                                                        </span>
-                                                                    );
-                                                                } else if (rawType === 'BoughtOut' || rawType.toLowerCase().includes('bought') || rawType === 'BO') {
-                                                                    return (
-                                                                        <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold rounded text-[10px] border border-amber-200 dark:border-amber-800">
-                                                                            Bought Out (BO)
-                                                                        </span>
-                                                                    );
-                                                                } else {
-                                                                    return (
-                                                                        <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-bold rounded text-[10px] border border-blue-200 dark:border-blue-800">
-                                                                            Raw Material (RM)
-                                                                        </span>
-                                                                    );
-                                                                }
-                                                            })()}
-                                                        </td>
-                                                        <td className="px-3 py-2 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
-                                                            {b.quantity || 1} {b.unit || 'Nos'}
-                                                        </td>
-                                                    </tr>
-                                                ))}
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {(() => {
+                                                    const renderTreeRows = (nodes: ExplodedBOMNode[]): React.ReactNode => {
+                                                        return nodes.map((node) => {
+                                                            const isCollapsed = collapsedKeys.has(node.key);
+                                                            const hasChildren = node.hasChildren && node.children.length > 0;
+                                                            const indentPadding = Math.max(0, (node.level - 2) * 20 + 8);
+
+                                                            let typeBadgeClass = 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60';
+                                                            let typeText = 'Raw Material (RM)';
+                                                            if (node.itemType === 'SubAssembly') {
+                                                                typeBadgeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60';
+                                                                typeText = '🧩 FG Sub-Assembly';
+                                                            } else if (node.itemType === 'Assembly') {
+                                                                typeBadgeClass = 'bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60';
+                                                                typeText = '⚙️ FG Assembly';
+                                                            } else if (node.itemType === 'Component') {
+                                                                typeBadgeClass = 'bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60';
+                                                                typeText = '🔧 In-House Component';
+                                                            } else if (node.itemType === 'BO') {
+                                                                typeBadgeClass = 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60';
+                                                                typeText = '📦 Bought Out (BO)';
+                                                            }
+
+                                                            return (
+                                                                <React.Fragment key={node.key}>
+                                                                    <tr className={`transition-colors ${
+                                                                        hasChildren 
+                                                                            ? 'bg-slate-50/70 dark:bg-slate-800/40 hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 font-medium' 
+                                                                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/30'
+                                                                    }`}>
+                                                                        {/* Level Badge */}
+                                                                        <td className="px-3 py-2.5 text-center">
+                                                                            <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                                                                                node.level === 2 
+                                                                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700' 
+                                                                                    : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800'
+                                                                            }`}>
+                                                                                L{node.level}
+                                                                            </span>
+                                                                        </td>
+
+                                                                        {/* Item Name & Description with Tree Indentation */}
+                                                                        <td className="px-3 py-2.5" style={{ paddingLeft: `${indentPadding}px` }}>
+                                                                            <div className="flex items-start gap-2">
+                                                                                {hasChildren ? (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => toggleCollapse(node.key)}
+                                                                                        className="p-1 -ml-1 mt-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors shrink-0"
+                                                                                        title={isCollapsed ? "Expand nested BOM" : "Collapse nested BOM"}
+                                                                                    >
+                                                                                        {isCollapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+                                                                                    </button>
+                                                                                ) : (
+                                                                                    node.level > 2 && (
+                                                                                        <span className="text-slate-400 font-mono text-xs select-none mt-0.5 shrink-0">↳</span>
+                                                                                    )
+                                                                                )}
+                                                                                <div className="min-w-0 flex-1">
+                                                                                    <div className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                                                                                        <span>{node.materialName || 'N/A'}</span>
+                                                                                        {hasChildren && (
+                                                                                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/60 dark:border-indigo-800/60">
+                                                                                                {node.children.length} sub-items
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    {node.description && (
+                                                                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                                                            {node.description}
+                                                                                        </div>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+                                                                        </td>
+
+                                                                        {/* Classification */}
+                                                                        <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                                                                            <span className={`px-2 py-0.5 font-bold rounded text-[10px] border ${typeBadgeClass}`}>
+                                                                                {typeText}
+                                                                            </span>
+                                                                        </td>
+
+                                                                        {/* Qty Per Parent */}
+                                                                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                            <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                                                                                {node.quantityPerParent} {node.unit}
+                                                                            </div>
+                                                                            {node.hasSecondaryUnit && node.secondaryQuantityPerParent !== undefined && (
+                                                                                <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                                    (= {node.secondaryQuantityPerParent} {node.secondaryUnit})
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
+
+                                                                        {/* Cumulative Qty */}
+                                                                        <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                                                                            <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">
+                                                                                {node.cumulativeQuantity} {node.unit}
+                                                                            </div>
+                                                                            {node.hasSecondaryUnit && node.secondaryCumulativeQuantity !== undefined && (
+                                                                                <div className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                                    (= {node.secondaryCumulativeQuantity} {node.secondaryUnit})
+                                                                                </div>
+                                                                            )}
+                                                                        </td>
+                                                                    </tr>
+
+                                                                    {/* Recursively render child items if expanded */}
+                                                                    {!isCollapsed && hasChildren && renderTreeRows(node.children)}
+                                                                </React.Fragment>
+                                                            );
+                                                        });
+                                                    };
+
+                                                    return renderTreeRows(explodedBOM.nestedTree);
+                                                })()}
                                             </tbody>
                                         </table>
                                     </div>
+                                </div>
+                            ) : (
+                                <div className="p-6 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500 dark:text-slate-400">
+                                    No Bill of Materials (BOM) components defined for this Finished Good.
                                 </div>
                             )}
 

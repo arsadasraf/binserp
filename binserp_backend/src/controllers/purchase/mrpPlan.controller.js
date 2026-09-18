@@ -27,6 +27,7 @@ export const createMRPPlan = async (req, res) => {
       customerPoNumber = "",
       customerPo,
       customerName = "",
+      poDate,
       targetDate,
       remarks = "",
       fgItems = [],
@@ -39,7 +40,7 @@ export const createMRPPlan = async (req, res) => {
     const now = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const mrpNumber = customMrpNumber || `MRP-${dateStr}-${randomSuffix}`;
+    const mrpNumber = customMrpNumber || (customerPoNumber ? customerPoNumber : `MRP-${dateStr}-${randomSuffix}`);
 
     // Maps to aggregate RM, BO, SubAssemblies and Consumables across all FG items
     const rmMap = new Map();
@@ -304,6 +305,7 @@ export const createMRPPlan = async (req, res) => {
         description: fgDesc,
         quantity: fgQty,
         unit: fg.unit || "PCS",
+        poDeliveryDate: fg.poDeliveryDate ? new Date(fg.poDeliveryDate) : undefined,
         targetDate: fgTargetDate,
         bomId: bomDoc?._id,
         bomNumber: bomDoc?.bomNumber || (nestedMaterials.length > 0 ? "BOM-Active" : "BOM-Auto"),
@@ -322,6 +324,7 @@ export const createMRPPlan = async (req, res) => {
       customerPoNumber,
       customerPo: customerPo || undefined,
       customerName,
+      poDate: poDate ? new Date(poDate) : undefined,
       targetDate: targetDate ? new Date(targetDate) : undefined,
       remarks,
       status: "Planned",
@@ -618,10 +621,11 @@ export const updateMRPPlan = async (req, res) => {
       });
     }
 
-    const { customerName, customerPoNumber, targetDate, remarks, fgItems } = req.body;
+    const { customerName, customerPoNumber, poDate, targetDate, remarks, fgItems } = req.body;
 
     if (customerName !== undefined) plan.customerName = customerName;
     if (customerPoNumber !== undefined) plan.customerPoNumber = customerPoNumber;
+    if (poDate !== undefined) plan.poDate = poDate ? new Date(poDate) : plan.poDate;
     if (targetDate !== undefined) plan.targetDate = targetDate ? new Date(targetDate) : plan.targetDate;
     if (remarks !== undefined) plan.remarks = remarks;
 
@@ -705,6 +709,7 @@ export const updateMRPPlan = async (req, res) => {
           unit: fg.unit || "PCS",
           bomId,
           bomNumber: bomNum,
+          poDeliveryDate: fg.poDeliveryDate ? new Date(fg.poDeliveryDate) : undefined,
           targetDate: fg.targetDate ? new Date(fg.targetDate) : undefined,
         });
 

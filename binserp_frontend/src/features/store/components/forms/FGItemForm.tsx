@@ -489,6 +489,111 @@ export default function FGItemForm({
                             />
                         </div>
                     </div>
+
+                    {/* Dual Unit Toggle & Conversion Configuration */}
+                    <div className="bg-slate-50 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                                <label className="relative inline-flex items-center cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(formData.hasSecondaryUnit)}
+                                        onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setFormData((prev: any) => ({
+                                                ...prev,
+                                                hasSecondaryUnit: checked,
+                                                secondaryUnit: checked ? (prev.secondaryUnit || "KG") : "",
+                                                conversionFactor: checked ? (prev.conversionFactor || 1) : 1
+                                            }));
+                                        }}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-slate-600 peer-checked:bg-purple-600"></div>
+                                    <span className="ml-3 text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200">
+                                        Dual Unit / 2nd Unit Applicable
+                                    </span>
+                                </label>
+                                <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
+                                    (e.g., if FG item is in Nos as 1st unit and KG as 2nd unit)
+                                </span>
+                            </div>
+
+                            {formData.hasSecondaryUnit && (
+                                <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 dark:bg-purple-950/60 border border-purple-200 dark:border-purple-800/80 rounded-lg text-xs font-semibold text-purple-700 dark:text-purple-300">
+                                    <span>Formula:</span>
+                                    <span className="font-mono">
+                                        1 {formData.unit || "Unit"} = {Number(formData.conversionFactor) || 0} {formData.secondaryUnit || "Sec Unit"}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Secondary Unit & Conversion Factor Inputs */}
+                        {formData.hasSecondaryUnit && (
+                            <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                        2nd Unit (Secondary Unit) <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        list="fg-secondary-units"
+                                        type="text"
+                                        required={formData.hasSecondaryUnit}
+                                        value={formData.secondaryUnit || ""}
+                                        onChange={(e) => setFormData((prev: any) => ({ ...prev, secondaryUnit: e.target.value }))}
+                                        className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-slate-900 dark:text-white"
+                                        placeholder="e.g. KG, Grams, Mtr, Ltr"
+                                    />
+                                    <datalist id="fg-secondary-units">
+                                        <option value="KG" />
+                                        <option value="Grams" />
+                                        <option value="Mtr" />
+                                        <option value="Ltr" />
+                                        <option value="PCS" />
+                                        <option value="Nos" />
+                                        <option value="Box" />
+                                        <option value="Sheet" />
+                                    </datalist>
+                                    <p className="text-[11px] text-slate-500 mt-1">
+                                        Alternate unit (e.g. KG).
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                                        Conversion Factor (1 {formData.unit || "Unit"} = how many {formData.secondaryUnit || "KG"}?) <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        step="any"
+                                        min="0.000001"
+                                        required={formData.hasSecondaryUnit}
+                                        value={formData.conversionFactor !== undefined && formData.conversionFactor !== null && !isNaN(Number(formData.conversionFactor)) ? formData.conversionFactor : ""}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData((prev: any) => ({
+                                                ...prev,
+                                                conversionFactor: val === "" ? ("" as any) : (isNaN(parseFloat(val)) ? 0 : parseFloat(val))
+                                            }));
+                                        }}
+                                        className="w-full px-3 py-2 text-xs sm:text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-slate-900 dark:text-white font-mono"
+                                        placeholder="e.g. 0.25 (1 Nos = 0.25 KG)"
+                                    />
+                                    <p className="text-[11px] text-slate-500 mt-1">
+                                        Enter how many {formData.secondaryUnit || "2nd units"} in 1 {formData.unit || "1st unit"}.
+                                    </p>
+                                </div>
+
+                                <div className="col-span-1 sm:col-span-2 lg:col-span-1 flex flex-col justify-center bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-xs">
+                                    <span className="font-bold text-slate-700 dark:text-slate-300 mb-0.5">Live Equivalent</span>
+                                    <span className="text-[11px] text-slate-500">
+                                        10 {formData.unit || "Nos"} = <strong className="text-purple-600 dark:text-purple-400 font-mono">{(10 * (Number(formData.conversionFactor) || 0)).toFixed(2)} {formData.secondaryUnit || "KG"}</strong>
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Attachments & Drawings Card */}

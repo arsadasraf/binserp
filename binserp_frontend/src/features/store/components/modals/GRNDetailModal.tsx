@@ -1,5 +1,5 @@
-import React, { useState, useRef } from 'react';
-import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Clock, Lock } from 'lucide-react';
 import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
 
 interface GRNDetailModalProps {
@@ -12,7 +12,33 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
     const [viewingPhotos, setViewingPhotos] = useState<string[] | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
 
+    // Live ticking timer for 24h window
+    const [nowTime, setNowTime] = useState(Date.now());
+    useEffect(() => {
+        if (!isOpen) return;
+        const timer = setInterval(() => setNowTime(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [isOpen]);
+
     if (!isOpen || !grn) return null;
+
+    const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
+        if (!createdAt) return 0;
+        const created = new Date(createdAt).getTime();
+        const elapsed = Math.floor((nowTime - created) / 1000);
+        const limit = 24 * 3600;
+        return Math.max(0, limit - elapsed);
+    };
+
+    const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds <= 0) return '00:00:00';
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
 
     const totalAmount = grn.items?.reduce((sum: number, item: any) => {
         return sum + ((item.rate || 0) * (item.quantity || 0));
@@ -36,9 +62,21 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                 <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
                     {/* Header */}
                     <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white px-6 py-4 flex justify-between items-center">
-                        <div>
-                            <h2 className="text-2xl font-bold">GRN Details</h2>
-                            <p className="text-indigo-100 text-sm">{grn.grnNumber}</p>
+                        <div className="flex items-center gap-3">
+                            <div>
+                                <h2 className="text-2xl font-bold">GRN Details</h2>
+                                <p className="text-indigo-100 text-sm font-mono">{grn.grnNumber}</p>
+                            </div>
+                            {remainingSecs > 0 ? (
+                                <span className="px-2.5 py-1 bg-amber-400/20 text-amber-100 rounded-lg font-mono text-xs font-bold border border-amber-300/40 inline-flex items-center gap-1.5 ml-2">
+                                    <Clock size={13} className="text-amber-300 animate-pulse" />
+                                    {formatRemainingTime(remainingSecs)} left to edit/delete
+                                </span>
+                            ) : (
+                                <span className="px-2.5 py-1 bg-white/10 text-indigo-100 rounded-lg font-mono text-xs font-semibold inline-flex items-center gap-1.5 ml-2 opacity-80">
+                                    <Lock size={13} /> Window Locked
+                                </span>
+                            )}
                         </div>
                         <button
                             onClick={onClose}

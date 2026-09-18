@@ -56,6 +56,13 @@ export const createFGGRN = async (req, res) => {
       if (!fgDoc) return res.status(400).json({ message: `FG Item not found: ${item.fgItem}` });
       
       const qty = parseFloat(item.quantity);
+      const hasSec = item.hasSecondaryUnit !== undefined ? Boolean(item.hasSecondaryUnit) : Boolean(fgDoc.hasSecondaryUnit);
+      const secUnit = item.secondaryUnit !== undefined ? item.secondaryUnit : (fgDoc.secondaryUnit || "");
+      const convFactor = item.conversionFactor !== undefined ? Number(item.conversionFactor) : (Number(fgDoc.conversionFactor) || 1);
+      const secQty = item.secondaryQuantity !== undefined 
+        ? parseFloat(item.secondaryQuantity) 
+        : (hasSec && convFactor ? parseFloat((qty * convFactor).toFixed(4)) : 0);
+
       itemsArray.push({
         fgItem: fgDoc._id,
         itemName: fgDoc.name,
@@ -64,6 +71,15 @@ export const createFGGRN = async (req, res) => {
         receivedQuantity: qty,
         acceptedQuantity: qcRequired ? 0 : qty,
         rate: item.rate || 0,
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantity: secQty,
+        secondaryReceivedQuantity: secQty,
+        secondaryAcceptedQuantity: qcRequired ? 0 : secQty,
+        secondaryRejectedQuantity: 0,
+        selectedUnit: item.selectedUnit || item.unit || fgDoc.unit || 'Nos',
+        description: item.description || fgDoc.description || ''
       });
     }
 
@@ -111,6 +127,9 @@ export const createFGGRN = async (req, res) => {
           item: item.fgItem,
           itemName: item.itemName,
           unit: item.unit || "Nos",
+          hasSecondaryUnit: item.hasSecondaryUnit,
+          secondaryUnit: item.secondaryUnit,
+          secondaryQuantity: item.secondaryQuantity,
           movementType: "INWARD",
           transactionCategory: "FG_GRN_INWARD",
           quantity: item.quantity,
@@ -215,7 +234,7 @@ export const getAllFGGRNs = async (req, res) => {
 
     const grns = await FGGRN.find({ company: companyId })
       .populate('receivedBy', 'name userId')
-      .populate('items.fgItem', 'name code type')
+      .populate('items.fgItem', 'name code type description descriptions unit hasSecondaryUnit secondaryUnit conversionFactor')
       .sort({ createdAt: -1 });
 
     const signedGrns = await Promise.all(grns.map(async (grn) => {

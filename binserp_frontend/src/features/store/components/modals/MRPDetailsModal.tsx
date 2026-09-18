@@ -85,6 +85,8 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
             <p className="text-xs text-indigo-200 mt-0.5">
               Customer: <strong>{mrpPlan.customerName || "Internal Production"}</strong>
               {mrpPlan.customerPoNumber && <span> • PO: <strong>{mrpPlan.customerPoNumber}</strong></span>}
+              {mrpPlan.poDate && <span> • PO Date: <strong>{new Date(mrpPlan.poDate).toLocaleDateString()}</strong></span>}
+              {mrpPlan.targetDate && <span> • Committed: <strong>{new Date(mrpPlan.targetDate).toLocaleDateString()}</strong></span>}
               <span className="ml-2 pl-2 border-l border-indigo-400/40">
                 Created by: <strong>{mrpPlan.createdByName || "Planner"}</strong>
                 {mrpPlan.updatedByName && (
@@ -160,6 +162,8 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
                     <th className="p-3">FG Item Name & Description</th>
                     <th className="p-3 text-center">BOM Ref</th>
                     <th className="p-3 text-center">Order Target</th>
+                    <th className="p-3 text-center">PO Date</th>
+                    <th className="p-3 text-center">Committed Date</th>
                     <th className="p-3 text-center">FG GRN Received</th>
                     <th className="p-3 text-center">Balance Qty</th>
                     <th className="p-3 text-center">Completion %</th>
@@ -183,6 +187,12 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
                         </td>
                         <td className="p-3 text-center font-bold text-slate-800 dark:text-slate-200">
                           {fgQty} {fg.unit || 'PCS'}
+                        </td>
+                        <td className="p-3 text-center text-[11px] text-slate-500">
+                          {fg.poDeliveryDate ? new Date(fg.poDeliveryDate).toLocaleDateString() : "-"}
+                        </td>
+                        <td className="p-3 text-center text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                          {fg.targetDate ? new Date(fg.targetDate).toLocaleDateString() : "-"}
                         </td>
                         <td className="p-3 text-center font-bold text-teal-600">
                           {recQty} {fg.unit || 'PCS'}

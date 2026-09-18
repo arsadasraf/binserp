@@ -21,10 +21,12 @@ import {
     FileSpreadsheet,
     PackageCheck,
     RotateCcw,
-    Percent
+    Percent,
+    PackagePlus
 } from 'lucide-react';
 import { GRNModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
+import QuickItemMasterModal from './QuickItemMasterModal';
 import { apiGet } from '@/src/lib/api';
 import { compressImageToFile } from '@/src/utils/imageCompressor';
 import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
@@ -98,9 +100,14 @@ export default function GRNModal({
     const [createdGRNData, setCreatedGRNData] = useState<any>(null);
     const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null);
 
-    // Compulsory field validation state
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
     const [isSubmitted, setIsSubmitted] = useState(false);
+
+    // Quick Master Item Modal States
+    const [isQuickMasterModalOpen, setIsQuickMasterModalOpen] = useState(false);
+    const [quickMasterInitialName, setQuickMasterInitialName] = useState('');
+    const [quickMasterTargetIndex, setQuickMasterTargetIndex] = useState<number | null>(null);
+    const [localExtraMaterials, setLocalExtraMaterials] = useState<any[]>([]);
 
     const clearError = (fieldKey: string) => {
         setFormErrors(prev => {
@@ -340,7 +347,10 @@ export default function GRNModal({
     const materialOptions = useMemo(() => {
         const optionsMap = new Map<string, any>();
 
-        safeMaterials.forEach((m: any) => {
+        // Combine safeMaterials and localExtraMaterials (newly added on-the-fly)
+        const allAvailableMaterials = [...safeMaterials, ...localExtraMaterials];
+
+        allAvailableMaterials.forEach((m: any) => {
             if (!m || !m._id) return;
             const desc = m.descriptions || m.description || '';
             const code = m.code ? `[${m.code}]` : '';
@@ -366,7 +376,57 @@ export default function GRNModal({
         });
 
         return Array.from(optionsMap.values());
-    }, [safeMaterials, materialEntries]);
+    }, [safeMaterials, localExtraMaterials, materialEntries]);
+
+    // Open Quick Master Modal
+    const handleOpenQuickMasterModal = (initialName: string = '', targetIndex: number | null = null) => {
+        console.log('[GRNModal] handleOpenQuickMasterModal called with:', { initialName, targetIndex, currentEntriesCount: materialEntries.length });
+        setQuickMasterInitialName(initialName);
+        setQuickMasterTargetIndex(targetIndex !== null ? targetIndex : materialEntries.length - 1);
+        setIsQuickMasterModalOpen(true);
+    };
+
+    // Callback when item is created via QuickItemMasterModal
+    const handleQuickItemCreated = (newItem: any) => {
+        if (!newItem || !newItem._id) return;
+
+        // 1. Add to local extra materials list
+        setLocalExtraMaterials(prev => {
+            const exists = prev.some(m => String(m._id) === String(newItem._id));
+            return exists ? prev : [...prev, newItem];
+        });
+
+        // 2. Populate into the active material entry row
+        const targetIdx = quickMasterTargetIndex !== null && quickMasterTargetIndex >= 0 && quickMasterTargetIndex < materialEntries.length
+            ? quickMasterTargetIndex
+            : materialEntries.length - 1;
+
+        setMaterialEntries(prev => {
+            const copy = [...prev];
+            const hasSec = Boolean(newItem.hasSecondaryUnit);
+            const secUnit = newItem.secondaryUnit || '';
+            const conv = Number(newItem.conversionFactor) || 1;
+
+            copy[targetIdx] = {
+                ...copy[targetIdx],
+                material: String(newItem._id),
+                materialName: newItem.name,
+                description: newItem.descriptions || newItem.description || '',
+                unit: newItem.unit || 'PCS',
+                selectedUnit: newItem.unit || 'PCS',
+                category: typeof newItem.categoryId === 'object' ? newItem.categoryId?.name : (newItem.category || ''),
+                locationId: typeof newItem.locationId === 'object' ? newItem.locationId?._id : (newItem.locationId || ''),
+                hasSecondaryUnit: hasSec,
+                secondaryUnit: secUnit,
+                conversionFactor: conv,
+                quantity: copy[targetIdx].quantity > 0 ? copy[targetIdx].quantity : 1,
+                secondaryQuantity: hasSec && conv ? parseFloat(((copy[targetIdx].quantity > 0 ? copy[targetIdx].quantity : 1) * conv).toFixed(4)) : 0
+            };
+            return copy;
+        });
+
+        clearError(`item_${targetIdx}_material`);
+    };
 
     // Handle PO Selection and Auto-Populate Items
     const handleSelectPO = (poId: string) => {
@@ -1041,7 +1101,8 @@ export default function GRNModal({
     }
 
     return (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
+        <>
+            <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
                 
                 {/* Thin, Sleek Modal Header */}
@@ -1464,14 +1525,25 @@ export default function GRNModal({
                                     {materialEntries.length} Item(s)
                                 </span>
                             </div>
-                            <button
-                                type="button"
-                                onClick={handleAddMaterial}
-                                className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                            >
-                                <Plus className="w-3.5 h-3.5" />
-                                Add Item
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => handleOpenQuickMasterModal()}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                    title="Item not in master? Click to register a new master item on the fly"
+                                >
+                                    <PackagePlus className="w-3.5 h-3.5" />
+                                    <span>+ Add New Master Item</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleAddMaterial}
+                                    className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    <span>Add Row</span>
+                                </button>
+                            </div>
                         </div>
 
                         {/* Desktop View: Wide Responsive Table with Upward Dropdowns */}
@@ -1501,19 +1573,32 @@ export default function GRNModal({
                                                     {index + 1}
                                                 </td>
                                                 <td className="py-2 px-3" data-has-error={hasMaterialError}>
-                                                    <SearchableSelect
-                                                        options={materialOptions}
-                                                        value={entry.material}
-                                                        displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
-                                                        allowCustom={true}
-                                                        hasError={hasMaterialError}
-                                                        onChange={(val: any) => {
-                                                            handleMaterialChange(index, 'material', val);
-                                                            if (val) clearError(`item_${index}_material`);
-                                                        }}
-                                                        placeholder={`Search ${theme.itemLabel}...`}
-                                                        dropdownPosition="auto"
-                                                    />
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className="flex-1">
+                                                            <SearchableSelect
+                                                                options={materialOptions}
+                                                                value={entry.material}
+                                                                displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                                allowCustom={true}
+                                                                onCreateCustom={(typedQuery) => handleOpenQuickMasterModal(typedQuery, index)}
+                                                                hasError={hasMaterialError}
+                                                                onChange={(val: any) => {
+                                                                    handleMaterialChange(index, 'material', val);
+                                                                    if (val) clearError(`item_${index}_material`);
+                                                                }}
+                                                                placeholder={`Search ${theme.itemLabel}...`}
+                                                                dropdownPosition="auto"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenQuickMasterModal('', index)}
+                                                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 cursor-pointer"
+                                                            title="Add new item to Master"
+                                                        >
+                                                            <PackagePlus size={14} />
+                                                        </button>
+                                                    </div>
                                                     {hasMaterialError && (
                                                         <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold mt-0.5 flex items-center gap-1">
                                                             <span>⚠️</span>
@@ -1672,19 +1757,32 @@ export default function GRNModal({
                                                 <span>{theme.itemLabel} <span className="text-red-500">*</span></span>
                                                 {hasMaterialError && <span className="text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${index}_material`]}</span>}
                                             </label>
-                                            <SearchableSelect
-                                                options={materialOptions}
-                                                value={entry.material}
-                                                displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
-                                                allowCustom={true}
-                                                hasError={hasMaterialError}
-                                                onChange={(val: any) => {
-                                                    handleMaterialChange(index, 'material', val);
-                                                    if (val) clearError(`item_${index}_material`);
-                                                }}
-                                                placeholder={`Select ${theme.itemLabel}...`}
-                                                dropdownPosition="auto"
-                                            />
+                                            <div className="flex items-center gap-1.5">
+                                                <div className="flex-1">
+                                                    <SearchableSelect
+                                                        options={materialOptions}
+                                                        value={entry.material}
+                                                        displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                        allowCustom={true}
+                                                        onCreateCustom={(typedQuery) => handleOpenQuickMasterModal(typedQuery, index)}
+                                                        hasError={hasMaterialError}
+                                                        onChange={(val: any) => {
+                                                            handleMaterialChange(index, 'material', val);
+                                                            if (val) clearError(`item_${index}_material`);
+                                                        }}
+                                                        placeholder={`Select ${theme.itemLabel}...`}
+                                                        dropdownPosition="auto"
+                                                    />
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOpenQuickMasterModal('', index)}
+                                                    className="p-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 cursor-pointer"
+                                                    title="Add new item to Master"
+                                                >
+                                                    <PackagePlus size={14} />
+                                                </button>
+                                            </div>
                                             {entry.description && !hasMaterialError && (
                                                 <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1">
                                                     📝 {entry.description}
@@ -1930,5 +2028,21 @@ export default function GRNModal({
                 </form>
             </div>
         </div>
+
+        {/* Quick Item Master Modal for on-the-fly registration */}
+        <QuickItemMasterModal
+            isOpen={isQuickMasterModalOpen}
+            onClose={() => {
+                setIsQuickMasterModalOpen(false);
+                setQuickMasterInitialName('');
+                setQuickMasterTargetIndex(null);
+            }}
+            defaultType={type}
+            initialName={quickMasterInitialName}
+            categories={categories}
+            locations={locations}
+            onItemCreated={handleQuickItemCreated}
+        />
+        </>
     );
 }
