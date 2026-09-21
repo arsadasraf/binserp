@@ -363,7 +363,8 @@ export const getWipInventory = async (req, res) => {
       const jwType = challan.jobWorkType || "store-conversion";
 
       // Check if this is an Assembly / Many-to-One consolidation challan
-      const isAssemblyChallan = challan.operationMode === "assembly" && challan.assemblyOutputItem;
+      const hasAssemblyGroups = challan.operationMode === "assembly" && Array.isArray(challan.assemblyGroups) && challan.assemblyGroups.length > 0;
+      const isAssemblyChallan = challan.operationMode === "assembly" && (hasAssemblyGroups || challan.assemblyOutputItem);
 
       (challan.items || []).forEach((sentItem) => {
         const sentName = sentItem.itemName || "Sent Material";
@@ -373,23 +374,41 @@ export const getWipInventory = async (req, res) => {
         const sentRawType = (sentItem.itemType || (jwType === "wip-to-wip" ? "fg" : "rm")).toLowerCase();
         const sentTargetType = (sentRawType === "bo" || sentRawType === "bought out") ? "bo" : (sentRawType === "fg" || sentRawType === "inhouse" || sentRawType === "component" || jwType === "wip-to-wip") ? "fg" : "rm";
 
-        const retList = isAssemblyChallan
-          ? [{
-              receivedItem: challan.assemblyOutputItem.item,
-              receivedItemName: challan.assemblyOutputItem.itemName || "Assembled Product",
-              receivedItemType: challan.assemblyOutputItem.itemType || "fg",
-              quantityToBeReceived: Number(challan.assemblyOutputItem.quantityToBeReceived) || 0,
-              quantityReceived: Number(challan.assemblyOutputItem.quantityReceived) || 0
-            }]
-          : (Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0
-            ? sentItem.returningItems
-            : [{
-                receivedItem: sentItem.receivedItem,
-                receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
-                receivedItemType: sentItem.receivedItemType || (jwType === "store-conversion" ? "rm" : "fg"),
-                quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
-                quantityReceived: Number(sentItem.quantityReceived) || 0
-              }]);
+        let retList = [];
+        if (hasAssemblyGroups) {
+          // Find which assembly group this sent item belongs to
+          const matchingGrp = challan.assemblyGroups.find(g => 
+            (g.items || []).some(gi => String(gi.item || gi._id) === String(sentItem.item || sentItem._id))
+          );
+          const targetOutput = matchingGrp?.assemblyOutputItem || challan.assemblyGroups[0]?.assemblyOutputItem || challan.assemblyOutputItem;
+          if (targetOutput) {
+            retList = [{
+              receivedItem: targetOutput.item,
+              receivedItemName: targetOutput.itemName || "Assembled Product",
+              receivedItemType: targetOutput.itemType || "fg",
+              quantityToBeReceived: Number(targetOutput.quantityToBeReceived) || 0,
+              quantityReceived: Number(targetOutput.quantityReceived) || 0
+            }];
+          }
+        } else if (isAssemblyChallan && challan.assemblyOutputItem) {
+          retList = [{
+            receivedItem: challan.assemblyOutputItem.item,
+            receivedItemName: challan.assemblyOutputItem.itemName || "Assembled Product",
+            receivedItemType: challan.assemblyOutputItem.itemType || "fg",
+            quantityToBeReceived: Number(challan.assemblyOutputItem.quantityToBeReceived) || 0,
+            quantityReceived: Number(challan.assemblyOutputItem.quantityReceived) || 0
+          }];
+        } else if (Array.isArray(sentItem.returningItems) && sentItem.returningItems.length > 0) {
+          retList = sentItem.returningItems;
+        } else {
+          retList = [{
+            receivedItem: sentItem.receivedItem,
+            receivedItemName: sentItem.receivedItemName || sentItem.itemToBeReceived || sentName,
+            receivedItemType: sentItem.receivedItemType || (jwType === "store-conversion" ? "rm" : "fg"),
+            quantityToBeReceived: Number(sentItem.quantityToBeReceived || sentItem.quantitySent) || 0,
+            quantityReceived: Number(sentItem.quantityReceived) || 0
+          }];
+        }
 
         const expectedQty = retList.reduce((acc, r) => acc + (Number(r.quantityToBeReceived) || 0), 0) || sentQty;
         const receivedQty = retList.reduce((acc, r) => acc + (Number(r.quantityReceived) || 0), 0);

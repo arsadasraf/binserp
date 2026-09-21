@@ -546,14 +546,29 @@ export default function JobWorkStore({
                                         let pendingQty = 0;
                                         let retUnit = 'PCS';
 
-                                        if (isAssembly && challan.assemblyOutputItem) {
-                                            const out = challan.assemblyOutputItem;
-                                            retName = out.itemName || 'Assembled / Welded Product';
-                                            retDesc = getItemDescription(out);
-                                            expQty = Number(out.quantityToBeReceived) || 0;
-                                            recvQty = Number(out.quantityReceived) || 0;
-                                            pendingQty = Math.max(0, expQty - recvQty);
-                                            retUnit = out.receivingUnit || 'PCS';
+                                        if (isAssembly) {
+                                            if (challan.assemblyGroups && challan.assemblyGroups.length > 0) {
+                                                const firstGrp = challan.assemblyGroups[0];
+                                                const out = firstGrp.assemblyOutputItem;
+                                                const extraCount = challan.assemblyGroups.length - 1;
+                                                retName = out?.itemName || 'Assembled Product';
+                                                if (extraCount > 0) {
+                                                    retName = `${retName} (+${extraCount} more sets)`;
+                                                }
+                                                retDesc = getItemDescription(out);
+                                                expQty = challan.assemblyGroups.reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.quantityToBeReceived) || 0), 0);
+                                                recvQty = challan.assemblyGroups.reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.quantityReceived) || 0), 0);
+                                                pendingQty = Math.max(0, expQty - recvQty);
+                                                retUnit = out?.receivingUnit || 'PCS';
+                                            } else if (challan.assemblyOutputItem) {
+                                                const out = challan.assemblyOutputItem;
+                                                retName = out.itemName || 'Assembled / Welded Product';
+                                                retDesc = getItemDescription(out);
+                                                expQty = Number(out.quantityToBeReceived) || 0;
+                                                recvQty = Number(out.quantityReceived) || 0;
+                                                pendingQty = Math.max(0, expQty - recvQty);
+                                                retUnit = out.receivingUnit || 'PCS';
+                                            }
                                         } else if (primarySentItem) {
                                             const firstRet = primarySentItem.returningItems?.[0];
                                             retName = firstRet?.receivedItemName || primarySentItem.itemName || 'Converted Item';
@@ -829,12 +844,25 @@ export default function JobWorkStore({
                             let recvQty = 0;
                             let pendingQty = 0;
 
-                            if (isAssembly && challan.assemblyOutputItem) {
-                                const out = challan.assemblyOutputItem;
-                                retName = out.itemName || 'Assembled Product';
-                                expQty = Number(out.quantityToBeReceived) || 0;
-                                recvQty = Number(out.quantityReceived) || 0;
-                                pendingQty = Math.max(0, expQty - recvQty);
+                            if (isAssembly) {
+                                if (challan.assemblyGroups && challan.assemblyGroups.length > 0) {
+                                    const firstGrp = challan.assemblyGroups[0];
+                                    const out = firstGrp.assemblyOutputItem;
+                                    const extraCount = challan.assemblyGroups.length - 1;
+                                    retName = out?.itemName || 'Assembled Product';
+                                    if (extraCount > 0) {
+                                        retName = `${retName} (+${extraCount} more sets)`;
+                                    }
+                                    expQty = challan.assemblyGroups.reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.quantityToBeReceived) || 0), 0);
+                                    recvQty = challan.assemblyGroups.reduce((acc, g) => acc + (Number(g.assemblyOutputItem?.quantityReceived) || 0), 0);
+                                    pendingQty = Math.max(0, expQty - recvQty);
+                                } else if (challan.assemblyOutputItem) {
+                                    const out = challan.assemblyOutputItem;
+                                    retName = out.itemName || 'Assembled Product';
+                                    expQty = Number(out.quantityToBeReceived) || 0;
+                                    recvQty = Number(out.quantityReceived) || 0;
+                                    pendingQty = Math.max(0, expQty - recvQty);
+                                }
                             } else if (primarySentItem) {
                                 const firstRet = primarySentItem.returningItems?.[0];
                                 retName = firstRet?.receivedItemName || primarySentItem.itemName || 'Converted Item';

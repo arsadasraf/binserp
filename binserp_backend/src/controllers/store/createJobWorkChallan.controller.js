@@ -69,6 +69,7 @@ export const createJobWorkChallan = async (req, res) => {
       routeCardRef,
       operationMode = "discrete",
       assemblyOutputItem,
+      assemblyGroups,
       items
     } = req.body;
 
@@ -359,37 +360,107 @@ export const createJobWorkChallan = async (req, res) => {
       processedItems.push(processedItem);
     }
 
-    // Process assemblyOutputItem if operationMode === 'assembly'
+    // Process assemblyOutputItem & assemblyGroups if operationMode === 'assembly'
     let processedAssemblyOutput = null;
-    if (operationMode === "assembly" && assemblyOutputItem) {
-      let outItemId = isValidObjectId(assemblyOutputItem.item) ? assemblyOutputItem.item : null;
-      let outName = assemblyOutputItem.itemName || "";
-      const outType = assemblyOutputItem.itemType || "fg";
+    let processedAssemblyGroups = [];
 
-      if ((outType === "inhouse" || outType === "fg" || outType === "Component" || outType === "SubAssembly" || outType === "Assembly") && outItemId) {
-        const fgDoc = await FGItem.findById(outItemId);
-        if (fgDoc) outName = fgDoc.name || fgDoc.componentName || outName;
-      } else if (outType === "bo" && outItemId) {
-        const matDoc = await Material.findById(outItemId);
-        if (matDoc) outName = matDoc.name || outName;
+    if (operationMode === "assembly") {
+      // 1. Process multi-set assembly groups if provided
+      if (Array.isArray(assemblyGroups) && assemblyGroups.length > 0) {
+        for (let gIdx = 0; gIdx < assemblyGroups.length; gIdx++) {
+          const grp = assemblyGroups[gIdx];
+          const grpOut = grp.assemblyOutputItem || {};
+          let outItemId = isValidObjectId(grpOut.item) ? grpOut.item : null;
+          let outName = grpOut.itemName || "";
+          const outType = grpOut.itemType || "fg";
+
+          if ((outType === "inhouse" || outType === "fg" || outType === "Component" || outType === "SubAssembly" || outType === "Assembly") && outItemId) {
+            const fgDoc = await FGItem.findById(outItemId);
+            if (fgDoc) outName = fgDoc.name || fgDoc.componentName || outName;
+          } else if (outType === "bo" && outItemId) {
+            const matDoc = await Material.findById(outItemId);
+            if (matDoc) outName = matDoc.name || outName;
+          }
+
+          const outQty = Number(grpOut.quantityToBeReceived) || 1;
+          const rateVal = Number(grpOut.processRate) || 0;
+
+          const singleProcessedOutput = {
+            item: outItemId || undefined,
+            itemName: outName || `Assembled Product #${gIdx + 1}`,
+            itemType: outType,
+            quantityToBeReceived: outQty,
+            quantityReceived: 0,
+            receivingUnit: grpOut.receivingUnit || "PCS",
+            processType: grpOut.processType || "Assembly",
+            processRate: rateVal,
+            processAmount: Number(grpOut.processAmount) || (outQty * rateVal),
+            description: grpOut.description || "",
+            status: "Sent"
+          };
+
+          const grpItems = (grp.items || []).map((gi) => {
+            const sentQty = Number(gi.quantitySent) || 0;
+            const pRate = Number(gi.processRate) || 0;
+            return {
+              item: isValidObjectId(gi.item) ? gi.item : undefined,
+              itemName: gi.itemName || "Raw Material",
+              itemType: gi.itemType || "rm",
+              quantitySent: sentQty,
+              quantityReceived: 0,
+              unit: gi.unit || "PCS",
+              unitPrice: Number(gi.unitPrice) || 0,
+              processRate: pRate,
+              processAmount: Number(gi.processAmount) || (sentQty * pRate),
+              processType: gi.processType || "Welding & Assembly",
+              description: gi.description || "",
+              status: "Sent"
+            };
+          });
+
+          processedAssemblyGroups.push({
+            groupName: grp.groupName || `Assembly Line Item #${gIdx + 1}`,
+            items: grpItems,
+            assemblyOutputItem: singleProcessedOutput
+          });
+        }
+
+        if (processedAssemblyGroups.length > 0) {
+          processedAssemblyOutput = processedAssemblyGroups[0].assemblyOutputItem;
+        }
       }
 
-      const outQty = Number(assemblyOutputItem.quantityToBeReceived) || 1;
-      const rateVal = Number(assemblyOutputItem.processRate) || 0;
+      // 2. Fallback to single assemblyOutputItem if legacy or not grouped
+      if (!processedAssemblyOutput && assemblyOutputItem) {
+        let outItemId = isValidObjectId(assemblyOutputItem.item) ? assemblyOutputItem.item : null;
+        let outName = assemblyOutputItem.itemName || "";
+        const outType = assemblyOutputItem.itemType || "fg";
 
-      processedAssemblyOutput = {
-        item: outItemId || undefined,
-        itemName: outName || "Assembled / Welded Product",
-        itemType: outType,
-        quantityToBeReceived: outQty,
-        quantityReceived: 0,
-        receivingUnit: assemblyOutputItem.receivingUnit || "PCS",
-        processType: assemblyOutputItem.processType || "Assembly",
-        processRate: rateVal,
-        processAmount: Number(assemblyOutputItem.processAmount) || (outQty * rateVal),
-        description: assemblyOutputItem.description || "",
-        status: "Sent"
-      };
+        if ((outType === "inhouse" || outType === "fg" || outType === "Component" || outType === "SubAssembly" || outType === "Assembly") && outItemId) {
+          const fgDoc = await FGItem.findById(outItemId);
+          if (fgDoc) outName = fgDoc.name || fgDoc.componentName || outName;
+        } else if (outType === "bo" && outItemId) {
+          const matDoc = await Material.findById(outItemId);
+          if (matDoc) outName = matDoc.name || outName;
+        }
+
+        const outQty = Number(assemblyOutputItem.quantityToBeReceived) || 1;
+        const rateVal = Number(assemblyOutputItem.processRate) || 0;
+
+        processedAssemblyOutput = {
+          item: outItemId || undefined,
+          itemName: outName || "Assembled / Welded Product",
+          itemType: outType,
+          quantityToBeReceived: outQty,
+          quantityReceived: 0,
+          receivingUnit: assemblyOutputItem.receivingUnit || "PCS",
+          processType: assemblyOutputItem.processType || "Assembly",
+          processRate: rateVal,
+          processAmount: Number(assemblyOutputItem.processAmount) || (outQty * rateVal),
+          description: assemblyOutputItem.description || "",
+          status: "Sent"
+        };
+      }
     }
 
     const Job = req.getModel("Job", jobSchema);
@@ -410,6 +481,7 @@ export const createJobWorkChallan = async (req, res) => {
       jobWorkType,
       operationMode: operationMode || "discrete",
       assemblyOutputItem: processedAssemblyOutput || undefined,
+      assemblyGroups: processedAssemblyGroups.length > 0 ? processedAssemblyGroups : undefined,
       mrpPlan: mrpPlan || undefined,
       mrpNumber: mrpNumber || undefined,
       routeCardRef,

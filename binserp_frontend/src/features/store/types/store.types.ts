@@ -539,6 +539,8 @@ export interface JobWorkItem {
 }
 
 export interface JobWorkAssemblyOutputItem {
+    _id?: string;
+    id?: string;
     item?: string;
     itemName: string;
     itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom' | 'Component' | 'SubAssembly' | 'Assembly';
@@ -550,6 +552,14 @@ export interface JobWorkAssemblyOutputItem {
     processAmount?: number;
     description?: string;
     status?: 'Sent' | 'Partial' | 'Completed';
+}
+
+export interface JobWorkAssemblyGroup {
+    id?: string;
+    _id?: string;
+    groupName?: string;
+    items: any[];
+    assemblyOutputItem: JobWorkAssemblyOutputItem;
 }
 
 export interface JobWorkChallan {
@@ -567,6 +577,7 @@ export interface JobWorkChallan {
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
     operationMode?: 'discrete' | 'assembly';
     assemblyOutputItem?: JobWorkAssemblyOutputItem;
+    assemblyGroups?: JobWorkAssemblyGroup[];
     mrpPlan?: string;
     mrpNumber?: string;
     routeCardRef?: {
@@ -594,6 +605,7 @@ export interface JobWorkFormData {
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
     operationMode?: 'discrete' | 'assembly';
     assemblyOutputItem?: JobWorkAssemblyOutputItem;
+    assemblyGroups?: JobWorkAssemblyGroup[];
     mrpPlan?: string;
     mrpNumber?: string;
     routeCardRef?: {

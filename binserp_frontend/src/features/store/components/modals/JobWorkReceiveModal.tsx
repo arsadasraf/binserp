@@ -4,7 +4,7 @@ import {
   ShieldAlert, Camera, Image as ImageIcon, Eye, 
   Sparkles, Plus, Minus, Package
 } from 'lucide-react';
-import { JobWorkChallan } from "@/src/features/store/types/store.types";
+import { JobWorkChallan, JobWorkAssemblyGroup } from "@/src/features/store/types/store.types";
 import { apiPut } from '@/src/lib/api';
 import { compressImage } from '@/src/utils/imageCompressor';
 
@@ -157,18 +157,27 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
     const handleFillAllPending = () => {
         const fullList: any[] = [];
         
-        if (challan.operationMode === 'assembly' && challan.assemblyOutputItem) {
-            const out = challan.assemblyOutputItem;
-            const expectedQty = Number(out.quantityToBeReceived) || 0;
-            const receivedQty = Number(out.quantityReceived) || 0;
-            const pendingQty = Math.max(0, expectedQty - receivedQty);
+        if (challan.operationMode === 'assembly') {
+            const groups: JobWorkAssemblyGroup[] = (challan.assemblyGroups && challan.assemblyGroups.length > 0)
+                ? challan.assemblyGroups
+                : (challan.assemblyOutputItem ? [{ _id: challan._id, groupName: 'Assembly Line Item #1', items: challan.items, assemblyOutputItem: challan.assemblyOutputItem }] : []);
 
-            if (pendingQty > 0) {
-                fullList.push({
-                    itemId: (challan._id || out.item || 'assembly_output') as string,
-                    quantity: pendingQty
-                });
-            }
+            groups.forEach((grp, gIdx) => {
+                const out = grp.assemblyOutputItem;
+                if (!out) return;
+                const targetKey = (grp._id || out._id || out.item || `assembly_output_${gIdx}`) as string;
+                const expectedQty = Number(out.quantityToBeReceived) || 0;
+                const receivedQty = Number(out.quantityReceived) || 0;
+                const pendingQty = Math.max(0, expectedQty - receivedQty);
+
+                if (pendingQty > 0) {
+                    fullList.push({
+                        itemId: targetKey,
+                        returningItemId: (out._id || grp._id) as string,
+                        quantity: pendingQty
+                    });
+                }
+            });
         } else {
             challan.items.forEach(sentItem => {
                 const parentId = sentItem._id || sentItem.item || '';
@@ -253,7 +262,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-150">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
                 
                 {/* Hidden Inputs */}
                 <input
@@ -304,7 +313,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                 <form onSubmit={handleSubmit} className="p-3.5 sm:p-5 overflow-y-auto flex-1 space-y-4 text-xs sm:text-sm">
                     
                     {/* Section 1: Logistics Compact Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/40 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
                         <div>
                             <label className="block text-[11px] font-bold text-slate-500 mb-1">Vendor DC Ref</label>
                             <input
@@ -371,98 +380,118 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                             </button>
                         </div>
 
-                        {/* ASSEMBLY / WELDING CONSOLIDATION RECEIVE CARD (Single Consolidated Output Item) */}
-                        {challan.operationMode === 'assembly' && challan.assemblyOutputItem ? (() => {
-                            const out = challan.assemblyOutputItem;
-                            const targetKey = (challan._id || out.item || 'assembly_output') as string;
-                            const expectedQty = Number(out.quantityToBeReceived) || 0;
-                            const alreadyReceived = Number(out.quantityReceived) || 0;
-                            const pendingQty = Math.max(0, expectedQty - alreadyReceived);
-                            const isDone = out.status === 'Completed' || pendingQty <= 0;
-                            const enteredQty = getItemQuantity(targetKey);
+                        {/* ASSEMBLY / WELDING CONSOLIDATION RECEIVE CARDS */}
+                        {challan.operationMode === 'assembly' ? (() => {
+                            const groups: JobWorkAssemblyGroup[] = (challan.assemblyGroups && challan.assemblyGroups.length > 0)
+                                ? challan.assemblyGroups
+                                : (challan.assemblyOutputItem ? [{ _id: challan._id, groupName: 'Assembly Line Item #1', items: challan.items, assemblyOutputItem: challan.assemblyOutputItem }] : []);
+
+                            if (groups.length === 0) return null;
 
                             return (
-                                <div className="p-4 rounded-2xl border-2 border-teal-300 dark:border-teal-800 bg-teal-50/20 dark:bg-slate-900 shadow-sm space-y-3">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-100 dark:border-slate-800 pb-2.5">
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="bg-teal-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider">
-                                                    Many ➔ 1 Inward Item
-                                                </span>
-                                                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-                                                    Consolidation of {challan.items.length} outward material{challan.items.length > 1 ? 's' : ''}
-                                                </span>
-                                            </div>
-                                            <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-1">
-                                                {out.itemName || 'Assembled / Welded Product'}
-                                            </h4>
-                                            {out.description && (
-                                                <p className="text-xs text-slate-500 italic mt-0.5">{out.description}</p>
-                                            )}
-                                        </div>
+                                <div className="space-y-4">
+                                    {groups.map((grp, gIdx) => {
+                                        const out = grp.assemblyOutputItem;
+                                        if (!out) return null;
+                                        const targetKey = (grp._id || out._id || out.item || `assembly_output_${gIdx}`) as string;
+                                        const expectedQty = Number(out.quantityToBeReceived) || 0;
+                                        const alreadyReceived = Number(out.quantityReceived) || 0;
+                                        const pendingQty = Math.max(0, expectedQty - alreadyReceived);
+                                        const isDone = out.status === 'Completed' || pendingQty <= 0;
+                                        const enteredQty = getItemQuantity(targetKey);
 
-                                        <div className="flex items-center gap-2 self-start sm:self-auto">
-                                            <span className="text-xs font-bold text-slate-500">
-                                                Exp: <b className="text-slate-900 dark:text-white">{expectedQty}</b>
-                                            </span>
-                                            <span className="text-slate-300">•</span>
-                                            <span className="text-xs font-bold text-slate-500">
-                                                Recv: <b className="text-slate-400">{alreadyReceived}</b>
-                                            </span>
-                                            <span className="text-slate-300">•</span>
-                                            <span className="text-xs font-black text-teal-600 dark:text-teal-400">
-                                                Pending: {pendingQty} {out.receivingUnit || 'PCS'}
-                                            </span>
-                                        </div>
-                                    </div>
+                                        return (
+                                            <div key={gIdx} className="p-4 rounded-2xl border-2 border-teal-300 dark:border-teal-800 bg-teal-50/20 dark:bg-slate-900 shadow-sm space-y-3">
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-teal-100 dark:border-slate-800 pb-2.5">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="bg-teal-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                                                {grp.groupName || `Assembly Line Item #${gIdx + 1}`}
+                                                            </span>
+                                                            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                                                                Consolidation of {grp.items?.length || 0} outward material{(grp.items?.length || 0) > 1 ? 's' : ''}
+                                                            </span>
+                                                        </div>
+                                                        <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white mt-1">
+                                                            {out.itemName || 'Assembled / Welded Product'}
+                                                        </h4>
+                                                        {out.description && (
+                                                            <p className="text-xs text-slate-500 italic mt-0.5">{out.description}</p>
+                                                        )}
+                                                    </div>
 
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                                        <div className="text-xs text-slate-500">
-                                            <span>Destination: </span>
-                                            <b className="text-slate-700 dark:text-slate-300">Shopfloor WIP FG Inventory</b>
-                                        </div>
-
-                                        {isDone ? (
-                                            <span className="px-3 py-1.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-xs font-black rounded-xl">
-                                                ✓ Fully Received & Completed
-                                            </span>
-                                        ) : (
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                                                    Receive Today:
-                                                </span>
-                                                <div className="flex items-center gap-1">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleItemChange(targetKey, undefined, Math.max(0, enteredQty - 1))}
-                                                        className="w-8 h-8 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg flex items-center justify-center font-bold cursor-pointer"
-                                                    >
-                                                        <Minus size={14} />
-                                                    </button>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        max={pendingQty}
-                                                        step="any"
-                                                        value={enteredQty || ''}
-                                                        onChange={(e) => handleItemChange(targetKey, undefined, e.target.value)}
-                                                        placeholder="0"
-                                                        className="w-24 px-2 py-1 bg-white dark:bg-slate-800 border-2 border-teal-500 rounded-lg font-black text-center text-sm text-slate-900 dark:text-white"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleItemChange(targetKey, undefined, Math.min(pendingQty, enteredQty + 1))}
-                                                        className="w-8 h-8 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg flex items-center justify-center font-bold cursor-pointer"
-                                                    >
-                                                        <Plus size={14} />
-                                                    </button>
+                                                    <div className="flex items-center gap-2 self-start sm:self-auto">
+                                                        <span className="text-xs font-bold text-slate-500">
+                                                            Exp: <b className="text-slate-900 dark:text-white">{expectedQty}</b>
+                                                        </span>
+                                                        <span className="text-slate-300">•</span>
+                                                        <span className="text-xs font-bold text-slate-500">
+                                                            Recv: <b className="text-slate-400">{alreadyReceived}</b>
+                                                        </span>
+                                                        <span className="text-slate-300">•</span>
+                                                        <span className="text-xs font-black text-teal-600 dark:text-teal-400">
+                                                            Pending: {pendingQty} {out.receivingUnit || 'PCS'}
+                                                        </span>
+                                                    </div>
                                                 </div>
-                                                <span className="text-xs font-bold text-slate-400">
-                                                    {out.receivingUnit || 'PCS'}
-                                                </span>
+
+                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                                                    <div className="text-xs text-slate-500">
+                                                        <span>Destination: </span>
+                                                        <b className="text-slate-700 dark:text-slate-300">Shopfloor WIP FG Inventory</b>
+                                                    </div>
+
+                                                    {isDone ? (
+                                                        <span className="px-3 py-1.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-xs font-black rounded-xl">
+                                                            ✓ Fully Received & Completed
+                                                        </span>
+                                                    ) : (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                                                Receive Today:
+                                                            </span>
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleItemChange(targetKey, (out._id || grp._id) as string, Math.max(0, enteredQty - 1))}
+                                                                    className="w-8 h-8 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg flex items-center justify-center font-bold cursor-pointer"
+                                                                >
+                                                                    <Minus size={14} />
+                                                                </button>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    max={pendingQty}
+                                                                    step="any"
+                                                                    value={enteredQty || ''}
+                                                                    onChange={(e) => handleItemChange(targetKey, (out._id || grp._id) as string, e.target.value)}
+                                                                    placeholder="0"
+                                                                    className="w-24 px-2 py-1 bg-white dark:bg-slate-800 border-2 border-teal-500 rounded-lg font-black text-center text-sm text-slate-900 dark:text-white"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleItemChange(targetKey, (out._id || grp._id) as string, Math.min(pendingQty, enteredQty + 1))}
+                                                                    className="w-8 h-8 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-lg flex items-center justify-center font-bold cursor-pointer"
+                                                                >
+                                                                    <Plus size={14} />
+                                                                </button>
+                                                            </div>
+                                                            <span className="text-xs font-bold text-slate-400">
+                                                                {out.receivingUnit || 'PCS'}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleItemChange(targetKey, (out._id || grp._id) as string, pendingQty)}
+                                                                className="px-2.5 py-1 text-xs font-bold bg-teal-100 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 rounded-lg hover:bg-teal-200 transition-colors cursor-pointer"
+                                                            >
+                                                                Max
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
+                                        );
+                                    })}
                                 </div>
                             );
                         })() : (
@@ -564,14 +593,14 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                         {/* DESKTOP VIEW (≥ 768px): Clean Compact Table */}
                         <div className="hidden md:block border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
                             <table className="w-full text-xs text-left">
-                                <thead className="bg-slate-100 dark:bg-slate-800/80 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700">
+                                <thead className="bg-slate-100 dark:bg-slate-800/80 font-bold text-slate-600 dark:text-slate-400 uppercase border-b border-slate-200 dark:border-slate-700 text-[11px]">
                                     <tr>
-                                        <th className="px-4 py-2.5">Sent Material</th>
-                                        <th className="px-4 py-2.5">Expected Return Item</th>
-                                        <th className="px-3 py-2.5 text-center">Expected</th>
-                                        <th className="px-3 py-2.5 text-center">Received</th>
-                                        <th className="px-3 py-2.5 text-center">Pending</th>
-                                        <th className="px-4 py-2.5 text-center w-32">Received Qty</th>
+                                        <th className="px-4 py-3 min-w-[220px]">Sent Material</th>
+                                        <th className="px-4 py-3 min-w-[250px]">Expected Return Item</th>
+                                        <th className="px-3 py-3 text-center w-24">Expected</th>
+                                        <th className="px-3 py-3 text-center w-24">Received</th>
+                                        <th className="px-3 py-3 text-center w-24">Pending</th>
+                                        <th className="px-4 py-3 text-center w-40">Received Qty</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
@@ -599,8 +628,11 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                 <tr key={`${sentIdx}_${retIdx}`} className={isDone ? "opacity-50 bg-slate-50/50" : "hover:bg-slate-50/40"}>
                                                     {retIdx === 0 ? (
                                                         <td rowSpan={retList.length} className="px-4 py-3 font-bold text-slate-900 dark:text-white border-r border-slate-100 dark:border-slate-800 align-top bg-slate-50/20">
-                                                            {sentItem.itemName}
-                                                            <span className="block text-[10px] font-semibold text-teal-600 mt-0.5">
+                                                            <div className="text-xs font-bold text-slate-900 dark:text-white">{sentItem.itemName}</div>
+                                                            {(sentItem as any).description && (
+                                                                <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{(sentItem as any).description}</div>
+                                                            )}
+                                                            <span className="inline-block px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 text-[10px] font-mono font-bold mt-1 border border-teal-200 dark:border-teal-800">
                                                                 Sent: {sentItem.quantitySent} {sentItem.unit}
                                                             </span>
                                                         </td>
@@ -609,11 +641,14 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                     <td className="px-4 py-3 font-bold text-slate-800 dark:text-slate-200">
                                                         <div className="flex items-center gap-1.5 flex-wrap">
                                                             <ArrowRight size={13} className="text-teal-500 shrink-0" />
-                                                            <span>{ret.receivedItemName || sentItem.itemName}</span>
+                                                            <span className="text-xs font-bold">{ret.receivedItemName || sentItem.itemName}</span>
                                                             <span className="px-1.5 py-0.5 text-[9px] font-extrabold rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                                                                 {(ret.receivedItemType || 'fg').toUpperCase()}
                                                             </span>
                                                         </div>
+                                                        {(ret as any).description && (
+                                                            <div className="text-[11px] text-slate-500 italic mt-0.5 pl-4 line-clamp-2">{(ret as any).description}</div>
+                                                        )}
                                                     </td>
 
                                                     <td className="px-3 py-3 text-center font-semibold">{expectedQty}</td>
@@ -622,11 +657,11 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
 
                                                     <td className="px-3 py-2">
                                                         {isDone ? (
-                                                            <span className="text-xs font-bold text-emerald-600 block text-center bg-emerald-50 dark:bg-emerald-950 py-1 rounded-lg">
+                                                            <span className="text-xs font-bold text-emerald-600 block text-center bg-emerald-50 dark:bg-emerald-950 py-1.5 rounded-lg">
                                                                 Done
                                                             </span>
                                                         ) : (
-                                                            <div className="flex items-center gap-1">
+                                                            <div className="flex items-center gap-1.5">
                                                                 <input
                                                                     type="number"
                                                                     min="0"
@@ -635,9 +670,9 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                                                                     value={enteredQty || ''}
                                                                     onChange={(e) => handleItemChange(parentId, ret._id, e.target.value)}
                                                                     placeholder="0"
-                                                                    className="w-full px-2 py-1 bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 rounded-lg font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-teal-500/20"
+                                                                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 rounded-lg font-bold text-slate-900 dark:text-white text-center focus:ring-2 focus:ring-teal-500/20"
                                                                 />
-                                                                <span className="text-[10px] text-slate-400 font-bold">
+                                                                <span className="text-[10px] text-slate-400 font-bold shrink-0">
                                                                     {ret.receivingUnit || 'PCS'}
                                                                 </span>
                                                             </div>
@@ -693,7 +728,7 @@ export default function JobWorkReceiveModal({ isOpen, onClose, onSuccess, onErro
                         )}
 
                         {photos.length > 0 && (
-                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 pt-1">
+                            <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-6 gap-2.5 pt-1">
                                 {photos.map((photo) => (
                                     <div 
                                         key={photo.id} 

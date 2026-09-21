@@ -68,24 +68,67 @@ export const receiveJobWorkItems = async (req, res) => {
       let targetItemType = "fg";
 
       // 1. Locate returning item and update inward counters on Challan
-      if (jobWork.operationMode === "assembly" && jobWork.assemblyOutputItem) {
-        matchedItemName = jobWork.assemblyOutputItem.itemName || matchedItemName;
-        targetItemDoc = jobWork.assemblyOutputItem.item;
-        targetItemType = (jobWork.assemblyOutputItem.itemType || "fg").toLowerCase();
-
-        jobWork.assemblyOutputItem.quantityReceived = (jobWork.assemblyOutputItem.quantityReceived || 0) + qtyNum;
-        if (jobWork.assemblyOutputItem.quantityReceived >= jobWork.assemblyOutputItem.quantityToBeReceived) {
-          jobWork.assemblyOutputItem.status = "Completed";
-        } else {
-          jobWork.assemblyOutputItem.status = "Partial";
+      if (jobWork.operationMode === "assembly") {
+        let matchedGrp = null;
+        if (Array.isArray(jobWork.assemblyGroups) && jobWork.assemblyGroups.length > 0) {
+          matchedGrp = jobWork.assemblyGroups.find(g => 
+            String(g._id) === String(returningItemId || itemId) ||
+            String(g.assemblyOutputItem?._id) === String(returningItemId || itemId) ||
+            String(g.assemblyOutputItem?.item) === String(returningItemId || itemId)
+          );
         }
 
-        // Also advance sent items status in proportion or mark completed if output is completed
-        const isComplete = jobWork.assemblyOutputItem.status === "Completed";
-        jobWork.items.forEach(it => {
-          it.quantityReceived = (it.quantityReceived || 0) + qtyNum;
-          it.status = isComplete ? "Completed" : "Partial";
-        });
+        if (matchedGrp && matchedGrp.assemblyOutputItem) {
+          matchedItemName = matchedGrp.assemblyOutputItem.itemName || matchedItemName;
+          targetItemDoc = matchedGrp.assemblyOutputItem.item;
+          targetItemType = (matchedGrp.assemblyOutputItem.itemType || "fg").toLowerCase();
+
+          matchedGrp.assemblyOutputItem.quantityReceived = (matchedGrp.assemblyOutputItem.quantityReceived || 0) + qtyNum;
+          if (matchedGrp.assemblyOutputItem.quantityReceived >= matchedGrp.assemblyOutputItem.quantityToBeReceived) {
+            matchedGrp.assemblyOutputItem.status = "Completed";
+          } else {
+            matchedGrp.assemblyOutputItem.status = "Partial";
+          }
+
+          const isGrpComplete = matchedGrp.assemblyOutputItem.status === "Completed";
+          (matchedGrp.items || []).forEach(it => {
+            it.quantityReceived = (it.quantityReceived || 0) + qtyNum;
+            it.status = isGrpComplete ? "Completed" : "Partial";
+          });
+
+          // Also advance root items status if this was the group's items
+          const allGroupsComplete = jobWork.assemblyGroups.every(
+            g => g.assemblyOutputItem?.status === "Completed" || 
+                 (g.assemblyOutputItem?.quantityReceived || 0) >= (g.assemblyOutputItem?.quantityToBeReceived || 0)
+          );
+          jobWork.items.forEach(it => {
+            if (allGroupsComplete) it.status = "Completed";
+          });
+
+          // Sync first group with legacy assemblyOutputItem if present
+          if (jobWork.assemblyOutputItem && String(jobWork.assemblyGroups[0]?._id) === String(matchedGrp._id)) {
+            jobWork.assemblyOutputItem.quantityReceived = matchedGrp.assemblyOutputItem.quantityReceived;
+            jobWork.assemblyOutputItem.status = matchedGrp.assemblyOutputItem.status;
+          }
+        } else if (jobWork.assemblyOutputItem) {
+          matchedItemName = jobWork.assemblyOutputItem.itemName || matchedItemName;
+          targetItemDoc = jobWork.assemblyOutputItem.item;
+          targetItemType = (jobWork.assemblyOutputItem.itemType || "fg").toLowerCase();
+
+          jobWork.assemblyOutputItem.quantityReceived = (jobWork.assemblyOutputItem.quantityReceived || 0) + qtyNum;
+          if (jobWork.assemblyOutputItem.quantityReceived >= jobWork.assemblyOutputItem.quantityToBeReceived) {
+            jobWork.assemblyOutputItem.status = "Completed";
+          } else {
+            jobWork.assemblyOutputItem.status = "Partial";
+          }
+
+          // Also advance sent items status in proportion or mark completed if output is completed
+          const isComplete = jobWork.assemblyOutputItem.status === "Completed";
+          jobWork.items.forEach(it => {
+            it.quantityReceived = (it.quantityReceived || 0) + qtyNum;
+            it.status = isComplete ? "Completed" : "Partial";
+          });
+        }
       } else {
         for (const jwItem of jobWork.items) {
           if (jwItem.returningItems && jwItem.returningItems.length > 0) {
@@ -325,8 +368,16 @@ export const receiveJobWorkItems = async (req, res) => {
 
     // Update Main Job Work Status
     let anyPending = false;
-    if (jobWork.operationMode === "assembly" && jobWork.assemblyOutputItem) {
-      anyPending = jobWork.assemblyOutputItem.status !== "Completed" && (jobWork.assemblyOutputItem.quantityReceived || 0) < jobWork.assemblyOutputItem.quantityToBeReceived;
+    if (jobWork.operationMode === "assembly") {
+      if (Array.isArray(jobWork.assemblyGroups) && jobWork.assemblyGroups.length > 0) {
+        anyPending = jobWork.assemblyGroups.some(
+          g => g.assemblyOutputItem?.status !== "Completed" && 
+               (g.assemblyOutputItem?.quantityReceived || 0) < (g.assemblyOutputItem?.quantityToBeReceived || 0)
+        );
+      } else if (jobWork.assemblyOutputItem) {
+        anyPending = jobWork.assemblyOutputItem.status !== "Completed" && 
+                     (jobWork.assemblyOutputItem.quantityReceived || 0) < jobWork.assemblyOutputItem.quantityToBeReceived;
+      }
     } else {
       anyPending = jobWork.items.some(i => i.status !== "Completed");
     }

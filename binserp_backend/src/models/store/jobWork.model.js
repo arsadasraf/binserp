@@ -123,6 +123,57 @@ export const jobWorkSchema = new mongoose.Schema(
       },
     },
 
+    assemblyGroups: [
+      {
+        groupName: String,
+        items: [
+          {
+            item: { type: mongoose.Schema.Types.ObjectId },
+            itemName: String,
+            itemType: {
+              type: String,
+              enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+              default: "rm",
+            },
+            quantitySent: { type: Number, required: true },
+            quantityReceived: { type: Number, default: 0 },
+            unit: { type: String, default: "PCS" },
+            unitPrice: { type: Number, default: 0 },
+            processRate: { type: Number, default: 0 },
+            processAmount: { type: Number, default: 0 },
+            processType: { type: String, default: "Welding & Assembly" },
+            description: String,
+            status: {
+              type: String,
+              enum: ["Sent", "Partial", "Completed"],
+              default: "Sent",
+            },
+          },
+        ],
+        assemblyOutputItem: {
+          item: { type: mongoose.Schema.Types.ObjectId },
+          itemName: String,
+          itemType: {
+            type: String,
+            enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],
+            default: "fg",
+          },
+          quantityToBeReceived: { type: Number, default: 0 },
+          quantityReceived: { type: Number, default: 0 },
+          receivingUnit: { type: String, default: "PCS" },
+          processType: { type: String, default: "Assembly" },
+          processRate: { type: Number, default: 0 },
+          processAmount: { type: Number, default: 0 },
+          description: String,
+          status: {
+            type: String,
+            enum: ["Sent", "Partial", "Completed"],
+            default: "Sent",
+          },
+        },
+      },
+    ],
+
     items: [
       {
         item: {

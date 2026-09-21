@@ -267,77 +267,97 @@ export default function JobWorkPreviewModal({
                                 </div>
                             </div>
 
-                            {/* Target Welded / Assembled Product Return Card */}
-                            {challan.assemblyOutputItem && (
-                                <div className="bg-gradient-to-br from-amber-500/10 via-indigo-500/5 to-slate-50 dark:to-slate-900 p-5 rounded-2xl border-2 border-amber-400/40 shadow-sm space-y-4">
-                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 dark:border-amber-900/40 pb-3">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
-                                                <Sparkles size={16} />
-                                            </div>
-                                            <div>
-                                                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
-                                                    Inward Deliverable (Many ➔ 1 Return)
-                                                </span>
-                                                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
-                                                    Inward Material (Consolidated 1 Item)
-                                                </h4>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700">
-                                                Destination: <strong className="text-indigo-600 dark:text-indigo-400">Shopfloor WIP FG</strong>
-                                            </span>
-                                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                                                challan.assemblyOutputItem.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                                                (challan.assemblyOutputItem.quantityReceived || 0) > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
-                                                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                                            }`}>
-                                                {challan.assemblyOutputItem.status || 'Pending'}
-                                            </span>
-                                        </div>
-                                    </div>
+                            {/* Target Welded / Assembled Product Return Cards */}
+                            {challan.operationMode === 'assembly' && (() => {
+                                const groups = (challan.assemblyGroups && challan.assemblyGroups.length > 0)
+                                    ? challan.assemblyGroups
+                                    : (challan.assemblyOutputItem ? [{ groupName: 'Assembly Line Item #1', items: challan.items, assemblyOutputItem: challan.assemblyOutputItem }] : []);
 
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div className="sm:col-span-2 bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Assembled Item Name</span>
-                                            <div className="font-extrabold text-slate-900 dark:text-white text-sm mt-0.5">
-                                                {challan.assemblyOutputItem.itemName || 'Consolidated Assembly Product'}
-                                            </div>
-                                            {challan.assemblyOutputItem.description && (
-                                                <div className="text-xs text-slate-500 italic mt-1 line-clamp-2">
-                                                    {challan.assemblyOutputItem.description}
+                                if (groups.length === 0) return null;
+
+                                return (
+                                    <div className="space-y-4">
+                                        {groups.map((grp, gIdx) => {
+                                            const out = grp.assemblyOutputItem;
+                                            if (!out) return null;
+                                            const expectedQty = Number(out.quantityToBeReceived) || 0;
+                                            const receivedQty = Number(out.quantityReceived) || 0;
+                                            const pendingQty = Math.max(0, expectedQty - receivedQty);
+
+                                            return (
+                                                <div key={gIdx} className="bg-gradient-to-br from-amber-500/10 via-indigo-500/5 to-slate-50 dark:to-slate-900 p-5 rounded-2xl border-2 border-amber-400/40 shadow-sm space-y-4">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 dark:border-amber-900/40 pb-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
+                                                                <Sparkles size={16} />
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider block">
+                                                                    Inward Deliverable ({grp.groupName || `Set #${gIdx + 1}`})
+                                                                </span>
+                                                                <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
+                                                                    {out.itemName || 'Consolidated Assembly Product'}
+                                                                </h4>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-700">
+                                                                Destination: <strong className="text-indigo-600 dark:text-indigo-400">Shopfloor WIP FG</strong>
+                                                            </span>
+                                                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                                                                out.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                                receivedQty > 0 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                                                'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                                            }`}>
+                                                                {out.status || 'Pending'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                                                        <div className="sm:col-span-2 bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Assembled Item Name</span>
+                                                            <div className="font-extrabold text-slate-900 dark:text-white text-sm mt-0.5">
+                                                                {out.itemName || 'Consolidated Assembly Product'}
+                                                            </div>
+                                                            {out.description && (
+                                                                <div className="text-xs text-slate-500 italic mt-1 line-clamp-2">
+                                                                    {out.description}
+                                                                </div>
+                                                            )}
+                                                            {out.processType && (
+                                                                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
+                                                                    Process: {out.processType}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Expected Return Qty</span>
+                                                            <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
+                                                                {expectedQty} <span className="text-xs font-semibold text-slate-400">{out.receivingUnit || 'PCS'}</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
+                                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Received / Pending</span>
+                                                            <div className="flex items-baseline gap-2 mt-0.5">
+                                                                <span className="text-lg font-black text-emerald-600">
+                                                                    {receivedQty}
+                                                                </span>
+                                                                <span className="text-xs text-slate-400">/</span>
+                                                                <span className="text-sm font-black text-amber-600">
+                                                                    {pendingQty} rem
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            )}
-                                            {challan.assemblyOutputItem.processType && (
-                                                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-1">
-                                                    Process: {challan.assemblyOutputItem.processType}
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Expected Return Qty</span>
-                                            <div className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
-                                                {challan.assemblyOutputItem.quantityToBeReceived} <span className="text-xs font-semibold text-slate-400">{challan.assemblyOutputItem.receivingUnit || 'PCS'}</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="bg-white/80 dark:bg-slate-800/80 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-700">
-                                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Received / Pending</span>
-                                            <div className="flex items-baseline gap-2 mt-0.5">
-                                                <span className="text-lg font-black text-emerald-600">
-                                                    {challan.assemblyOutputItem.quantityReceived || 0}
-                                                </span>
-                                                <span className="text-xs text-slate-400">/</span>
-                                                <span className="text-sm font-black text-amber-600">
-                                                    {Math.max(0, (challan.assemblyOutputItem.quantityToBeReceived || 0) - (challan.assemblyOutputItem.quantityReceived || 0))} rem
-                                                </span>
-                                            </div>
-                                        </div>
+                                            );
+                                        })}
                                     </div>
-                                </div>
-                            )}
+                                );
+                            })()}
                         </div>
                     ) : (
                         <div className="space-y-3">
