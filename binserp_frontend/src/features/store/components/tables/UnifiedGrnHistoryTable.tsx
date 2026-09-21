@@ -41,6 +41,7 @@ interface UnifiedGrnHistoryTableProps {
 type DateFilterMode = "preset" | "day" | "month" | "range";
 
 import { generateFrontendGrnPDF } from "@/src/utils/frontendPdfHelper";
+import { ItemNameAndDescription, getItemDescription } from "@/src/utils/itemDisplayHelper";
 
 const downloadGRNAsPDF = (grn: any) => {
   try {
@@ -438,7 +439,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
       <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Search Box */}
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 min-w-[220px] w-full sm:w-auto max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
@@ -625,7 +626,8 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50/80 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -650,6 +652,17 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
                     const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
                     const canEditOrDelete = remainingSecs > 0;
+
+                    const firstItem = grn.items?.[0];
+                    const firstItemName =
+                      firstItem?.materialName ||
+                      firstItem?.itemName ||
+                      (typeof firstItem?.fgItem === "object" ? firstItem?.fgItem?.name : firstItem?.fgItem) ||
+                      "Item";
+                    const firstItemDesc =
+                      getItemDescription(firstItem) ||
+                      (typeof firstItem?.material === "object" ? getItemDescription(firstItem.material) : "") ||
+                      (typeof firstItem?.fgItem === "object" ? getItemDescription(firstItem.fgItem) : "");
 
                     return (
                       <tr
@@ -692,9 +705,12 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                           <div className="flex flex-col max-w-[220px]">
                             {grn.items && grn.items.length > 0 ? (
                               <>
-                                <span className="font-semibold text-gray-900 dark:text-gray-100 truncate">
-                                  {grn.items[0]?.materialName || grn.items[0]?.itemName || (typeof grn.items[0]?.fgItem === 'object' ? grn.items[0]?.fgItem?.name : grn.items[0]?.fgItem) || "Item"}
-                                </span>
+                                <ItemNameAndDescription
+                                  name={firstItemName}
+                                  description={firstItemDesc}
+                                  nameClassName="font-semibold text-xs text-gray-900 dark:text-gray-100 truncate"
+                                  descClassName="text-[10px] text-gray-500 dark:text-gray-400 italic truncate"
+                                />
                                 {grn.items.length > 1 && (
                                   <span className="text-[10px] text-gray-400 font-medium">
                                     +{grn.items.length - 1} more item(s)
@@ -840,6 +856,229 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="block md:hidden p-2.5 sm:p-3 space-y-3 bg-gray-50/50 dark:bg-gray-900/30">
+              {paginatedGrns.map((grn) => {
+                const formattedDate = new Date(grn.displayDate).toLocaleDateString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                  year: "numeric",
+                });
+
+                const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
+                const canEditOrDelete = remainingSecs > 0;
+
+                const firstItem = grn.items?.[0];
+                const firstItemName =
+                  firstItem?.materialName ||
+                  firstItem?.itemName ||
+                  (typeof firstItem?.fgItem === "object" ? firstItem?.fgItem?.name : firstItem?.fgItem) ||
+                  "Item";
+                const firstItemDesc =
+                  getItemDescription(firstItem) ||
+                  (typeof firstItem?.material === "object" ? getItemDescription(firstItem.material) : "") ||
+                  (typeof firstItem?.fgItem === "object" ? getItemDescription(firstItem.fgItem) : "");
+
+                const secondaryQtyTotal = grn.items?.reduce(
+                  (s: number, it: any) => s + (Number(it.secondaryQuantity || it.secondaryReceivedQuantity) || 0),
+                  0
+                );
+
+                return (
+                  <div
+                    key={grn._id}
+                    className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl shadow-xs border border-gray-200/80 dark:border-gray-800 flex flex-col gap-2.5"
+                  >
+                    {/* Top Header: GRN Number + Type & QC Status */}
+                    <div className="flex items-start justify-between gap-2 border-b border-gray-100 dark:border-gray-800/80 pb-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span
+                            onClick={() => {
+                              setSelectedGrn(grn);
+                              setIsDetailModalOpen(true);
+                            }}
+                            className="font-bold text-blue-600 dark:text-blue-400 font-mono text-xs sm:text-sm cursor-pointer hover:underline"
+                          >
+                            {grn.grnNumber || "-"}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border shrink-0 ${grn.typeBadge}`}>
+                            {grn.grnTypeLabel}
+                          </span>
+                        </div>
+                        {grn.poNumber && (
+                          <span className="text-[10px] text-gray-400 font-mono block mt-0.5">
+                            PO: {grn.poNumber}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="shrink-0">
+                        {grn.qcRequired ? (
+                          grn.qcStatus === "Passed" || grn.status === "Accepted" ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              QC Passed
+                            </span>
+                          ) : grn.qcStatus === "Rejected" || grn.status === "Rejected" ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300">
+                              QC Rejected
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300">
+                              Pending QC
+                            </span>
+                          )
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                            Skipped
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Party & Date row */}
+                    <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 gap-2">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] text-gray-400 block font-medium uppercase tracking-wider">Party / Source</span>
+                        <span className="font-semibold text-gray-800 dark:text-gray-200 truncate block text-xs" title={grn.supplierOrCustomer}>
+                          {grn.supplierOrCustomer || "N/A"}
+                        </span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-gray-400 block font-medium uppercase tracking-wider">Receipt Date</span>
+                        <span className="font-mono text-gray-700 dark:text-gray-300 text-xs">{formattedDate}</span>
+                      </div>
+                    </div>
+
+                    {/* Item Summary (per AGENTS.md: Name + Description, never raw item code) */}
+                    <div className="bg-gray-50/80 dark:bg-gray-800/40 p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          {grn.items && grn.items.length > 0 ? (
+                            <>
+                              <ItemNameAndDescription
+                                name={firstItemName}
+                                description={firstItemDesc}
+                                nameClassName="font-semibold text-xs text-gray-900 dark:text-white"
+                                descClassName="text-[11px] text-gray-500 dark:text-gray-400 italic mt-0.5 line-clamp-2"
+                              />
+                              {grn.items.length > 1 && (
+                                <span className="inline-block mt-1 text-[10px] font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-900">
+                                  +{grn.items.length - 1} more item{grn.items.length > 2 ? "s" : ""}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-gray-400 text-xs italic">No items listed</span>
+                          )}
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className="text-[10px] text-gray-400 block font-medium uppercase tracking-wider">Total Qty</span>
+                          <span className="font-mono font-bold text-xs text-gray-900 dark:text-white">
+                            {grn.totalQuantity} {grn.items?.[0]?.unit || "PCS"}
+                          </span>
+                          {grn.items?.[0]?.hasSecondaryUnit && grn.items?.[0]?.secondaryUnit && secondaryQtyTotal > 0 && (
+                            <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">
+                              ({secondaryQtyTotal} {grn.items[0].secondaryUnit})
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metadata row: Received By + Attachments */}
+                    <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
+                      <div>
+                        Received by: <span className="font-medium text-gray-700 dark:text-gray-300">{grn.receivedBy?.name || grn.receivedByName || "Store Executive"}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {grn.photos && grn.photos.length > 0 && (
+                          <button
+                            onClick={() => setPhotoViewerUrls(grn.photos)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 text-[10px] font-semibold border border-teal-200 dark:border-teal-800"
+                          >
+                            <Camera size={11} /> {grn.photos.length} Photo{grn.photos.length > 1 ? "s" : ""}
+                          </button>
+                        )}
+                        {grn.pdf && (
+                          <a
+                            href={grn.pdf}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 text-[10px] font-semibold border border-purple-200 dark:border-purple-800"
+                          >
+                            <FileText size={11} /> PDF Doc
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Action Row & 24h Countdown */}
+                    <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800">
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <button
+                          onClick={() => {
+                            setSelectedGrn(grn);
+                            setIsDetailModalOpen(true);
+                          }}
+                          className="flex-1 py-1.5 px-2 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 rounded-xl flex items-center justify-center gap-1 transition-colors"
+                        >
+                          <Eye size={13} /> View
+                        </button>
+                        <button
+                          onClick={() => downloadGRNAsPDF(grn)}
+                          className="flex-1 py-1.5 px-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-xs transition-colors"
+                        >
+                          <Download size={13} /> PDF
+                        </button>
+                      </div>
+
+                      {/* Edit / Delete / Countdown */}
+                      {canEditOrDelete ? (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span
+                            title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                            className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1"
+                          >
+                            <Clock size={11} className="text-amber-600 animate-pulse" />
+                            {formatRemainingTime(remainingSecs)}
+                          </span>
+
+                          {onEdit && (
+                            <button
+                              onClick={() => onEdit(grn)}
+                              title={`Edit GRN (${formatRemainingTime(remainingSecs)} left)`}
+                              className="p-1.5 hover:bg-indigo-50 text-indigo-600 dark:hover:bg-indigo-950/50 rounded-xl transition-colors cursor-pointer border border-gray-200 dark:border-gray-700"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleDeleteGrn(grn)}
+                            disabled={isDeleting}
+                            title={`Delete GRN (${formatRemainingTime(remainingSecs)} left)`}
+                            className="p-1.5 hover:bg-rose-50 text-rose-600 dark:hover:bg-rose-950/50 disabled:opacity-30 disabled:cursor-not-allowed rounded-xl transition-colors cursor-pointer border border-gray-200 dark:border-gray-700"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          title="Editing and deleting window expired (24h limit)"
+                          className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70 shrink-0"
+                        >
+                          <Lock size={11} /> Locked
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Pagination Controls */}

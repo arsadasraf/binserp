@@ -456,22 +456,20 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
     };
 
     return (
-        <div className="h-full flex flex-col">
-            {/* Content Container */}
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm h-full flex flex-col overflow-hidden p-1">
-                {activeSubTab === 'ledger' ? (
-                    <div className="p-3">
-                        <StockTransactionLedgerTable token={token} />
-                    </div>
-                ) : activeSubTab === 'history' || activeSubTab === 'fg-history' ? (
-                    <div className="p-3">
-                        <UnifiedGrnHistoryTable
-                            onEdit={handleMasterEdit}
-                            onDelete={handleDelete}
-                            initialTypeFilter={activeSubTab === 'fg-history' ? 'FG' : 'all'}
-                        />
-                    </div>
-                ) : (
+        <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden">
+            {activeSubTab === 'ledger' ? (
+                <div className="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
+                    <StockTransactionLedgerTable token={token} />
+                </div>
+            ) : activeSubTab === 'history' || activeSubTab === 'fg-history' ? (
+                <div className="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
+                    <UnifiedGrnHistoryTable
+                        onEdit={handleMasterEdit}
+                        onDelete={handleDelete}
+                        initialTypeFilter={activeSubTab === 'fg-history' ? 'FG' : 'all'}
+                    />
+                </div>
+            ) : (
                     <InventoryTable
                         data={activeSubTab === 'consumable' ? mappedConsumableInventory : activeSubTab === 'rm' ? mappedRmInventory : activeSubTab === 'bo' ? mappedBoInventory : []}
                         inHouseData={activeSubTab === 'inhouse' ? inHouseComponents : []}
@@ -491,7 +489,6 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                         }}
                     />
                 )}
-            </div>
 
 
             {/* Modals */}

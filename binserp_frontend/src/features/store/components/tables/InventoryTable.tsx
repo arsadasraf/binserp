@@ -350,9 +350,9 @@ export default function InventoryTable({
     };
 
     return (
-        <div className="w-full h-full bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 flex flex-col overflow-hidden">
+        <div className="w-full h-full bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col overflow-hidden">
             {/* Top Toolbar */}
-            <div className="p-3.5 sm:p-4 border-b border-gray-200 dark:border-gray-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3 bg-gray-50/50 dark:bg-gray-900/50 shrink-0">
+            <div className="px-3.5 py-2.5 sm:px-4 border-b border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-2.5 bg-slate-50/60 dark:bg-slate-900/50 shrink-0">
                 {/* Left side: Count & Reset Filters */}
                 <div className="flex items-center flex-wrap gap-2.5">
                     <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
@@ -511,7 +511,7 @@ export default function InventoryTable({
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-10">
                                 <tr>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="materialName"
                                             title="Item Details"
@@ -523,7 +523,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="category"
                                             title="Category"
@@ -535,7 +535,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="location"
                                             title="Location"
@@ -547,7 +547,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="currentStock"
                                             title="Primary Stock"
@@ -559,7 +559,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="secondaryStock"
                                             title="Secondary Stock"
@@ -571,7 +571,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="monthlyFlow"
                                             title="Monthly Flow"
@@ -583,7 +583,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="reorderLevel"
                                             title="Min Stock"
@@ -619,7 +619,7 @@ export default function InventoryTable({
                                                 className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer"
                                             >
                                                 {/* 1. Item Details */}
-                                                <td className="px-5 py-3.5 max-w-xs">
+                                                <td className="px-4 py-2.5 sm:py-3 max-w-xs">
                                                     <ItemNameAndDescription
                                                         name={item.materialName || item.name || '-'}
                                                         description={item.descriptions || item.description || ''}
@@ -627,17 +627,17 @@ export default function InventoryTable({
                                                 </td>
 
                                                 {/* 2. Category */}
-                                                <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                                <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
                                                     {getCategoryValue(item)}
                                                 </td>
 
                                                 {/* 3. Location */}
-                                                <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                                <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
                                                     {getLocationValue(item)}
                                                 </td>
 
                                                 {/* 4. Primary Stock */}
-                                                <td className="px-5 py-3.5 font-mono">
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
                                                     <span className={`font-bold ${isLowStock ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                                                         {formatQty(item.currentStock)} {item.unit || ''}
                                                     </span>
@@ -649,7 +649,7 @@ export default function InventoryTable({
                                                 </td>
 
                                                 {/* 5. Secondary Stock */}
-                                                <td className="px-5 py-3.5">
+                                                <td className="px-4 py-2.5 sm:py-3">
                                                     {hasSec ? (
                                                         <div className="flex flex-col">
                                                             <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
@@ -665,7 +665,7 @@ export default function InventoryTable({
                                                 </td>
 
                                                 {/* 6. Monthly Flow */}
-                                                <td className="px-5 py-3.5">
+                                                <td className="px-4 py-2.5 sm:py-3">
                                                     {item.monthlyData ? (
                                                         <div className="flex flex-col gap-0.5">
                                                             <div className="flex items-center gap-1 font-medium text-xs font-mono">
@@ -695,7 +695,7 @@ export default function InventoryTable({
                                                 </td>
 
                                                 {/* 7. Min Stock */}
-                                                <td className="px-5 py-3.5 font-mono">
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
                                                     <div className="font-bold text-gray-700 dark:text-gray-300">
                                                         {formatQty(item.reorderLevel || 0)} {item.unit || ''}
                                                     </div>
@@ -809,7 +809,7 @@ export default function InventoryTable({
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-10">
                                 <tr>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="name"
                                             title="Product Name"
@@ -821,7 +821,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="description"
                                             title="Description"
@@ -833,7 +833,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="type"
                                             title="Classification"
@@ -845,7 +845,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="quantity"
                                             title="Total Stock"
@@ -857,7 +857,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="monthlyFlow"
                                             title="Monthly Flow"
@@ -869,7 +869,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="unit"
                                             title="Unit"
@@ -881,7 +881,7 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
-                                    <th className="px-5 py-3 text-left">
+                                    <th className="px-4 py-2 text-left">
                                         <ColumnFilter
                                             column="location"
                                             title="Location"
@@ -909,14 +909,14 @@ export default function InventoryTable({
                                             onClick={() => onItemClick && onItemClick(item)}
                                             className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer"
                                         >
-                                            <td className="px-5 py-3.5 font-bold text-gray-900 dark:text-white">{item.name || item.componentName || '-'}</td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300 truncate max-w-xs" title={item.description}>{item.description || '-'}</td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                            <td className="px-4 py-2.5 sm:py-3 font-bold text-gray-900 dark:text-white">{item.name || item.componentName || '-'}</td>
+                                            <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300 truncate max-w-xs" title={item.description}>{item.description || '-'}</td>
+                                            <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
                                                 <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800">
                                                     {item.type || 'Component'}
                                                 </span>
                                             </td>
-                                            <td className="px-5 py-3.5">
+                                            <td className="px-4 py-2.5 sm:py-3">
                                                 <div className="flex flex-col">
                                                     <span className={`font-mono font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                                                         {item.quantity} {item.unit || 'Nos'}
@@ -928,7 +928,7 @@ export default function InventoryTable({
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-5 py-3.5">
+                                            <td className="px-4 py-2.5 sm:py-3">
                                                 {item.monthlyData ? (
                                                     <div className="flex flex-col gap-0.5">
                                                         <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300 text-xs">
@@ -948,7 +948,7 @@ export default function InventoryTable({
                                                     <span className="text-gray-400">-</span>
                                                 )}
                                             </td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                            <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
                                                 <div className="flex flex-col">
                                                     <span className="font-semibold">{item.unit || '-'}</span>
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (

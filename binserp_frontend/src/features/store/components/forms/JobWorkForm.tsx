@@ -903,7 +903,7 @@ export default function JobWorkForm({
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl xl:max-w-6xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1650px] my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
                 
                 {/* Thin, Compact Header */}
                 <div className="px-5 py-3.5 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
@@ -1211,7 +1211,7 @@ export default function JobWorkForm({
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200/80 dark:border-slate-700/60">
                                             
                                             {/* Outward Material Type (RM or WIP FG) */}
-                                            <div className="sm:col-span-2 lg:col-span-3">
+                                            <div className="sm:col-span-2 lg:col-span-2 xl:col-span-2">
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                     Material Type
                                                 </label>
@@ -1219,14 +1219,14 @@ export default function JobWorkForm({
                                                     {!isWipToWip ? (
                                                         <button
                                                             type="button"
-                                                            className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center"
+                                                            className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
                                                         >
-                                                            🔵 RM (Raw Material)
+                                                            🔵 RM
                                                         </button>
                                                     ) : (
                                                         <button
                                                             type="button"
-                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center"
+                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
                                                         >
                                                             🟣 WIP FG
                                                         </button>
@@ -1235,7 +1235,7 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Outward Item Selector + Live Stock Badge */}
-                                            <div className="sm:col-span-2 lg:col-span-4" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
+                                            <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                     <span>Item Name <span className="text-red-500">*</span></span>
                                                     {formErrors[`item_${itemIdx}_item`] && (
@@ -1267,7 +1267,7 @@ export default function JobWorkForm({
                                                                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' 
                                                                 : 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'
                                                         }`}>
-                                                            {stock > 0 ? '🟢 Store Stock:' : '🔴 Out of Stock:'} {stock} {sentItem.unit || 'PCS'}
+                                                            {stock > 0 ? '🟢 Stock:' : '🔴 Stock:'} {stock} {sentItem.unit || 'PCS'}
                                                         </span>
                                                         {isShortage && !isWipToWip && (
                                                             <span className="text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50 px-2 py-0.5 rounded-md border border-red-200 dark:border-red-800 flex items-center gap-1">
@@ -1280,7 +1280,7 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Quantity Sent */}
-                                            <div className="sm:col-span-1 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_quantitySent`]}>
+                                            <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1" data-has-error={!!formErrors[`item_${itemIdx}_quantitySent`]}>
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                     <span>Qty Sent <span className="text-red-500">*</span></span>
                                                     {formErrors[`item_${itemIdx}_quantitySent`] && (
@@ -1299,7 +1299,7 @@ export default function JobWorkForm({
                                                         handleSentItemChange(itemIdx, 'quantitySent', val);
                                                         if (val > 0) clearError(`item_${itemIdx}_quantitySent`);
                                                     }}
-                                                    className={`w-full h-9 px-2.5 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
+                                                    className={`w-full h-9 px-2 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
                                                         formErrors[`item_${itemIdx}_quantitySent`]
                                                             ? 'border-rose-500 bg-rose-50/50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
                                                             : isShortage && !isWipToWip 
@@ -1310,7 +1310,7 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Unit */}
-                                            <div className="sm:col-span-1 lg:col-span-1">
+                                            <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1">
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                     Unit
                                                 </label>
@@ -1318,12 +1318,12 @@ export default function JobWorkForm({
                                                     type="text"
                                                     value={sentItem.unit || 'PCS'}
                                                     onChange={(e) => handleSentItemChange(itemIdx, 'unit', e.target.value)}
-                                                    className="w-full h-9 px-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                    className="w-full h-9 px-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-semibold text-center uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
                                                 />
                                             </div>
 
                                             {/* Process / Operation */}
-                                            <div className="sm:col-span-2 lg:col-span-2">
+                                            <div className="sm:col-span-2 lg:col-span-2 xl:col-span-2">
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                     Process / Operation
                                                 </label>
@@ -1337,7 +1337,7 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Process Rate (₹ / Unit) */}
-                                            <div className="sm:col-span-2 lg:col-span-2">
+                                            <div className="sm:col-span-2 lg:col-span-2 xl:col-span-1">
                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                     Process Rate (₹)
                                                 </label>
@@ -1359,7 +1359,7 @@ export default function JobWorkForm({
                                             </div>
 
                                             {/* Process Value Subtotal */}
-                                            <div className="sm:col-span-2 lg:col-span-1 flex flex-col justify-center">
+                                            <div className="sm:col-span-2 lg:col-span-1 xl:col-span-1 flex flex-col justify-center">
                                                 <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
                                                     Amount
                                                 </label>
@@ -1395,7 +1395,7 @@ export default function JobWorkForm({
                                                             className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 bg-indigo-50/30 dark:bg-indigo-950/20 rounded-lg border border-indigo-100 dark:border-indigo-900/40 items-end"
                                                         >
                                                             {/* Return Material Type */}
-                                                            <div className="sm:col-span-3">
+                                                            <div className="sm:col-span-3 lg:col-span-2">
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                                     Return Type
                                                                 </label>
@@ -1403,14 +1403,14 @@ export default function JobWorkForm({
                                                                     {isStoreConversion ? (
                                                                         <button
                                                                             type="button"
-                                                                            className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center"
+                                                                            className="flex-1 py-1 rounded-md bg-blue-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
                                                                         >
-                                                                            🔵 RM (Raw Material)
+                                                                            🔵 RM
                                                                         </button>
                                                                     ) : (
                                                                         <button
                                                                             type="button"
-                                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center"
+                                                                            className="flex-1 py-1 rounded-md bg-purple-600 text-white font-bold cursor-default text-center text-[11px] whitespace-nowrap"
                                                                         >
                                                                             🟣 WIP FG
                                                                         </button>
@@ -1419,7 +1419,7 @@ export default function JobWorkForm({
                                                             </div>
 
                                                             {/* Return Item Selector */}
-                                                            <div className="sm:col-span-5" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
+                                                            <div className="sm:col-span-5 lg:col-span-6" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                     <span>Converted Returning Item <span className="text-red-500">*</span></span>
                                                                     {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
@@ -1445,7 +1445,7 @@ export default function JobWorkForm({
                                                             </div>
 
                                                             {/* Quantity To Receive */}
-                                                            <div className="sm:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
+                                                            <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                     <span>Return Qty <span className="text-red-500">*</span></span>
                                                                     {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
@@ -1473,7 +1473,7 @@ export default function JobWorkForm({
                                                             </div>
 
                                                             {/* Return Unit & Delete */}
-                                                            <div className="sm:col-span-2 flex items-center gap-1.5">
+                                                            <div className="sm:col-span-2 lg:col-span-2 flex items-center gap-1.5">
                                                                 <div className="flex-1">
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1">
                                                                         Unit

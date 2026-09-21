@@ -26,7 +26,7 @@ export default function StockLedgerPage() {
   if (!token) return <LoadingSpinner />;
 
   return (
-    <div>
+    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden">
       <InventoryTab
         storeData={storeData}
         token={token}

@@ -35,8 +35,8 @@ export default function StoreTabs() {
 
   return (
     <>
-      {/* Desktop View: Modern High-Visibility Floating Tabs */}
-      <div className="hidden md:flex mb-2 items-center bg-white dark:bg-gray-900 p-1.5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-800 w-fit">
+      {/* Desktop View: Modern High-Visibility Segmented Tabs */}
+      <div className="hidden md:flex items-center bg-white dark:bg-slate-900 p-1 rounded-xl shadow-2xs border border-slate-200/80 dark:border-slate-800 w-fit gap-1">
         {tabs.map((tab) => {
           const isActive = tab.isActive;
           const Icon = tab.icon;
@@ -44,13 +44,13 @@ export default function StoreTabs() {
             <Link
               key={tab.id}
               href={tab.href}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm transition-all duration-200 ${
+              className={`flex items-center gap-2 px-4 sm:px-5 py-1.5 sm:py-2 rounded-lg font-bold text-xs sm:text-sm transition-all duration-150 ${
                 isActive
-                  ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-md shadow-blue-500/20"
-                  : "text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                  ? "bg-gradient-to-r from-blue-600 to-cyan-600 text-white shadow-xs shadow-blue-500/20"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800/60"
               }`}
             >
-              <Icon size={18} />
+              <Icon size={16} />
               <span>{tab.label}</span>
             </Link>
           );

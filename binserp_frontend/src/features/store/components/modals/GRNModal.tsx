@@ -352,11 +352,11 @@ export default function GRNModal({
 
         allAvailableMaterials.forEach((m: any) => {
             if (!m || !m._id) return;
-            const desc = m.descriptions || m.description || '';
-            const code = m.code ? `[${m.code}]` : '';
+            const desc = (m.descriptions || m.description || '').trim();
+            const label = desc ? `${m.name || 'Unnamed'} — ${desc}` : (m.name || 'Unnamed');
             optionsMap.set(String(m._id), {
                 value: String(m._id),
-                label: `${m.name || 'Unnamed'} ${code} ${desc ? `— ${desc}` : ''}`.trim(),
+                label: label,
                 description: desc,
                 code: m.code
             });
@@ -365,10 +365,11 @@ export default function GRNModal({
         // Ensure any materialEntry item currently loaded in the form (from Outward PO or initialData) is present in options
         materialEntries.forEach((entry) => {
             if (entry.material && !optionsMap.has(String(entry.material))) {
-                const desc = entry.description || '';
+                const desc = (entry.description || '').trim();
+                const label = desc ? `${entry.materialName || 'Material Item'} — ${desc}` : (entry.materialName || 'Material Item');
                 optionsMap.set(String(entry.material), {
                     value: String(entry.material),
-                    label: `${entry.materialName || 'Material Item'} ${desc ? `— ${desc}` : ''}`.trim(),
+                    label: label,
                     description: desc,
                     code: ''
                 });
@@ -615,8 +616,8 @@ export default function GRNModal({
     };
 
     // Items table handlers
-    const handleAddMaterial = () => {
-        setMaterialEntries(prev => [...prev, {
+    const handleAddMaterial = (afterIndex?: number) => {
+        const newEntry: MaterialEntry = {
             material: '',
             materialName: '',
             description: '',
@@ -632,7 +633,16 @@ export default function GRNModal({
             currentStock: 0,
             secondaryCurrentStock: 0,
             selectedUnit: '',
-        }]);
+        };
+        if (typeof afterIndex === 'number') {
+            setMaterialEntries(prev => {
+                const updated = [...prev];
+                updated.splice(afterIndex + 1, 0, newEntry);
+                return updated;
+            });
+        } else {
+            setMaterialEntries(prev => [...prev, newEntry]);
+        }
     };
 
     const handleRemoveMaterial = (index: number) => {
@@ -912,7 +922,7 @@ export default function GRNModal({
     if (createdGRNData) {
         return (
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-3xl lg:max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                     
                     {/* Header */}
                     <div className="px-5 py-4 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
@@ -1102,8 +1112,8 @@ export default function GRNModal({
 
     return (
         <>
-            <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
                 
                 {/* Thin, Sleek Modal Header */}
                 <div className="px-4 sm:px-5 py-3 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
@@ -1537,7 +1547,7 @@ export default function GRNModal({
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={handleAddMaterial}
+                                    onClick={() => handleAddMaterial()}
                                     className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
                                 >
                                     <Plus className="w-3.5 h-3.5" />
@@ -1547,17 +1557,17 @@ export default function GRNModal({
                         </div>
 
                         {/* Desktop View: Wide Responsive Table with Upward Dropdowns */}
-                        <div className="hidden md:block overflow-x-auto min-h-[220px]">
-                            <table className="w-full text-left border-collapse">
+                        <div className="hidden md:block overflow-x-auto min-h-[220px] custom-scrollbar">
+                            <table className="w-full text-left border-collapse table-auto">
                                 <thead>
                                     <tr className="bg-slate-100/75 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                        <th className="py-2.5 px-3 w-10 text-center">#</th>
-                                        <th className="py-2.5 px-3 min-w-[340px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
-                                        <th className="py-2.5 px-3 w-32">Qty Received <span className="text-red-500">*</span></th>
-                                        <th className="py-2.5 px-3 w-24 text-center">Unit</th>
-                                        <th className="py-2.5 px-3 w-32">Rate (₹)</th>
-                                        <th className="py-2.5 px-3 w-36 text-right">Total (₹)</th>
-                                        <th className="py-2.5 px-3 w-12 text-center">Action</th>
+                                        <th className="py-2.5 px-3 w-12 text-center shrink-0">#</th>
+                                        <th className="py-2.5 px-3 min-w-[320px] lg:min-w-[420px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-3 w-32 lg:w-36 shrink-0">Qty Received <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-3 w-28 lg:w-32 text-center shrink-0">Unit & Stock</th>
+                                        <th className="py-2.5 px-3 w-32 lg:w-36 shrink-0">Rate (₹)</th>
+                                        <th className="py-2.5 px-3 w-36 lg:w-44 text-right shrink-0 whitespace-nowrap">Total (₹)</th>
+                                        <th className="py-2.5 px-3 w-20 text-center shrink-0">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1569,16 +1579,16 @@ export default function GRNModal({
 
                                         return (
                                             <tr key={index} className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors">
-                                                <td className="py-2 px-3 text-center text-slate-400 font-bold">
+                                                <td className="py-2 px-3 text-center text-slate-400 font-bold shrink-0">
                                                     {index + 1}
                                                 </td>
-                                                <td className="py-2 px-3" data-has-error={hasMaterialError}>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className="flex-1">
+                                                <td className="py-2 px-3 min-w-0" data-has-error={hasMaterialError}>
+                                                    <div className="flex items-center gap-1.5 min-w-0">
+                                                        <div className="flex-1 min-w-0">
                                                             <SearchableSelect
                                                                 options={materialOptions}
                                                                 value={entry.material}
-                                                                displayLabel={entry.materialName ? `${entry.materialName}${entry.description ? ` — ${entry.description}` : ''}` : undefined}
+                                                                displayLabel={entry.materialName ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName) : undefined}
                                                                 allowCustom={true}
                                                                 onCreateCustom={(typedQuery) => handleOpenQuickMasterModal(typedQuery, index)}
                                                                 hasError={hasMaterialError}
@@ -1606,13 +1616,13 @@ export default function GRNModal({
                                                         </div>
                                                     )}
                                                     {entry.description && !hasMaterialError && (
-                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1 flex items-center gap-1" title={entry.description}>
-                                                            <span>📝</span>
-                                                            <span className="truncate">{entry.description}</span>
+                                                        <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate mt-1 flex items-center gap-1 min-w-0" title={entry.description}>
+                                                            <span className="shrink-0">📝</span>
+                                                            <span className="truncate italic">{entry.description}</span>
                                                         </div>
                                                     )}
                                                 </td>
-                                                <td className="py-2 px-3" data-has-error={hasQuantityError}>
+                                                <td className="py-2 px-3 w-32 lg:w-36 shrink-0" data-has-error={hasQuantityError}>
                                                     <div className="space-y-1">
                                                         <div className="relative">
                                                             <input
@@ -1655,7 +1665,7 @@ export default function GRNModal({
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="py-2 px-3 text-center">
+                                                <td className="py-2 px-3 w-28 lg:w-32 text-center shrink-0">
                                                     <div className="flex flex-col items-center">
                                                         {entry.hasSecondaryUnit ? (
                                                             <select
@@ -1686,7 +1696,7 @@ export default function GRNModal({
                                                         )}
                                                     </div>
                                                 </td>
-                                                <td className="py-2 px-3">
+                                                <td className="py-2 px-3 w-32 lg:w-36 shrink-0">
                                                     <input
                                                         type="number"
                                                         min="0"
@@ -1702,20 +1712,30 @@ export default function GRNModal({
                                                         </div>
                                                     )}
                                                 </td>
-                                                <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
+                                                <td className="py-2 px-3 w-36 lg:w-44 text-right font-mono font-bold text-slate-900 dark:text-slate-100 shrink-0 whitespace-nowrap">
                                                     ₹{rowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                                 </td>
-                                                <td className="py-2 px-3 text-center">
-                                                    {materialEntries.length > 1 && (
+                                                <td className="py-2 px-3 w-20 text-center shrink-0">
+                                                    <div className="flex items-center justify-center gap-1">
                                                         <button
                                                             type="button"
-                                                            onClick={() => handleRemoveMaterial(index)}
-                                                            className="text-slate-400 hover:text-red-600 transition-colors p-1 cursor-pointer"
-                                                            title="Delete row"
+                                                            onClick={() => handleAddMaterial(index)}
+                                                            className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/60 rounded-lg transition-colors cursor-pointer"
+                                                            title="Add new item below"
                                                         >
-                                                            <Trash2 className="w-4 h-4" />
+                                                            <Plus className="w-4 h-4" />
                                                         </button>
-                                                    )}
+                                                        {materialEntries.length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveMaterial(index)}
+                                                                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                                                                title="Delete row"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -1735,20 +1755,32 @@ export default function GRNModal({
                                 return (
                                     <div key={index} className={`bg-white dark:bg-slate-900 p-3 rounded-xl border shadow-2xs space-y-2.5 transition-all ${hasMaterialError || hasQuantityError ? 'border-rose-300 dark:border-rose-800 bg-rose-50/20' : 'border-slate-200 dark:border-slate-700'}`}>
                                         
-                                        {/* Card Header: Index & Trash */}
+                                        {/* Card Header: Index & Actions */}
                                         <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
                                             <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-md border border-indigo-100 dark:border-indigo-800">
                                                 Item #{index + 1}
                                             </span>
-                                            {materialEntries.length > 1 && (
+                                            <div className="flex items-center gap-1.5">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleRemoveMaterial(index)}
-                                                    className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                                    onClick={() => handleAddMaterial(index)}
+                                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50/80 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                                                    title="Add item below"
                                                 >
-                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                    <Plus className="w-3 h-3" />
+                                                    <span>Add</span>
                                                 </button>
-                                            )}
+                                                {materialEntries.length > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveMaterial(index)}
+                                                        className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 p-1 rounded-lg transition-colors cursor-pointer"
+                                                        title="Delete this item"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
 
                                         {/* Material Selection with Description */}

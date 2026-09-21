@@ -34,7 +34,7 @@ export default function RmStockPage() {
   }
 
   return (
-    <div className="h-[calc(100dvh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
+    <div className="h-full flex-1 min-h-0 flex flex-col overflow-hidden">
       <InventoryTab
         storeData={storeData}
         token={token}
