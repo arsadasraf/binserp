@@ -758,6 +758,7 @@ export interface BillingModalProps {
     companyInfo?: CompanyInfo;
     initialData?: BillingFormData;
     isEditing?: boolean;
+    mode?: "sales" | "purchase";
 }
 
 // Quotation Modal Props

@@ -73,12 +73,14 @@ export const materialRequestSchema = new mongoose.Schema(
         secondaryQuantity: { type: Number, default: 0 },
         selectedUnit: { type: String, default: "" },
         secondaryCurrentStock: { type: Number, default: 0 },
+        issuedQuantity: { type: Number, default: 0 },
+        pendingQuantity: { type: Number, default: 0 },
         purpose: String,
       },
     ],
     status: {
       type: String,
-      enum: ["Pending", "Approved", "Rejected", "Issued"],
+      enum: ["Pending", "Approved", "Rejected", "Issued", "Partially Issued"],
       default: "Pending",
     },
     priority: {
@@ -86,6 +88,17 @@ export const materialRequestSchema = new mongoose.Schema(
       enum: ["Low", "Medium", "High", "Urgent"],
       default: "Medium",
     },
+    linkedIssues: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "MaterialIssue",
+      },
+    ],
+    issueNumbers: [
+      {
+        type: String,
+      },
+    ],
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

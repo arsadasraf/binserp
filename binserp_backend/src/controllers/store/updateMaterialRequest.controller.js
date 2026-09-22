@@ -72,31 +72,85 @@ export const updateMaterialRequest = async (req, res) => {
       materialRequest.approvedBy = req.user.id;
     }
 
-    // Handle inventory update if status changes to "Issued"
+    // Handle inventory update and voucher creation if status changes to "Issued"
     if (status === "Issued" && materialRequest.status !== "Issued" && !req.body.skipInventoryUpdate) {
       try {
+        const MaterialIssue = req.getModel('MaterialIssue', materialIssueSchema);
+        const { userId: currentUserId, userName: currentUserName } = getUserAudit(req);
+        const issueNumber = `ISS-${Date.now()}`;
+
+        const issueItems = (materialRequest.items || []).map(it => ({
+          material: it.material,
+          consumable: it.consumable,
+          fgItem: it.fgItem,
+          component: it.component,
+          itemType: it.itemType || 'Raw Material',
+          materialCode: it.materialCode || '',
+          materialName: it.materialName,
+          quantity: it.quantity,
+          unit: it.unit || "PCS",
+          hasSecondaryUnit: it.hasSecondaryUnit || false,
+          secondaryUnit: it.secondaryUnit || "",
+          conversionFactor: it.conversionFactor || 1,
+          secondaryQuantity: it.secondaryQuantity || 0,
+          materialRequestItemId: it._id,
+          requestedQuantity: it.quantity,
+          purpose: it.purpose || materialRequest.remarks || `Issued against Request #${materialRequest.requestNumber}`
+        }));
+
+        const newIssue = await MaterialIssue.create({
+          company: companyId,
+          issueNumber,
+          type: materialRequest.type || 'rm',
+          date: new Date(),
+          department: materialRequest.department || "General Store",
+          issuedTo: materialRequest.requestedBy,
+          mrpPlan: materialRequest.mrpPlan,
+          mrpNumber: materialRequest.mrpNumber,
+          materialRequest: materialRequest._id,
+          requestNumber: materialRequest.requestNumber,
+          items: issueItems,
+          issuedBy: req.user?.id || req.user?._id,
+          status: "Issued",
+          createdBy: currentUserId,
+          createdByName: currentUserName,
+          updatedBy: currentUserId,
+          updatedByName: currentUserName
+        });
+
+        materialRequest.linkedIssues = materialRequest.linkedIssues || [];
+        materialRequest.linkedIssues.push(newIssue._id);
+        materialRequest.issueNumbers = materialRequest.issueNumbers || [];
+        materialRequest.issueNumbers.push(issueNumber);
+
         for (const item of materialRequest.items) {
-          if (materialRequest.type === 'inhouse') {
-            // Inhouse Logic: Update Component Stock
+          item.issuedQuantity = item.quantity;
+          item.pendingQuantity = 0;
+
+          if (materialRequest.type === 'inhouse' || item.component) {
             if (item.component) {
               await updateComponentStock(req, item.component, -item.quantity);
-            } else {
-              // Fallback if component ID is missing but code/name exists (should have been caught in create)
-              console.warn(`Inhouse item missing component reference: ${item.materialName}`);
             }
           } else {
-            // BO Logic: Update Material Inventory
-            // Use materialCode or find material by some means. 
-            const materialDoc = await Material.findOne({ company: companyId, code: item.materialCode });
-            if (materialDoc) {
+            const targetMatId = item.consumable || item.material;
+            if (targetMatId) {
               await updateInventoryStock(
                 req,
-                materialDoc._id,
+                targetMatId,
                 -item.quantity,
-                item.unit || "PCS"
+                item.unit || "PCS",
+                undefined,
+                {
+                  itemType: item.itemType === 'Consumable' ? 'Consumable' : (item.itemType === 'Bought Out' ? 'BoughtOut' : 'RawMaterial'),
+                  transactionCategory: "MATERIAL_ISSUE_SHOPFLOOR_OUTWARD",
+                  referenceDocType: "MaterialIssue",
+                  referenceDocId: newIssue._id,
+                  referenceDocNumber: issueNumber,
+                  recipientOrSource: `Shop Floor (${materialRequest.department || 'Production'})`,
+                  purpose: `Issued against Request #${materialRequest.requestNumber}`,
+                  performedBy: req.user?.id || req.user?._id,
+                }
               );
-            } else {
-              console.warn(`Material not found for code: ${item.materialCode}, skipping inventory update.`);
             }
           }
         }

@@ -353,8 +353,12 @@ export default function IncomingQC() {
       const token = localStorage.getItem("token");
       const promises = selectedGRN.items.map((item: any) => {
         const data = inspectionData[item._id] || { rejectedQuantity: 0, defectCategory: "", remarks: "" };
-        const rejQty = Math.max(0, Math.min(Number(item.quantity || 0), Number(data.rejectedQuantity || 0)));
-        const acceptedQty = Number(item.quantity || 0) - rejQty;
+        const prevInspected = records
+          .filter(r => (r.grnId?._id || r.grnId) === selectedGRN._id && (r.grnItemId === item._id || (r.materialId && (item.material?._id || item.material) && (r.materialId === (item.material?._id || item.material)))))
+          .reduce((sum, r) => sum + (Number(r.acceptedQuantity || 0) + Number(r.rejectedQuantity || 0)), 0);
+        const lotQtyToInspect = prevInspected > 0 ? Math.max(0, Number(item.quantity || 0) - prevInspected) : Number(item.quantity || 0);
+        const rejQty = Math.max(0, Math.min(lotQtyToInspect, Number(data.rejectedQuantity || 0)));
+        const acceptedQty = lotQtyToInspect - rejQty;
         const status = rejQty > 0 ? (acceptedQty > 0 ? "Conditional" : "Rejected") : "Accepted";
 
         let matName = item.materialName;
@@ -379,8 +383,8 @@ export default function IncomingQC() {
           materialName: matName,
           supplierName: selectedGRN.supplierName || selectedGRN.supplier?.name || selectedGRN.customerName || selectedGRN.customer?.name || "Supplier / Vendor",
           batchNumber: item.heatNo || item.batchNo || "",
-          receivedQuantity: Number(item.quantity) || 0,
-          inspectedQuantity: Number(item.quantity) || 0,
+          receivedQuantity: lotQtyToInspect,
+          inspectedQuantity: lotQtyToInspect,
           acceptedQuantity: acceptedQty,
           rejectedQuantity: rejQty,
           remarks: data.remarks ? `${data.defectCategory ? `[${data.defectCategory}] ` : ''}${data.remarks}` : (data.defectCategory || ""),
@@ -398,12 +402,16 @@ export default function IncomingQC() {
       // Auto-generate SCN PDF for the lot
       const scnItems: SCNItemData[] = selectedGRN.items.map((item: any) => {
         const data = inspectionData[item._id] || { rejectedQuantity: 0, defectCategory: "", remarks: "" };
-        const rejQty = Math.max(0, Math.min(Number(item.quantity || 0), Number(data.rejectedQuantity || 0)));
-        const acceptedQty = Number(item.quantity || 0) - rejQty;
+        const prevInspected = records
+          .filter(r => (r.grnId?._id || r.grnId) === selectedGRN._id && (r.grnItemId === item._id || (r.materialId && (item.material?._id || item.material) && (r.materialId === (item.material?._id || item.material)))))
+          .reduce((sum, r) => sum + (Number(r.acceptedQuantity || 0) + Number(r.rejectedQuantity || 0)), 0);
+        const lotQtyToInspect = prevInspected > 0 ? Math.max(0, Number(item.quantity || 0) - prevInspected) : Number(item.quantity || 0);
+        const rejQty = Math.max(0, Math.min(lotQtyToInspect, Number(data.rejectedQuantity || 0)));
+        const acceptedQty = lotQtyToInspect - rejQty;
         return {
           materialName: item.materialName || item.name || "Material",
           unit: item.unit || "PCS",
-          receivedQuantity: Number(item.quantity) || 0,
+          receivedQuantity: lotQtyToInspect,
           acceptedQuantity: acceptedQty,
           rejectedQuantity: rejQty,
           rejectionReason: data.remarks || data.defectCategory || (rejQty > 0 ? "Defect Found" : "Passed"),
@@ -1137,17 +1145,28 @@ export default function IncomingQC() {
                       {selectedGRN.items.map((item: any) => {
                         const data = inspectionData[item._id] || { rejectedQuantity: 0, defectCategory: "Dimensional Deviation", remarks: "" };
                         const receivedQty = Number(item.quantity || 0);
-                        const rejQty = Math.max(0, Math.min(receivedQty, Number(data.rejectedQuantity || 0)));
-                        const acceptedQty = receivedQty - rejQty;
+                        const prevInspected = records
+                          .filter(r => (r.grnId?._id || r.grnId) === selectedGRN._id && (r.grnItemId === item._id || (r.materialId && (item.material?._id || item.material) && (r.materialId === (item.material?._id || item.material)))))
+                          .reduce((sum, r) => sum + (Number(r.acceptedQuantity || 0) + Number(r.rejectedQuantity || 0)), 0);
+                        const pendingQty = prevInspected > 0 ? Math.max(0, receivedQty - prevInspected) : receivedQty;
+                        const rejQty = Math.max(0, Math.min(pendingQty, Number(data.rejectedQuantity || 0)));
+                        const acceptedQty = pendingQty - rejQty;
+                        const desc = item.material?.descriptions || item.material?.description || item.description || item.descriptions || item.specification;
 
                         return (
                           <tr key={item._id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
                             <td className="px-3 py-3">
                               <div className="font-bold text-slate-900 dark:text-white">{item.materialName || item.name}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">Unit: {item.unit || "PCS"}</div>
+                              {desc && <div className="text-[11px] text-slate-500 italic mt-0.5 line-clamp-2">{desc}</div>}
+                              <div className="text-[10px] text-slate-400 font-mono mt-0.5">Unit: {item.unit || "PCS"}</div>
                             </td>
-                            <td className="px-3 py-3 text-center font-black text-slate-900 dark:text-white">
-                              {receivedQty}
+                            <td className="px-3 py-3 text-center">
+                              <div className="font-black text-slate-900 dark:text-white">{receivedQty}</div>
+                              {prevInspected > 0 && (
+                                <div className="text-[9.5px] font-semibold text-amber-600 dark:text-amber-400">
+                                  Pending: {pendingQty}
+                                </div>
+                              )}
                             </td>
                             <td className="px-3 py-3 text-center">
                               <span className="font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
@@ -1158,7 +1177,7 @@ export default function IncomingQC() {
                               <input
                                 type="number"
                                 min="0"
-                                max={receivedQty}
+                                max={pendingQty}
                                 value={data.rejectedQuantity}
                                 onChange={(e) => handleItemChange(item._id, "rejectedQuantity", Number(e.target.value))}
                                 className="w-full border border-rose-300 dark:border-rose-800 rounded-lg px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-rose-500 outline-none font-bold text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/30"
@@ -1202,8 +1221,13 @@ export default function IncomingQC() {
                   {selectedGRN.items.map((item: any, idx: number) => {
                     const data = inspectionData[item._id] || { rejectedQuantity: 0, defectCategory: "Dimensional Deviation", remarks: "" };
                     const receivedQty = Number(item.quantity || 0);
-                    const rejQty = Math.max(0, Math.min(receivedQty, Number(data.rejectedQuantity || 0)));
-                    const acceptedQty = receivedQty - rejQty;
+                    const prevInspected = records
+                      .filter(r => (r.grnId?._id || r.grnId) === selectedGRN._id && (r.grnItemId === item._id || (r.materialId && (item.material?._id || item.material) && (r.materialId === (item.material?._id || item.material)))))
+                      .reduce((sum, r) => sum + (Number(r.acceptedQuantity || 0) + Number(r.rejectedQuantity || 0)), 0);
+                    const pendingQty = prevInspected > 0 ? Math.max(0, receivedQty - prevInspected) : receivedQty;
+                    const rejQty = Math.max(0, Math.min(pendingQty, Number(data.rejectedQuantity || 0)));
+                    const acceptedQty = pendingQty - rejQty;
+                    const desc = item.material?.descriptions || item.material?.description || item.description || item.descriptions || item.specification;
 
                     return (
                       <div key={item._id} className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2.5">
@@ -1211,11 +1235,19 @@ export default function IncomingQC() {
                           <div>
                             <span className="text-[10px] font-mono text-slate-400 font-bold">ITEM #{idx + 1}</span>
                             <h4 className="text-xs font-black text-slate-900 dark:text-white">{item.materialName || item.name}</h4>
-                            <p className="text-[10px] text-slate-400 font-mono">Unit: {item.unit || "PCS"}</p>
+                            {desc && <p className="text-[11px] text-slate-500 italic mt-0.5">{desc}</p>}
+                            <p className="text-[10px] text-slate-400 font-mono mt-0.5">Unit: {item.unit || "PCS"}</p>
                           </div>
-                          <span className="text-xs font-bold text-slate-500 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                            Total: {receivedQty}
-                          </span>
+                          <div className="text-right">
+                            <span className="text-xs font-bold text-slate-500 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 inline-block">
+                              Total: {receivedQty}
+                            </span>
+                            {prevInspected > 0 && (
+                              <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-1">
+                                Pending: {pendingQty}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         {/* Quantities Row */}
@@ -1229,7 +1261,7 @@ export default function IncomingQC() {
                             <input
                               type="number"
                               min="0"
-                              max={receivedQty}
+                              max={pendingQty}
                               value={data.rejectedQuantity}
                               onChange={(e) => handleItemChange(item._id, "rejectedQuantity", Number(e.target.value))}
                               className="w-full mt-0.5 border border-rose-300 dark:border-rose-800 rounded-lg px-2 py-1 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/30"

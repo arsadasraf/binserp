@@ -48,6 +48,10 @@ export const mrbDispositionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    partNumber: {
+      type: String,
+      default: "",
+    },
     itemType: {
       type: String,
       enum: ["Raw Material", "Bought Out", "Consumable", "Finished Goods", "Component", "WIP"],

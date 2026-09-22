@@ -71,4 +71,5 @@ export {
   getScrapLedger 
 } from './mrbDisposition.controller.js';
 export { searchStoreItems } from './itemSearch.controller.js';
+export { returnWipToStore, recordWipScrap } from './wipTransactions.controller.js';
 

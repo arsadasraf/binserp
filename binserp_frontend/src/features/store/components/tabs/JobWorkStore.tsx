@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, 
     FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
-    AlertTriangle, ArrowRight, Layers, RefreshCw, X 
+    AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert 
 } from 'lucide-react';
 import { JobWorkChallan, Vendor, JobWorkSupplier } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
 import JobWorkPreviewModal from '../modals/JobWorkPreviewModal';
+import RejectionReworkHub from './RejectionReworkHub';
 
 import { apiGet, apiDelete } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
@@ -65,8 +66,8 @@ export default function JobWorkStore({
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
-    // Sub-Tabs: All, Active / In-Process, History / Received, Overdue Return
-    const [subTab, setSubTab] = useState<'all' | 'active' | 'received' | 'overdue'>('active');
+    // Sub-Tabs: All, Active / In-Process, History / Received, Overdue Return, Rejections
+    const [subTab, setSubTab] = useState<'all' | 'active' | 'received' | 'overdue' | 'rejections'>('active');
 
     // Filter States
     const [filterMode, setFilterMode] = useState<'daily' | 'monthly' | 'yearly'>('daily');
@@ -376,6 +377,18 @@ export default function JobWorkStore({
                             {tabCounts.overdue}
                         </span>
                     </button>
+
+                    <button
+                        onClick={() => setSubTab('rejections')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                            subTab === 'rejections'
+                                ? 'bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-400 shadow-xs'
+                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                    >
+                        <ShieldAlert size={14} className="text-rose-500" />
+                        <span>Rejection Bin (DC Return)</span>
+                    </button>
                 </div>
 
                 {/* Primary Action Button */}
@@ -388,8 +401,14 @@ export default function JobWorkStore({
                 </button>
             </div>
 
-            {/* Single-Line Unified Toolbar: Search + Workflow + Supplier + Date Switcher & Picker + Count */}
-            <div className="bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
+            {subTab === 'rejections' ? (
+                <div className="pt-1">
+                    <RejectionReworkHub context="wip-jobwork" />
+                </div>
+            ) : (
+                <>
+                    {/* Single-Line Unified Toolbar: Search + Workflow + Supplier + Date Switcher & Picker + Count */}
+                    <div className="bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
                     
                     {/* Left: Search & Selectors */}
@@ -998,6 +1017,8 @@ export default function JobWorkStore({
                             );
                         })}
                     </div>
+                </>
+            )}
                 </>
             )}
 

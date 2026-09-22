@@ -177,6 +177,8 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 issuedTo: issuedToId || undefined,
                 mrpPlan: typeof request.mrpPlan === 'object' ? request.mrpPlan?._id : request.mrpPlan || undefined,
                 mrpNumber: request.mrpNumber || undefined,
+                materialRequest: request._id,
+                requestNumber: request.requestNumber,
                 items: (request.items || []).map((item: any) => {
                     const masterId = item.material?._id || item.material || item.consumable?._id || item.consumable || item.component?._id || item.component || item.fgItem?._id || item.fgItem;
                     const hasSec = Boolean(item.hasSecondaryUnit);
@@ -190,6 +192,8 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                         consumable: isConsumable ? masterId : undefined,
                         component: isInhouse ? masterId : undefined,
                         fgItem: isInhouse ? masterId : undefined,
+                        materialRequestItemId: item._id,
+                        requestedQuantity: priQty,
                         materialName: item.materialName || item.name || '',
                         materialCode: item.materialCode || item.code || '',
                         quantity: priQty,

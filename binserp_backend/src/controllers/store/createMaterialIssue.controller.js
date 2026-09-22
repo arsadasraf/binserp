@@ -84,7 +84,7 @@ export const createMaterialIssue = async (req, res) => {
 
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber } = req.body;
+    let { issueNumber, date, department, issuedTo, items, status, type, mrpPlan, mrpNumber, materialRequest, requestNumber } = req.body;
 
     console.log(`>>> [createMaterialIssue] Start. Status: ${status}, Type: ${type}, Items: ${items?.length}`);
 
@@ -279,6 +279,8 @@ export const createMaterialIssue = async (req, res) => {
       issuedTo: finalIssuedTo,
       mrpPlan: mrpPlan || undefined,
       mrpNumber: mrpNumber || undefined,
+      materialRequest: materialRequest && isValidObjectId(materialRequest.toString()) ? materialRequest.toString() : undefined,
+      requestNumber: requestNumber || undefined,
       items: processedItems,
       issuedBy: req.user.id,
       status: status || "Draft",
@@ -415,6 +417,73 @@ export const createMaterialIssue = async (req, res) => {
       }
     }
 
+    // Auto-update Linked Material Request if issued against a Material Request
+    if (materialRequest || requestNumber) {
+      try {
+        const MaterialRequest = req.getModel('MaterialRequest', materialRequestSchema);
+        const reqQuery = materialRequest && isValidObjectId(materialRequest.toString())
+          ? { _id: materialRequest, company: companyId }
+          : { requestNumber: requestNumber, company: companyId };
+
+        const reqDoc = await MaterialRequest.findOne(reqQuery);
+        if (reqDoc) {
+          let anyItemIssued = false;
+          let allItemsFullyIssued = true;
+
+          reqDoc.items.forEach(rItem => {
+            const matchingIssueItem = processedItems.find(issIt => {
+              if (issIt.materialRequestItemId && String(issIt.materialRequestItemId) === String(rItem._id)) return true;
+              if (issIt.material && rItem.material && String(issIt.material) === String(rItem.material)) return true;
+              if (issIt.component && rItem.component && String(issIt.component) === String(rItem.component)) return true;
+              if (issIt.consumable && rItem.consumable && String(issIt.consumable) === String(rItem.consumable)) return true;
+              if (issIt.materialName && rItem.materialName) {
+                return issIt.materialName.trim().toLowerCase() === rItem.materialName.trim().toLowerCase();
+              }
+              return false;
+            });
+
+            if (matchingIssueItem && status === "Issued") {
+              const issuedNow = Number(matchingIssueItem.quantity) || 0;
+              rItem.issuedQuantity = (rItem.issuedQuantity || 0) + issuedNow;
+              rItem.pendingQuantity = Math.max(0, (rItem.quantity || 0) - rItem.issuedQuantity);
+            }
+
+            const totalIssuedSoFar = rItem.issuedQuantity || 0;
+            const targetQty = rItem.quantity || 0;
+            if (totalIssuedSoFar < targetQty) {
+              allItemsFullyIssued = false;
+            }
+            if (totalIssuedSoFar > 0) {
+              anyItemIssued = true;
+            }
+          });
+
+          if (allItemsFullyIssued) {
+            reqDoc.status = "Issued";
+          } else if (anyItemIssued) {
+            reqDoc.status = "Partially Issued";
+          }
+
+          reqDoc.linkedIssues = reqDoc.linkedIssues || [];
+          if (!reqDoc.linkedIssues.some(id => String(id) === String(materialIssue._id))) {
+            reqDoc.linkedIssues.push(materialIssue._id);
+          }
+
+          reqDoc.issueNumbers = reqDoc.issueNumbers || [];
+          if (!reqDoc.issueNumbers.includes(issueNumber)) {
+            reqDoc.issueNumbers.push(issueNumber);
+          }
+
+          reqDoc.issuedBy = req.user?.id || req.user?._id;
+          reqDoc.issuedByName = userName;
+          reqDoc.issuedAt = new Date();
+
+          await reqDoc.save();
+        }
+      } catch (reqErr) {
+        console.error("Error updating linked Material Request on Material Issue:", reqErr);
+      }
+    }
 
     res.status(201).json({ message: "Material issue created successfully", materialIssue });
   } catch (error) {

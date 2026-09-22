@@ -638,6 +638,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                     <th className="py-3 px-4">Items Received</th>
                     <th className="py-3 px-4 text-right">Total Qty</th>
                     <th className="py-3 px-4">QC Status</th>
+                    <th className="py-3 px-4">Billing Status</th>
                     <th className="py-3 px-4">Received By</th>
                     <th className="py-3 px-4 text-center">Actions</th>
                   </tr>
@@ -752,6 +753,23 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                           ) : (
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
                               Skipped
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Billing Status */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {grn.billingStatus === "Fully Billed" ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              🟢 Fully Billed
+                            </span>
+                          ) : grn.billingStatus === "Partially Billed" ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300">
+                              🟡 Partially Billed
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-850 dark:text-slate-400">
+                              ⚪ Unbilled
                             </span>
                           )}
                         </td>
@@ -935,6 +953,15 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                             Skipped
                           </span>
                         )}
+                        {grn.billingStatus === "Fully Billed" ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300">
+                            Billed
+                          </span>
+                        ) : grn.billingStatus === "Partially Billed" ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300">
+                            Partial Bill
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 

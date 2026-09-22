@@ -65,6 +65,18 @@ export const getPendingJobWorkQC = asyncHandler(async (req, res) => {
             let targetItemName = matchedRet?.receivedItemName || hist.itemName || matchedItem?.receivedItemName || matchedItem?.itemName || "Processed Item";
             let targetItemType = matchedRet?.receivedItemType || matchedItem?.receivedItemType || matchedItem?.itemType || "fg";
 
+            let resolvedPartNumber = hist.partNumber || hist.itemCode || matchedRet?.partNumber || matchedRet?.itemCode || matchedRet?.code || matchedItem?.partNumber || matchedItem?.itemCode || matchedItem?.code || matchedItem?.componentCode || "";
+            if (!resolvedPartNumber && jw.operationMode === "assembly" && Array.isArray(jw.assemblyGroups)) {
+              const matchedGrp = jw.assemblyGroups.find(g => 
+                String(g._id) === String(hist.returningItemId || hist.itemId) || 
+                String(g.assemblyOutputItem?.item) === String(targetItemId) ||
+                String(g.assemblyOutputItem?._id) === String(hist.returningItemId || hist.itemId)
+              );
+              if (matchedGrp?.assemblyOutputItem) {
+                resolvedPartNumber = matchedGrp.assemblyOutputItem.partNumber || matchedGrp.assemblyOutputItem.itemCode || matchedGrp.assemblyOutputItem.code || "";
+              }
+            }
+
             pendingLots.push({
               sourceType: "JOBWORK_RECEIPT",
               jobWorkChallanId: jw._id,
@@ -81,6 +93,8 @@ export const getPendingJobWorkQC = asyncHandler(async (req, res) => {
               itemId: targetItemId,
               returningItemId: matchedRet?._id,
               itemName: targetItemName,
+              itemCode: resolvedPartNumber,
+              partNumber: resolvedPartNumber,
               itemType: targetItemType,
               processType,
               jobWorkType,
@@ -102,6 +116,7 @@ export const getPendingJobWorkQC = asyncHandler(async (req, res) => {
             item.returningItems.forEach((ret) => {
               const recQty = Number(ret.quantityReceived) || 0;
               if (recQty > 0) {
+                const retPartNo = ret.partNumber || ret.itemCode || ret.code || item.partNumber || item.itemCode || item.code || item.componentCode || "";
                 pendingLots.push({
                   sourceType: "JOBWORK_RETURNING_ITEM",
                   jobWorkChallanId: jw._id,
@@ -116,6 +131,8 @@ export const getPendingJobWorkQC = asyncHandler(async (req, res) => {
                   itemId: ret.receivedItem || item.item,
                   returningItemId: ret._id,
                   itemName: ret.receivedItemName || item.itemName || "Returned Item",
+                  itemCode: retPartNo,
+                  partNumber: retPartNo,
                   itemType: ret.receivedItemType || "fg",
                   processType: item.processType || "Conversion",
                   jobWorkType,

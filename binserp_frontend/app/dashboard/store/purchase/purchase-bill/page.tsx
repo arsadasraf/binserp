@@ -29,6 +29,7 @@ export default function PurchaseBillPage() {
       {showModal && (
         <BillingModal
           isOpen={showModal}
+          mode="purchase"
           loading={loading}
           customers={vendors || customers || []}
           onClose={() => { setShowModal(false); setEditingBilling(null); }}

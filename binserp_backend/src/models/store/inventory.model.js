@@ -44,6 +44,11 @@ export const inventorySchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    rejectedStock: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     reorderLevel: {
       type: Number,
       default: 0,

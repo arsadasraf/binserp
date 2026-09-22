@@ -24,6 +24,8 @@ import {
 import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
 import WipLedgerDrawer from '../modals/WipLedgerDrawer';
+import WipActionModal from '../modals/WipActionModal';
+import { Trash2 } from 'lucide-react';
 
 export type WipSubTabType = 'rm' | 'bo' | 'fg' | 'mrp' | 'ledger' | 'mrp-buckets';
 
@@ -76,6 +78,17 @@ export default function WipInventoryTab({
     // Ledger Drawer State
     const [selectedWipItem, setSelectedWipItem] = useState<any | null>(null);
     const [isLedgerOpen, setIsLedgerOpen] = useState(false);
+
+    // WIP Return & Scrap Action Modal State
+    const [actionModalItem, setActionModalItem] = useState<any | null>(null);
+    const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap'>('return');
+    const [isActionModalOpen, setIsActionModalOpen] = useState(false);
+
+    const handleOpenActionModal = (item: any, mode: 'return' | 'scrap') => {
+        setActionModalItem(item);
+        setActionModalMode(mode);
+        setIsActionModalOpen(true);
+    };
 
     useEffect(() => {
         if (activeSubTab) {
@@ -726,12 +739,32 @@ export default function WipInventoryTab({
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-right">
-                                                    <button
-                                                        onClick={() => openLedger(item)}
-                                                        className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1.5 cursor-pointer"
-                                                    >
-                                                        <Eye size={14} /> Ledger
-                                                    </button>
+                                                    <div className="flex items-center justify-end gap-1.5">
+                                                        {item.shopfloorWipQty > 0 && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleOpenActionModal(item, 'return')}
+                                                                    title="Return unused material to Main Store"
+                                                                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:text-emerald-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 cursor-pointer border border-emerald-200 dark:border-emerald-800"
+                                                                >
+                                                                    <ArrowDownLeft size={13} /> Return
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleOpenActionModal(item, 'scrap')}
+                                                                    title="Record shopfloor cutting/machining scrap"
+                                                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:text-rose-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 cursor-pointer border border-rose-200 dark:border-rose-800"
+                                                                >
+                                                                    <Trash2 size={13} /> Scrap
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        <button
+                                                            onClick={() => openLedger(item)}
+                                                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                                                        >
+                                                            <Eye size={13} /> Ledger
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         );
@@ -791,12 +824,30 @@ export default function WipInventoryTab({
                                         </div>
                                     </div>
 
-                                    <button
-                                        onClick={() => openLedger(item)}
-                                        className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                                    >
-                                        <Eye size={14} /> View WIP Ledger ({item.transactions.length} docs)
-                                    </button>
+                                    <div className="flex gap-2">
+                                        {item.shopfloorWipQty > 0 && (
+                                            <>
+                                                <button
+                                                    onClick={() => handleOpenActionModal(item, 'return')}
+                                                    className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-200 flex items-center justify-center gap-1 cursor-pointer"
+                                                >
+                                                    <ArrowDownLeft size={13} /> Return to Store
+                                                </button>
+                                                <button
+                                                    onClick={() => handleOpenActionModal(item, 'scrap')}
+                                                    className="flex-1 py-1.5 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 flex items-center justify-center gap-1 cursor-pointer"
+                                                >
+                                                    <Trash2 size={13} /> Report Scrap
+                                                </button>
+                                            </>
+                                        )}
+                                        <button
+                                            onClick={() => openLedger(item)}
+                                            className={`${item.shopfloorWipQty > 0 ? 'px-3' : 'w-full'} py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer`}
+                                        >
+                                            <Eye size={14} /> Ledger
+                                        </button>
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -810,6 +861,24 @@ export default function WipInventoryTab({
                     isOpen={isLedgerOpen}
                     onClose={() => setIsLedgerOpen(false)}
                     wipItem={selectedWipItem}
+                />
+            )}
+
+            {/* WIP Action Modal (Return to Store & Scrap Write-off) */}
+            {isActionModalOpen && actionModalItem && (
+                <WipActionModal
+                    isOpen={isActionModalOpen}
+                    onClose={() => {
+                        setIsActionModalOpen(false);
+                        setActionModalItem(null);
+                    }}
+                    wipItem={actionModalItem}
+                    mode={actionModalMode}
+                    onSuccess={(msg) => {
+                        onSuccess(msg);
+                        fetchWipInventory();
+                    }}
+                    onError={onError}
                 />
             )}
         </div>

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Package, Factory, History, Layers } from 'lucide-react';
+import { Package, Factory, History, Layers, ShieldAlert } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function InventoryLayout({ children }: { children: React.ReactNode }) {
@@ -14,6 +14,7 @@ export default function InventoryLayout({ children }: { children: React.ReactNod
     { name: 'BO Inventory', href: '/dashboard/store/inventory/bo-stock', icon: Package },
     { name: 'Consumable Inventory', href: '/dashboard/store/inventory/consumable-stock', icon: Package },
     { name: 'FG Inventory', href: '/dashboard/store/inventory/inhouse-stock', icon: Factory },
+    { name: 'GRN Rejection Bin', href: '/dashboard/store/inventory/rejection-rework', icon: ShieldAlert },
     { name: 'Transaction Ledger', href: '/dashboard/store/inventory/ledger', icon: Layers },
     { name: 'GRN History', href: '/dashboard/store/inventory/grn-history', icon: History },
   ];

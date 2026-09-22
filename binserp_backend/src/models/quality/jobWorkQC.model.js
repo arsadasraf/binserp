@@ -39,6 +39,7 @@ export const JobWorkQCSchema = new mongoose.Schema({
     required: true
   },
   itemCode: String,
+  partNumber: String,
   itemType: {
     type: String,
     enum: ["rm", "bo", "fg", "inhouse", "Component", "SubAssembly", "Assembly", "custom"],

@@ -37,8 +37,21 @@ export const materialIssueSchema = new mongoose.Schema(
     mrpNumber: {
       type: String,
     },
+    materialRequest: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MaterialRequest",
+    },
+    requestNumber: {
+      type: String,
+    },
     items: [
       {
+        materialRequestItemId: {
+          type: mongoose.Schema.Types.ObjectId,
+        },
+        requestedQuantity: {
+          type: Number,
+        },
         material: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "RmBoItem",

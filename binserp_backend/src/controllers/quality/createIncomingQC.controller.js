@@ -3,7 +3,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { updateInventoryStock } from "../store/index.js";
-import { grnSchema } from "../../models/store/index.js";
+import { grnSchema, inventorySchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema } from "../../models/ppc/index.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { signPhotos } from "../../utils/s3.js";
@@ -111,25 +111,33 @@ export const createIncomingQC = asyncHandler(async (req, res) => {
                     }
                 }
 
-                // Record Rejection Transaction in Stock Ledger if any rejected
+                // Record Rejection Transaction in Stock Ledger & Move into Quarantine Bin
                 if (rejQty > 0 && matId) {
                     try {
+                        const Inventory = req.getModel('Inventory', inventorySchema);
+                        await Inventory.findOneAndUpdate(
+                            { company: companyId, $or: [{ materialId: matId }, { materialCode: grn.items[itemIndex].code || "" }] },
+                            { $inc: { rejectedStock: rejQty } }
+                        );
+
                         const vendorLabel = grn.supplierName || grn.supplier?.name || "Supplier";
                         await recordStockTransaction(req, {
                             itemType: itemTypeOption === 'BoughtOut' ? 'RmBoItem' : (itemTypeOption === 'Consumable' ? 'ConsumableItem' : (itemTypeOption === 'Component' ? 'Component' : 'RawMaterial')),
                             item: matId,
                             itemName: materialName,
                             unit: grn.items[itemIndex].unit || "PCS",
-                            movementType: "OUTWARD",
+                            movementType: "INWARD",
                             transactionCategory: "INCOMING_QC_REJECTED",
-                            quantity: -rejQty,
-                            previousStock: rejQty,
-                            newStock: 0,
+                            quantity: rejQty,
+                            previousStock: 0,
+                            newStock: rejQty,
+                            sourceLocation: "Incoming Dock",
+                            destinationLocation: "Store Quarantine Bin / Rejection Bay",
                             referenceDocType: "GRN",
                             referenceDocId: grn._id,
                             referenceDocNumber: grn.grnNumber,
-                            recipientOrSource: `Vendor Rejection (${vendorLabel})`,
-                            purpose: rejectionReason || remarks || `Incoming Quality Inspection Rejection / Scrap (GRN #${grn.grnNumber})`,
+                            recipientOrSource: `Quarantine Hold (${vendorLabel})`,
+                            purpose: rejectionReason || remarks || `Incoming Quality Inspection Rejection / Quarantine Hold (GRN #${grn.grnNumber})`,
                             performedBy: req.user?._id || req.user?.id
                         });
                     } catch (rejErr) {

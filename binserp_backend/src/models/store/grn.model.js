@@ -81,6 +81,7 @@ export const grnSchema = new mongoose.Schema(
         secondaryReceivedQuantity: { type: Number, default: 0 },
         secondaryAcceptedQuantity: { type: Number, default: 0 },
         secondaryRejectedQuantity: { type: Number, default: 0 },
+        billedQuantity: { type: Number, default: 0 },
         selectedUnit: { type: String, default: "" },
         locationId: {
           type: mongoose.Schema.Types.ObjectId,
@@ -89,6 +90,22 @@ export const grnSchema = new mongoose.Schema(
         description: String,
       },
     ],
+    isBilled: {
+      type: Boolean,
+      default: false,
+    },
+    billingStatus: {
+      type: String,
+      enum: ["Unbilled", "Partially Billed", "Fully Billed"],
+      default: "Unbilled",
+    },
+    purchaseBill: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PurchaseBill",
+    },
+    purchaseBillNumber: {
+      type: String,
+    },
     taxRate: {
       type: Number,
       default: 0,

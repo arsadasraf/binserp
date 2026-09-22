@@ -12,6 +12,7 @@ import {
   deleteVendorQuotation,
   createPurchaseBill,
   getPurchaseBills,
+  getUnbilledDocs,
   updatePurchaseBill,
   deletePurchaseBill,
   createPO,
@@ -121,6 +122,9 @@ router.route("/quotation/:id")
   .delete(deleteVendorQuotation);
 
 // Purchase Bill Routes
+router.route("/bill/unbilled-docs")
+  .get(getUnbilledDocs);
+
 router.route("/bill")
   .post(createPurchaseBill)
   .get(getPurchaseBills);

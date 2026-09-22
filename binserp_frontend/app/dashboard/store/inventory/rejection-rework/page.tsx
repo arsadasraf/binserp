@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React from 'react';
+import RejectionReworkHub from '@/src/features/store/components/tabs/RejectionReworkHub';
 
-export default function StoreRejectionRedirect() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace('/dashboard/quality/rejection-hub');
-  }, [router]);
-
-  return null;
+export default function StoreRejectionBinPage() {
+  return (
+    <div className="flex-1 overflow-y-auto min-h-0">
+      <RejectionReworkHub context="store" />
+    </div>
+  );
 }

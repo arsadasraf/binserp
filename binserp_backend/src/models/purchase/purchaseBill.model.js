@@ -27,6 +27,20 @@ export const purchaseBillSchema = new mongoose.Schema(
     },
     poReference: String,
     grnReference: String,
+    grn: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "GRN",
+    },
+    billType: {
+      type: String,
+      enum: ["material", "job-work-service"],
+      default: "material",
+    },
+    jobWorkChallan: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JobWorkChallan",
+    },
+    jobWorkChallanNumber: String,
     items: [
       {
         materialName: String,

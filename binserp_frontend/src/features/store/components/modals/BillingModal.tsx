@@ -62,7 +62,9 @@ export default function BillingModal({
     initialData,
     isEditing = false,
     companyInfo,
+    mode = "sales",
 }: ExtendedBillingModalProps) {
+    const isPurchase = mode === "purchase";
     const [invoiceNumber, setInvoiceNumber] = useState("");
     const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
     const [customer, setCustomer] = useState("");
@@ -87,6 +89,12 @@ export default function BillingModal({
     const [status, setStatus] = useState("Draft");
     const [globalTaxRate, setGlobalTaxRate] = useState(18);
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+    // Purchase Mode 3-Way Matching State (Unbilled GRNs & Job Work Returns)
+    const [unbilledDocs, setUnbilledDocs] = useState<{ grns: any[]; jobWorks: any[] }>({ grns: [], jobWorks: [] });
+    const [isLoadingUnbilledDocs, setIsLoadingUnbilledDocs] = useState(false);
+    const [selectedGrnId, setSelectedGrnId] = useState<string>("");
+    const [selectedJobWorkId, setSelectedJobWorkId] = useState<string>("");
 
     // Company Master Resolution & Defaults
     const [fetchedCompany, setFetchedCompany] = useState<any>(null);
@@ -341,12 +349,38 @@ export default function BillingModal({
         }
     }, []);
 
-    // Handle Customer Selection
+    // Fetch unbilled purchase documents (GRNs and Job Work Challans) for 3-way matching
+    const fetchUnbilledPurchaseDocs = useCallback(async (vendorId: string) => {
+        if (!vendorId) {
+            setUnbilledDocs({ grns: [], jobWorks: [] });
+            return;
+        }
+        setIsLoadingUnbilledDocs(true);
+        try {
+            const res = await apiRequest(`/api/purchase/bill/unbilled-docs?vendor=${encodeURIComponent(vendorId)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setUnbilledDocs({
+                    grns: data.grns || [],
+                    jobWorks: data.jobWorks || []
+                });
+            } else {
+                setUnbilledDocs({ grns: [], jobWorks: [] });
+            }
+        } catch (err) {
+            console.error("Failed to load unbilled purchase documents:", err);
+            setUnbilledDocs({ grns: [], jobWorks: [] });
+        } finally {
+            setIsLoadingUnbilledDocs(false);
+        }
+    }, []);
+
+    // Handle Customer / Vendor Selection
     const handleCustomerChange = (val: string) => {
         setCustomer(val);
         const cust: any = customers.find((c: any) => (c._id || c.id) === val);
         if (cust) {
-            setCustomerName(cust.name || cust.customerName || cust.companyName || "");
+            setCustomerName(cust.name || cust.customerName || cust.companyName || cust.vendorName || "");
             setCustomerAddress(cust.address || cust.billingAddress || "");
             setCustomerGST(cust.gstNumber || cust.gstin || "");
         } else {
@@ -356,10 +390,119 @@ export default function BillingModal({
         }
         setCustomerPoReference("");
         clearError("customer");
-        if (val) {
-            fetchOpenCustomerPOs(val);
+        if (isPurchase) {
+            setSelectedGrnId("");
+            setSelectedJobWorkId("");
+            if (val) {
+                fetchUnbilledPurchaseDocs(val);
+            } else {
+                setUnbilledDocs({ grns: [], jobWorks: [] });
+            }
         } else {
-            setCustomerPOs([]);
+            if (val) {
+                fetchOpenCustomerPOs(val);
+            } else {
+                setCustomerPOs([]);
+            }
+        }
+    };
+
+    // Handle Unbilled Document Selection (3-Way Matching for GRN / Job Work)
+    const handleSelectUnbilledDoc = (val: string) => {
+        if (!val) {
+            setSelectedGrnId("");
+            setSelectedJobWorkId("");
+            return;
+        }
+        if (val.startsWith("grn:")) {
+            const grnId = val.replace("grn:", "");
+            setSelectedGrnId(grnId);
+            setSelectedJobWorkId("");
+            const selectedGrn = unbilledDocs.grns.find(g => g._id === grnId);
+            if (!selectedGrn || !Array.isArray(selectedGrn.items)) return;
+
+            const unbilledItems = selectedGrn.items
+                .map((item: any) => {
+                    const accepted = Number(item.acceptedQuantity || item.receivedQuantity || 0);
+                    const billed = Number(item.billedQuantity || 0);
+                    const remaining = Math.max(0, accepted - billed);
+                    return { item, remaining };
+                })
+                .filter((x: any) => x.remaining > 0);
+
+            if (unbilledItems.length > 0) {
+                const isDefaultBlank = items.length === 1 && !items[0].materialName && !items[0].fgItem && !items[0].rawMaterial;
+                if (isDefaultBlank || window.confirm(`Import ${unbilledItems.length} unbilled line item(s) from GRN ${selectedGrn.grnNumber}?`)) {
+                    const grnMatType: ItemCategoryType = selectedGrn.type === 'bo' ? 'bo' : (selectedGrn.type === 'fg' ? 'fg' : 'rm');
+                    setInvoiceMaterialType(grnMatType);
+                    preloadCategoryOptions(grnMatType);
+
+                    const populatedRows: InvoiceItemEntry[] = unbilledItems.map(({ item, remaining }: any) => {
+                        const rate = Number(item.unitPrice || item.rate || 0);
+                        const amt = remaining * rate;
+                        const taxAmt = amt * ((globalTaxRate || 18) / 100);
+                        const desc = item.materialDescription || item.descriptions || item.description || "";
+                        const name = item.materialName || item.name || "Material Item";
+                        const matId = item.material?._id || item.material || item.rawMaterial || item.boughtOut || "";
+
+                        if (matId) {
+                            itemDetailsCacheRef.current.set(String(matId), {
+                                value: String(matId),
+                                label: desc ? `${name} — ${desc}` : name,
+                                name,
+                                description: desc,
+                                unit: item.unit || "PCS",
+                                hsnCode: item.hsnCode || "",
+                                currentStock: 999
+                            });
+                        }
+
+                        return {
+                            itemType: grnMatType,
+                            rawMaterial: grnMatType === 'rm' ? matId : undefined,
+                            boughtOut: grnMatType === 'bo' ? matId : undefined,
+                            fgItem: grnMatType === 'fg' ? matId : undefined,
+                            materialName: name,
+                            poItemId: item.poItemId,
+                            quantity: remaining,
+                            unit: item.unit || "PCS",
+                            rate,
+                            amount: amt,
+                            taxRate: globalTaxRate || 18,
+                            taxAmount: taxAmt,
+                            description: desc,
+                            availableStock: 999
+                        };
+                    });
+
+                    setItems(populatedRows);
+                    if (selectedGrn.vendorInvoiceNumber && !invoiceNumber) {
+                        setInvoiceNumber(selectedGrn.vendorInvoiceNumber);
+                    }
+                }
+            }
+        } else if (val.startsWith("jw:")) {
+            const jwId = val.replace("jw:", "");
+            setSelectedJobWorkId(jwId);
+            setSelectedGrnId("");
+            const jw = unbilledDocs.jobWorks.find(j => j._id === jwId);
+            if (!jw) return;
+
+            const returnItems = jw.itemsReturn || jw.itemsReturned || [];
+            const returnedQty = returnItems.reduce((acc: number, it: any) => acc + (it.receivedQuantity || it.quantity || 0), 0) || jw.totalReturnQuantity || 1;
+            const processName = jw.processType || jw.operation || "Subcontracting Service";
+
+            setItems([{
+                itemType: 'fg',
+                materialName: `Job Work Service: ${processName} (Challan: ${jw.challanNumber})`,
+                quantity: returnedQty,
+                unit: "PCS",
+                rate: Number(jw.ratePerUnit || jw.processingCost || 0),
+                amount: returnedQty * Number(jw.ratePerUnit || jw.processingCost || 0),
+                taxRate: globalTaxRate || 18,
+                taxAmount: (returnedQty * Number(jw.ratePerUnit || jw.processingCost || 0)) * ((globalTaxRate || 18) / 100),
+                description: `Processing/Labour charges for Job Work Return Challan ${jw.challanNumber}`,
+            }]);
         }
     };
 
@@ -742,13 +885,54 @@ export default function BillingModal({
             status,
         };
 
-        if (customer) payload.customer = customer;
+        if (customer) {
+            if (isPurchase) {
+                payload.vendor = customer;
+            } else {
+                payload.customer = customer;
+            }
+        }
         if (customerPoReference) payload.customerPoReference = customerPoReference;
+
+        if (isPurchase) {
+            payload.billType = selectedJobWorkId ? "job-work-service" : "material";
+            if (selectedGrnId) payload.grn = selectedGrnId;
+            if (selectedJobWorkId) {
+                payload.jobWorkChallan = selectedJobWorkId;
+                const jw = unbilledDocs.jobWorks.find(j => j._id === selectedJobWorkId);
+                if (jw) payload.jobWorkChallanNumber = jw.challanNumber;
+            }
+            payload.purchaseBillNumber = invoiceNumber;
+        }
 
         onSubmit(payload);
     };
 
     if (!isOpen) return null;
+
+    // Build options for unbilled purchase documents (3-way matching)
+    const unbilledDocOptions: SearchableOption[] = [
+        { value: "", label: "Direct Bill / No Linked GRN", description: "Create purchase bill manually without linking to a GRN" },
+        ...(unbilledDocs.grns || []).map(g => {
+            const unbilledCount = (g.items || []).filter((i: any) => {
+                const acc = Number(i.acceptedQuantity || i.receivedQuantity || 0);
+                const billed = Number(i.billedQuantity || 0);
+                return acc > billed;
+            }).length;
+            return {
+                value: `grn:${g._id}`,
+                label: `GRN: ${g.grnNumber} (Inv: ${g.vendorInvoiceNumber || 'N/A'}) — Status: ${g.billingStatus || 'Unbilled'}`,
+                description: `${unbilledCount} unbilled item(s) • PO: ${g.purchaseOrder?.poNumber || 'Direct'}`,
+                badge: g.billingStatus || 'Unbilled'
+            };
+        }),
+        ...(unbilledDocs.jobWorks || []).map(jw => ({
+            value: `jw:${jw._id}`,
+            label: `Job Work Challan: ${jw.challanNumber} (${jw.processType || 'Subcontracting'})`,
+            description: `Return Job Work awaiting service billing • Status: ${jw.billingStatus || 'Unbilled'}`,
+            badge: "Job Work"
+        }))
+    ];
 
     // Build options for customer PO selector
     const customerPoOptions: SearchableOption[] = [
@@ -862,7 +1046,9 @@ export default function BillingModal({
                     {/* Basic Info Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 p-5 bg-slate-50/50 dark:bg-slate-800/30 border border-slate-200/80 dark:border-slate-800 rounded-2xl">
                         <div className="space-y-1">
-                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Invoice Number</label>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                {isPurchase ? "Bill / Invoice #" : "Invoice Number"}
+                            </label>
                             <input
                                 type="text"
                                 value={invoiceNumber}
@@ -873,7 +1059,9 @@ export default function BillingModal({
                         </div>
 
                         <div className="space-y-1" data-has-error={!!formErrors.date}>
-                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Invoice Date</label>
+                            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                {isPurchase ? "Bill Date" : "Invoice Date"}
+                            </label>
                             <input
                                 type="date"
                                 value={date}
@@ -885,51 +1073,82 @@ export default function BillingModal({
 
                         <div className="space-y-1" data-has-error={!!formErrors.customer}>
                             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                                Customer <span className="text-red-500">*</span>
+                                {isPurchase ? "Vendor" : "Customer"} <span className="text-red-500">*</span>
                             </label>
                             <SearchableSelect
                                 options={(customers || []).map((c: any) => ({
                                     value: c._id || c.id,
-                                    label: c.name || c.customerName || c.companyName || 'Customer',
+                                    label: c.name || c.vendorName || c.customerName || c.companyName || (isPurchase ? 'Vendor' : 'Customer'),
                                     description: c.email || c.phone || c.city || ''
                                 }))}
                                 value={customer}
                                 hasError={!!formErrors.customer}
                                 onChange={handleCustomerChange}
-                                placeholder="Select Customer..."
+                                placeholder={isPurchase ? "Select Vendor..." : "Select Customer..."}
                             />
                         </div>
 
-                        {/* Customer PO Selection (Open POs) */}
-                        <div className="space-y-1">
-                            <div className="flex items-center justify-between">
-                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                                    <ShoppingCart size={13} className="text-indigo-600" />
-                                    Customer PO Ref
-                                </label>
-                                {customer && customerPOs.length > 0 && (
-                                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
-                                        {customerPOs.length} Open
-                                    </span>
-                                )}
+                        {/* 3-Way Matching for Purchase OR Customer PO Selection for Sales */}
+                        {isPurchase ? (
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                        <Truck size={13} className="text-indigo-600" />
+                                        Unbilled GRN / JW
+                                    </label>
+                                    {customer && (unbilledDocs.grns.length > 0 || unbilledDocs.jobWorks.length > 0) && (
+                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                                            {unbilledDocs.grns.length + unbilledDocs.jobWorks.length} Unbilled
+                                        </span>
+                                    )}
+                                </div>
+                                <SearchableSelect
+                                    options={unbilledDocOptions}
+                                    value={selectedGrnId ? `grn:${selectedGrnId}` : (selectedJobWorkId ? `jw:${selectedJobWorkId}` : "")}
+                                    onChange={handleSelectUnbilledDoc}
+                                    placeholder={
+                                        !customer
+                                            ? "Select vendor first..."
+                                            : isLoadingUnbilledDocs
+                                                ? "Loading unbilled docs..."
+                                                : (unbilledDocs.grns.length === 0 && unbilledDocs.jobWorks.length === 0)
+                                                    ? "No unbilled GRNs/JWs"
+                                                    : "Link Unbilled GRN / JW..."
+                                    }
+                                    disabled={!customer || isLoadingUnbilledDocs}
+                                />
                             </div>
-                            <SearchableSelect
-                                options={customerPoOptions}
-                                value={customerPoReference}
-                                onChange={handleCustomerPoSelect}
-                                placeholder={
-                                    !customer 
-                                        ? "Select customer first..." 
-                                        : isLoadingCustomerPOs 
-                                            ? "Loading open POs..." 
-                                            : customerPOs.length === 0 
-                                                ? "No open POs found" 
-                                                : "Select Customer PO..."
-                                }
-                                disabled={!customer || isLoadingCustomerPOs}
-                                allowCustom={true}
-                            />
-                        </div>
+                        ) : (
+                            <div className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                        <ShoppingCart size={13} className="text-indigo-600" />
+                                        Customer PO Ref
+                                    </label>
+                                    {customer && customerPOs.length > 0 && (
+                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                                            {customerPOs.length} Open
+                                        </span>
+                                    )}
+                                </div>
+                                <SearchableSelect
+                                    options={customerPoOptions}
+                                    value={customerPoReference}
+                                    onChange={handleCustomerPoSelect}
+                                    placeholder={
+                                        !customer 
+                                            ? "Select customer first..." 
+                                            : isLoadingCustomerPOs 
+                                                ? "Loading open POs..." 
+                                                : customerPOs.length === 0 
+                                                    ? "No open POs found" 
+                                                    : "Select Customer PO..."
+                                    }
+                                    disabled={!customer || isLoadingCustomerPOs}
+                                    allowCustom={true}
+                                />
+                            </div>
+                        )}
 
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Currency</label>

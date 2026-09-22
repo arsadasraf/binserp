@@ -1,5 +1,6 @@
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import mongoose from "mongoose";
+import { IncomingQCSchema } from "../../models/quality/index.js";
 import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
@@ -254,7 +255,82 @@ export const updateGRN = async (req, res) => {
       { new: true }
     );
 
-    res.status(200).json({ message: "GRN updated successfully", grn: updatedGRN });
+    // Synchronize Quality Status and IncomingQC Records
+    if (updatedGRN && updatedGRN.qcRequired) {
+      try {
+        const IncomingQC = req.getModel('IncomingQC', IncomingQCSchema);
+        const existingQc = await IncomingQC.find({ company: companyId, grnId: id });
+
+        let totalItems = updatedGRN.items.length;
+        let itemsFullyInspected = 0;
+        let anyItemInspected = false;
+
+        const updatedPartyName = updatedGRN.supplierName || (updatedGRN.supplier && typeof updatedGRN.supplier === 'object' ? updatedGRN.supplier.name : "");
+
+        for (const item of updatedGRN.items) {
+          const matchingQc = existingQc.filter(q => 
+            (item._id && q.grnItemId && q.grnItemId.toString() === item._id.toString()) ||
+            (item.material && q.materialId && q.materialId.toString() === (item.material._id || item.material).toString()) ||
+            (item.component && q.componentId && q.componentId.toString() === (item.component._id || item.component).toString())
+          );
+
+          const totalAccepted = matchingQc.reduce((sum, q) => sum + (Number(q.acceptedQuantity) || 0), 0);
+          const totalRejected = matchingQc.reduce((sum, q) => sum + (Number(q.rejectedQuantity) || 0), 0);
+          const totalProcessed = totalAccepted + totalRejected;
+
+          item.acceptedQuantity = totalAccepted;
+          item.rejectedQuantity = totalRejected;
+
+          const targetQty = Number(item.quantity || item.receivedQuantity || 0);
+          if (totalProcessed >= targetQty && targetQty > 0) {
+            itemsFullyInspected++;
+          }
+          if (totalProcessed > 0) {
+            anyItemInspected = true;
+          }
+
+          // Sync metadata to matching QC records
+          for (const qcRec of matchingQc) {
+            let qcModified = false;
+            if (updatedPartyName && qcRec.supplierName !== updatedPartyName) {
+              qcRec.supplierName = updatedPartyName;
+              qcModified = true;
+            }
+            const matName = item.materialName || item.name;
+            if (matName && qcRec.materialName !== matName) {
+              qcRec.materialName = matName;
+              qcModified = true;
+            }
+            if (targetQty > 0 && qcRec.receivedQuantity !== targetQty) {
+              qcRec.receivedQuantity = targetQty;
+              qcModified = true;
+            }
+            if (qcModified) {
+              await qcRec.save();
+            }
+          }
+        }
+
+        // Determine new qcStatus
+        if (itemsFullyInspected === totalItems && totalItems > 0) {
+          updatedGRN.qcStatus = "Completed";
+        } else if (anyItemInspected) {
+          updatedGRN.qcStatus = "Partial";
+        } else {
+          updatedGRN.qcStatus = "Pending";
+        }
+
+        await updatedGRN.save();
+      } catch (qcSyncErr) {
+        console.warn("Could not sync IncomingQC records on GRN update:", qcSyncErr);
+      }
+    }
+
+    const grnObj = updatedGRN?.toObject ? updatedGRN.toObject() : { ...updatedGRN };
+    if (grnObj.photos && grnObj.photos.length > 0) grnObj.photos = await signPhotos(grnObj.photos);
+    if (grnObj.pdf) grnObj.pdf = (await signPhotos([grnObj.pdf]))[0];
+
+    res.status(200).json({ message: "GRN updated successfully", grn: grnObj });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

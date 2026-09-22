@@ -71,7 +71,9 @@ import {
   getItemTransactionHistory,
   bulkImportMasters,
   checkMasterDuplicates,
-  searchStoreItems
+  searchStoreItems,
+  returnWipToStore,
+  recordWipScrap
 } from "../controllers/store/index.js";
 
 import {
@@ -206,6 +208,8 @@ router.get("/jobwork/all", getAllJobWorkChallans);
 router.put("/jobwork/update/:id", updateJobWorkChallan);
 router.delete("/jobwork/delete/:id", deleteJobWorkChallan);
 router.get("/wip/inventory", getWipInventory);
+router.post("/wip/return-to-store", returnWipToStore);
+router.post("/wip/scrap", recordWipScrap);
 
 // Store Fulfillment & MRP routes
 router.get("/fulfillment", getFulfillments);

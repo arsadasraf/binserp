@@ -30,6 +30,7 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
     returningItemId,
     itemName,
     itemCode,
+    partNumber,
     itemType,
     processType,
     jobWorkType = "store-conversion",
@@ -105,6 +106,18 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
     }
   }
 
+  let resolvedPartNo = itemCode || partNumber || "";
+  if (!resolvedPartNo && itemId) {
+    try {
+      const comp = await Component.findById(itemId).select('componentCode');
+      if (comp?.componentCode) resolvedPartNo = comp.componentCode;
+      else {
+        const fg = await FGItem.findById(itemId).select('code');
+        if (fg?.code) resolvedPartNo = fg.code;
+      }
+    } catch (e) {}
+  }
+
   const jwQCRecord = await JobWorkQC.create({
     company: companyId,
     jobWorkChallanId,
@@ -116,7 +129,8 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
     vendorName: vendorName || "Subcontractor Vendor",
     itemId,
     itemName: itemName || "Job Work Item",
-    itemCode,
+    itemCode: resolvedPartNo,
+    partNumber: resolvedPartNo,
     itemType: (itemType || "fg").toLowerCase(),
     processType: processType || "Conversion / Machining",
     jobWorkType: resolvedJobWorkType,
@@ -284,24 +298,27 @@ export const createJobWorkQC = asyncHandler(async (req, res) => {
     }
   }
 
-  // Record Rejection / Scrap in Stock Ledger if any items rejected
-  if (rejectedQtyNum > 0 && itemId) {
+  // Record Rejection / Rework in Stock Ledger & Move into WIP Job Work Rejection Bin
+  if ((rejectedQtyNum > 0 || reworkQtyNum > 0) && itemId) {
     try {
+      const totalDefect = rejectedQtyNum + reworkQtyNum;
       await recordStockTransaction(req, {
         itemType: "Component",
         item: itemId,
-        itemName: itemName || "Job Work Item",
+        itemName: itemName || "Job Work Component",
         unit: unit || "Nos",
-        movementType: "OUTWARD",
+        movementType: "INWARD",
         transactionCategory: "JOBWORK_QC_REJECTED",
-        quantity: -rejectedQtyNum,
-        previousStock: rejectedQtyNum,
-        newStock: 0,
+        quantity: totalDefect,
+        previousStock: 0,
+        newStock: totalDefect,
+        sourceLocation: "Job Work Receiving Dock",
+        destinationLocation: "WIP Job Work Rejection Bin",
         referenceDocType: "JobWorkChallan",
         referenceDocId: jobWorkChallanId,
         referenceDocNumber: challanNumber,
-        recipientOrSource: `Vendor Rejection (${vendorName || "Subcontractor"})`,
-        purpose: rejectionReason || defectCategory || "Job Work Quality Rejection / Scrap",
+        recipientOrSource: `Subcontractor Rejection (${vendorName || "Subcontractor"})`,
+        purpose: rejectionReason || defectCategory || `Returnable DC Quality Rejection (${totalDefect} ${unit || 'Nos'} held in WIP Rejection Bin)`,
         performedBy: req.user?._id || req.user?.id
       });
     } catch (e) { }

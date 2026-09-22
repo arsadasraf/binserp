@@ -48,6 +48,8 @@ export interface PendingJWLot {
   itemId: string;
   returningItemId?: string;
   itemName: string;
+  itemCode?: string;
+  partNumber?: string;
   itemType?: string;
   processType: string;
   jobWorkType?: string;
@@ -67,6 +69,7 @@ export interface JWQCRecord {
   vendor?: any;
   itemName: string;
   itemCode?: string;
+  partNumber?: string;
   itemType?: string;
   processType: string;
   jobWorkType?: string;
@@ -363,6 +366,8 @@ export default function JobWorkQC() {
         itemId: selectedLot.itemId,
         returningItemId: selectedLot.returningItemId,
         itemName: selectedLot.itemName,
+        itemCode: selectedLot.itemCode || selectedLot.partNumber || "",
+        partNumber: selectedLot.partNumber || selectedLot.itemCode || "",
         itemType: selectedLot.itemType || "rm",
         processType: selectedLot.processType,
         jobWorkType: selectedLot.jobWorkType || "store-conversion",

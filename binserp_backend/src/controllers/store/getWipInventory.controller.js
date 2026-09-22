@@ -12,7 +12,8 @@ import {
   grnSchema,
   bomSchema, 
   fgItemSchema,
-  inventorySchema
+  inventorySchema,
+  stockTransactionSchema
 } from "../../models/store/index.js";
 import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
@@ -78,14 +79,19 @@ export const getWipInventory = async (req, res) => {
       }
     });
 
-    // 2. Load FG GRNs, in-house receipts, BOMs, and MRP Plans
-    const [allFGGRNs, allInHouseGRNs, allBOMs, allMRPPlans, materialIssues, challans] = await Promise.all([
+    // 2. Load FG GRNs, in-house receipts, BOMs, MRP Plans, and WIP adjustments
+    const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
+    const [allFGGRNs, allInHouseGRNs, allBOMs, allMRPPlans, materialIssues, challans, wipAdjustments] = await Promise.all([
       FGGRN.find({ company: companyId, status: { $in: ["Received", "Accepted"] } }).lean(),
       GRN.find({ company: companyId, type: { $in: ["inhouse", "fg"] }, status: { $in: ["Received", "Accepted"] } }).lean(),
       BOM.find({ company: companyId }).lean(),
       MRPPlan.find({ company: companyId }).lean(),
       MaterialIssue.find({ company: companyId }).populate("issuedTo", "name userId department").sort({ date: -1 }).lean(),
-      JobWorkChallan.find({ company: companyId }).populate("vendor").sort({ date: -1 }).lean()
+      JobWorkChallan.find({ company: companyId }).populate("vendor").sort({ date: -1 }).lean(),
+      StockTransaction.find({
+        company: companyId,
+        transactionCategory: { $in: ["WIP_RETURN_TO_STORE", "WIP_SCRAP_WRITEOFF"] }
+      }).sort({ date: -1 }).lean()
     ]);
 
     // Build Master WIP Registry Map (Key: material ID or clean material key)
@@ -547,6 +553,45 @@ export const getWipInventory = async (req, res) => {
           });
         }
       });
+    });
+
+    // 5.1. Process WIP Return to Store & Shopfloor Scrap Adjustments
+    (wipAdjustments || []).forEach(adj => {
+      const adjName = adj.itemName || "Material";
+      const adjQty = Number(adj.quantity) || 0;
+      const adjDate = adj.date || adj.createdAt;
+      const isReturn = adj.transactionCategory === "WIP_RETURN_TO_STORE";
+      const rawType = (adj.itemType || "").toLowerCase();
+      const targetType = (rawType === "boughtout" || rawType === "bo") ? "bo" : (rawType === "component" || rawType === "fg") ? "fg" : "rm";
+
+      const entry = findWipEntry(adj.item, adjName, null, targetType);
+      if (entry) {
+        entry.shopfloorWipQty = Math.max(0, entry.shopfloorWipQty - adjQty);
+        if (isReturn) {
+          entry.totalReturnedQty += adjQty;
+        }
+
+        const tx = {
+          date: adjDate,
+          type: isReturn ? "WIP Returned to Main Store" : "Shopfloor Scrap Write-off",
+          docNumber: adj.referenceDocNumber || "ADJ",
+          mrpNumber: "",
+          sentQty: adjQty,
+          receivedQty: 0,
+          unit: adj.unit || entry.unit || "PCS",
+          processType: adj.purpose || (isReturn ? "Return to Main Store" : "Shopfloor Scrap Write-off"),
+          vendorName: isReturn ? "Main Store" : "Shopfloor Scrap",
+          status: "Completed"
+        };
+        entry.transactions.push(tx);
+        allTransactionsLedger.push({
+          ...tx,
+          materialName: entry.materialName,
+          materialCode: entry.materialCode,
+          itemType: entry.itemType,
+          categoryType: entry.categoryType
+        });
+      }
     });
 
     // 6. Process FG GRNs & Production Receipts (Multi-Tier WIP Consumption Engine)

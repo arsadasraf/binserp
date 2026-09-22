@@ -76,6 +76,14 @@ export const jobWorkSchema = new mongoose.Schema(
       enum: ["Open", "Partial", "Closed", "Overdue"],
       default: "Open",
     },
+    billingStatus: {
+      type: String,
+      enum: ["Unbilled", "Partially Billed", "Fully Billed"],
+      default: "Unbilled",
+    },
+    serviceBillReference: {
+      type: String,
+    },
     operationMode: {
       type: String,
       enum: ["discrete", "assembly"],

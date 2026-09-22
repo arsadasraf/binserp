@@ -56,8 +56,8 @@ export const getAllGRNs = async (req, res) => {
       .populate("receivedBy", "name userId email")
       .populate("supplier", "name code")
       .populate("customer", "name code")
-      .populate("items.material", "name code category")
-      .populate("items.component", "componentName componentCode")
+      .populate("items.material", "name code category descriptions description specification")
+      .populate("items.component", "componentName componentCode descriptions description specification")
       .sort({ createdAt: -1 });
 
     // Sign photos and pdfs for preview

@@ -40,6 +40,7 @@ const getCurrentMonth = () => {
 };
 
 export default function BillingTable({ data = [], companyInfo, onEdit, onDelete, onAddBill, addLabel = "Add Invoice" }: BillingTableProps) {
+    const isPurchase = (addLabel || "").toLowerCase().includes("purchase") || (addLabel || "").toLowerCase().includes("bill");
     const currentMonthStr = useMemo(() => getCurrentMonth(), []);
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedCustomerFilter, setSelectedCustomerFilter] = useState("all");
@@ -248,9 +249,9 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                             <thead className="bg-indigo-50/70 dark:bg-slate-800/60 border-b border-indigo-100 dark:border-slate-800">
                                 <tr>
                                     <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">S.No</th>
-                                    <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">Invoice Number</th>
-                                    <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">PO / DC Ref</th>
-                                    <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">Customer Name</th>
+                                    <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">{isPurchase ? "Bill / Invoice #" : "Invoice Number"}</th>
+                                    <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">{isPurchase ? "Linked GRN / JW / PO" : "PO / DC Ref"}</th>
+                                    <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">{isPurchase ? "Vendor Name" : "Customer Name"}</th>
                                     <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">Items</th>
                                     <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">Created By</th>
                                     <th className="px-6 py-3.5 text-left font-semibold text-indigo-900 dark:text-indigo-200 text-xs tracking-wider uppercase">Creation Date & Time</th>
@@ -270,10 +271,34 @@ export default function BillingTable({ data = [], companyInfo, onEdit, onDelete,
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-sm font-mono text-slate-600 dark:text-slate-300 font-semibold">
-                                            {item.customerPoReference || item.dcNumber || "-"}
+                                            {isPurchase ? (
+                                                <div className="space-y-0.5">
+                                                    {(item.grnNumber || item.grn?.grnNumber) && (
+                                                        <span className="inline-block px-2 py-0.5 text-[11px] font-bold rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                                            GRN: {item.grn?.grnNumber || item.grnNumber}
+                                                        </span>
+                                                    )}
+                                                    {item.jobWorkChallanNumber && (
+                                                        <span className="inline-block px-2 py-0.5 text-[11px] font-bold rounded-md bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                                                            JW: {item.jobWorkChallanNumber}
+                                                        </span>
+                                                    )}
+                                                    {item.purchaseOrder?.poNumber && (
+                                                        <span className="block text-[10px] text-slate-500 font-mono">PO: {item.purchaseOrder?.poNumber}</span>
+                                                    )}
+                                                    {!item.grnNumber && !item.grn?.grnNumber && !item.jobWorkChallanNumber && (
+                                                        item.customerPoReference || item.dcNumber || "-"
+                                                    )}
+                                                    {item.billType === "job-work-service" && (
+                                                        <span className="block text-[10px] text-purple-600 font-semibold">Job Work Service</span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                item.customerPoReference || item.dcNumber || "-"
+                                            )}
                                         </td>
                                         <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-white">
-                                            {item.customerName || item.customer?.name || item.customer?.companyName || "-"}
+                                            {item.vendorName || item.vendor?.name || item.customerName || item.customer?.name || item.customer?.companyName || "-"}
                                         </td>
                                         <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300">
                                             <div className="max-w-[240px]">

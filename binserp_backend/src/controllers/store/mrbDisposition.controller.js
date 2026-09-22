@@ -6,6 +6,7 @@ import {
   consumableItemSchema, 
   rmBoItemSchema, 
   fgItemSchema, 
+  jobWorkSchema,
   inventorySchema,
   stockTransactionSchema 
 } from "../../models/store/index.js";
@@ -16,11 +17,14 @@ import {
   ProcessQCSchema 
 } from "../../models/quality/index.js";
 import { componentSchema } from "../../models/ppc/index.js";
+import { deliveryChallanSchema } from "../../models/sales/index.js";
+import { debitNoteSchema } from "../../models/purchase/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { updateInventoryStock } from "./updateInventoryStock.controller.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
+import { signPhotos } from "../../utils/s3.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user?.company?._id || req.user?.company);
@@ -58,33 +62,78 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
 
   const virtualTickets = [];
 
-  // 2. Scan Incoming QC
+  // 2. Scan Incoming QC (Populating GRN type, invoice & scanned PDF)
   const pendingFromIncoming = await IncomingQC.find({
     company: companyId,
     rejectedQuantity: { $gt: 0 }
-  }).sort({ createdAt: -1 }).limit(100);
+  }).populate('grnId', 'type grnNumber items poReference invoiceNumber billNumber challanNumber date pdf photos supplier supplierName').sort({ createdAt: -1 }).limit(100);
 
   for (const inc of pendingFromIncoming) {
     if (!existingSourceDocIds.has(inc._id.toString())) {
+      let grnCategory = "rm";
+      if (inc.grnId?.type) {
+        const gt = String(inc.grnId.type).toLowerCase();
+        if (gt === "bo") grnCategory = "bo";
+        else if (gt === "consumable") grnCategory = "consumable";
+        else if (gt === "inhouse" || gt === "fg") grnCategory = "fg";
+        else grnCategory = "rm";
+      } else if (inc.itemType) {
+        const it = String(inc.itemType).toLowerCase();
+        if (it.includes("bought") || it.includes("bo")) grnCategory = "bo";
+        else if (it.includes("consumable")) grnCategory = "consumable";
+        else if (it.includes("finish") || it.includes("fg") || it.includes("component")) grnCategory = "fg";
+        else grnCategory = "rm";
+      }
+
+      let technicalDescription = inc.materialDescription || inc.description || "";
+      if (!technicalDescription && inc.grnId?.items) {
+        const matched = inc.grnId.items.find(i => 
+          (inc.grnItemId && i._id.toString() === inc.grnItemId.toString()) || 
+          (inc.materialId && (i.material?.toString() === inc.materialId.toString() || i.component?.toString() === inc.materialId.toString()))
+        );
+        if (matched) {
+          technicalDescription = matched.description || matched.descriptions || matched.specification || "";
+        }
+      }
+
+      let signedPdf = "";
+      if (inc.grnId?.pdf) {
+        try {
+          signedPdf = (await signPhotos([inc.grnId.pdf]))[0];
+        } catch (s3Err) {
+          signedPdf = inc.grnId.pdf;
+        }
+      }
+
       virtualTickets.push({
         _id: `virt-inc-${inc._id}`,
         isVirtual: true,
-        ticketNumber: `IN-QC-${inc.grnNumber || inc._id.toString().slice(-4)}`,
+        ticketNumber: `IN-QC-${inc.grnNumber || (inc.grnId?.grnNumber) || inc._id.toString().slice(-4)}`,
         sourceType: "IncomingQC",
+        grnCategory,
         sourceDocId: inc._id,
         sourceDocModel: "IncomingQC",
-        sourceDocNumber: inc.grnNumber ? `GRN #${inc.grnNumber}` : `Incoming QC`,
+        sourceDocNumber: inc.grnNumber ? `GRN #${inc.grnNumber}` : (inc.grnId?.grnNumber ? `GRN #${inc.grnId.grnNumber}` : `Incoming QC`),
         materialId: inc.materialId || inc.material,
         materialName: inc.materialName || "Raw Material",
         materialCode: inc.materialCode || "",
-        itemType: inc.itemType || "Raw Material",
+        technicalDescription,
+        itemType: inc.itemType || (grnCategory === 'bo' ? "Bought-Out" : (grnCategory === 'consumable' ? "Consumable" : (grnCategory === 'fg' ? "Finished Goods" : "Raw Material"))),
         unit: inc.unit || "KG",
         rejectedQuantity: Number(inc.rejectedQuantity) || 0,
+        receivedQuantity: Number(inc.receivedQuantity || inc.inspectedQuantity || inc.rejectedQuantity) || 0,
+        acceptedQuantity: Number(inc.acceptedQuantity) || 0,
         unitRate: Number(inc.rate || inc.unitRate || 0),
         totalEstimatedLoss: (Number(inc.rejectedQuantity) || 0) * (Number(inc.rate || inc.unitRate || 0)),
         rejectionReason: inc.rejectionReason || inc.remarks || "Incoming QC Defect",
         defectCategory: inc.defectCategory || "Dimensional Deviation",
-        vendorName: inc.vendorName || inc.vendor?.name || "Supplier",
+        vendorName: inc.vendorName || inc.vendor?.name || inc.supplierName || (inc.grnId?.supplierName) || "Supplier",
+        originalScannedPdf: signedPdf,
+        grnNumber: inc.grnNumber || inc.grnId?.grnNumber || "",
+        grnDate: inc.grnId?.date || inc.createdAt,
+        poReference: inc.grnId?.poReference || "",
+        invoiceNumber: inc.grnId?.invoiceNumber || inc.grnId?.billNumber || "",
+        challanNumber: inc.grnId?.challanNumber || "",
         dispositionAction: "Pending",
         status: "Pending Disposition",
         createdAt: inc.createdAt || inc.date || new Date(),
@@ -93,11 +142,17 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
     }
   }
 
-  // 3. Scan Job Work QC
+  // 3. Scan Job Work QC (Tagging Returnable DC Type)
+  req.getModel("JobWorkChallan", jobWorkSchema);
+  const Component = req.getModel("Component", componentSchema);
+  const FGItem = req.getModel("FGItem", fgItemSchema);
+  const RawMaterial = req.getModel("RawMaterial", rawMaterialSchema);
+  const BoughtOut = req.getModel("BoughtOut", boughtOutSchema);
+
   const pendingFromJobWork = await JobWorkQC.find({
     company: companyId,
     $or: [{ rejectedQuantity: { $gt: 0 } }, { reworkQuantity: { $gt: 0 } }, { scrapQuantity: { $gt: 0 } }]
-  }).sort({ createdAt: -1 }).limit(100);
+  }).populate('jobWorkChallanId').sort({ createdAt: -1 }).limit(100);
 
   for (const jw of pendingFromJobWork) {
     if (!existingSourceDocIds.has(jw._id.toString())) {
@@ -105,25 +160,88 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
       const rew = Number(jw.reworkQuantity || 0);
       const totalDefect = rej + rew;
       if (totalDefect > 0) {
+        const rawJwType = jw.jobWorkType || "store-conversion";
+        let normalizedJwType = "store-conversion";
+        if (rawJwType === "store-to-wip") normalizedJwType = "store-to-wip";
+        else if (rawJwType === "wip-to-wip") normalizedJwType = "wip-to-wip";
+        else normalizedJwType = "store-conversion";
+
+        let resolvedPartNumber = jw.partNumber || jw.itemCode || jw.materialCode || "";
+        let resolvedItemName = jw.itemName || jw.materialName || jw.componentName || "";
+
+        // If partNumber not on JobWorkQC record, resolve from challan items or direct master item
+        if (!resolvedPartNumber && jw.jobWorkChallanId) {
+          const ch = jw.jobWorkChallanId;
+          const matchedItem = (ch.items || []).find(i => 
+            String(i._id) === String(jw.itemId) || 
+            String(i.item) === String(jw.itemId) ||
+            (Array.isArray(i.returningItems) && i.returningItems.some(r => String(r._id) === String(jw.itemId) || String(r.receivedItem) === String(jw.itemId)))
+          );
+          if (matchedItem) {
+            resolvedPartNumber = matchedItem.partNumber || matchedItem.itemCode || matchedItem.code || matchedItem.componentCode || "";
+            if (!resolvedItemName || resolvedItemName === "Job Work Component") {
+              resolvedItemName = matchedItem.itemName || resolvedItemName;
+            }
+          }
+          if (!resolvedPartNumber && Array.isArray(ch.assemblyGroups)) {
+            const matchedGrp = ch.assemblyGroups.find(g => 
+              String(g.assemblyOutputItem?.item) === String(jw.itemId) || 
+              String(g.assemblyOutputItem?._id) === String(jw.itemId)
+            );
+            if (matchedGrp?.assemblyOutputItem) {
+              resolvedPartNumber = matchedGrp.assemblyOutputItem.partNumber || matchedGrp.assemblyOutputItem.itemCode || matchedGrp.assemblyOutputItem.code || "";
+              if (!resolvedItemName || resolvedItemName === "Job Work Component") {
+                resolvedItemName = matchedGrp.assemblyOutputItem.itemName || resolvedItemName;
+              }
+            }
+          }
+        }
+
+        if (!resolvedPartNumber && jw.itemId) {
+          try {
+            const comp = await Component.findById(jw.itemId).select('componentCode componentName');
+            if (comp) {
+              resolvedPartNumber = comp.componentCode || "";
+              if (!resolvedItemName || resolvedItemName === "Job Work Component") resolvedItemName = comp.componentName;
+            } else {
+              const fg = await FGItem.findById(jw.itemId).select('code name');
+              if (fg) {
+                resolvedPartNumber = fg.code || "";
+                if (!resolvedItemName || resolvedItemName === "Job Work Component") resolvedItemName = fg.name;
+              } else {
+                const rm = await RawMaterial.findById(jw.itemId).select('code name');
+                if (rm) {
+                  resolvedPartNumber = rm.code || "";
+                  if (!resolvedItemName || resolvedItemName === "Job Work Component") resolvedItemName = rm.name;
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
         virtualTickets.push({
           _id: `virt-jw-${jw._id}`,
           isVirtual: true,
           ticketNumber: `JW-QC-${jw.challanNumber || jw._id.toString().slice(-4)}`,
           sourceType: "JobWorkQC",
+          jobWorkType: normalizedJwType,
           sourceDocId: jw._id,
           sourceDocModel: "JobWorkQC",
           sourceDocNumber: jw.challanNumber ? `JW Challan #${jw.challanNumber}` : `Job Work QC`,
-          materialId: jw.material || jw.component,
-          materialName: jw.materialName || jw.componentName || "Job Work Component",
-          materialCode: jw.materialCode || "",
-          itemType: "Component",
+          materialId: jw.itemId || jw.material || jw.component,
+          materialName: resolvedItemName || "Job Work Component",
+          materialCode: resolvedPartNumber,
+          partNumber: resolvedPartNumber,
+          itemCode: resolvedPartNumber,
+          technicalDescription: jw.materialDescription || jw.description || jw.remarks || "",
+          itemType: jw.itemType === "rm" ? "Raw Material" : (jw.itemType === "bo" ? "Bought Out" : "Component"),
           unit: jw.unit || "PCS",
           rejectedQuantity: totalDefect,
           unitRate: Number(jw.rate || 0),
           totalEstimatedLoss: totalDefect * Number(jw.rate || 0),
           rejectionReason: jw.rejectionReason || jw.remarks || (rew > 0 ? "Job Work Tolerance Deviation - Rework Requested" : "Job Work Defect"),
           defectCategory: jw.defectCategory || "Subcontractor Flaw",
-          vendorName: jw.supplierName || jw.jobWorker || "Subcontractor",
+          vendorName: jw.vendorName || jw.supplierName || jw.jobWorker || "Subcontractor",
           dispositionAction: rew > 0 ? "External Rework" : "Pending",
           status: "Pending Disposition",
           createdAt: jw.createdAt || jw.date || new Date(),
@@ -153,6 +271,7 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
         materialId: pr.productId || pr.componentId,
         materialName: pr.productName || pr.componentName || "WIP Part",
         materialCode: pr.productCode || "",
+        technicalDescription: pr.specification || pr.remarks || "",
         itemType: "WIP",
         unit: pr.unit || "PCS",
         rejectedQuantity: defQty,
@@ -180,23 +299,28 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
   for (const fg of pendingFromFG) {
     if (!existingSourceDocIds.has(fg._id.toString())) {
       const defQty = Number(fg.rejectedQuantity || fg.reworkQuantity || 1);
+      const isPdi = Boolean(fg.pdiNumber || fg.sourceDocModel === 'PDI' || fg.inspectionType === 'PDI');
+      const grnCategory = isPdi ? "pdi" : "fg";
+
       virtualTickets.push({
         _id: `virt-fg-${fg._id}`,
         isVirtual: true,
         ticketNumber: `FG-QC-${fg.fgItemCode || fg._id.toString().slice(-4)}`,
         sourceType: "FGQC",
+        grnCategory,
         sourceDocId: fg._id,
         sourceDocModel: "FGQC",
         sourceDocNumber: fg.pdiNumber ? `PDI #${fg.pdiNumber}` : `FG Inspection`,
         materialId: fg.fgItemId || fg.fgItem,
         materialName: fg.fgItemName || "Finished Product",
         materialCode: fg.fgItemCode || "",
+        technicalDescription: fg.specification || fg.description || fg.remarks || "",
         itemType: "Finished Goods",
         unit: fg.unit || "PCS",
         rejectedQuantity: defQty,
         unitRate: Number(fg.rate || 0),
         totalEstimatedLoss: defQty * Number(fg.rate || 0),
-        rejectionReason: fg.rejectionReason || fg.remarks || "Final Inspection / PDI Quality Failure",
+        rejectionReason: fg.rejectionReason || fg.remarks || (isPdi ? "Pre-Delivery Inspection (PDI) Failure" : "Final FG Inspection Defect"),
         defectCategory: fg.defectCategory || "Visual / Surface Defect",
         dispositionAction: fg.reworkQuantity > 0 ? "Internal Rework" : "Pending",
         status: "Pending Disposition",
@@ -206,21 +330,71 @@ export const getMRBPendingQueue = asyncHandler(async (req, res) => {
     }
   }
 
-  const combinedQueue = [...activeTickets, ...virtualTickets];
+  // Ensure active tickets in MRB have normalized categories
+  const normalizedActiveTickets = activeTickets.map(ticket => {
+    const tObj = ticket.toObject ? ticket.toObject() : { ...ticket };
+    if (tObj.sourceType === "IncomingQC") {
+      const it = String(tObj.itemType || "").toLowerCase();
+      if (it.includes("bought") || it.includes("bo")) tObj.grnCategory = "bo";
+      else if (it.includes("consumable")) tObj.grnCategory = "consumable";
+      else if (it.includes("finish") || it.includes("fg") || it.includes("component")) tObj.grnCategory = "fg";
+      else tObj.grnCategory = "rm";
+    } else if (tObj.sourceType === "FGQC") {
+      tObj.grnCategory = String(tObj.sourceDocNumber || "").includes("PDI") ? "pdi" : "fg";
+    } else if (tObj.sourceType === "JobWorkQC") {
+      tObj.jobWorkType = tObj.jobWorkType || "store-conversion";
+    }
+    tObj.partNumber = tObj.partNumber || tObj.materialCode || tObj.itemCode || "";
+    tObj.itemCode = tObj.itemCode || tObj.materialCode || tObj.partNumber || "";
+    return tObj;
+  });
 
-  // Aggregate stats by QC Source
+  const combinedQueue = [...normalizedActiveTickets, ...virtualTickets];
+
+  // Aggregate stats
   const stats = {
     totalPendingCount: combinedQueue.filter(t => t.status === "Pending Disposition").length,
     incomingCount: combinedQueue.filter(t => t.sourceType === "IncomingQC").length,
     processCount: combinedQueue.filter(t => t.sourceType === "ProcessQC").length,
     jobWorkCount: combinedQueue.filter(t => t.sourceType === "JobWorkQC").length,
     fgCount: combinedQueue.filter(t => t.sourceType === "FGQC").length,
+    // Store GRN categories breakdown
+    storeRmCount: combinedQueue.filter(t => (t.sourceType === "IncomingQC" || t.sourceType === "FGQC") && t.grnCategory === "rm").length,
+    storeBoCount: combinedQueue.filter(t => (t.sourceType === "IncomingQC" || t.sourceType === "FGQC") && t.grnCategory === "bo").length,
+    storeConsumableCount: combinedQueue.filter(t => (t.sourceType === "IncomingQC" || t.sourceType === "FGQC") && t.grnCategory === "consumable").length,
+    storeFgCount: combinedQueue.filter(t => (t.sourceType === "IncomingQC" || t.sourceType === "FGQC") && t.grnCategory === "fg").length,
+    storePdiCount: combinedQueue.filter(t => (t.sourceType === "IncomingQC" || t.sourceType === "FGQC") && t.grnCategory === "pdi").length,
+    storeTotalCount: combinedQueue.filter(t => (t.sourceType === "IncomingQC" || t.sourceType === "FGQC") && t.status === "Pending Disposition").length,
+    // Job Work types breakdown
+    jwStoreToWipCount: combinedQueue.filter(t => t.sourceType === "JobWorkQC" && t.jobWorkType === "store-to-wip").length,
+    jwWipToWipCount: combinedQueue.filter(t => t.sourceType === "JobWorkQC" && t.jobWorkType === "wip-to-wip").length,
+    jwConversionCount: combinedQueue.filter(t => t.sourceType === "JobWorkQC" && t.jobWorkType === "store-conversion").length,
+    jwTotalCount: combinedQueue.filter(t => t.sourceType === "JobWorkQC" && t.status === "Pending Disposition").length,
     activeReworkCount: activeTickets.filter(t => t.dispositionAction?.includes("Rework") && t.status === "In Progress").length,
     pendingRtvCount: activeTickets.filter(t => t.dispositionAction === "Return to Vendor" && t.status === "In Progress").length,
     totalEstimatedLoss: combinedQueue.reduce((s, t) => s + (Number(t.totalEstimatedLoss) || 0), 0)
   };
 
-  res.status(200).json(new ApiResponse(200, { queue: combinedQueue, stats }, "MRB Pending Queue retrieved successfully"));
+  let resultQueue = combinedQueue;
+  const { bin, grnCategory, jwType, sourceType } = req.query;
+
+  if (bin === 'store') {
+    // Strictly GRN, Inward, & PDI rejections only (IncomingQC + FGQC)
+    resultQueue = resultQueue.filter(t => t.sourceType === "IncomingQC" || t.sourceType === "FGQC");
+    if (grnCategory && grnCategory !== 'all') {
+      resultQueue = resultQueue.filter(t => t.grnCategory === grnCategory);
+    }
+  } else if (bin === 'wip-jobwork') {
+    // Strictly Job Work Returnable DC rejections only
+    resultQueue = resultQueue.filter(t => t.sourceType === "JobWorkQC");
+    if (jwType && jwType !== 'all') {
+      resultQueue = resultQueue.filter(t => t.jobWorkType === jwType);
+    }
+  } else if (sourceType && sourceType !== 'all') {
+    resultQueue = resultQueue.filter(t => t.sourceType === sourceType);
+  }
+
+  res.status(200).json(new ApiResponse(200, { queue: resultQueue, stats }, "MRB Pending Queue retrieved successfully"));
 });
 
 /**
@@ -291,7 +465,8 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       sourceDocNumber: sourceDocNumber || "",
       materialId: materialId || undefined,
       materialName: materialName || "Defective Material",
-      materialCode: materialCode || "",
+      materialCode: materialCode || req.body.partNumber || "",
+      partNumber: req.body.partNumber || materialCode || "",
       itemType: itemType || "Raw Material",
       unit: unit || "KG",
       rejectedQuantity: Number(rejectedQuantity) || 1,
@@ -363,6 +538,93 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       remarks: `Return to Vendor (Return Bill: ${ticket.documentNumber}): ${actionNotes || ticket.rejectionReason}`,
     });
 
+    // Generate Official Delivery Challan for Gate Out Security Pass
+    try {
+      const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
+      await DeliveryChallan.create({
+        company: companyId,
+        dcNumber: ticket.documentNumber,
+        dcType: "Vendor Return",
+        date: new Date(),
+        customerName: ticket.vendorName || "Supplier",
+        vendor: ticket.vendorId,
+        vehicleNo: rtvPayload?.vehicleNumber || "",
+        status: "Dispatched",
+        stockDeducted: true,
+        items: [{
+          material: ticket.materialId,
+          materialName: ticket.materialName,
+          materialCode: ticket.materialCode,
+          quantity: ticket.rejectedQuantity,
+          unit: ticket.unit || "PCS",
+          rate: ticket.rate || 0,
+          amount: ticket.taxDetails?.taxableAmount || 0,
+          remarks: `MRB Return to Vendor (Ticket #${ticket.ticketNumber})`
+        }],
+        remarks: `Generated from MRB Ticket #${ticket.ticketNumber} - ${ticket.rejectionReason}`,
+        createdBy: req.user?._id
+      });
+    } catch (dcErr) {
+      console.warn("Could not create DeliveryChallan for MRB return:", dcErr);
+    }
+
+    // Generate Official Financial Debit Note / Return Bill
+    try {
+      const DebitNote = req.getModel("DebitNote", debitNoteSchema);
+      const dnNumber = rtvPayload?.debitNoteNumber || `DN-${ticket.documentNumber.replace(/^[A-Z-]+/, '')}`;
+      await DebitNote.create({
+        company: companyId,
+        debitNoteNumber: dnNumber,
+        date: new Date(),
+        vendor: ticket.vendorId,
+        vendorName: ticket.vendorName || "Supplier",
+        debitNoteType: ticket.sourceType === "JobWorkQC" ? "Job Work Damage" : "Material Rejection (RTV)",
+        originalGrn: ticket.sourceDocModel === "GRN" || ticket.sourceType === "IncomingQC" ? ticket.sourceDocId : undefined,
+        originalGrnNumber: ticket.sourceDocNumber || "",
+        originalJobWork: ticket.sourceType === "JobWorkQC" ? ticket.sourceDocId : undefined,
+        originalJobWorkNumber: ticket.sourceType === "JobWorkQC" ? ticket.sourceDocNumber : undefined,
+        mrbTicket: ticket._id,
+        mrbTicketNumber: ticket.ticketNumber,
+        deliveryChallanNumber: ticket.documentNumber,
+        items: [{
+          materialId: ticket.materialId,
+          materialName: ticket.materialName,
+          materialDescription: ticket.rejectionReason || "",
+          quantity: ticket.rejectedQuantity,
+          unit: ticket.unit || "PCS",
+          unitRate: ticket.unitRate || 0,
+          taxRate: ticket.taxDetails?.taxRate || 18,
+          taxableAmount: ticket.taxDetails?.taxableAmount || 0,
+          cgst: ticket.taxDetails?.cgst || 0,
+          sgst: ticket.taxDetails?.sgst || 0,
+          igst: ticket.taxDetails?.igst || 0,
+          totalAmount: ticket.taxDetails?.totalAmount || 0,
+          rejectionReason: ticket.rejectionReason || actionNotes || "",
+        }],
+        subtotal: ticket.taxDetails?.taxableAmount || 0,
+        totalTax: (ticket.taxDetails?.totalAmount || 0) - (ticket.taxDetails?.taxableAmount || 0),
+        grandTotal: ticket.taxDetails?.totalAmount || 0,
+        status: "Issued",
+        remarks: `Generated from MRB Disposition (${ticket.ticketNumber}) - Gate Pass: ${ticket.documentNumber}`,
+        createdBy: req.user?._id,
+        createdByName: userName,
+      });
+      ticket.rtvDetails.debitNoteNumber = dnNumber;
+    } catch (dnErr) {
+      console.warn("Could not create DebitNote document for MRB return:", dnErr);
+    }
+
+    // Decrement rejectedStock in Inventory if materialId exists
+    if (ticket.materialId) {
+      try {
+        const Inventory = req.getModel("Inventory", inventorySchema);
+        await Inventory.findOneAndUpdate(
+          { company: companyId, $or: [{ materialId: ticket.materialId }, { materialCode: ticket.materialCode }] },
+          { $inc: { rejectedStock: -ticket.rejectedQuantity } }
+        );
+      } catch (invErr) { }
+    }
+
   } else if (dispositionAction === "Vendor Replacement") {
     ticket.status = "In Progress";
     ticket.documentType = "ReplacementDC";
@@ -393,6 +655,36 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       remarks: `Dispatched for FOC Replacement (${ticket.documentNumber})`,
     });
 
+    // Generate Official Delivery Challan for Gate Out Replacement Pass
+    try {
+      const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
+      await DeliveryChallan.create({
+        company: companyId,
+        dcNumber: ticket.documentNumber,
+        dcType: "Vendor Replacement",
+        date: new Date(),
+        customerName: ticket.vendorName || "Supplier",
+        vendor: ticket.vendorId,
+        vehicleNo: replacementPayload?.vehicleNumber || "",
+        status: "Dispatched",
+        stockDeducted: true,
+        items: [{
+          material: ticket.materialId,
+          materialName: ticket.materialName,
+          materialCode: ticket.materialCode,
+          quantity: ticket.rejectedQuantity,
+          unit: ticket.unit || "PCS",
+          rate: ticket.rate || 0,
+          amount: 0,
+          remarks: `MRB Vendor Replacement (Ticket #${ticket.ticketNumber})`
+        }],
+        remarks: `Generated from MRB Ticket #${ticket.ticketNumber} - FOC Replacement`,
+        createdBy: req.user?._id
+      });
+    } catch (dcErr) {
+      console.warn("Could not create DeliveryChallan for MRB replacement:", dcErr);
+    }
+
   } else if (dispositionAction === "Internal Rework" || dispositionAction === "External Rework") {
     ticket.status = "In Progress";
     ticket.documentType = "ReworkJobCard";
@@ -407,6 +699,38 @@ export const executeMRBDisposition = asyncHandler(async (req, res) => {
       reworkHoursSpent: 0,
       extraConsumablesCost: 0,
     };
+
+    // If External Rework (Subcontractor Job Work), generate Outward Rework Delivery Challan Pass
+    if (dispositionAction === "External Rework") {
+      try {
+        const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
+        await DeliveryChallan.create({
+          company: companyId,
+          dcNumber: ticket.documentNumber,
+          dcType: "Vendor Replacement",
+          date: new Date(),
+          customerName: ticket.vendorName || "Subcontractor",
+          vendor: ticket.vendorId,
+          vehicleNo: reworkPayload?.vehicleNumber || "",
+          status: "Dispatched",
+          stockDeducted: true,
+          items: [{
+            material: ticket.materialId,
+            materialName: ticket.materialName,
+            materialCode: ticket.materialCode,
+            quantity: ticket.rejectedQuantity,
+            unit: ticket.unit || "PCS",
+            rate: ticket.unitRate || 0,
+            amount: 0,
+            remarks: `FOC Subcontractor Rework Challan (Ticket #${ticket.ticketNumber})`
+          }],
+          remarks: `Subcontractor Free-of-Cost Rework Pass for Challan ${ticket.sourceDocNumber || ''} - ${ticket.rejectionReason}`,
+          createdBy: req.user?._id
+        });
+      } catch (dcErr) {
+        console.warn("Could not create DeliveryChallan for external rework:", dcErr);
+      }
+    }
 
   } else if (dispositionAction === "Scrap & Write-Off") {
     ticket.status = "Completed";
@@ -650,9 +974,15 @@ export const completeReworkInspection = asyncHandler(async (req, res) => {
 export const getMRBHistory = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
   const MRBDisposition = req.getModel("MRBDisposition", mrbDispositionSchema);
-  const { action, status, defectCategory, startDate, endDate } = req.query;
+  const { action, status, defectCategory, startDate, endDate, bin } = req.query;
 
   const query = { company: companyId };
+  if (bin === 'store') {
+    query.sourceType = { $in: ['IncomingQC', 'FGQC'] };
+  } else if (bin === 'wip-jobwork') {
+    query.sourceType = 'JobWorkQC';
+  }
+
   if (action && action !== "all") query.dispositionAction = action;
   if (status && status !== "all") query.status = status;
   if (defectCategory && defectCategory !== "all") query.defectCategory = defectCategory;
@@ -661,8 +991,14 @@ export const getMRBHistory = asyncHandler(async (req, res) => {
   }
 
   const tickets = await MRBDisposition.find(query).sort({ createdAt: -1 });
+  const mappedTickets = tickets.map(t => {
+    const tObj = t.toObject ? t.toObject() : { ...t };
+    tObj.partNumber = tObj.partNumber || tObj.materialCode || tObj.itemCode || "";
+    tObj.itemCode = tObj.itemCode || tObj.materialCode || tObj.partNumber || "";
+    return tObj;
+  });
 
-  res.status(200).json(new ApiResponse(200, { tickets, count: tickets.length }, "MRB History retrieved successfully"));
+  res.status(200).json(new ApiResponse(200, { tickets: mappedTickets, count: mappedTickets.length }, "MRB History retrieved successfully"));
 });
 
 /**
@@ -672,15 +1008,29 @@ export const getScrapLedger = asyncHandler(async (req, res) => {
   const companyId = getCompanyId(req);
   const MRBDisposition = req.getModel("MRBDisposition", mrbDispositionSchema);
   const StockTransaction = req.getModel("StockTransaction", stockTransactionSchema);
+  const { bin } = req.query;
 
-  // Fetch all scrap disposition records
-  const scrapTickets = await MRBDisposition.find({
+  const scrapFilter = {
     company: companyId,
     $or: [
       { dispositionAction: "Scrap & Write-Off" },
       { "reworkDetails.reworkScrappedQuantity": { $gt: 0 } }
     ]
-  }).sort({ createdAt: -1 });
+  };
+  if (bin === 'store') {
+    scrapFilter.sourceType = { $in: ['IncomingQC', 'FGQC'] };
+  } else if (bin === 'wip-jobwork') {
+    scrapFilter.sourceType = 'JobWorkQC';
+  }
+
+  // Fetch all scrap disposition records
+  const rawScrapTickets = await MRBDisposition.find(scrapFilter).sort({ createdAt: -1 });
+  const scrapTickets = rawScrapTickets.map(t => {
+    const tObj = t.toObject ? t.toObject() : { ...t };
+    tObj.partNumber = tObj.partNumber || tObj.materialCode || tObj.itemCode || "";
+    tObj.itemCode = tObj.itemCode || tObj.materialCode || tObj.partNumber || "";
+    return tObj;
+  });
 
   // Fetch all stock transactions tagged as SCRAP
   const scrapTransactions = await StockTransaction.find({
