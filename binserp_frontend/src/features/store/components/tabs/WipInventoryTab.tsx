@@ -19,7 +19,14 @@ import {
   Filter,
   Warehouse,
   History,
-  Download
+  Download,
+  ChevronDown,
+  ChevronUp,
+  Crosshair,
+  IndianRupee,
+  LayoutGrid,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { apiGet } from '@/src/lib/api';
@@ -35,6 +42,8 @@ interface WipInventoryTabProps {
     activeSubTab?: WipSubTabType;
     title?: string;
     description?: string;
+    vendorPriceLists?: any[];
+    priceLists?: any[];
     onError: (msg: string) => void;
     onSuccess: (msg: string) => void;
 }
@@ -45,6 +54,8 @@ export default function WipInventoryTab({
     activeSubTab = 'rm',
     title,
     description,
+    vendorPriceLists = [],
+    priceLists = [],
     onError, 
     onSuccess 
 }: WipInventoryTabProps) {
@@ -83,6 +94,462 @@ export default function WipInventoryTab({
     const [actionModalItem, setActionModalItem] = useState<any | null>(null);
     const [actionModalMode, setActionModalMode] = useState<'return' | 'scrap'>('return');
     const [isActionModalOpen, setIsActionModalOpen] = useState(false);
+
+    // Dashboard & Focus State
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
+    const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+
+    // Reset focused item when subtab changes
+    useEffect(() => {
+        setFocusedItemId(null);
+    }, [wipType]);
+
+    // Local price list state with optional fallback fetch if parent didn't provide props
+    const [localVendorPriceLists, setLocalVendorPriceLists] = useState<any[]>(vendorPriceLists || []);
+    const [localPriceLists, setLocalPriceLists] = useState<any[]>(priceLists || []);
+
+    useEffect(() => {
+        if (vendorPriceLists && vendorPriceLists.length > 0) {
+            setLocalVendorPriceLists(vendorPriceLists);
+        }
+    }, [vendorPriceLists]);
+
+    useEffect(() => {
+        if (priceLists && priceLists.length > 0) {
+            setLocalPriceLists(priceLists);
+        }
+    }, [priceLists]);
+
+    useEffect(() => {
+        if (!token) return;
+        if ((!vendorPriceLists || vendorPriceLists.length === 0) && localVendorPriceLists.length === 0) {
+            apiGet('/api/purchase/price-list', token)
+                .then(res => {
+                    if (res && res.data) setLocalVendorPriceLists(res.data);
+                    else if (Array.isArray(res)) setLocalVendorPriceLists(res);
+                })
+                .catch(() => {});
+        }
+        if ((!priceLists || priceLists.length === 0) && localPriceLists.length === 0) {
+            apiGet('/api/sales/price-list', token)
+                .then(res => {
+                    if (res && res.data) setLocalPriceLists(res.data);
+                    else if (Array.isArray(res)) setLocalPriceLists(res);
+                })
+                .catch(() => {});
+        }
+    }, [token]);
+
+    const effectiveVendorPriceLists = (vendorPriceLists && vendorPriceLists.length > 0) ? vendorPriceLists : localVendorPriceLists;
+    const effectivePriceLists = (priceLists && priceLists.length > 0) ? priceLists : localPriceLists;
+
+    // O(1) Pre-indexed Vendor Price Map (Purchase Price List for RM, BO, Consumables)
+    const vendorPriceMap = useMemo(() => {
+        const map = new Map<string, { price: number; isPreferred: boolean; vendorName?: string; taxRate?: number; pricingUnit?: string; isSecondaryUnit?: boolean }>();
+        const sortedEntries = [...(effectiveVendorPriceLists || [])].sort((a: any, b: any) => {
+            const aPref = a.isPreferred ? 1 : 0;
+            const bPref = b.isPreferred ? 1 : 0;
+            return aPref - bPref;
+        });
+
+        sortedEntries.forEach((entry: any) => {
+            const matObj = typeof entry.material === 'object' && entry.material ? entry.material : null;
+            const matId = (matObj?._id || (typeof entry.material === 'string' ? entry.material : null) || entry.materialId)?.toString();
+            const matCode = (matObj?.code || entry.materialCode || entry.code)?.toString().trim().toUpperCase();
+            const matName = (matObj?.name || entry.materialName || entry.name)?.toString().trim().toLowerCase();
+
+            const price = Number(entry.price || 0);
+            const isPreferred = Boolean(entry.isPreferred);
+            const vendorName = entry.vendor?.name || entry.vendorName;
+            const taxRate = entry.taxRate;
+            const pricingUnit = entry.pricingUnit;
+            const isSecondaryUnit = Boolean(entry.isSecondaryUnit);
+
+            const priceObj = { price, isPreferred, vendorName, taxRate, pricingUnit, isSecondaryUnit };
+
+            if (matId) map.set(matId, priceObj);
+            if (matCode && matCode !== 'N/A' && matCode !== '-') map.set(`code:${matCode}`, priceObj);
+            if (matName && matName !== '-' && matName !== 'item') map.set(`name:${matName}`, priceObj);
+        });
+        return map;
+    }, [effectiveVendorPriceLists]);
+
+    // O(1) Pre-indexed Sales Price Map (Sales Price List for FG & Components)
+    const salesPriceMap = useMemo(() => {
+        const map = new Map<string, { price: number; taxRate?: number; hsnCode?: string; pricingUnit?: string; isSecondaryUnit?: boolean }>();
+        (effectivePriceLists || []).forEach((entry: any) => {
+            const fgObj = typeof entry.fgItem === 'object' && entry.fgItem ? entry.fgItem : null;
+            const fgId = (fgObj?._id || (typeof entry.fgItem === 'string' ? entry.fgItem : null) || entry.fgItemId)?.toString();
+            const fgCode = (fgObj?.code || entry.fgCode || entry.code)?.toString().trim().toUpperCase();
+            const fgName = (fgObj?.name || entry.fgName || entry.name)?.toString().trim().toLowerCase();
+
+            const price = Number(entry.price || 0);
+            const priceObj = { 
+                price, 
+                taxRate: entry.taxRate, 
+                hsnCode: entry.hsnCode,
+                pricingUnit: entry.pricingUnit,
+                isSecondaryUnit: Boolean(entry.isSecondaryUnit)
+            };
+
+            if (fgId) map.set(fgId, priceObj);
+            if (fgCode && fgCode !== 'N/A' && fgCode !== '-') map.set(`code:${fgCode}`, priceObj);
+            if (fgName && fgName !== '-') map.set(`name:${fgName}`, priceObj);
+        });
+        return map;
+    }, [effectivePriceLists]);
+
+    // Helper to resolve unit price, dual-unit conversion, price list source, and visual badge
+    const getItemPriceDetails = (item: any, isFg: boolean) => {
+        const hasSecondaryUnit = Boolean(item?.hasSecondaryUnit && item?.secondaryUnit && Number(item?.conversionFactor) > 0);
+        const factor = Number(item?.conversionFactor) || 1;
+        const primaryUnit = item?.unit || (isFg ? 'Nos' : 'PCS');
+        const secondaryUnit = item?.secondaryUnit || '';
+
+        if (!item) {
+            return {
+                unitPrice: 0,
+                secondaryUnitPrice: 0,
+                primaryUnit,
+                secondaryUnit,
+                hasSecondaryUnit,
+                conversionFactor: factor,
+                source: 'Unpriced',
+                badgeColor: 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                taxRate: undefined,
+                vendorName: undefined,
+                hsnCode: undefined
+            };
+        }
+
+        const candidateKeys: string[] = [];
+
+        // 1. Material Master ObjectId
+        const matMasterId = (
+            (typeof item.materialId === 'object' && item.materialId?._id) ? item.materialId._id :
+            (typeof item.material === 'object' && item.material?._id) ? item.material._id :
+            (typeof item.fgId === 'object' && item.fgId?._id) ? item.fgId._id :
+            (typeof item.materialId === 'string' ? item.materialId : null) ||
+            (typeof item.material === 'string' ? item.material : null) ||
+            (typeof item.fgId === 'string' ? item.fgId : null)
+        )?.toString();
+        if (matMasterId) candidateKeys.push(matMasterId);
+
+        // 2. Direct _id / id
+        const directId = (item._id || item.id)?.toString();
+        if (directId) {
+            candidateKeys.push(directId);
+            if (directId.includes('_')) {
+                const raw = directId.split('_').slice(1).join('_');
+                if (raw) candidateKeys.push(raw);
+            }
+        }
+
+        // 3. Item Code
+        const itemCode = (item.materialCode || item.code || item.itemCode)?.toString().trim().toUpperCase();
+        if (itemCode && itemCode !== 'N/A' && itemCode !== '-') candidateKeys.push(`code:${itemCode}`);
+
+        // 4. Item Name
+        const itemName = (item.materialName || item.name || item.itemName)?.toString().trim().toLowerCase();
+        if (itemName && itemName !== '-') candidateKeys.push(`name:${itemName}`);
+
+        if (isFg) {
+            for (const key of candidateKeys) {
+                if (salesPriceMap.has(key)) {
+                    const entry = salesPriceMap.get(key)!;
+                    const rawPrice = Number(entry.price || 0);
+                    let primaryUnitPrice = rawPrice;
+                    let secondaryUnitPrice = 0;
+
+                    if (hasSecondaryUnit && factor > 0) {
+                        const isPricedPerSec = Boolean(
+                            entry.isSecondaryUnit || 
+                            (entry.pricingUnit && entry.pricingUnit.trim().toUpperCase() === secondaryUnit.trim().toUpperCase())
+                        );
+
+                        if (isPricedPerSec) {
+                            secondaryUnitPrice = rawPrice;
+                            primaryUnitPrice = rawPrice * factor;
+                        } else {
+                            primaryUnitPrice = rawPrice;
+                            secondaryUnitPrice = rawPrice / factor;
+                        }
+                    }
+
+                    return {
+                        unitPrice: primaryUnitPrice,
+                        secondaryUnitPrice,
+                        primaryUnit,
+                        secondaryUnit,
+                        hasSecondaryUnit,
+                        conversionFactor: factor,
+                        source: 'Price List',
+                        badgeColor: 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800',
+                        taxRate: entry.taxRate,
+                        hsnCode: entry.hsnCode,
+                        vendorName: undefined
+                    };
+                }
+            }
+            // Fallback check in vendorPriceMap
+            for (const key of candidateKeys) {
+                if (vendorPriceMap.has(key)) {
+                    const entry = vendorPriceMap.get(key)!;
+                    const rawPrice = Number(entry.price || 0);
+                    let primaryUnitPrice = rawPrice;
+                    let secondaryUnitPrice = 0;
+
+                    if (hasSecondaryUnit && factor > 0) {
+                        const isPricedPerSec = Boolean(
+                            entry.isSecondaryUnit || 
+                            (entry.pricingUnit && entry.pricingUnit.trim().toUpperCase() === secondaryUnit.trim().toUpperCase())
+                        );
+
+                        if (isPricedPerSec) {
+                            secondaryUnitPrice = rawPrice;
+                            primaryUnitPrice = rawPrice * factor;
+                        } else {
+                            primaryUnitPrice = rawPrice;
+                            secondaryUnitPrice = rawPrice / factor;
+                        }
+                    }
+
+                    return {
+                        unitPrice: primaryUnitPrice,
+                        secondaryUnitPrice,
+                        primaryUnit,
+                        secondaryUnit,
+                        hasSecondaryUnit,
+                        conversionFactor: factor,
+                        source: 'Price List',
+                        badgeColor: 'text-indigo-700 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800',
+                        taxRate: entry.taxRate,
+                        hsnCode: undefined,
+                        vendorName: entry.vendorName
+                    };
+                }
+            }
+            const fallback = Number(item.sellingPrice || item.rate || item.costPrice || item.standardRate || 0);
+            return {
+                unitPrice: fallback,
+                secondaryUnitPrice: hasSecondaryUnit && factor > 0 ? (fallback / factor) : 0,
+                primaryUnit,
+                secondaryUnit,
+                hasSecondaryUnit,
+                conversionFactor: factor,
+                source: fallback > 0 ? 'Master Rate' : 'Unpriced',
+                badgeColor: 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                taxRate: undefined,
+                vendorName: undefined,
+                hsnCode: undefined
+            };
+        } else {
+            for (const key of candidateKeys) {
+                if (vendorPriceMap.has(key)) {
+                    const entry = vendorPriceMap.get(key)!;
+                    const rawPrice = Number(entry.price || 0);
+                    let primaryUnitPrice = rawPrice;
+                    let secondaryUnitPrice = 0;
+
+                    if (hasSecondaryUnit && factor > 0) {
+                        const isPricedPerSec = Boolean(
+                            entry.isSecondaryUnit || 
+                            (entry.pricingUnit && entry.pricingUnit.trim().toUpperCase() === secondaryUnit.trim().toUpperCase())
+                        );
+
+                        if (isPricedPerSec) {
+                            secondaryUnitPrice = rawPrice;
+                            primaryUnitPrice = rawPrice * factor;
+                        } else {
+                            primaryUnitPrice = rawPrice;
+                            secondaryUnitPrice = rawPrice / factor;
+                        }
+                    }
+
+                    return {
+                        unitPrice: primaryUnitPrice,
+                        secondaryUnitPrice,
+                        primaryUnit,
+                        secondaryUnit,
+                        hasSecondaryUnit,
+                        conversionFactor: factor,
+                        source: 'Price List',
+                        badgeColor: 'text-indigo-700 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800',
+                        vendorName: entry.vendorName,
+                        taxRate: entry.taxRate,
+                        hsnCode: undefined
+                    };
+                }
+            }
+            const fallback = Number(item.costPrice || item.purchasePrice || item.unitPrice || item.standardRate || item.rate || 0);
+            return {
+                unitPrice: fallback,
+                secondaryUnitPrice: hasSecondaryUnit && factor > 0 ? (fallback / factor) : 0,
+                primaryUnit,
+                secondaryUnit,
+                hasSecondaryUnit,
+                conversionFactor: factor,
+                source: fallback > 0 ? 'Master Rate' : 'Unpriced',
+                badgeColor: 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                vendorName: undefined,
+                taxRate: undefined,
+                hsnCode: undefined
+            };
+        }
+    };
+
+    const focusedItem = useMemo(() => {
+        if (!focusedItemId) return null;
+        return wipItems.find((i: any) => (i.id || i._id)?.toString() === focusedItemId) || null;
+    }, [wipItems, focusedItemId]);
+
+    const wipKpis = useMemo(() => {
+        const isFg = wipType === 'fg';
+        const tabTitle = wipType === 'bo' 
+            ? 'Bought Out (BO)' 
+            : wipType === 'fg' 
+            ? 'FG / Components' 
+            : wipType === 'mrp'
+            ? 'MRP WIP Inventory'
+            : wipType === 'ledger'
+            ? 'WIP Movement Ledger'
+            : 'Raw Materials (RM)';
+
+        // 1. Single Item Focus Mode
+        if (focusedItem) {
+            const priceInfo = getItemPriceDetails(focusedItem, isFg);
+            const shopfloorQty = Number(focusedItem.shopfloorWipQty || 0);
+            const jobWorkQty = Number(focusedItem.jobWorkWipQty || 0);
+            const totalWipQty = Number(focusedItem.pendingWipQty || 0);
+            const mainStoreQty = Number(focusedItem.mainStoreStock || 0);
+
+            const shopfloorValuation = shopfloorQty * priceInfo.unitPrice;
+            const jobWorkValuation = jobWorkQty * priceInfo.unitPrice;
+            const totalWipValuation = totalWipQty * priceInfo.unitPrice;
+            const mainStoreValuation = mainStoreQty * priceInfo.unitPrice;
+
+            const itemName = focusedItem.materialName || focusedItem.name || 'Unnamed Item';
+            const itemDesc = focusedItem.materialDescription || focusedItem.descriptions || focusedItem.description || '';
+            const hasSec = Boolean(focusedItem.hasSecondaryUnit && focusedItem.secondaryUnit && (focusedItem.conversionFactor || 0) > 0);
+            const factor = Number(focusedItem.conversionFactor) || 1;
+            const secWipQty = hasSec ? totalWipQty * factor : 0;
+            const secShopfloorQty = hasSec ? shopfloorQty * factor : 0;
+            const secJobWorkQty = hasSec ? jobWorkQty * factor : 0;
+
+            return {
+                isFocused: true,
+                focusedItem,
+                itemName,
+                itemDesc,
+                tabTitle,
+                totalItems: 1,
+                pricedItemsCount: priceInfo.unitPrice > 0 ? 1 : 0,
+                totalWipQty,
+                formattedTotalWipQty: `${totalWipQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.unit || 'PCS'}`,
+                shopfloorQty,
+                formattedShopfloorQty: `${shopfloorQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.unit || 'PCS'}`,
+                jobWorkQty,
+                formattedJobWorkQty: `${jobWorkQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.unit || 'PCS'}`,
+                mainStoreQty,
+                formattedMainStoreQty: `${mainStoreQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.unit || 'PCS'}`,
+                hasSec,
+                secWipQty,
+                formattedSecWipQty: hasSec ? `${secWipQty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${focusedItem.secondaryUnit}` : null,
+                secShopfloorQty,
+                secJobWorkQty,
+                unitPrice: priceInfo.unitPrice,
+                formattedUnitPrice: priceInfo.unitPrice > 0 ? (
+                    `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${priceInfo.primaryUnit}` +
+                    (priceInfo.hasSecondaryUnit && priceInfo.secondaryUnitPrice > 0 ? ` (₹${priceInfo.secondaryUnitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${priceInfo.secondaryUnit})` : '')
+                ) : 'Unpriced',
+                priceSource: priceInfo.source,
+                priceBadgeColor: priceInfo.badgeColor,
+                vendorName: priceInfo.vendorName,
+                totalWipValuation,
+                formattedTotalWipValuation: `₹${totalWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                shopfloorValuation,
+                formattedShopfloorValuation: `₹${shopfloorValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                jobWorkValuation,
+                formattedJobWorkValuation: `₹${jobWorkValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                mainStoreValuation,
+                formattedMainStoreValuation: `₹${mainStoreValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            };
+        }
+
+        // 2. Aggregate Overview Mode
+        let totalWipValuation = 0;
+        let totalShopfloorValuation = 0;
+        let totalJobWorkValuation = 0;
+        let totalMainStoreValuation = 0;
+        let totalWipUnits = 0;
+        let totalShopfloorUnits = 0;
+        let totalJobWorkUnits = 0;
+        let totalMainStoreUnits = 0;
+        let pricedItemsCount = 0;
+        let activeWipItemCount = 0;
+
+        wipItems.forEach((item: any) => {
+            const priceInfo = getItemPriceDetails(item, isFg);
+            const shopfloorQty = Number(item.shopfloorWipQty || 0);
+            const jobWorkQty = Number(item.jobWorkWipQty || 0);
+            const totalWipQty = Number(item.pendingWipQty || 0);
+            const mainStoreQty = Number(item.mainStoreStock || 0);
+
+            if (priceInfo.unitPrice > 0) {
+                pricedItemsCount++;
+            }
+            if (totalWipQty > 0) {
+                activeWipItemCount++;
+            }
+
+            totalWipUnits += totalWipQty;
+            totalShopfloorUnits += shopfloorQty;
+            totalJobWorkUnits += jobWorkQty;
+            totalMainStoreUnits += mainStoreQty;
+
+            totalWipValuation += (totalWipQty * priceInfo.unitPrice);
+            totalShopfloorValuation += (shopfloorQty * priceInfo.unitPrice);
+            totalJobWorkValuation += (jobWorkQty * priceInfo.unitPrice);
+            totalMainStoreValuation += (mainStoreQty * priceInfo.unitPrice);
+        });
+
+        return {
+            isFocused: false,
+            focusedItem: null,
+            itemName: '',
+            itemDesc: '',
+            tabTitle,
+            totalItems: wipItems.length,
+            activeWipItemCount,
+            pricedItemsCount,
+            totalWipQty: totalWipUnits,
+            formattedTotalWipQty: totalWipUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            shopfloorQty: totalShopfloorUnits,
+            formattedShopfloorQty: totalShopfloorUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            jobWorkQty: totalJobWorkUnits,
+            formattedJobWorkQty: totalJobWorkUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            mainStoreQty: totalMainStoreUnits,
+            formattedMainStoreQty: totalMainStoreUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            hasSec: false,
+            secWipQty: 0,
+            formattedSecWipQty: null,
+            secShopfloorQty: 0,
+            secJobWorkQty: 0,
+            unitPrice: 0,
+            formattedUnitPrice: '',
+            priceSource: 'Price List',
+            priceBadgeColor: '',
+            vendorName: undefined,
+            totalWipValuation,
+            formattedTotalWipValuation: `₹${totalWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            shopfloorValuation: totalShopfloorValuation,
+            formattedShopfloorValuation: `₹${totalShopfloorValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            jobWorkValuation: totalJobWorkValuation,
+            formattedJobWorkValuation: `₹${totalJobWorkValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            mainStoreValuation: totalMainStoreValuation,
+            formattedMainStoreValuation: `₹${totalMainStoreValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        };
+    }, [wipItems, wipType, vendorPriceMap, salesPriceMap, focusedItem]);
 
     const handleOpenActionModal = (item: any, mode: 'return' | 'scrap') => {
         setActionModalItem(item);
@@ -264,6 +731,12 @@ export default function WipInventoryTab({
         } else {
             const typeLabel = wipType.toUpperCase();
             const rows = filteredItems.map((item, idx) => {
+                const isFg = wipType === 'fg';
+                const priceInfo = getItemPriceDetails(item, isFg);
+                const shopfloorVal = (item.shopfloorWipQty || 0) * priceInfo.unitPrice;
+                const jobWorkVal = (item.jobWorkWipQty || 0) * priceInfo.unitPrice;
+                const wipValuation = (item.pendingWipQty || 0) * priceInfo.unitPrice;
+
                 const rowObj: any = {
                     'S.No': idx + 1,
                     'Material Name': item.materialName || '-',
@@ -275,6 +748,11 @@ export default function WipInventoryTab({
                     'Pending QC': item.pendingQcQty || 0,
                     'Job Work Stock': item.jobWorkWipQty || 0,
                     'Total WIP': item.pendingWipQty || 0,
+                    'Unit Price (INR)': priceInfo.unitPrice,
+                    'Price Source': priceInfo.source,
+                    'Shopfloor WIP Valuation (INR)': Number(shopfloorVal.toFixed(2)),
+                    'Job Work WIP Valuation (INR)': Number(jobWorkVal.toFixed(2)),
+                    'Total WIP Valuation (INR)': Number(wipValuation.toFixed(2)),
                     'Status': item.status || (item.pendingWipQty > 0 ? 'In WIP' : 'WIP Zero'),
                     'Last Movement Date': item.lastMovementDate ? new Date(item.lastMovementDate).toLocaleDateString() : '-'
                 };
@@ -289,51 +767,267 @@ export default function WipInventoryTab({
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
             
-            {/* Summary Banner Cards */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-slate-400 block tracking-wider">
-                        {wipType === 'mrp' ? 'Total MRP WIP Plans' : wipType === 'ledger' ? 'Total Movement Docs' : 'Catalog Items'}
-                    </span>
-                    <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-black text-slate-900 dark:text-white">
-                            {wipType === 'mrp' ? mrpBuckets.length : wipType === 'ledger' ? ledgerTransactions.length : summary.totalItems}
-                        </span>
-                        <span className="text-xs text-slate-400 font-semibold">
-                            {wipType === 'mrp' ? 'Plans' : wipType === 'ledger' ? 'Docs' : 'Items'}
-                        </span>
+            {/* Executive WIP Pricing & Valuation Dashboard Header & Cards */}
+            <div className="border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 shadow-xs">
+                {!showDashboard ? (
+                    /* Collapsed Single-Line Summary Bar */
+                    <div className="bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-slate-600 dark:text-slate-300">
+                            {wipKpis.isFocused ? (
+                                <>
+                                    <span className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                                        <Crosshair size={14} className="text-indigo-600" />
+                                        Focused: <strong className="font-mono text-slate-900 dark:text-white">{wipKpis.itemName}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Total WIP: <strong className="text-slate-900 dark:text-white font-mono">{wipKpis.formattedTotalWipQty}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Valuation: <strong className="text-emerald-600 font-mono">{wipKpis.formattedTotalWipValuation}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFocusedItemId(null)}
+                                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
+                                    >
+                                        Reset Focus
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                        <Boxes size={14} className="text-indigo-600" />
+                                        {wipKpis.tabTitle}: <strong className="text-indigo-600 font-mono">{wipKpis.totalItems} Items</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Active WIP Units: <strong className="text-slate-900 dark:text-white font-mono">{wipKpis.formattedTotalWipQty}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Total WIP Valuation: <strong className="text-emerald-600 font-mono">{wipKpis.formattedTotalWipValuation}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Priced via Price List: <strong className="text-indigo-600 font-mono">{wipKpis.pricedItemsCount}</strong>
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(true)}
+                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                            <span>Show Dashboard</span>
+                            <ChevronDown size={14} />
+                        </button>
                     </div>
-                </div>
+                ) : (
+                    /* Expanded Dashboard with Header Filter Bar & 4 KPI Cards */
+                    <div className="space-y-3.5">
+                        {/* Dynamic Dashboard Control Bar (Item Focus Selector & Mode Badges) */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-100 dark:border-slate-800">
+                            {/* Left: Mode Title */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {wipKpis.isFocused ? (
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 shadow-2xs">
+                                            <Crosshair size={13} className="text-indigo-600 dark:text-indigo-400 animate-pulse" />
+                                            <span>Single Item WIP Analysis</span>
+                                        </span>
+                                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                            {wipKpis.itemName}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wide">
+                                            <LayoutGrid size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                            <span>{wipKpis.tabTitle} Executive Overview</span>
+                                        </span>
+                                        <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 font-mono">
+                                            ({wipKpis.totalItems} Items &bull; {wipKpis.pricedItemsCount} Priced via Price List)
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
 
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-amber-500 block tracking-wider">Shopfloor WIP Stock</span>
-                    <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono">
-                            {summary.shopfloorWipQty}
-                        </span>
-                        <span className="text-xs text-slate-400 font-semibold">Units In-House</span>
-                    </div>
-                </div>
+                            {/* Right: Item Focus Selector & Hide Toggle */}
+                            <div className="flex items-center gap-2 shrink-0">
+                                <label htmlFor="wip-item-focus-select" className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1 shrink-0">
+                                    <Crosshair size={13} className="text-indigo-500" />
+                                    <span>Focus Item:</span>
+                                </label>
+                                <select
+                                    id="wip-item-focus-select"
+                                    value={focusedItemId || ''}
+                                    onChange={(e) => setFocusedItemId(e.target.value ? e.target.value : null)}
+                                    className="text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 max-w-[210px] sm:max-w-[300px] truncate shadow-2xs cursor-pointer font-medium"
+                                >
+                                    <option value="">All Items (Overview Mode)</option>
+                                    {wipItems.map((item: any) => {
+                                        const id = (item.id || item._id)?.toString();
+                                        const name = item.materialName || item.name || 'Unnamed Item';
+                                        const desc = item.materialDescription || item.descriptions || item.description;
+                                        const label = desc ? `${name} — ${desc}` : name;
+                                        return (
+                                            <option key={id} value={id}>
+                                                {label}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                                {focusedItemId && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFocusedItemId(null)}
+                                        className="text-xs font-bold px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-xl border border-rose-200 dark:border-rose-800 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                        title="Clear focus and return to aggregate overview"
+                                    >
+                                        <RotateCcw size={12} />
+                                        <span>Reset</span>
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowDashboard(false)}
+                                    className="text-xs font-bold px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl flex items-center gap-1 transition-all cursor-pointer shadow-2xs ml-1"
+                                >
+                                    <span>Hide</span>
+                                    <ChevronUp size={13} />
+                                </button>
+                            </div>
+                        </div>
 
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-purple-500 block tracking-wider">Job Work Stock</span>
-                    <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-black text-purple-600 dark:text-purple-400 font-mono">
-                            {summary.jobWorkWipQty}
-                        </span>
-                        <span className="text-xs text-slate-400 font-semibold">Units with Vendors</span>
-                    </div>
-                </div>
+                        {/* 4 Dynamic KPI Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            {/* Card 1: WIP Stock Volume & SKUs */}
+                            <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        {wipKpis.isFocused ? "Active WIP Quantity" : "Total Active WIP Units"}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                                        <Boxes size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                                    {wipKpis.isFocused ? (
+                                        <span>{wipKpis.formattedTotalWipQty}</span>
+                                    ) : (
+                                        <>
+                                            {wipKpis.formattedTotalWipQty} <span className="text-xs font-semibold text-slate-500 font-sans">Units</span>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    {wipKpis.isFocused ? (
+                                        <>
+                                            <span>Secondary Unit WIP</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {wipKpis.formattedSecWipQty || "N/A"}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Active / Total Catalog</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {wipKpis.activeWipItemCount} / {wipKpis.totalItems} Items
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
 
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/20 shadow-xs">
-                    <span className="text-[11px] font-bold uppercase text-indigo-600 dark:text-indigo-400 block tracking-wider">Total Active WIP</span>
-                    <div className="mt-1 flex items-baseline gap-2">
-                        <span className="text-2xl font-black text-indigo-700 dark:text-indigo-300 font-mono">
-                            {summary.netPendingWipQty}
-                        </span>
-                        <span className="text-xs text-indigo-600/70 font-semibold">Total WIP Units</span>
+                            {/* Card 2: Total WIP Valuation (INR) */}
+                            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        {wipKpis.isFocused ? "Item WIP Value" : "Total WIP Valuation"}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                                        <IndianRupee size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight truncate">
+                                    {wipKpis.formattedTotalWipValuation}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    {wipKpis.isFocused ? (
+                                        <>
+                                            <span>Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">{wipKpis.formattedUnitPrice}</strong></span>
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${wipKpis.priceBadgeColor}`}>
+                                                {wipKpis.priceSource}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Valuation Source</span>
+                                            <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                {wipType === 'fg' ? 'Sales Price List' : 'Purchase Price List'}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Card 3: Capital Distribution (Shopfloor vs Job Work) */}
+                            <div className="bg-gradient-to-br from-amber-50/90 via-purple-50/30 to-slate-50 dark:from-amber-950/20 dark:via-purple-950/20 dark:to-slate-900 p-3.5 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-amber-600 dark:text-amber-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        Capital Distribution
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                                        <Factory size={15} />
+                                    </div>
+                                </div>
+                                <div className="flex items-baseline justify-between">
+                                    <div>
+                                        <span className="text-[10px] text-amber-600 font-bold uppercase block">Shopfloor</span>
+                                        <span className="text-sm font-black font-mono text-amber-700 dark:text-amber-300">
+                                            {wipKpis.formattedShopfloorValuation}
+                                        </span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-[10px] text-purple-600 font-bold uppercase block">Job Work</span>
+                                        <span className="text-sm font-black font-mono text-purple-700 dark:text-purple-300">
+                                            {wipKpis.formattedJobWorkValuation}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                    <span>In-House: <strong className="font-mono text-amber-600">{wipKpis.formattedShopfloorQty}</strong></span>
+                                    <span>Vendors: <strong className="font-mono text-purple-600">{wipKpis.formattedJobWorkQty}</strong></span>
+                                </div>
+                            </div>
+
+                            {/* Card 4: Store Stock vs WIP Allocation Ratio */}
+                            <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        Store vs WIP Allocation
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                                        <Warehouse size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                                    {wipKpis.formattedMainStoreQty} <span className="text-xs font-semibold text-slate-500 font-sans">in Store</span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    <span>Store Value: <strong className="font-mono text-blue-600">{wipKpis.formattedMainStoreValuation}</strong></span>
+                                    <span className="font-bold text-slate-600 dark:text-slate-300">
+                                        {wipKpis.mainStoreQty > 0 ? `${((wipKpis.totalWipQty / (wipKpis.mainStoreQty + wipKpis.totalWipQty || 1)) * 100).toFixed(0)}% in WIP` : '—'}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
 
             {/* Filter & Action Toolbar */}
@@ -482,6 +1176,10 @@ export default function WipInventoryTab({
                     <div className="space-y-4">
                         {filteredMrpBuckets.map((bucket) => {
                             const isCompleted = bucket.pendingWipQty <= 0 && bucket.totalIssuedQty > 0;
+                            const planWipValuation = (bucket.items || []).reduce((acc: number, it: any) => {
+                                const itPrice = getItemPriceDetails(it, false);
+                                return acc + ((it.pendingQty || 0) * itPrice.unitPrice);
+                            }, 0);
                             return (
                                 <div key={bucket.mrpPlanId || bucket.mrpNumber} className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4">
                                     {/* MRP Header Info */}
@@ -529,6 +1227,12 @@ export default function WipInventoryTab({
                                                 <span className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400 block">Pending In WIP</span>
                                                 <span className="font-black text-indigo-700 dark:text-indigo-300 font-mono text-base">
                                                     {bucket.pendingWipQty}
+                                                </span>
+                                            </div>
+                                            <div className="text-right pl-3 border-l border-slate-200 dark:border-slate-700">
+                                                <span className="text-[10px] uppercase font-bold text-emerald-600 dark:text-emerald-400 block">WIP Valuation</span>
+                                                <span className="font-black text-emerald-700 dark:text-emerald-300 font-mono text-base">
+                                                    {planWipValuation > 0 ? `₹${planWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
                                                 </span>
                                             </div>
                                         </div>
@@ -668,22 +1372,29 @@ export default function WipInventoryTab({
                         {/* Desktop Table View */}
                         <div className="hidden lg:block overflow-x-auto">
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                    <tr>
+                                <thead>
+                                    <tr className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                         <th className="px-4 py-3.5">Material & Description</th>
                                         <th className="px-4 py-3.5">Category</th>
                                         <th className="px-4 py-3.5 text-center">Main Store Stock</th>
                                         <th className="px-4 py-3.5 text-center">Shopfloor WIP</th>
                                         <th className="px-4 py-3.5 text-center">Job Work Stock</th>
                                         <th className="px-4 py-3.5 text-center">Total WIP</th>
+                                        <th className="px-4 py-3.5 text-center">Rate</th>
+                                        <th className="px-4 py-3.5 text-right">WIP Valuation</th>
                                         <th className="px-4 py-3.5 text-center">Status</th>
                                         <th className="px-4 py-3.5 text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                     {filteredItems.map((item) => {
+                                        const isFg = wipType === 'fg';
+                                        const priceInfo = getItemPriceDetails(item, isFg);
+                                        const itemWipValuation = (item.pendingWipQty || 0) * priceInfo.unitPrice;
+                                        const isFocusedRow = focusedItemId === (item.id || item._id)?.toString();
+
                                         return (
-                                            <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                                            <tr key={item.id} className={`transition-colors ${isFocusedRow ? 'bg-indigo-50/50 dark:bg-indigo-950/20' : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/50'}`}>
                                                 <td className="px-4 py-3.5 font-bold text-slate-900 dark:text-white max-w-[280px]">
                                                     <div className="font-bold text-slate-900 dark:text-white leading-snug">{item.materialName}</div>
                                                     {item.materialDescription && (
@@ -700,7 +1411,14 @@ export default function WipInventoryTab({
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
-                                                    {item.mainStoreStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    <div>
+                                                        {item.mainStoreStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    </div>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-normal mt-0.5">
+                                                            {item.mainStoreSecondaryStock != null ? item.mainStoreSecondaryStock : parseFloat(((item.mainStoreStock || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-slate-900 dark:text-white font-mono">
@@ -712,20 +1430,69 @@ export default function WipInventoryTab({
                                                             (+{item.pendingQcQty} in QC)
                                                         </span>
                                                     )}
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-normal mt-0.5">
+                                                            {item.shopfloorWipSecondaryQty != null ? item.shopfloorWipSecondaryQty : parseFloat(((item.shopfloorWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center font-bold text-purple-600 dark:text-purple-400 font-mono">
-                                                    {item.jobWorkWipQty || 0} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    <div>
+                                                        {item.jobWorkWipQty || 0} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
+                                                    </div>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[10px] text-purple-400 dark:text-purple-400/70 font-normal mt-0.5">
+                                                            {item.jobWorkWipSecondaryQty != null ? item.jobWorkWipSecondaryQty : parseFloat(((item.jobWorkWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center">
-                                                    <span className={`inline-block px-3 py-1 rounded-full text-xs font-black font-mono ${
-                                                        item.pendingWipQty > 0 
-                                                            ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800' 
-                                                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                                                    }`}>
-                                                        {item.pendingWipQty} {item.unit}
-                                                    </span>
+                                                    <div>
+                                                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-black font-mono ${
+                                                            item.pendingWipQty > 0 
+                                                                ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800' 
+                                                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
+                                                        }`}>
+                                                            {item.pendingWipQty} {item.unit}
+                                                        </span>
+                                                    </div>
+                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
+                                                            {item.pendingWipSecondaryQty != null ? item.pendingWipSecondaryQty : parseFloat(((item.pendingWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                        </div>
+                                                    )}
+                                                </td>
+
+                                                <td className="px-4 py-3.5 text-center font-mono">
+                                                    <div className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                                                        {priceInfo.unitPrice > 0 ? `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                                        per {priceInfo.primaryUnit}
+                                                    </div>
+                                                    {priceInfo.hasSecondaryUnit && priceInfo.secondaryUnitPrice > 0 && (
+                                                        <div className="text-[10px] text-indigo-500 font-medium mt-0.5">
+                                                            (₹{priceInfo.secondaryUnitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {priceInfo.secondaryUnit})
+                                                        </div>
+                                                    )}
+                                                    {priceInfo.unitPrice > 0 && (
+                                                        <span className={`inline-block text-[9px] font-bold px-1.5 py-0.2 rounded border mt-0.5 ${priceInfo.badgeColor}`}>
+                                                            {priceInfo.source}
+                                                        </span>
+                                                    )}
+                                                </td>
+
+                                                <td className="px-4 py-3.5 text-right font-mono">
+                                                    <div className="font-bold text-emerald-600 dark:text-emerald-400 text-xs">
+                                                        {itemWipValuation > 0 ? `₹${itemWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                                    </div>
+                                                    {itemWipValuation > 0 && (
+                                                        <div className="text-[10px] text-slate-400 mt-0.5">
+                                                            SF: ₹{((item.shopfloorWipQty || 0) * priceInfo.unitPrice).toLocaleString('en-IN', { maximumFractionDigits: 0 })} | JW: ₹{((item.jobWorkWipQty || 0) * priceInfo.unitPrice).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                                        </div>
+                                                    )}
                                                 </td>
 
                                                 <td className="px-4 py-3.5 text-center">
@@ -740,19 +1507,39 @@ export default function WipInventoryTab({
 
                                                 <td className="px-4 py-3.5 text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (isFocusedRow) {
+                                                                    setFocusedItemId(null);
+                                                                } else {
+                                                                    setFocusedItemId((item.id || item._id)?.toString());
+                                                                    setShowDashboard(true);
+                                                                }
+                                                            }}
+                                                            className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border cursor-pointer ${
+                                                                isFocusedRow
+                                                                    ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                                                                    : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
+                                                            }`}
+                                                            title={isFocusedRow ? "Clear single-item focus" : "Focus on this item in dashboard"}
+                                                        >
+                                                            <Crosshair size={12} />
+                                                            <span>{isFocusedRow ? "Focused" : "Focus"}</span>
+                                                        </button>
                                                         {item.shopfloorWipQty > 0 && (
                                                             <>
                                                                 <button
                                                                     onClick={() => handleOpenActionModal(item, 'return')}
-                                                                    title="Return unused material to Main Store"
-                                                                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 dark:text-emerald-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 cursor-pointer border border-emerald-200 dark:border-emerald-800"
+                                                                    className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:hover:bg-emerald-900 dark:text-emerald-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border border-emerald-200 dark:border-emerald-800 cursor-pointer"
+                                                                    title="Return back to Main Store"
                                                                 >
                                                                     <ArrowDownLeft size={13} /> Return
                                                                 </button>
                                                                 <button
                                                                     onClick={() => handleOpenActionModal(item, 'scrap')}
-                                                                    title="Record shopfloor cutting/machining scrap"
-                                                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/80 dark:text-rose-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 cursor-pointer border border-rose-200 dark:border-rose-800"
+                                                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950 dark:hover:bg-rose-900 dark:text-rose-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 border border-rose-200 dark:border-rose-800 cursor-pointer"
+                                                                    title="Record Process Scrap"
                                                                 >
                                                                     <Trash2 size={13} /> Scrap
                                                                 </button>
@@ -760,7 +1547,8 @@ export default function WipInventoryTab({
                                                         )}
                                                         <button
                                                             onClick={() => openLedger(item)}
-                                                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors inline-flex items-center gap-1 cursor-pointer border border-indigo-200 dark:border-indigo-800"
+                                                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 cursor-pointer"
+                                                            title="View Transaction History"
                                                         >
                                                             <Eye size={13} /> Ledger
                                                         </button>
@@ -775,8 +1563,14 @@ export default function WipInventoryTab({
 
                         {/* Responsive Mobile / Tablet Card View */}
                         <div className="lg:hidden flex flex-col divide-y divide-slate-100 dark:divide-slate-800 pb-20">
-                            {filteredItems.map((item) => (
-                                <div key={item.id} className="p-4 flex flex-col gap-3 bg-white dark:bg-slate-900">
+                            {filteredItems.map((item) => {
+                                const isFg = wipType === 'fg';
+                                const priceInfo = getItemPriceDetails(item, isFg);
+                                const itemWipValuation = (item.pendingWipQty || 0) * priceInfo.unitPrice;
+                                const isFocusedRow = focusedItemId === (item.id || item._id)?.toString();
+
+                                return (
+                                <div key={item.id} className={`p-4 flex flex-col gap-3 transition-colors ${isFocusedRow ? 'bg-indigo-50/40 dark:bg-indigo-950/20' : 'bg-white dark:bg-slate-900'}`}>
                                     <div className="flex justify-between items-start gap-2">
                                         <div>
                                             <h4 className="font-bold text-slate-900 dark:text-white text-sm">
@@ -803,25 +1597,85 @@ export default function WipInventoryTab({
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-800 text-center text-xs">
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 block">Store Stock</span>
-                                            <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{item.mainStoreStock}</span>
+                                            <span className="font-bold text-slate-700 dark:text-slate-300 font-mono">{item.mainStoreStock} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <span className="text-[9px] text-slate-400 block font-mono">
+                                                    {item.mainStoreSecondaryStock != null ? item.mainStoreSecondaryStock : parseFloat(((item.mainStoreStock || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                </span>
+                                            )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 block">Shopfloor</span>
-                                            <span className="font-bold text-slate-900 dark:text-white font-mono">{item.shopfloorWipQty}</span>
+                                            <span className="font-bold text-slate-900 dark:text-white font-mono">{item.shopfloorWipQty} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
                                             {item.pendingQcQty > 0 && (
                                                 <span className="text-[9px] font-bold text-amber-600 block">
                                                     (+{item.pendingQcQty} in QC)
                                                 </span>
                                             )}
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <span className="text-[9px] text-indigo-500 block font-mono">
+                                                    {item.shopfloorWipSecondaryQty != null ? item.shopfloorWipSecondaryQty : parseFloat(((item.shopfloorWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                </span>
+                                            )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-purple-600 block">Job Work</span>
-                                            <span className="font-bold text-purple-600 font-mono">{item.jobWorkWipQty || 0}</span>
+                                            <span className="font-bold text-purple-600 font-mono">{item.jobWorkWipQty || 0} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <span className="text-[9px] text-purple-400 block font-mono">
+                                                    {item.jobWorkWipSecondaryQty != null ? item.jobWorkWipSecondaryQty : parseFloat(((item.jobWorkWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                </span>
+                                            )}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-indigo-600 block">Total WIP</span>
-                                            <span className="font-black text-indigo-600 font-mono">{item.pendingWipQty}</span>
+                                            <span className="font-black text-indigo-600 font-mono">{item.pendingWipQty} <span className="text-[9px] font-normal text-slate-400">{item.unit}</span></span>
+                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                <span className="text-[9px] text-indigo-600 dark:text-indigo-400 block font-bold font-mono">
+                                                    {item.pendingWipSecondaryQty != null ? item.pendingWipSecondaryQty : parseFloat(((item.pendingWipQty || 0) * (item.conversionFactor || 1)).toFixed(2))} {item.secondaryUnit}
+                                                </span>
+                                            )}
                                         </div>
+                                    </div>
+
+                                    {/* Rate, WIP Valuation & Focus Row */}
+                                    <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-slate-400 font-medium">Rate:</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                                                    {priceInfo.unitPrice > 0 ? `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                                                </span>
+                                                {priceInfo.unitPrice > 0 && (
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${priceInfo.badgeColor}`}>
+                                                        {priceInfo.source}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                                                WIP Val: <strong className="text-emerald-600 dark:text-emerald-400">₹{itemWipValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (isFocusedRow) {
+                                                    setFocusedItemId(null);
+                                                } else {
+                                                    setFocusedItemId((item.id || item._id)?.toString());
+                                                    setShowDashboard(true);
+                                                }
+                                            }}
+                                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
+                                                isFocusedRow 
+                                                    ? "bg-indigo-600 text-white" 
+                                                    : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
+                                            }`}
+                                        >
+                                            <Crosshair size={12} />
+                                            <span>{isFocusedRow ? "Focused" : "Focus"}</span>
+                                        </button>
                                     </div>
 
                                     <div className="flex gap-2">
@@ -830,26 +1684,30 @@ export default function WipInventoryTab({
                                                 <button
                                                     onClick={() => handleOpenActionModal(item, 'return')}
                                                     className="flex-1 py-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-xl border border-emerald-200 flex items-center justify-center gap-1 cursor-pointer"
+                                                    title="Return back to Main Store"
                                                 >
-                                                    <ArrowDownLeft size={13} /> Return to Store
+                                                    <ArrowDownLeft size={13} /> Return
                                                 </button>
                                                 <button
                                                     onClick={() => handleOpenActionModal(item, 'scrap')}
                                                     className="flex-1 py-1.5 bg-rose-50 text-rose-700 text-xs font-bold rounded-xl border border-rose-200 flex items-center justify-center gap-1 cursor-pointer"
+                                                    title="Report Process Scrap"
                                                 >
-                                                    <Trash2 size={13} /> Report Scrap
+                                                    <Trash2 size={13} /> Scrap
                                                 </button>
                                             </>
                                         )}
                                         <button
                                             onClick={() => openLedger(item)}
                                             className={`${item.shopfloorWipQty > 0 ? 'px-3' : 'w-full'} py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer`}
+                                            title="View Transaction History"
                                         >
                                             <Eye size={14} /> Ledger
                                         </button>
                                     </div>
                                 </div>
-                            ))}
+                            );
+                        })}
                         </div>
                     </div>
                 )

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Clock, Lock } from 'lucide-react';
 import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
+import { API_BASE_URL } from '@/src/utils/config';
 
 interface GRNDetailModalProps {
     grn: any;
@@ -11,6 +12,7 @@ interface GRNDetailModalProps {
 export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalProps) {
     const [viewingPhotos, setViewingPhotos] = useState<string[] | null>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [companyInfo, setCompanyInfo] = useState<any>(null);
 
     // Live ticking timer for 24h window
     const [nowTime, setNowTime] = useState(Date.now());
@@ -18,6 +20,30 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
         if (!isOpen) return;
         const timer = setInterval(() => setNowTime(Date.now()), 1000);
         return () => clearInterval(timer);
+    }, [isOpen]);
+
+    // Fetch company details for PDF printing
+    useEffect(() => {
+        if (!isOpen) return;
+        try {
+            const cached = localStorage.getItem("storeCompanyInfo") || localStorage.getItem("companyInfo");
+            if (cached) setCompanyInfo(JSON.parse(cached));
+        } catch (e) {}
+
+        const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
+        if (token) {
+            fetch(`${API_BASE_URL}/api/store/company-info`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data && (data.companyName || data.name)) {
+                    setCompanyInfo(data);
+                    try { localStorage.setItem("storeCompanyInfo", JSON.stringify(data)); } catch (e) {}
+                }
+            })
+            .catch(() => {});
+        }
     }, [isOpen]);
 
     if (!isOpen || !grn) return null;
@@ -53,7 +79,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
     };
 
     const handleDownloadGRN = () => {
-        generateFrontendGrnPDF({ grn });
+        generateFrontendGrnPDF({ grn, companyInfo });
     };
 
     return (
@@ -91,9 +117,23 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                         {/* Basic Info Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
-                                <label className="text-xs font-semibold text-gray-500 uppercase">Date</label>
+                                <label className="text-xs font-semibold text-gray-500 uppercase">Receipt Date</label>
                                 <p className="text-base font-medium text-gray-900 dark:text-gray-100">{new Date(grn.date).toLocaleDateString()}</p>
                             </div>
+                            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                                <label className="text-xs font-semibold text-gray-500 uppercase">Created Date & Time</label>
+                                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono">
+                                    {grn.createdAt ? new Date(grn.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '-'}
+                                </p>
+                            </div>
+                            {grn.updatedAt && (new Date(grn.updatedAt).getTime() - new Date(grn.createdAt || grn.date).getTime() > 60000) && (
+                                <div className="bg-amber-50 dark:bg-amber-950/40 p-4 rounded-xl border border-amber-200 dark:border-amber-800">
+                                    <label className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase">Last Edited At</label>
+                                    <p className="text-sm font-bold text-amber-900 dark:text-amber-200 font-mono">
+                                        {new Date(grn.updatedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })}
+                                    </p>
+                                </div>
+                            )}
                             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
                                 <label className="text-xs font-semibold text-gray-500 uppercase">Supplier / Source</label>
                                 <p className="text-base font-medium text-gray-900 dark:text-gray-100">{grn.supplierName || grn.supplier?.name || 'N/A'}</p>
@@ -104,10 +144,20 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     {grn.receivedBy?.name || grn.receivedBy?.username || grn.receivedBy || 'Store Admin'}
                                 </p>
                             </div>
-                            {grn.poReference && (
+                            {(grn.poNumber || grn.purchaseOrder?.poNumber || (grn.poReference && !grn.invoiceNumber)) && (
                                 <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
-                                    <label className="text-xs font-semibold text-gray-500 uppercase">PO Reference</label>
-                                    <p className="text-base font-medium text-gray-900 dark:text-gray-100 font-mono">{grn.poReference}</p>
+                                    <label className="text-xs font-semibold text-gray-500 uppercase">PO Number</label>
+                                    <p className="text-base font-medium text-gray-900 dark:text-gray-100 font-mono">
+                                        {grn.poNumber || grn.purchaseOrder?.poNumber || grn.poReference}
+                                    </p>
+                                </div>
+                            )}
+                            {(grn.invoiceNumber || grn.invoiceNo || (grn.poReference && grn.poReference !== grn.poNumber)) && (
+                                <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-100 dark:border-gray-700">
+                                    <label className="text-xs font-semibold text-gray-500 uppercase">Invoice Number</label>
+                                    <p className="text-base font-medium text-gray-900 dark:text-gray-100 font-mono">
+                                        {grn.invoiceNumber || grn.invoiceNo || grn.poReference}
+                                    </p>
                                 </div>
                             )}
                             {grn.mrpNumber && (
@@ -170,6 +220,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                         <tr>
                                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">#</th>
                                             <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Material</th>
+                                            <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">HSN/SAC</th>
                                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">Rcv</th>
                                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">Acc</th>
                                             <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase">Rej</th>
@@ -181,6 +232,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     <tbody className="divide-y divide-gray-200">
                                         {grn.items?.map((item: any, index: number) => {
                                             const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
+                                            const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.fgItem?.hsn || '-';
                                             return (
                                                 <tr key={index} className="hover:bg-gray-50">
                                                     <td className="px-4 py-3 text-sm text-gray-900">{index + 1}</td>
@@ -191,6 +243,9 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                                                 📝 {desc}
                                                             </div>
                                                         )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-gray-600 text-center font-mono text-xs">
+                                                        {hsn}
                                                     </td>
                                                     <td className="px-4 py-3 text-sm text-gray-900 text-center">
                                                         <div>{item.quantity || item.receivedQuantity || 0}</div>
@@ -232,10 +287,10 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                     </tbody>
                                     <tfoot className="bg-green-50 border-t-2 border-green-200">
                                         <tr>
-                                            <td colSpan={5} className="px-4 py-4 text-right text-base font-bold text-gray-900">
+                                            <td colSpan={7} className="px-4 py-4 text-right text-base font-bold text-gray-900">
                                                 Total Amount:
                                             </td>
-                                            <td className="px-4 py-4 text-right">
+                                            <td colSpan={2} className="px-4 py-4 text-right">
                                                 <div className="flex items-center justify-end gap-2 text-lg font-bold text-green-700">
                                                     <IndianRupee size={20} />
                                                     <span>₹{totalAmount.toFixed(2)}</span>
@@ -250,13 +305,19 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                             <div className="md:hidden space-y-4">
                                 {grn.items?.map((item: any, index: number) => {
                                     const desc = item.description || item.descriptions || (typeof item.material === 'object' ? (item.material?.descriptions || item.material?.description) : '');
+                                    const hsn = item.hsnCode || item.material?.hsnCode || item.material?.hsn || item.fgItem?.hsnCode || item.fgItem?.hsn;
                                     return (
                                         <div key={index} className="bg-gray-50 p-4 rounded-xl border border-gray-200 shadow-sm">
                                             <div className="flex justify-between items-start mb-3">
                                                 <div className="flex flex-col">
-                                                    <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-2 flex-wrap">
                                                         <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-2 py-0.5 rounded-full">#{index + 1}</span>
                                                         <span className="font-bold text-gray-900">{item.materialName || 'N/A'}</span>
+                                                        {hsn && (
+                                                            <span className="bg-slate-100 text-slate-700 text-[10px] font-mono px-1.5 py-0.5 rounded border border-slate-200">
+                                                                HSN: {hsn}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     {desc && (
                                                         <span className="text-xs text-gray-500 mt-1 pl-1">📝 {desc}</span>

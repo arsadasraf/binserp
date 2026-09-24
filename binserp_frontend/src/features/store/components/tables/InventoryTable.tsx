@@ -6,7 +6,12 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { InventoryItem } from "@/src/features/store/types/store.types";
-import { Package, Factory, Download, Search, FileSpreadsheet, ChevronDown, ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw } from 'lucide-react';
+import { 
+    Package, Factory, Download, Search, FileSpreadsheet, ChevronDown, 
+    ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw,
+    TrendingUp, IndianRupee, AlertTriangle, ArrowUpDown, LayoutGrid,
+    Eye, Boxes, Layers, X, Calendar, Crosshair, Sparkles, CheckCircle2
+} from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
@@ -29,6 +34,8 @@ const getPageNumbers = (current: number, total: number): (number | string)[] => 
 interface InventoryTableProps {
     data: InventoryItem[];
     inHouseData?: any[];
+    vendorPriceLists?: any[];
+    priceLists?: any[];
     onEdit: (item: InventoryItem) => void;
     onDelete: (id: string) => void;
     activeSubTab: 'bo' | 'inhouse' | 'consumable' | string;
@@ -42,6 +49,8 @@ interface InventoryTableProps {
 export default function InventoryTable({
     data,
     inHouseData = [],
+    vendorPriceLists = [],
+    priceLists = [],
     onEdit,
     onDelete,
     activeSubTab,
@@ -53,6 +62,7 @@ export default function InventoryTable({
 }: InventoryTableProps) {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isExcelMenuOpen, setIsExcelMenuOpen] = useState(false);
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
     const [filters, setFilters] = useState<Record<string, string[]>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -108,6 +118,243 @@ export default function InventoryTable({
         setSortConfig(null);
         setSearchQuery('');
     };
+
+    // Dashboard Single Item Focus state
+    const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+
+    // Reset focused item when changing subtabs
+    useEffect(() => {
+        setFocusedItemId(null);
+    }, [activeSubTab]);
+
+    // O(1) Pre-indexed Vendor Price Map (for RM, BO, Consumable from Purchase Price List)
+    const vendorPriceMap = useMemo(() => {
+        const map = new Map<string, { price: number; isPreferred: boolean; vendorName?: string; taxRate?: number; pricingUnit?: string; isSecondaryUnit?: boolean }>();
+        
+        // Sort non-preferred entries first so preferred entries always overwrite and take precedence
+        const sortedEntries = [...(vendorPriceLists || [])].sort((a: any, b: any) => {
+            const aPref = a.isPreferred ? 1 : 0;
+            const bPref = b.isPreferred ? 1 : 0;
+            return aPref - bPref;
+        });
+
+        sortedEntries.forEach((entry: any) => {
+            const matObj = typeof entry.material === 'object' && entry.material ? entry.material : null;
+            const matId = (matObj?._id || (typeof entry.material === 'string' ? entry.material : null) || entry.materialId)?.toString();
+            const matCode = (matObj?.code || entry.materialCode || entry.code)?.toString().trim().toUpperCase();
+            const matName = (matObj?.name || entry.materialName || entry.name)?.toString().trim().toLowerCase();
+
+            const price = Number(entry.price || 0);
+            const isPreferred = Boolean(entry.isPreferred);
+            const vendorName = entry.vendor?.name || entry.vendorName;
+            const taxRate = entry.taxRate;
+            const pricingUnit = entry.pricingUnit;
+            const isSecondaryUnit = Boolean(entry.isSecondaryUnit);
+
+            const priceObj = { price, isPreferred, vendorName, taxRate, pricingUnit, isSecondaryUnit };
+
+            if (matId) map.set(matId, priceObj);
+            if (matCode && matCode !== 'N/A' && matCode !== '-') map.set(`code:${matCode}`, priceObj);
+            if (matName && matName !== '-' && matName !== 'item') map.set(`name:${matName}`, priceObj);
+        });
+        return map;
+    }, [vendorPriceLists]);
+
+    // O(1) Pre-indexed Sales Price Map (for FG from Sales Price List)
+    const salesPriceMap = useMemo(() => {
+        const map = new Map<string, { price: number; taxRate?: number; hsnCode?: string; pricingUnit?: string; isSecondaryUnit?: boolean }>();
+        (priceLists || []).forEach((entry: any) => {
+            const fgObj = typeof entry.fgItem === 'object' && entry.fgItem ? entry.fgItem : null;
+            const fgId = (fgObj?._id || (typeof entry.fgItem === 'string' ? entry.fgItem : null) || entry.fgItemId)?.toString();
+            const fgCode = (fgObj?.code || entry.fgCode || entry.code)?.toString().trim().toUpperCase();
+            const fgName = (fgObj?.name || entry.fgName || entry.name)?.toString().trim().toLowerCase();
+
+            const price = Number(entry.price || 0);
+            const priceObj = { 
+                price, 
+                taxRate: entry.taxRate, 
+                hsnCode: entry.hsnCode,
+                pricingUnit: entry.pricingUnit,
+                isSecondaryUnit: Boolean(entry.isSecondaryUnit)
+            };
+
+            if (fgId) map.set(fgId, priceObj);
+            if (fgCode && fgCode !== 'N/A' && fgCode !== '-') map.set(`code:${fgCode}`, priceObj);
+            if (fgName && fgName !== '-') map.set(`name:${fgName}`, priceObj);
+        });
+        return map;
+    }, [priceLists]);
+
+    // Helper to resolve unit price, dual-unit conversion, price list source, and visual badge
+    const getItemPriceDetails = (item: any, isFg: boolean) => {
+        const hasSecondaryUnit = Boolean(item?.hasSecondaryUnit && item?.secondaryUnit && Number(item?.conversionFactor) > 0);
+        const factor = Number(item?.conversionFactor) || 1;
+        const primaryUnit = item?.unit || (isFg ? 'Nos' : 'PCS');
+        const secondaryUnit = item?.secondaryUnit || '';
+
+        if (!item) {
+            return {
+                unitPrice: 0,
+                secondaryUnitPrice: 0,
+                primaryUnit,
+                secondaryUnit,
+                hasSecondaryUnit,
+                conversionFactor: factor,
+                source: 'Unpriced',
+                badgeColor: 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                taxRate: undefined,
+                vendorName: undefined,
+                hsnCode: undefined
+            };
+        }
+
+        const candidateKeys: string[] = [];
+
+        // 1. Material Master ObjectId or FG ObjectId (highest priority)
+        const matMasterId = (
+            (typeof item.materialId === 'object' && item.materialId?._id) ? item.materialId._id :
+            (typeof item.material === 'object' && item.material?._id) ? item.material._id :
+            (typeof item.fgId === 'object' && item.fgId?._id) ? item.fgId._id :
+            (typeof item.materialId === 'string' ? item.materialId : null) ||
+            (typeof item.material === 'string' ? item.material : null) ||
+            (typeof item.fgId === 'string' ? item.fgId : null) ||
+            item.masterId ||
+            item.rawMaterialId ||
+            item.boughtOutId ||
+            item.consumableId
+        )?.toString();
+        if (matMasterId) candidateKeys.push(matMasterId);
+
+        // 2. Direct _id / id
+        const directId = (item._id || item.id)?.toString();
+        if (directId && directId !== matMasterId) candidateKeys.push(directId);
+
+        // 3. Item Code
+        const itemCode = (
+            (typeof item.materialId === 'object' && item.materialId?.code) ||
+            item.materialCode ||
+            item.code ||
+            item.itemCode
+        )?.toString().trim().toUpperCase();
+        if (itemCode && itemCode !== 'N/A' && itemCode !== '-') candidateKeys.push(`code:${itemCode}`);
+
+        // 4. Item Name
+        const itemName = (
+            (typeof item.materialId === 'object' && item.materialId?.name) ||
+            item.materialName ||
+            item.name ||
+            item.itemName ||
+            item.componentName
+        )?.toString().trim().toLowerCase();
+        if (itemName && itemName !== '-') candidateKeys.push(`name:${itemName}`);
+
+        if (isFg) {
+            for (const key of candidateKeys) {
+                if (salesPriceMap.has(key)) {
+                    const entry = salesPriceMap.get(key)!;
+                    const rawPrice = Number(entry.price || 0);
+                    let primaryUnitPrice = rawPrice;
+                    let secondaryUnitPrice = 0;
+
+                    if (hasSecondaryUnit && factor > 0) {
+                        const isPricedPerSec = Boolean(
+                            entry.isSecondaryUnit || 
+                            (entry.pricingUnit && entry.pricingUnit.trim().toUpperCase() === secondaryUnit.trim().toUpperCase())
+                        );
+
+                        if (isPricedPerSec) {
+                            secondaryUnitPrice = rawPrice;
+                            primaryUnitPrice = rawPrice * factor;
+                        } else {
+                            primaryUnitPrice = rawPrice;
+                            secondaryUnitPrice = rawPrice / factor;
+                        }
+                    }
+
+                    return {
+                        unitPrice: primaryUnitPrice,
+                        secondaryUnitPrice,
+                        primaryUnit,
+                        secondaryUnit,
+                        hasSecondaryUnit,
+                        conversionFactor: factor,
+                        source: 'Price List',
+                        badgeColor: 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800',
+                        taxRate: entry.taxRate,
+                        hsnCode: entry.hsnCode,
+                        vendorName: undefined
+                    };
+                }
+            }
+            const fallback = Number(item.sellingPrice || item.rate || item.costPrice || item.standardRate || 0);
+            return {
+                unitPrice: fallback,
+                secondaryUnitPrice: hasSecondaryUnit && factor > 0 ? (fallback / factor) : 0,
+                primaryUnit,
+                secondaryUnit,
+                hasSecondaryUnit,
+                conversionFactor: factor,
+                source: fallback > 0 ? 'Master Rate' : 'Unpriced',
+                badgeColor: 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                taxRate: undefined,
+                vendorName: undefined,
+                hsnCode: item.hsnCode
+            };
+        } else {
+            for (const key of candidateKeys) {
+                if (vendorPriceMap.has(key)) {
+                    const entry = vendorPriceMap.get(key)!;
+                    const rawPrice = Number(entry.price || 0);
+                    let primaryUnitPrice = rawPrice;
+                    let secondaryUnitPrice = 0;
+
+                    if (hasSecondaryUnit && factor > 0) {
+                        const isPricedPerSec = Boolean(
+                            entry.isSecondaryUnit || 
+                            (entry.pricingUnit && entry.pricingUnit.trim().toUpperCase() === secondaryUnit.trim().toUpperCase())
+                        );
+
+                        if (isPricedPerSec) {
+                            secondaryUnitPrice = rawPrice;
+                            primaryUnitPrice = rawPrice * factor;
+                        } else {
+                            primaryUnitPrice = rawPrice;
+                            secondaryUnitPrice = rawPrice / factor;
+                        }
+                    }
+
+                    return {
+                        unitPrice: primaryUnitPrice,
+                        secondaryUnitPrice,
+                        primaryUnit,
+                        secondaryUnit,
+                        hasSecondaryUnit,
+                        conversionFactor: factor,
+                        source: 'Price List',
+                        badgeColor: 'text-indigo-700 bg-indigo-50 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800',
+                        vendorName: entry.vendorName,
+                        taxRate: entry.taxRate,
+                        hsnCode: undefined
+                    };
+                }
+            }
+            const fallback = Number(item.costPrice || item.purchasePrice || item.unitPrice || item.standardRate || item.rate || 0);
+            return {
+                unitPrice: fallback,
+                secondaryUnitPrice: hasSecondaryUnit && factor > 0 ? (fallback / factor) : 0,
+                primaryUnit,
+                secondaryUnit,
+                hasSecondaryUnit,
+                conversionFactor: factor,
+                source: fallback > 0 ? 'Master Rate' : 'Unpriced',
+                badgeColor: 'text-slate-600 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+                vendorName: undefined,
+                taxRate: undefined,
+                hsnCode: undefined
+            };
+        }
+    };
+
 
     // Format quantities cleanly (up to 3 decimal places without trailing zeros)
     const formatQty = (val: number | string | undefined | null): string => {
@@ -167,13 +414,14 @@ export default function InventoryTable({
 
     const applyFiltersAndSort = (items: any[], isInHouse: boolean = false) => {
         let result = items.filter(item => {
-            // Global Search Filter (Name or Description)
+            // Global Search Filter (Name, Description, or Category)
             if (searchQuery) {
                 const query = searchQuery.toLowerCase();
                 const name = (item.materialName || item.componentName || item.name || '').toLowerCase();
                 const desc = (item.descriptions || item.description || '').toLowerCase();
+                const cat = getCategoryValue(item).toLowerCase();
 
-                if (!name.includes(query) && !desc.includes(query)) {
+                if (!name.includes(query) && !desc.includes(query) && !cat.includes(query)) {
                     return false;
                 }
             }
@@ -201,6 +449,9 @@ export default function InventoryTable({
                     itemValue = getMinStockValue(item);
                 } else if (key === 'unit') {
                     itemValue = item.unit || '-';
+                } else if (key === 'unitPrice') {
+                    const price = getItemPriceDetails(item, isInHouse).unitPrice;
+                    itemValue = price > 0 ? `₹${price.toLocaleString('en-IN')}` : 'Unpriced';
                 } else if (key === 'type') {
                     itemValue = item.type || '-';
                 } else if (key === 'allocatedQuantity') {
@@ -241,6 +492,14 @@ export default function InventoryTable({
                     const factorB = b.hasSecondaryUnit ? (Number(b.conversionFactor) || 1) : 0;
                     valA = Number(a.currentStock ?? a.quantity ?? 0) * factorA;
                     valB = Number(b.currentStock ?? b.quantity ?? 0) * factorB;
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                } else if (key === 'unitPrice') {
+                    valA = getItemPriceDetails(a, isInHouse).unitPrice;
+                    valB = getItemPriceDetails(b, isInHouse).unitPrice;
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                } else if (key === 'valuation') {
+                    valA = Number(a.currentStock ?? a.quantity ?? 0) * getItemPriceDetails(a, isInHouse).unitPrice;
+                    valB = Number(b.currentStock ?? b.quantity ?? 0) * getItemPriceDetails(b, isInHouse).unitPrice;
                     return direction === 'asc' ? valA - valB : valB - valA;
                 } else if (key === 'reorderLevel') {
                     valA = Number(a.reorderLevel ?? a.minimumStock ?? 0);
@@ -310,8 +569,146 @@ export default function InventoryTable({
     const isFilterOrSortActive = Object.keys(filters).length > 0 || sortConfig !== null || searchQuery !== '';
     const activeFilterCount = Object.keys(filters).length;
 
+    const currentDataset = useMemo(() => {
+        return activeSubTab !== 'inhouse' ? (data || []) : (inHouseData || []);
+    }, [activeSubTab, data, inHouseData]);
+
+    const focusedItem = useMemo(() => {
+        if (!focusedItemId) return null;
+        return currentDataset.find((i: any) => (i._id || i.id)?.toString() === focusedItemId) || null;
+    }, [currentDataset, focusedItemId]);
+
+    const inventoryKpis = useMemo(() => {
+        const isFg = activeSubTab === 'inhouse';
+        const tabTitle = activeSubTab === 'bo' 
+            ? 'Bought Out (BO)' 
+            : activeSubTab === 'consumable' 
+            ? 'Consumable Items' 
+            : activeSubTab === 'inhouse' 
+            ? 'Finished Goods (FG)' 
+            : 'Raw Materials (RM)';
+
+        // 1. Single Item Focus Mode
+        if (focusedItem) {
+            const stock = Number(focusedItem.currentStock ?? focusedItem.quantity ?? 0);
+            const priceInfo = getItemPriceDetails(focusedItem, isFg);
+            const valuation = stock * priceInfo.unitPrice;
+            const minStock = Number(focusedItem.reorderLevel ?? focusedItem.minimumStock ?? 0);
+            const isLowStock = minStock > 0 && stock <= minStock;
+            const inward = Number(focusedItem.monthlyData?.totalInwardQuantity || focusedItem.monthlyData?.received || 0);
+            const outward = Number(focusedItem.monthlyData?.totalOutwardQuantity || focusedItem.monthlyData?.issued || 0);
+            const netFlow = inward - outward;
+            const itemName = focusedItem.materialName || focusedItem.componentName || focusedItem.name || 'Unnamed Item';
+            const itemDesc = focusedItem.descriptions || focusedItem.description || '';
+            const hasSec = Boolean(focusedItem.hasSecondaryUnit && focusedItem.secondaryUnit && (focusedItem.conversionFactor || 0) > 0);
+            const secStock = hasSec ? stock * (focusedItem.conversionFactor || 1) : 0;
+
+            return {
+                isFocused: true,
+                focusedItem,
+                itemName,
+                itemDesc,
+                tabTitle,
+                totalItems: 1,
+                pricedItemsCount: priceInfo.unitPrice > 0 ? 1 : 0,
+                stock,
+                formattedStock: `${formatQty(stock)} ${focusedItem.unit || 'PCS'}`,
+                hasSec,
+                secStock,
+                formattedSecStock: hasSec ? `${formatQty(secStock)} ${focusedItem.secondaryUnit}` : null,
+                unitPrice: priceInfo.unitPrice,
+                formattedUnitPrice: priceInfo.unitPrice > 0 ? (
+                    `₹${priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${priceInfo.primaryUnit}` +
+                    (priceInfo.hasSecondaryUnit && priceInfo.secondaryUnitPrice > 0 ? ` (₹${priceInfo.secondaryUnitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${priceInfo.secondaryUnit})` : '')
+                ) : 'Unpriced',
+                priceSource: priceInfo.source,
+                priceBadgeColor: priceInfo.badgeColor,
+                vendorName: priceInfo.vendorName,
+                totalValuation: valuation,
+                formattedTotalValuation: `₹${valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                minStock,
+                formattedMinStock: `${formatQty(minStock)} ${focusedItem.unit || 'PCS'}`,
+                isLowStock,
+                lowStockCount: isLowStock ? 1 : 0,
+                inward,
+                formattedInward: formatQty(inward),
+                outward,
+                formattedOutward: formatQty(outward),
+                netFlow,
+                formattedNetFlow: `${netFlow >= 0 ? '+' : ''}${formatQty(netFlow)} ${focusedItem.unit || 'PCS'}`,
+                formattedTotalStockUnits: `${formatQty(stock)} ${focusedItem.unit || 'PCS'}`
+            };
+        }
+
+        // 2. Aggregate Overview Mode (All items)
+        let totalValuation = 0;
+        let totalStockUnits = 0;
+        let lowStockCount = 0;
+        let totalInward = 0;
+        let totalOutward = 0;
+        let pricedItemsCount = 0;
+
+        currentDataset.forEach((item: any) => {
+            const stock = Number(item.currentStock ?? item.quantity ?? 0);
+            const priceInfo = getItemPriceDetails(item, isFg);
+            const minStock = Number(item.reorderLevel ?? item.minimumStock ?? 0);
+
+            if (priceInfo.unitPrice > 0) {
+                pricedItemsCount++;
+            }
+
+            if (stock > 0) {
+                totalStockUnits += stock;
+                totalValuation += (stock * priceInfo.unitPrice);
+            }
+
+            if (minStock > 0 && stock <= minStock) {
+                lowStockCount += 1;
+            }
+
+            if (item.monthlyData) {
+                totalInward += Number(item.monthlyData.totalInwardQuantity || item.monthlyData.received || 0);
+                totalOutward += Number(item.monthlyData.totalOutwardQuantity || item.monthlyData.issued || 0);
+            }
+        });
+
+        const netFlow = totalInward - totalOutward;
+
+        return {
+            isFocused: false,
+            focusedItem: null,
+            itemName: '',
+            itemDesc: '',
+            hasSec: false,
+            secStock: 0,
+            formattedSecStock: null,
+            totalItems: currentDataset.length,
+            pricedItemsCount,
+            tabTitle,
+            totalStockUnits,
+            formattedTotalStockUnits: totalStockUnits.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            totalValuation,
+            formattedTotalValuation: `₹${totalValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            lowStockCount,
+            totalInward,
+            formattedInward: totalInward.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            totalOutward,
+            formattedOutward: totalOutward.toLocaleString('en-IN', { maximumFractionDigits: 2 }),
+            netFlow,
+            formattedNetFlow: `${netFlow >= 0 ? '+' : ''}${netFlow.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`,
+            unitPrice: 0,
+            formattedUnitPrice: '',
+            priceSource: 'Price List',
+            priceBadgeColor: '',
+            vendorName: undefined,
+            isLowStock: lowStockCount > 0,
+            formattedMinStock: ''
+        };
+    }, [currentDataset, activeSubTab, vendorPriceMap, salesPriceMap, focusedItem]);
+
     const exportToExcel = () => {
         const currentData = activeSubTab !== 'inhouse' ? filteredData : filteredInHouseData;
+        const isFg = activeSubTab === 'inhouse';
         const exportData = currentData.map((item, idx) => {
             const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
             const factor = Number(item.conversionFactor) || 1;
@@ -319,6 +716,8 @@ export default function InventoryTable({
             const reorderLevel = Number(item.reorderLevel ?? item.minimumStock ?? 0);
             const inward = Number(item.monthlyData?.totalInwardQuantity || item.monthlyData?.received || 0);
             const outward = Number(item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0);
+            const priceInfo = getItemPriceDetails(item, isFg);
+            const valuation = currentStock * priceInfo.unitPrice;
 
             return {
                 'S.No': idx + 1,
@@ -331,6 +730,9 @@ export default function InventoryTable({
                 'Secondary Stock': hasSec ? formatQty(currentStock * factor) : '-',
                 'Secondary Unit': hasSec ? item.secondaryUnit : '-',
                 'Conversion Factor': hasSec ? `1 ${item.unit || 'Unit'} = ${factor} ${item.secondaryUnit}` : '-',
+                'Unit Price (INR)': priceInfo.unitPrice,
+                'Price Source': priceInfo.source,
+                'Total Valuation (INR)': Number(valuation.toFixed(2)),
                 'Monthly Inward (Primary)': inward,
                 'Monthly Outward (Primary)': outward,
                 'Monthly Inward (Secondary)': hasSec ? formatQty(inward * factor) : '-',
@@ -351,9 +753,267 @@ export default function InventoryTable({
 
     return (
         <div className="w-full h-full bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col overflow-hidden">
+            {/* Executive KPI Dashboard Header & Cards */}
+            <div className="p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+                {!showDashboard ? (
+                    /* Collapsed Single-Line Summary Bar */
+                    <div className="bg-white dark:bg-slate-800/90 px-3.5 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-slate-600 dark:text-slate-300">
+                            {inventoryKpis.isFocused ? (
+                                <>
+                                    <span className="font-semibold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                                        <Crosshair size={14} className="text-indigo-600" />
+                                        Focused: <strong className="font-mono">{inventoryKpis.itemName}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        In-Stock: <strong className="text-slate-900 dark:text-white font-mono">{inventoryKpis.formattedTotalStockUnits}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Valuation: <strong className="text-emerald-600 font-mono">{inventoryKpis.formattedTotalValuation}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFocusedItemId(null)}
+                                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
+                                    >
+                                        Reset Focus
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                        <Boxes size={14} className="text-indigo-600" />
+                                        {inventoryKpis.tabTitle}: <strong className="text-indigo-600 font-mono">{inventoryKpis.totalItems} Items</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        In-Stock Units: <strong className="text-slate-900 dark:text-white font-mono">{inventoryKpis.formattedTotalStockUnits}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Total Valuation: <strong className="text-emerald-600 font-mono">{inventoryKpis.formattedTotalValuation}</strong>
+                                    </span>
+                                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                                    <span>
+                                        Reorder Alerts: <strong className="text-amber-600 font-mono">{inventoryKpis.lowStockCount}</strong>
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(true)}
+                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                            <span>Show Dashboard</span>
+                            <ChevronDown size={14} />
+                        </button>
+                    </div>
+                ) : (
+                    /* Expanded Dashboard with Header Filter Bar & 4 KPI Cards */
+                    <div className="space-y-3">
+                        {/* Dynamic Dashboard Control Bar (Item Focus Selector & Mode Badges) */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-1 border-b border-slate-200/60 dark:border-slate-800/60">
+                            {/* Left: Mode Title */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {inventoryKpis.isFocused ? (
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5 border border-indigo-200 dark:border-indigo-800 shadow-2xs">
+                                            <Crosshair size={13} className="text-indigo-600 dark:text-indigo-400 animate-pulse" />
+                                            <span>Single Item Analysis</span>
+                                        </span>
+                                        <div className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                            {inventoryKpis.itemName}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wide">
+                                            <LayoutGrid size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                            <span>{inventoryKpis.tabTitle} Executive Overview</span>
+                                        </span>
+                                        <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 font-mono">
+                                            ({inventoryKpis.totalItems} Items &bull; {inventoryKpis.pricedItemsCount} Priced via Price List)
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Right: Item Focus Selector & Reset */}
+                            <div className="flex items-center gap-2 shrink-0">
+                                <label htmlFor="inventory-item-focus-select" className="text-xs font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1 shrink-0">
+                                    <Crosshair size={13} className="text-indigo-500" />
+                                    <span>Focus Item:</span>
+                                </label>
+                                <select
+                                    id="inventory-item-focus-select"
+                                    value={focusedItemId || ''}
+                                    onChange={(e) => setFocusedItemId(e.target.value ? e.target.value : null)}
+                                    className="text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 max-w-[210px] sm:max-w-[300px] truncate shadow-2xs cursor-pointer font-medium"
+                                >
+                                    <option value="">All Items (Overview Mode)</option>
+                                    {currentDataset.map((item: any) => {
+                                        const id = (item._id || item.id)?.toString();
+                                        const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                        const desc = item.descriptions || item.description;
+                                        const label = desc ? `${name} — ${desc}` : name;
+                                        return (
+                                            <option key={id} value={id}>
+                                                {label}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                                {focusedItemId && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFocusedItemId(null)}
+                                        className="text-xs font-bold px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-700 dark:text-rose-300 rounded-xl border border-rose-200 dark:border-rose-800 flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                        title="Clear focus and return to aggregate overview"
+                                    >
+                                        <RotateCcw size={12} />
+                                        <span>Reset</span>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 4 Dynamic KPI Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            {/* Card 1: Stock Quantity & SKUs */}
+                            <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        {inventoryKpis.isFocused ? "In-Stock Quantity" : inventoryKpis.tabTitle}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
+                                        <Boxes size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                                    {inventoryKpis.isFocused ? (
+                                        <span>{inventoryKpis.formattedStock}</span>
+                                    ) : (
+                                        <>
+                                            {inventoryKpis.totalItems} <span className="text-xs font-semibold text-slate-500 font-sans">SKUs</span>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    {inventoryKpis.isFocused ? (
+                                        <>
+                                            <span>Secondary Stock</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                {inventoryKpis.formattedSecStock || "N/A"}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Total In-Stock Units</span>
+                                            <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">{inventoryKpis.formattedTotalStockUnits}</span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Card 2: Total Inventory Valuation (INR) */}
+                            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        {inventoryKpis.isFocused ? "Item Stock Value" : "Total Stock Valuation"}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                                        <IndianRupee size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight truncate">
+                                    {inventoryKpis.formattedTotalValuation}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    {inventoryKpis.isFocused ? (
+                                        <>
+                                            <span>Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">{inventoryKpis.formattedUnitPrice}</strong></span>
+                                            <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${inventoryKpis.priceBadgeColor}`}>
+                                                {inventoryKpis.priceSource}
+                                            </span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Valuation Source</span>
+                                            <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                                {activeSubTab === 'inhouse' ? 'Sales Price List' : 'Vendor Price List'}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Card 3: Reorder & Low Stock Alerts */}
+                            <div className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-amber-600 dark:text-amber-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                        {inventoryKpis.isFocused ? "Inventory Health" : "Low Stock Alerts"}
+                                    </span>
+                                    <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                                        {inventoryKpis.isFocused && !inventoryKpis.isLowStock ? (
+                                            <CheckCircle2 size={15} className="text-emerald-600 dark:text-emerald-400" />
+                                        ) : (
+                                            <AlertTriangle size={15} />
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="text-xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                                    {inventoryKpis.isFocused ? (
+                                        <span className={inventoryKpis.isLowStock ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}>
+                                            {inventoryKpis.isLowStock ? "Low Stock Alert" : "Healthy Stock"}
+                                        </span>
+                                    ) : (
+                                        <>
+                                            {inventoryKpis.lowStockCount} <span className="text-xs font-semibold text-slate-500 font-sans">Items</span>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    <span>{inventoryKpis.isFocused ? "Reorder Threshold" : "Reorder Level Reached"}</span>
+                                    <span className="font-bold text-amber-600 dark:text-amber-400 font-mono">
+                                        {inventoryKpis.isFocused 
+                                            ? inventoryKpis.formattedMinStock 
+                                            : (inventoryKpis.lowStockCount > 0 ? "Action Required" : "All Healthy")}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Card 4: Monthly Flow Dynamics */}
+                            <div className="bg-gradient-to-br from-purple-50/90 via-white to-slate-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900 p-3.5 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs relative overflow-hidden">
+                                <div className="flex items-center justify-between text-purple-600 dark:text-purple-400 mb-1.5">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Monthly Flow</span>
+                                    <div className="w-7 h-7 rounded-xl bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center">
+                                        <ArrowUpDown size={15} />
+                                    </div>
+                                </div>
+                                <div className="text-base font-black text-slate-900 dark:text-white font-mono tracking-tight flex items-center gap-2">
+                                    <span className="text-emerald-600">+{inventoryKpis.formattedInward}</span>
+                                    <span className="text-slate-400 font-normal">/</span>
+                                    <span className="text-rose-600">-{inventoryKpis.formattedOutward}</span>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                                    <span>Net Monthly Movement</span>
+                                    <span className="font-bold text-purple-600 dark:text-purple-400 font-mono">
+                                        {inventoryKpis.formattedNetFlow}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* Top Toolbar */}
             <div className="px-3.5 py-2.5 sm:px-4 border-b border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-2.5 bg-slate-50/60 dark:bg-slate-900/50 shrink-0">
-                {/* Left side: Count & Reset Filters */}
+                {/* Left side: Count, Reset Filters & Dashboard Toggle */}
                 <div className="flex items-center flex-wrap gap-2.5">
                     <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
                         Showing <span className="font-bold text-gray-900 dark:text-gray-100">{startEntry}</span>–<span className="font-bold text-gray-900 dark:text-gray-100">{endEntry}</span> of <span className="font-bold text-indigo-600 dark:text-indigo-400">{totalCount}</span> items
@@ -376,11 +1036,22 @@ export default function InventoryTable({
                             )}
                         </button>
                     )}
+
+                    {/* Dashboard Show/Hide Toggle */}
+                    <button
+                        type="button"
+                        onClick={() => setShowDashboard(!showDashboard)}
+                        className="px-2.5 sm:px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                        title={showDashboard ? "Hide executive dashboard" : "Show executive dashboard"}
+                    >
+                        {showDashboard ? <LayoutGrid size={13} className="text-indigo-600" /> : <Eye size={13} className="text-gray-500" />}
+                        <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
+                    </button>
                 </div>
 
                 {/* Right side: Search, Create GRN, Excel Actions */}
                 <div className="flex flex-wrap items-center gap-2.5 justify-end">
-                    {/* Search Bar */}
+                    {/* Search Bar with Clear Button */}
                     <div className="relative flex-1 sm:w-64 min-w-[200px]">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
                         <input
@@ -388,8 +1059,18 @@ export default function InventoryTable({
                             placeholder="Search by Name or Description..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-3 py-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-sm text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                            className="w-full pl-9 pr-8 py-2 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-sm text-gray-900 dark:text-gray-100 placeholder-gray-400"
                         />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                                title="Clear search"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                     </div>
 
                     {/* Refresh Data Button */}
@@ -507,7 +1188,7 @@ export default function InventoryTable({
                 // Inventory Table (RM/BO & Consumables)
                 <>
                     {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto flex-1 relative">
+                    <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px] flex-1 relative border-b border-gray-200 dark:border-slate-800">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-10">
                                 <tr>
@@ -573,6 +1254,33 @@ export default function InventoryTable({
                                     </th>
                                     <th className="px-4 py-2 text-left">
                                         <ColumnFilter
+                                            column="unitPrice"
+                                            title="Unit Price"
+                                            data={data}
+                                            currentFilters={filters['unitPrice'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('unitPrice', vals)}
+                                            getValue={(item) => {
+                                                const p = getItemPriceDetails(item, false).unitPrice;
+                                                return p > 0 ? `₹${p.toLocaleString('en-IN')}` : 'Unpriced';
+                                            }}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-4 py-2 text-left">
+                                        <ColumnFilter
+                                            column="valuation"
+                                            title="Valuation"
+                                            data={data}
+                                            currentFilters={[]}
+                                            onFilterChange={() => {}}
+                                            getValue={() => ''}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-4 py-2 text-left">
+                                        <ColumnFilter
                                             column="monthlyFlow"
                                             title="Monthly Flow"
                                             data={data}
@@ -595,12 +1303,15 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
+                                    <th className="px-3 py-2 text-right">
+                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Action</span>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
                                 {paginatedData.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                        <td colSpan={10} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                             No inventory items match the current filters.
                                         </td>
                                     </tr>
@@ -611,12 +1322,18 @@ export default function InventoryTable({
                                         const secStock = hasSec ? (item.currentStock || 0) * (item.conversionFactor || 1) : 0;
                                         const inward = item.monthlyData?.totalInwardQuantity || item.monthlyData?.received || 0;
                                         const outward = item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0;
+                                        const priceInfo = getItemPriceDetails(item, false);
+                                        const currentStockNum = Number(item.currentStock || 0);
+                                        const valuation = currentStockNum * priceInfo.unitPrice;
+                                        const isFocusedRow = focusedItemId === (item._id || item.id)?.toString();
 
                                         return (
                                             <tr
                                                 key={`${item._id}-${index}`}
                                                 onClick={() => onItemClick && onItemClick(item)}
-                                                className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer"
+                                                className={`hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer ${
+                                                    isFocusedRow ? "bg-indigo-50/70 dark:bg-indigo-950/40 ring-1 ring-inset ring-indigo-500/30" : ""
+                                                }`}
                                             >
                                                 {/* 1. Item Details */}
                                                 <td className="px-4 py-2.5 sm:py-3 max-w-xs">
@@ -664,7 +1381,36 @@ export default function InventoryTable({
                                                     )}
                                                 </td>
 
-                                                {/* 6. Monthly Flow */}
+                                                {/* 6. Unit Price (Price List) */}
+                                                <td className="px-4 py-2.5 sm:py-3">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                            {priceInfo.unitPrice > 0 ? (
+                                                                <>
+                                                                    ₹{priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    <span className="text-[10px] font-normal text-slate-500 ml-0.5">/{priceInfo.primaryUnit}</span>
+                                                                </>
+                                                            ) : '-'}
+                                                        </span>
+                                                        {priceInfo.hasSecondaryUnit && priceInfo.secondaryUnitPrice > 0 && (
+                                                            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                                                (₹{priceInfo.secondaryUnitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{priceInfo.secondaryUnit})
+                                                            </span>
+                                                        )}
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border w-fit ${priceInfo.badgeColor}`}>
+                                                            {priceInfo.source}
+                                                        </span>
+                                                    </div>
+                                                </td>
+
+                                                {/* 7. Stock Valuation */}
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
+                                                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                                        ₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                </td>
+
+                                                {/* 8. Monthly Flow */}
                                                 <td className="px-4 py-2.5 sm:py-3">
                                                     {item.monthlyData ? (
                                                         <div className="flex flex-col gap-0.5">
@@ -694,7 +1440,7 @@ export default function InventoryTable({
                                                     )}
                                                 </td>
 
-                                                {/* 7. Min Stock */}
+                                                {/* 9. Min Stock */}
                                                 <td className="px-4 py-2.5 sm:py-3 font-mono">
                                                     <div className="font-bold text-gray-700 dark:text-gray-300">
                                                         {formatQty(item.reorderLevel || 0)} {item.unit || ''}
@@ -705,6 +1451,31 @@ export default function InventoryTable({
                                                         </div>
                                                     )}
                                                 </td>
+
+                                                {/* 10. Focus Action */}
+                                                <td className="px-3 py-2.5 sm:py-3 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isFocusedRow) {
+                                                                setFocusedItemId(null);
+                                                            } else {
+                                                                setFocusedItemId((item._id || item.id)?.toString());
+                                                                setShowDashboard(true);
+                                                            }
+                                                        }}
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
+                                                            isFocusedRow 
+                                                                ? "bg-indigo-600 text-white hover:bg-indigo-700" 
+                                                                : "bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 border border-slate-200/80 dark:border-slate-700"
+                                                        }`}
+                                                        title={isFocusedRow ? "Reset dashboard focus" : "Focus on this item in dashboard"}
+                                                    >
+                                                        <Crosshair size={12} className={isFocusedRow ? "text-white" : "text-indigo-500"} />
+                                                        <span>{isFocusedRow ? "Focused" : "Focus"}</span>
+                                                    </button>
+                                                </td>
                                             </tr>
                                         );
                                     })
@@ -714,7 +1485,7 @@ export default function InventoryTable({
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex-1 overflow-y-auto flex flex-col gap-3 p-3 sm:p-4 pb-20">
+                    <div className="md:hidden flex-1 overflow-y-auto max-h-[calc(100vh-270px)] flex flex-col gap-3 p-3 sm:p-4 pb-20">
                         {paginatedData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No inventory items found.</div>
                         ) : (
@@ -723,12 +1494,20 @@ export default function InventoryTable({
                                 const hasSec = item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0;
                                 const inward = item.monthlyData?.totalInwardQuantity || item.monthlyData?.received || 0;
                                 const outward = item.monthlyData?.totalOutwardQuantity || item.monthlyData?.issued || 0;
+                                const priceInfo = getItemPriceDetails(item, false);
+                                const currentStockNum = Number(item.currentStock || 0);
+                                const valuation = currentStockNum * priceInfo.unitPrice;
+                                const isFocusedRow = focusedItemId === (item._id || item.id)?.toString();
 
                                 return (
                                     <div
                                         key={`${item._id}-${index}`}
                                         onClick={() => onItemClick && onItemClick(item)}
-                                        className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-2.5 active:scale-95 transition-transform"
+                                        className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border flex flex-col gap-2.5 active:scale-95 transition-transform ${
+                                            isFocusedRow 
+                                                ? "border-indigo-500 ring-2 ring-indigo-500/20" 
+                                                : "border-gray-100 dark:border-gray-700"
+                                        }`}
                                     >
                                         <div className="flex justify-between items-start gap-2">
                                             <div className="flex-1">
@@ -747,6 +1526,54 @@ export default function InventoryTable({
                                                     </span>
                                                 )}
                                             </div>
+                                        </div>
+
+                                        {/* Rate, Valuation & Focus Control */}
+                                        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 p-2 rounded-lg border border-slate-100 dark:border-slate-700 text-xs">
+                                            <div className="flex flex-col">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="text-gray-500 dark:text-gray-400 font-medium">Rate:</span>
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                                                        {priceInfo.unitPrice > 0 ? (
+                                                            <>
+                                                                ₹{priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                <span className="text-[10px] font-normal text-slate-500 ml-0.5">/{priceInfo.primaryUnit}</span>
+                                                            </>
+                                                        ) : '-'}
+                                                    </span>
+                                                    {priceInfo.hasSecondaryUnit && priceInfo.secondaryUnitPrice > 0 && (
+                                                        <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                                            (₹{priceInfo.secondaryUnitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{priceInfo.secondaryUnit})
+                                                        </span>
+                                                    )}
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${priceInfo.badgeColor}`}>
+                                                        {priceInfo.source}
+                                                    </span>
+                                                </div>
+                                                <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
+                                                    Valuation: <strong className="text-emerald-600 dark:text-emerald-400">₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (isFocusedRow) {
+                                                        setFocusedItemId(null);
+                                                    } else {
+                                                        setFocusedItemId((item._id || item.id)?.toString());
+                                                        setShowDashboard(true);
+                                                    }
+                                                }}
+                                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
+                                                    isFocusedRow 
+                                                        ? "bg-indigo-600 text-white" 
+                                                        : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
+                                                }`}
+                                            >
+                                                <Crosshair size={12} />
+                                                <span>{isFocusedRow ? "Focused" : "Focus"}</span>
+                                            </button>
                                         </div>
 
                                         {/* Monthly Flow (Both Units) */}
@@ -805,7 +1632,7 @@ export default function InventoryTable({
                 // InHouse Table (FG Components)
                 <>
                     {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto flex-1 relative">
+                    <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px] flex-1 relative border-b border-gray-200 dark:border-slate-800">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 text-xs text-gray-700 dark:text-gray-300 uppercase sticky top-0 z-10">
                                 <tr>
@@ -847,12 +1674,51 @@ export default function InventoryTable({
                                     </th>
                                     <th className="px-4 py-2 text-left">
                                         <ColumnFilter
+                                            column="category"
+                                            title="Category"
+                                            data={inHouseData}
+                                            currentFilters={filters['category'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('category', vals)}
+                                            getValue={getCategoryValue}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-4 py-2 text-left">
+                                        <ColumnFilter
                                             column="quantity"
                                             title="Total Stock"
                                             data={inHouseData}
                                             currentFilters={filters['quantity'] || []}
                                             onFilterChange={(vals) => handleFilterChange('quantity', vals)}
                                             getValue={(item) => String(item.quantity || 0)}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-4 py-2 text-left">
+                                        <ColumnFilter
+                                            column="unitPrice"
+                                            title="Unit Price"
+                                            data={inHouseData}
+                                            currentFilters={filters['unitPrice'] || []}
+                                            onFilterChange={(vals) => handleFilterChange('unitPrice', vals)}
+                                            getValue={(item) => {
+                                                const p = getItemPriceDetails(item, true).unitPrice;
+                                                return p > 0 ? `₹${p.toLocaleString('en-IN')}` : 'Unpriced';
+                                            }}
+                                            sortConfig={sortConfig}
+                                            onSortChange={handleSortChange}
+                                        />
+                                    </th>
+                                    <th className="px-4 py-2 text-left">
+                                        <ColumnFilter
+                                            column="valuation"
+                                            title="Valuation"
+                                            data={inHouseData}
+                                            currentFilters={[]}
+                                            onFilterChange={() => {}}
+                                            getValue={() => ''}
                                             sortConfig={sortConfig}
                                             onSortChange={handleSortChange}
                                         />
@@ -893,144 +1759,278 @@ export default function InventoryTable({
                                             onSortChange={handleSortChange}
                                         />
                                     </th>
+                                    <th className="px-3 py-2 text-right">
+                                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Action</span>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200 dark:divide-slate-800 text-xs">
                                 {paginatedInHouseData.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                        <td colSpan={11} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                                             No In-House components found matching current filters.
                                         </td>
                                     </tr>
                                 ) : (
-                                    paginatedInHouseData.map((item, index) => (
-                                        <tr
-                                            key={`${item._id}-${index}`}
-                                            onClick={() => onItemClick && onItemClick(item)}
-                                            className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer"
-                                        >
-                                            <td className="px-4 py-2.5 sm:py-3 font-bold text-gray-900 dark:text-white">{item.name || item.componentName || '-'}</td>
-                                            <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300 truncate max-w-xs" title={item.description}>{item.description || '-'}</td>
-                                            <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
-                                                <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800">
-                                                    {item.type || 'Component'}
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-2.5 sm:py-3">
-                                                <div className="flex flex-col">
-                                                    <span className={`font-mono font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                                                        {item.quantity} {item.unit || 'Nos'}
+                                    paginatedInHouseData.map((item, index) => {
+                                        const priceInfo = getItemPriceDetails(item, true);
+                                        const currentQty = Number(item.quantity || 0);
+                                        const valuation = currentQty * priceInfo.unitPrice;
+                                        const isFocusedRow = focusedItemId === (item._id || item.id)?.toString();
+
+                                        return (
+                                            <tr
+                                                key={`${item._id}-${index}`}
+                                                onClick={() => onItemClick && onItemClick(item)}
+                                                className={`hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors cursor-pointer ${
+                                                    isFocusedRow ? "bg-indigo-50/70 dark:bg-indigo-950/40 ring-1 ring-inset ring-indigo-500/30" : ""
+                                                }`}
+                                            >
+                                                <td className="px-4 py-2.5 sm:py-3 font-bold text-gray-900 dark:text-white">{item.name || item.componentName || '-'}</td>
+                                                <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300 truncate max-w-xs" title={item.description}>{item.description || '-'}</td>
+                                                <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
+                                                    <span className="px-2 py-0.5 rounded-full text-xs font-semibold border bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/50 dark:text-purple-300 dark:border-purple-800">
+                                                        {item.type || 'Component'}
                                                     </span>
-                                                    {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
-                                                        <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-                                                            {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                </td>
+                                                <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
+                                                    {(() => {
+                                                        const cat = getCategoryValue(item);
+                                                        return cat && cat !== '-' ? (
+                                                            <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800">
+                                                                {cat}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-gray-400">-</span>
+                                                        );
+                                                    })()}
+                                                </td>
+                                                <td className="px-4 py-2.5 sm:py-3">
+                                                    <div className="flex flex-col">
+                                                        <span className={`font-mono font-bold ${item.quantity <= (item.reorderLevel || 0) ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                                                            {item.quantity} {item.unit || 'Nos'}
                                                         </span>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-2.5 sm:py-3">
-                                                {item.monthlyData ? (
-                                                    <div className="flex flex-col gap-0.5">
-                                                        <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300 text-xs">
-                                                            <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                                            <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
-                                                            <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
-                                                        </div>
-                                                        {item.hasSecondaryUnit && item.secondaryUnit && (
-                                                            <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
-                                                                <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
-                                                                <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
-                                                                <span>{item.secondaryUnit}</span>
-                                                            </div>
+                                                        {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
+                                                            <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                                                                {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                            </span>
                                                         )}
                                                     </div>
-                                                ) : (
-                                                    <span className="text-gray-400">-</span>
-                                                )}
-                                            </td>
-                                            <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
-                                                <div className="flex flex-col">
-                                                    <span className="font-semibold">{item.unit || '-'}</span>
-                                                    {item.hasSecondaryUnit && item.secondaryUnit && (
-                                                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono" title={`1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
-                                                            1 = {item.conversionFactor} {item.secondaryUnit}
+                                                </td>
+                                                {/* Unit Price (Price List) */}
+                                                <td className="px-4 py-2.5 sm:py-3">
+                                                    <div className="flex flex-col gap-0.5">
+                                                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                                            {priceInfo.unitPrice > 0 ? (
+                                                                <>
+                                                                    ₹{priceInfo.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                    <span className="text-[10px] font-normal text-slate-500 ml-0.5">/{priceInfo.primaryUnit}</span>
+                                                                </>
+                                                            ) : '-'}
                                                         </span>
+                                                        {priceInfo.hasSecondaryUnit && priceInfo.secondaryUnitPrice > 0 && (
+                                                            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                                                (₹{priceInfo.secondaryUnitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/{priceInfo.secondaryUnit})
+                                                            </span>
+                                                        )}
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border w-fit ${priceInfo.badgeColor}`}>
+                                                            {priceInfo.source}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                {/* Stock Valuation */}
+                                                <td className="px-4 py-2.5 sm:py-3 font-mono">
+                                                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                                        ₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-2.5 sm:py-3">
+                                                    {item.monthlyData ? (
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-300 text-xs">
+                                                                <span className="text-emerald-600 font-bold" title="Inward">(+{item.monthlyData.totalInwardQuantity || 0})</span>
+                                                                <span className="text-rose-600 font-bold" title="Outward">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                                <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
+                                                            </div>
+                                                            {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                                <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
+                                                                    <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                                    <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                                    <span>{item.secondaryUnit}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-gray-400">-</span>
                                                     )}
-                                                </div>
-                                            </td>
-                                            <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
-                                                {getLocationValue(item)}
-                                            </td>
-                                        </tr>
-                                    ))
+                                                </td>
+                                                <td className="px-4 py-2.5 sm:py-3 text-gray-600 dark:text-gray-300">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-semibold">{item.unit || '-'}</span>
+                                                        {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-mono" title={`1 ${item.unit} = ${item.conversionFactor} ${item.secondaryUnit}`}>
+                                                                1 = {item.conversionFactor} {item.secondaryUnit}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-5 py-3.5 text-gray-600 dark:text-gray-300">
+                                                    {getLocationValue(item)}
+                                                </td>
+                                                {/* Focus Action */}
+                                                <td className="px-3 py-2.5 sm:py-3 text-right">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isFocusedRow) {
+                                                                setFocusedItemId(null);
+                                                            } else {
+                                                                setFocusedItemId((item._id || item.id)?.toString());
+                                                                setShowDashboard(true);
+                                                            }
+                                                        }}
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold inline-flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
+                                                            isFocusedRow 
+                                                                ? "bg-indigo-600 text-white hover:bg-indigo-700" 
+                                                                : "bg-slate-100 dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-700 dark:text-slate-300 hover:text-indigo-600 border border-slate-200/80 dark:border-slate-700"
+                                                        }`}
+                                                        title={isFocusedRow ? "Reset dashboard focus" : "Focus on this item in dashboard"}
+                                                    >
+                                                        <Crosshair size={12} className={isFocusedRow ? "text-white" : "text-indigo-500"} />
+                                                        <span>{isFocusedRow ? "Focused" : "Focus"}</span>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>
                     </div>
 
                     {/* Mobile Card View */}
-                    <div className="md:hidden flex-1 overflow-y-auto flex flex-col gap-3 p-3 sm:p-4 pb-20">
+                    <div className="md:hidden flex-1 overflow-y-auto max-h-[calc(100vh-270px)] flex flex-col gap-3 p-3 sm:p-4 pb-20">
                         {paginatedInHouseData.length === 0 ? (
                             <div className="text-center text-gray-500 py-8">No In-House components found.</div>
                         ) : (
-                            paginatedInHouseData.map((item, index) => (
-                                <div
-                                    key={`${item._id}-${index}`}
-                                    onClick={() => onItemClick && onItemClick(item)}
-                                    className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex flex-col gap-2 active:scale-95 transition-transform"
-                                >
-                                    <div className="flex justify-between items-start">
-                                        <div>
-                                            <h4 className="font-bold text-gray-900 dark:text-white text-sm">{item.name || item.componentName}</h4>
-                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 mt-1 inline-block">
-                                                {item.type || "Component"}
-                                            </span>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-1">
-                                            <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity <= (item.reorderLevel || 0) ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
-                                                {item.quantity} {item.unit || ''}
-                                            </span>
-                                            {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
-                                                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
-                                                    {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
+                            paginatedInHouseData.map((item, index) => {
+                                const priceInfo = getItemPriceDetails(item, true);
+                                const currentQty = Number(item.quantity || 0);
+                                const valuation = currentQty * priceInfo.unitPrice;
+                                const isFocusedRow = focusedItemId === (item._id || item.id)?.toString();
 
-                                    {item.monthlyData && (
-                                        <div className="flex flex-col gap-0.5 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-emerald-600 font-medium">(+{item.monthlyData.totalInwardQuantity || 0})</span>
-                                                <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
-                                                <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
-                                            </div>
-                                            {item.hasSecondaryUnit && item.secondaryUnit && (
-                                                <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
-                                                    <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
-                                                    <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
-                                                    <span>{item.secondaryUnit}</span>
+                                return (
+                                    <div
+                                        key={`${item._id}-${index}`}
+                                        onClick={() => onItemClick && onItemClick(item)}
+                                        className={`bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border flex flex-col gap-2 active:scale-95 transition-transform ${
+                                            isFocusedRow 
+                                                ? "border-indigo-500 ring-2 ring-indigo-500/20" 
+                                                : "border-gray-100 dark:border-gray-700"
+                                        }`}
+                                    >
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h4 className="font-bold text-gray-900 dark:text-white text-sm">{item.name || item.componentName}</h4>
+                                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 inline-block">
+                                                        {item.type || "Component"}
+                                                    </span>
+                                                    {(() => {
+                                                        const cat = getCategoryValue(item);
+                                                        return cat && cat !== '-' ? (
+                                                            <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 inline-block">
+                                                                {cat}
+                                                            </span>
+                                                        ) : null;
+                                                    })()}
                                                 </div>
-                                            )}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-1">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity <= (item.reorderLevel || 0) ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"}`}>
+                                                    {item.quantity} {item.unit || ''}
+                                                </span>
+                                                {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 && (
+                                                    <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                        {formatQty((item.quantity || 0) * (item.conversionFactor || 1))} {item.secondaryUnit}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
-                                    )}
 
-                                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-50 dark:border-gray-700 text-xs">
-                                        <div>
-                                            <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Description</span>
-                                            <span className="text-gray-700 dark:text-gray-200 font-medium truncate" title={item.description}>
-                                                {item.description || '-'}
-                                            </span>
+                                        {/* Rate, Valuation & Focus Control */}
+                                        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-700/30 p-2 rounded-lg border border-slate-100 dark:border-slate-700 text-xs">
+                                            <div className="flex flex-col">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-gray-500 dark:text-gray-400 font-medium">Rate:</span>
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">
+                                                        {priceInfo.unitPrice > 0 ? `₹${priceInfo.unitPrice.toLocaleString('en-IN')}` : '-'}
+                                                    </span>
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border ${priceInfo.badgeColor}`}>
+                                                        {priceInfo.source}
+                                                    </span>
+                                                </div>
+                                                <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 font-mono">
+                                                    Valuation: <strong className="text-emerald-600 dark:text-emerald-400">₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (isFocusedRow) {
+                                                        setFocusedItemId(null);
+                                                    } else {
+                                                        setFocusedItemId((item._id || item.id)?.toString());
+                                                        setShowDashboard(true);
+                                                    }
+                                                }}
+                                                className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
+                                                    isFocusedRow 
+                                                        ? "bg-indigo-600 text-white" 
+                                                        : "bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800"
+                                                }`}
+                                            >
+                                                <Crosshair size={12} />
+                                                <span>{isFocusedRow ? "Focused" : "Focus"}</span>
+                                            </button>
                                         </div>
-                                        <div>
-                                            <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Location</span>
-                                            <span className="text-gray-700 dark:text-gray-200 font-medium">
-                                                {getLocationValue(item)}
-                                            </span>
+
+                                        {item.monthlyData && (
+                                            <div className="flex flex-col gap-0.5 text-xs mt-1 bg-gray-50 dark:bg-gray-700/40 p-1.5 rounded-lg border border-gray-100 dark:border-gray-700 w-fit">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-emerald-600 font-medium">(+{item.monthlyData.totalInwardQuantity || 0})</span>
+                                                    <span className="text-rose-600 font-medium">(-{item.monthlyData.totalOutwardQuantity || 0})</span>
+                                                    <span className="text-gray-400 text-[10px]">{item.unit || 'Nos'}</span>
+                                                </div>
+                                                {item.hasSecondaryUnit && item.secondaryUnit && (
+                                                    <div className="flex items-center gap-1 text-[10px] text-gray-500 font-mono">
+                                                        <span className="text-emerald-500">(+{formatQty((item.monthlyData.totalInwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                        <span className="text-rose-500">(-{formatQty((item.monthlyData.totalOutwardQuantity || 0) * (item.conversionFactor || 1))})</span>
+                                                        <span>{item.secondaryUnit}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-50 dark:border-gray-700 text-xs">
+                                            <div>
+                                                <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Description</span>
+                                                <span className="text-gray-700 dark:text-gray-200 font-medium truncate" title={item.description}>
+                                                    {item.description || '-'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span className="text-gray-500 dark:text-gray-400 block text-[10px] uppercase font-bold">Location</span>
+                                                <span className="text-gray-700 dark:text-gray-200 font-medium">
+                                                    {getLocationValue(item)}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </>

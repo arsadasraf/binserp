@@ -538,9 +538,22 @@ export default function VendorPriceListTable({
                     </td>
                     <td className="p-3.5 text-right font-medium">
                       {hasPrice && config.price != null ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono text-sm">
-                          ₹{Number(config.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        </span>
+                        <div className="flex flex-col items-end">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-bold font-mono text-sm">
+                            ₹{Number(config.price).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            <span className="text-[11px] font-normal text-slate-500 ml-0.5">
+                              /{config.pricingUnit || item.unit || 'PCS'}
+                            </span>
+                          </span>
+                          {item.hasSecondaryUnit && item.secondaryUnit && Number(item.conversionFactor) > 0 && (
+                            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                              {config.isSecondaryUnit
+                                ? `(₹${(Number(config.price) * Number(item.conversionFactor)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/${item.unit})`
+                                : `(₹${(Number(config.price) / Number(item.conversionFactor)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/${item.secondaryUnit})`
+                              }
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-gray-400 font-normal text-xs">-</span>
                       )}

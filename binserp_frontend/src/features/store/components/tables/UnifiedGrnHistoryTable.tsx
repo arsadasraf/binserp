@@ -23,7 +23,11 @@ import {
   RefreshCw,
   Boxes,
   ArrowUpDown,
-  Lock
+  Lock,
+  LayoutGrid,
+  ChevronDown,
+  X,
+  CheckSquare
 } from "lucide-react";
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
 import GRNDetailModal from "../modals/GRNDetailModal";
@@ -42,10 +46,11 @@ type DateFilterMode = "preset" | "day" | "month" | "range";
 
 import { generateFrontendGrnPDF } from "@/src/utils/frontendPdfHelper";
 import { ItemNameAndDescription, getItemDescription } from "@/src/utils/itemDisplayHelper";
+import { API_BASE_URL } from "@/src/utils/config";
 
-const downloadGRNAsPDF = (grn: any) => {
+const downloadGRNAsPDF = (grn: any, companyInfo?: any) => {
   try {
-    generateFrontendGrnPDF({ grn });
+    generateFrontendGrnPDF({ grn, companyInfo });
   } catch (error: any) {
     console.error("PDF Error:", error);
     alert(`PDF Generation Error: ${error.message}`);
@@ -53,10 +58,37 @@ const downloadGRNAsPDF = (grn: any) => {
 };
 
 export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFilter }: UnifiedGrnHistoryTableProps) {
+  const [showDashboard, setShowDashboard] = useState<boolean>(true);
   // Fetch standard GRNs and FG GRNs
   const { data: standardGrns = [], isLoading: isLoadingGrn, refetch: refetchGrn } = useGetStoreDataQuery("grn");
   const { data: fgGrns = [], isLoading: isLoadingFgGrn, refetch: refetchFgGrn } = useGetStoreDataQuery("fg-grn");
   const [deleteStoreRecord, { isLoading: isDeleting }] = useDeleteStoreRecordMutation();
+
+  const [companyInfo, setCompanyInfo] = useState<any>(null);
+
+  React.useEffect(() => {
+    try {
+      const cached = localStorage.getItem("storeCompanyInfo") || localStorage.getItem("companyInfo");
+      if (cached) setCompanyInfo(JSON.parse(cached));
+    } catch (e) {}
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    if (token) {
+      fetch(`${API_BASE_URL}/api/store/company-info`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && (data.companyName || data.name)) {
+            setCompanyInfo(data);
+            try {
+              localStorage.setItem("storeCompanyInfo", JSON.stringify(data));
+            } catch (e) {}
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   // Live 1-second ticking timer for 24h edit/delete countdown
   const [nowTime, setNowTime] = useState(Date.now());
@@ -154,6 +186,21 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
   const [search, setSearch] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>(initialTypeFilter || "all");
   const [qcStatusFilter, setQcStatusFilter] = useState<string>("all");
+  const [receivedByFilter, setReceivedByFilter] = useState<string>("all");
+
+  const formatDateTime = (dateStr?: string | Date) => {
+    if (!dateStr) return "-";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "-";
+    return d.toLocaleString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
 
   // Date Filter State
   const [dateMode, setDateMode] = useState<DateFilterMode>("preset");
@@ -173,28 +220,72 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
     // 1. Process Standard GRNs (RM, BO, Consumables, Inhouse)
     (standardGrns || []).forEach((grn: any) => {
-      let grnType = "BO";
-      let grnTypeLabel = "Bought Out (BO)";
-      let typeBadge = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+      const rawType = (grn.type || "").toLowerCase().trim();
+      const grnNum = (grn.grnNumber || "").toUpperCase().trim();
 
-      // Detect RM, Consumable, or FG
-      const firstItem = grn.items?.[0];
-      const matName = (firstItem?.materialName || "").toLowerCase();
-      const matCode = (firstItem?.materialCode || (typeof firstItem?.material === 'object' ? firstItem?.material?.code : '') || "").toUpperCase();
-      const rawType = (grn.type || "").toLowerCase();
+      const items = grn.items || [];
+      const itemNames = items.map((i: any) => (i.materialName || i.itemName || "").toLowerCase());
+      const itemCodes = items.map((i: any) => (i.materialCode || i.itemCode || (typeof i.material === 'object' ? i.material?.code : '') || "").toUpperCase());
+      const itemCategories = items.map((i: any) => (i.category || (typeof i.material === 'object' ? (i.material?.category?.name || i.material?.category) : '') || "").toLowerCase());
+      const itemTypes = items.map((i: any) => (i.itemType || (typeof i.material === 'object' ? i.material?.itemType : '') || "").toLowerCase());
 
-      if (rawType === "inhouse" || rawType === "fg") {
+      // 1. FG / Inhouse detection
+      const hasFgItem = grn.isFgGrn || rawType === "fg" || rawType === "inhouse" || grnNum.startsWith("GRN-FG") || grnNum.includes("-FG/") || grnNum.includes("/FG/") || items.some((i: any) => i.fgItem || i.component) || Boolean(grn.mrpPlan || grn.mrpNumber);
+      
+      // 2. Consumable detection
+      const hasConPrefix = grnNum.startsWith("GRN-CON") || grnNum.includes("-CON/") || grnNum.includes("/CON/") || grnNum.includes("CONSUMABLE");
+      const hasConItem = items.some((i: any) => i.consumable) || itemCodes.some((c: string) => c.startsWith("CON-")) || itemCategories.some((c: string) => c.includes("consumable")) || itemTypes.some((t: string) => t.includes("consumable")) || rawType === "consumable" || rawType === "consumables";
+
+      // 3. Explicit number prefixes (highest confidence for intended document series)
+      const hasRmPrefix = grnNum.startsWith("GRN-RM") || grnNum.includes("-RM/") || grnNum.includes("/RM/");
+      const hasBoPrefix = grnNum.startsWith("GRN-BO") || grnNum.includes("-BO/") || grnNum.includes("/BO/");
+
+      // 4. Item-level master types & codes
+      const hasRmMasterType = itemTypes.some((t: string) => t === "raw material" || t === "rawmaterial" || t === "rm");
+      const hasBoMasterType = itemTypes.some((t: string) => t === "bought out" || t === "boughtout" || t === "bo");
+
+      const hasRmCode = itemCodes.some((c: string) => c.startsWith("RM-") || c.startsWith("RAW-"));
+      const hasBoCode = itemCodes.some((c: string) => c.startsWith("BO-") || c.startsWith("BOUGHT-"));
+
+      const hasRmCategory = itemCategories.some((c: string) => c.includes("raw material") || c === "rm" || c.includes("sheet") || c.includes("metal") || c.includes("steel") || c.includes("pipe") || c.includes("bar"));
+      const hasBoCategory = itemCategories.some((c: string) => c.includes("bought out") || c.includes("boughtout") || c.includes("hardware") || c.includes("fastener"));
+
+      let grnType = "RM";
+      let grnTypeLabel = "Raw Material (RM)";
+      let typeBadge = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
+
+      if (hasFgItem) {
         grnType = "FG";
         grnTypeLabel = "Finished Goods (FG)";
         typeBadge = "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/50 dark:text-indigo-300 dark:border-indigo-800";
-      } else if (matCode.startsWith("RM-") || matName.includes("raw material") || rawType === "rm" || rawType === "raw-material") {
-        grnType = "RM";
-        grnTypeLabel = "Raw Material (RM)";
-        typeBadge = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
-      } else if (matCode.startsWith("CON-") || matName.includes("consumable") || rawType === "consumable") {
+      } else if (hasConPrefix || hasConItem) {
         grnType = "Consumable";
         grnTypeLabel = "Consumable";
         typeBadge = "bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-800";
+      } else if (hasRmPrefix) {
+        grnType = "RM";
+        grnTypeLabel = "Raw Material (RM)";
+        typeBadge = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
+      } else if (hasBoPrefix) {
+        grnType = "BO";
+        grnTypeLabel = "Bought Out (BO)";
+        typeBadge = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+      } else if (hasRmMasterType || hasRmCode || hasRmCategory) {
+        grnType = "RM";
+        grnTypeLabel = "Raw Material (RM)";
+        typeBadge = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
+      } else if (hasBoMasterType || hasBoCode || hasBoCategory) {
+        grnType = "BO";
+        grnTypeLabel = "Bought Out (BO)";
+        typeBadge = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+      } else if (rawType === "bo" || rawType === "bought-out") {
+        grnType = "BO";
+        grnTypeLabel = "Bought Out (BO)";
+        typeBadge = "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+      } else {
+        grnType = "RM";
+        grnTypeLabel = "Raw Material (RM)";
+        typeBadge = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
       }
 
       list.push({
@@ -230,6 +321,18 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
     return list.sort((a, b) => new Date(b.displayDate).getTime() - new Date(a.displayDate).getTime());
   }, [standardGrns, fgGrns]);
 
+  // Unique receivers for dropdown filter
+  const uniqueReceivers = useMemo(() => {
+    const set = new Set<string>();
+    allNormalizedGrns.forEach((g) => {
+      const name = g.receivedBy?.name || g.receivedByName;
+      if (name && typeof name === "string" && name.trim()) {
+        set.add(name.trim());
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [allNormalizedGrns]);
+
   // Filtered GRN records
   const filteredGrns = useMemo(() => {
     return allNormalizedGrns.filter((grn) => {
@@ -239,6 +342,12 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
         if (typeFilter === "BO" && grn.grnType !== "BO") return false;
         if (typeFilter === "Consumable" && grn.grnType !== "Consumable") return false;
         if (typeFilter === "FG" && grn.grnType !== "FG") return false;
+      }
+
+      // Received By User Filter
+      if (receivedByFilter !== "all") {
+        const recName = (grn.receivedBy?.name || grn.receivedByName || "").trim();
+        if (recName !== receivedByFilter) return false;
       }
 
       // 2. QC / Status Filter
@@ -261,15 +370,17 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
         const query = search.toLowerCase();
         const grnNum = (grn.grnNumber || "").toLowerCase();
         const poRef = (grn.poNumber || grn.poReference || "").toLowerCase();
+        const invNum = (grn.invoiceNumber || grn.invoiceNo || "").toLowerCase();
         const party = (grn.supplierOrCustomer || "").toLowerCase();
         const recBy = (grn.receivedBy?.name || grn.receivedByName || "").toLowerCase();
         const hasItemMatch = (grn.items || []).some((item: any) => {
           const name = (item.materialName || item.itemName || (typeof item.fgItem === 'object' ? item.fgItem?.name : item.fgItem) || "").toLowerCase();
           const code = (item.materialCode || item.itemCode || (typeof item.fgItem === 'object' ? item.fgItem?.code : '') || "").toLowerCase();
-          return name.includes(query) || code.includes(query);
+          const hsn = (item.hsnCode || "").toLowerCase();
+          return name.includes(query) || code.includes(query) || hsn.includes(query);
         });
 
-        if (!grnNum.includes(query) && !poRef.includes(query) && !party.includes(query) && !recBy.includes(query) && !hasItemMatch) {
+        if (!grnNum.includes(query) && !poRef.includes(query) && !invNum.includes(query) && !party.includes(query) && !recBy.includes(query) && !hasItemMatch) {
           return false;
         }
       }
@@ -317,7 +428,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
       return true;
     });
-  }, [allNormalizedGrns, typeFilter, qcStatusFilter, search, dateMode, singleDate, selectedMonth, startDate, endDate, activePreset]);
+  }, [allNormalizedGrns, typeFilter, qcStatusFilter, receivedByFilter, search, dateMode, singleDate, selectedMonth, startDate, endDate, activePreset]);
 
   // Pagination slice
   const totalPages = Math.ceil(filteredGrns.length / itemsPerPage) || 1;
@@ -330,6 +441,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
     setSearch("");
     setTypeFilter("all");
     setQcStatusFilter("all");
+    setReceivedByFilter("all");
     setDateMode("preset");
     setActivePreset("all");
     setSingleDate("");
@@ -354,10 +466,13 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
       return {
         "S.No": idx + 1,
         "GRN Number": grn.grnNumber || "-",
-        "Date": formattedDate,
+        "Receipt Date": formattedDate,
+        "Created At": formatDateTime(grn.createdAt || grn.date),
+        "Edited At": grn.updatedAt && (new Date(grn.updatedAt).getTime() - new Date(grn.createdAt || grn.date).getTime() > 60000) ? formatDateTime(grn.updatedAt) : "-",
         "GRN Type": grn.grnTypeLabel || "GRN",
         "Source / Party": grn.supplierOrCustomer || "-",
         "PO Reference": grn.poNumber || grn.poReference || "-",
+        "Invoice Number": grn.invoiceNumber || grn.invoiceNo || "-",
         "Total Items Count": grn.totalItemsCount,
         "Total Quantity": grn.totalQuantity,
         "Items Details": itemsSummary,
@@ -383,78 +498,163 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
   return (
     <div className="space-y-4">
-      {/* Metric Cards Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
-            <Layers size={18} />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Total GRNs</p>
-            <h4 className="text-base font-bold text-gray-900 dark:text-white font-mono">{filteredGrns.length}</h4>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2 size={18} />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Total Items Received</p>
-            <h4 className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono">{totalReceivedQty.toLocaleString()}</h4>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
-            <Clock size={18} />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Pending QC</p>
-            <h4 className="text-base font-bold text-amber-600 dark:text-amber-400 font-mono">{pendingQcCount}</h4>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
-              <FileSpreadsheet size={18} />
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Export GRNs</p>
-              <h4 className="text-xs font-bold text-gray-900 dark:text-white">Excel Report</h4>
-            </div>
+      {/* Metric Cards Row / Executive KPI Dashboard */}
+      {!showDashboard ? (
+        /* Collapsed Single-Line Summary Bar */
+        <div className="bg-white dark:bg-gray-900 px-3.5 py-2.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-gray-600 dark:text-gray-300">
+            <span className="font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+              <Layers size={14} className="text-blue-600" />
+              Total GRNs: <strong className="text-blue-600 font-mono">{filteredGrns.length}</strong>
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span>
+              Received Units: <strong className="text-emerald-600 font-mono">{totalReceivedQty.toLocaleString()}</strong>
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span>
+              Pending QC: <strong className="text-amber-600 font-mono">{pendingQcCount}</strong>
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span>
+              Cleared / Accepted: <strong className="text-teal-600 font-mono">{acceptedCount}</strong>
+            </span>
           </div>
           <button
-            onClick={handleExportExcel}
-            title="Download Excel Spreadsheet"
-            className="p-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-xl transition-all border border-emerald-200/60 dark:border-emerald-800/60"
+            type="button"
+            onClick={() => setShowDashboard(true)}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
           >
-            <Download size={16} />
+            <span>Show Dashboard</span>
+            <ChevronDown size={14} />
           </button>
         </div>
-      </div>
+      ) : (
+        /* Expanded 4 KPI Cards */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Card 1: Total GRNs */}
+          <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total GRNs</span>
+              <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                <Layers size={16} />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+              {filteredGrns.length} <span className="text-xs font-semibold text-slate-500 font-sans">Records</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>All Inward Types</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">Store Intake</span>
+            </div>
+          </div>
+
+          {/* Card 2: Total Items Received */}
+          <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Received Qty</span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                <CheckCircle2 size={16} />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+              {totalReceivedQty.toLocaleString()}
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Physical Units Received</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">Verified Qty</span>
+            </div>
+          </div>
+
+          {/* Card 3: Pending QC */}
+          <div className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center justify-between text-amber-600 dark:text-amber-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pending QC Inspection</span>
+              <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                <Clock size={16} />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+              {pendingQcCount} <span className="text-xs font-semibold text-slate-500 font-sans">GRNs</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Awaiting QA Inspection</span>
+              <span className="font-bold text-amber-600 dark:text-amber-400 font-mono">
+                {pendingQcCount > 0 ? "Action Required" : "All Inspected"}
+              </span>
+            </div>
+          </div>
+
+          {/* Card 4: Accepted / Passed & Export */}
+          <div className="bg-gradient-to-br from-teal-50/90 via-white to-slate-50 dark:from-teal-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-teal-100 dark:border-teal-900/40 shadow-2xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-teal-600 dark:text-teal-400 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Accepted / Cleared</span>
+                <div className="w-8 h-8 rounded-xl bg-teal-100 dark:bg-teal-900/50 flex items-center justify-center">
+                  <CheckSquare size={16} />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                {acceptedCount} <span className="text-xs font-semibold text-slate-500 font-sans">Cleared</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between pt-1 border-t border-teal-100/60 dark:border-teal-900/40">
+              <span className="text-[11px] text-slate-500">Export GRNs</span>
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                title="Download Excel Spreadsheet"
+              >
+                <FileSpreadsheet size={12} />
+                <span>Excel</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filter & Control Bar */}
       <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Search Box */}
+          {/* Search Box with Clear Button */}
           <div className="relative flex-1 min-w-[220px] w-full sm:w-auto max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Search by GRN #, PO #, Party, Item..."
+              placeholder="Search by GRN #, PO #, Inv #, Party, Item, HSN..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+              className="w-full pl-10 pr-9 py-2 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-gray-100 placeholder-gray-400"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => { setSearch(""); setCurrentPage(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                title="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
 
           {/* Filters Row */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Dashboard Show/Hide Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowDashboard(!showDashboard)}
+              className="px-2.5 sm:px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+              title={showDashboard ? "Hide executive dashboard" : "Show executive dashboard"}
+            >
+              {showDashboard ? <LayoutGrid size={13} className="text-indigo-600" /> : <Eye size={13} className="text-gray-500" />}
+              <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
+            </button>
+
             {/* GRN Type Filter */}
             <select
               value={typeFilter}
@@ -479,6 +679,20 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
               <option value="accepted">Accepted / Passed</option>
               <option value="rejected">Rejected</option>
               <option value="skipped">QC Skipped</option>
+            </select>
+
+            {/* Received By User Filter */}
+            <select
+              value={receivedByFilter}
+              onChange={(e) => { setReceivedByFilter(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            >
+              <option value="all">👤 All Receivers</option>
+              {uniqueReceivers.map((user) => (
+                <option key={user} value={user}>
+                  👤 {user}
+                </option>
+              ))}
             </select>
 
             {/* Date Mode Selector */}
@@ -627,18 +841,18 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
         ) : (
           <>
             {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px] relative">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-50/80 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  <tr className="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-800/95 backdrop-blur-xs border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider shadow-2xs">
                     <th className="py-3 px-4">GRN #</th>
-                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Receipt Date</th>
+                    <th className="py-3 px-4">Created / Edited</th>
                     <th className="py-3 px-4">GRN Type</th>
                     <th className="py-3 px-4">Party / Source</th>
                     <th className="py-3 px-4">Items Received</th>
                     <th className="py-3 px-4 text-right">Total Qty</th>
                     <th className="py-3 px-4">QC Status</th>
-                    <th className="py-3 px-4">Billing Status</th>
                     <th className="py-3 px-4">Received By</th>
                     <th className="py-3 px-4 text-center">Actions</th>
                   </tr>
@@ -680,11 +894,32 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                               PO: {grn.poNumber}
                             </span>
                           )}
+                          {grn.invoiceNumber && (
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-mono">
+                              Inv: {grn.invoiceNumber}
+                            </span>
+                          )}
                         </td>
 
-                        {/* Date */}
-                        <td className="py-3 px-4 text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap">
-                          {formattedDate}
+                        {/* Receipt Date */}
+                        <td className="py-3 px-4 text-gray-700 dark:text-gray-300 font-mono whitespace-nowrap">
+                          <span className="font-semibold">{formattedDate}</span>
+                        </td>
+
+                        {/* Created / Edited Date & Time */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-slate-200">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Created:</span>
+                              <span className="font-mono text-xs font-medium">{formatDateTime(grn.createdAt || grn.date)}</span>
+                            </div>
+                            {grn.updatedAt && (new Date(grn.updatedAt).getTime() - new Date(grn.createdAt || grn.date).getTime() > 60000) && (
+                              <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Edited:</span>
+                                <span className="font-mono text-xs font-medium">{formatDateTime(grn.updatedAt)}</span>
+                              </div>
+                            )}
+                          </div>
                         </td>
 
                         {/* GRN Type Badge */}
@@ -757,23 +992,6 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                           )}
                         </td>
 
-                        {/* Billing Status */}
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          {grn.billingStatus === "Fully Billed" ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300">
-                              🟢 Fully Billed
-                            </span>
-                          ) : grn.billingStatus === "Partially Billed" ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300">
-                              🟡 Partially Billed
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-50 text-slate-600 border border-slate-200 dark:bg-slate-850 dark:text-slate-400">
-                              ⚪ Unbilled
-                            </span>
-                          )}
-                        </td>
-
                         {/* Received By */}
                         <td className="py-3 px-4 text-gray-600 dark:text-gray-400 whitespace-nowrap">
                           <span className="text-xs">{grn.receivedBy?.name || grn.receivedByName || "Store Executive"}</span>
@@ -796,7 +1014,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
 
                             {/* Download PDF */}
                             <button
-                              onClick={() => downloadGRNAsPDF(grn)}
+                              onClick={() => downloadGRNAsPDF(grn, companyInfo)}
                               title="Download PDF"
                               className="p-1.5 hover:bg-indigo-50 text-indigo-600 dark:hover:bg-indigo-950/50 rounded-lg transition-colors"
                             >
@@ -877,7 +1095,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
             </div>
 
             {/* Mobile Card View */}
-            <div className="block md:hidden p-2.5 sm:p-3 space-y-3 bg-gray-50/50 dark:bg-gray-900/30">
+            <div className="block md:hidden max-h-[calc(100vh-270px)] overflow-y-auto p-2.5 sm:p-3 space-y-3 bg-gray-50/50 dark:bg-gray-900/30 pb-20">
               {paginatedGrns.map((grn) => {
                 const formattedDate = new Date(grn.displayDate).toLocaleDateString("en-IN", {
                   day: "2-digit",
@@ -931,6 +1149,11 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                             PO: {grn.poNumber}
                           </span>
                         )}
+                        {grn.invoiceNumber && (
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono block mt-0.5">
+                            Inv: {grn.invoiceNumber}
+                          </span>
+                        )}
                       </div>
 
                       <div className="shrink-0">
@@ -953,15 +1176,6 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                             Skipped
                           </span>
                         )}
-                        {grn.billingStatus === "Fully Billed" ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300">
-                            Billed
-                          </span>
-                        ) : grn.billingStatus === "Partially Billed" ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/50 dark:text-blue-300">
-                            Partial Bill
-                          </span>
-                        ) : null}
                       </div>
                     </div>
 
@@ -975,8 +1189,22 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                       </div>
                       <div className="text-right shrink-0">
                         <span className="text-[10px] text-gray-400 block font-medium uppercase tracking-wider">Receipt Date</span>
-                        <span className="font-mono text-gray-700 dark:text-gray-300 text-xs">{formattedDate}</span>
+                        <span className="font-mono text-gray-700 dark:text-gray-300 text-xs font-semibold">{formattedDate}</span>
                       </div>
+                    </div>
+
+                    {/* Created and Edited Timestamps */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-slate-50 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Created:</span>
+                        <span className="font-mono text-xs font-medium">{formatDateTime(grn.createdAt || grn.date)}</span>
+                      </div>
+                      {grn.updatedAt && (new Date(grn.updatedAt).getTime() - new Date(grn.createdAt || grn.date).getTime() > 60000) && (
+                        <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                          <span className="text-[10px] font-bold uppercase">Edited:</span>
+                          <span className="font-mono text-xs font-medium">{formatDateTime(grn.updatedAt)}</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Item Summary (per AGENTS.md: Name + Description, never raw item code) */}
@@ -1057,7 +1285,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                           <Eye size={13} /> View
                         </button>
                         <button
-                          onClick={() => downloadGRNAsPDF(grn)}
+                          onClick={() => downloadGRNAsPDF(grn, companyInfo)}
                           className="flex-1 py-1.5 px-2 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-xs transition-colors"
                         >
                           <Download size={13} /> PDF

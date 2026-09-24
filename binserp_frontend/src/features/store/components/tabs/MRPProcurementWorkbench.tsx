@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   ShoppingCart, RefreshCw, AlertTriangle, CheckCircle2, 
   Layers, Filter, Search, ArrowRight, ArrowLeft, Building2, Truck, 
-  Plus, CheckSquare, Square, ChevronDown, ChevronRight,
+  Plus, CheckSquare, Square, ChevronDown, ChevronRight, ChevronLeft,
   TrendingDown, FileText, Sparkles, Send, Boxes, GitBranch,
   Factory, Package, Check, Eye, Clock, Calendar, Download, Printer, Tag, X
 } from 'lucide-react';
@@ -42,10 +42,21 @@ export default function MRPProcurementWorkbench({
   const [onlyShortages, setOnlyShortages] = useState(false);
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all');
+  const [selectedCustomerFilter, setSelectedCustomerFilter] = useState<string>('all');
+  const [selectedPlanningStatusFilter, setSelectedPlanningStatusFilter] = useState<'all' | 'not_planned' | 'in_procurement' | 'stock_covered' | 'completed'>('all');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [submittingPO, setSubmittingPO] = useState(false);
   const [submittingPPC, setSubmittingPPC] = useState(false);
+
+  // Tab scrolling ref & handler for Type Switcher Tabs
+  const typeTabsRef = useRef<HTMLDivElement>(null);
+  const scrollTypeTabs = (direction: 'left' | 'right') => {
+    if (typeTabsRef.current) {
+      const scrollAmount = direction === 'left' ? -220 : 220;
+      typeTabsRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+  };
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | '7days' | 'thisMonth' | 'custom'>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -109,60 +120,119 @@ export default function MRPProcurementWorkbench({
     );
   }, [classifiedLists]);
 
-  // Filtered MRP list for the initial selection view
-  const filteredMrpList = useMemo(() => {
+  // Extract Unique Customers across all active MRP plans
+  const availableCustomers = useMemo(() => {
+    const custSet = new Set<string>();
+    (mrpTreeList || []).forEach((plan: any) => {
+      if (plan.customerName && plan.customerName !== 'Internal Demand') {
+        custSet.add(plan.customerName.trim());
+      }
+      if (Array.isArray(plan.customerPOs)) {
+        plan.customerPOs.forEach((cpo: any) => {
+          if (cpo.customerName) custSet.add(cpo.customerName.trim());
+        });
+      }
+    });
+    return Array.from(custSet).filter(Boolean).sort();
+  }, [mrpTreeList]);
+
+  // Unified Date Filter Matcher
+  const matchesDateFilter = (rawDate: any) => {
+    if (dateFilter === 'all') return true;
+    if (!rawDate) return false;
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return false;
     const today = new Date();
     const isSameDay = (d1: Date, d2: Date) => 
       d1.getFullYear() === d2.getFullYear() &&
       d1.getMonth() === d2.getMonth() &&
       d1.getDate() === d2.getDate();
 
+    if (dateFilter === 'today') {
+      return isSameDay(d, today);
+    } else if (dateFilter === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      return isSameDay(d, yesterday);
+    } else if (dateFilter === '7days') {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(today.getDate() - 7);
+      sevenDaysAgo.setHours(0, 0, 0, 0);
+      return d >= sevenDaysAgo && d <= today;
+    } else if (dateFilter === 'thisMonth') {
+      return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    } else if (dateFilter === 'custom') {
+      if (startDate && endDate) {
+        const s = new Date(startDate);
+        s.setHours(0, 0, 0, 0);
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        return d >= s && d <= e;
+      } else if (startDate) {
+        const s = new Date(startDate);
+        return isSameDay(d, s) || d >= s;
+      } else if (endDate) {
+        const e = new Date(endDate);
+        return isSameDay(d, e) || d <= e;
+      }
+    }
+    return true;
+  };
+
+  // Filtered MRP list for the initial selection view (Plans)
+  const filteredMrpList = useMemo(() => {
     return (mrpTreeList || []).filter((plan: any) => {
-      // Date Resolution
+      // 1. Date Resolution (Plan Date vs Target Date)
       const rawDate = dateType === 'target' 
         ? (plan.targetDate || plan.deliveryDate || plan.createdAt) 
-        : (plan.createdAt || plan.planDate || plan.date || plan.targetDate);
-      const planDate = new Date(rawDate || Date.now());
+        : (plan.planDate || plan.createdAt || plan.date || plan.targetDate);
+      if (!matchesDateFilter(rawDate)) return false;
 
-      let matchesDate = true;
-      if (dateFilter === 'today') {
-        matchesDate = isSameDay(planDate, today);
-      } else if (dateFilter === 'yesterday') {
-        const yesterday = new Date();
-        yesterday.setDate(today.getDate() - 1);
-        matchesDate = isSameDay(planDate, yesterday);
-      } else if (dateFilter === '7days') {
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-        matchesDate = planDate >= sevenDaysAgo && planDate <= today;
-      } else if (dateFilter === 'thisMonth') {
-        matchesDate = planDate.getMonth() === today.getMonth() && planDate.getFullYear() === today.getFullYear();
-      } else if (dateFilter === 'custom') {
-        if (startDate && endDate) {
-          const s = new Date(startDate);
-          s.setHours(0, 0, 0, 0);
-          const e = new Date(endDate);
-          e.setHours(23, 59, 59, 999);
-          matchesDate = planDate >= s && planDate <= e;
-        } else if (startDate) {
-          const s = new Date(startDate);
-          matchesDate = isSameDay(planDate, s) || planDate >= s;
-        } else if (endDate) {
-          const e = new Date(endDate);
-          matchesDate = isSameDay(planDate, e) || planDate <= e;
+      // 2. Search Term
+      if (searchTerm) {
+        const s = searchTerm.toLowerCase();
+        const matchesSearch =
+          (plan.mrpNumber && plan.mrpNumber.toLowerCase().includes(s)) ||
+          (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
+          (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s)) ||
+          (Array.isArray(plan.fgItems) && plan.fgItems.some((fg: any) => 
+            (fg.fgItemName && fg.fgItemName.toLowerCase().includes(s)) ||
+            (fg.description && fg.description.toLowerCase().includes(s))
+          ));
+        if (!matchesSearch) return false;
+      }
+
+      // 3. Customer Filter
+      if (selectedCustomerFilter !== 'all') {
+        const planCust = (plan.customerName || '').toLowerCase();
+        const targetCust = selectedCustomerFilter.toLowerCase();
+        const hasMatchingCPO = Array.isArray(plan.customerPOs) && 
+          plan.customerPOs.some((cpo: any) => (cpo.customerName || '').toLowerCase().includes(targetCust));
+        if (!planCust.includes(targetCust) && !hasMatchingCPO) return false;
+      }
+
+      // 4. Material Planning Status Filter
+      if (selectedPlanningStatusFilter !== 'all') {
+        const status = plan.planPlanningStatus || 
+          (plan.planTotalShortages === 0 ? 'Stock Covered' : (plan.planTotalInTransit >= plan.planTotalShortages ? 'PO In-Transit' : 'Not Planned'));
+        
+        if (selectedPlanningStatusFilter === 'not_planned') {
+          if (status !== 'Not Planned' && status !== 'Partially Planned') return false;
+        } else if (selectedPlanningStatusFilter === 'in_procurement') {
+          if (status !== 'PO In-Transit' && status !== 'Partially Planned') return false;
+        } else if (selectedPlanningStatusFilter === 'stock_covered') {
+          if (status !== 'Stock Covered') return false;
         }
       }
 
-      if (!matchesDate) return false;
+      // 5. Shortages Only Toggle
+      if (onlyShortages && plan.planTotalShortages <= 0) {
+        return false;
+      }
 
-      const s = searchTerm.toLowerCase();
-      return !searchTerm ||
-        plan.mrpNumber.toLowerCase().includes(s) ||
-        (plan.customerName && plan.customerName.toLowerCase().includes(s)) ||
-        (plan.customerPoNumber && plan.customerPoNumber.toLowerCase().includes(s));
+      return true;
     });
-  }, [mrpTreeList, searchTerm, dateFilter, startDate, endDate, dateType]);
+  }, [mrpTreeList, searchTerm, dateFilter, startDate, endDate, dateType, selectedCustomerFilter, selectedPlanningStatusFilter, onlyShortages]);
 
   // Active items for classification view inside selected MRP
   const currentTypeList = useMemo(() => {
@@ -210,27 +280,105 @@ export default function MRPProcurementWorkbench({
 
   const filteredConsolidatedList = useMemo(() => {
     return currentTypeList.filter((item: any) => {
-      const s = searchTerm.toLowerCase();
-      const matchesSearch = !searchTerm ||
-        item.materialName.toLowerCase().includes(s) ||
-        (item.materialCode && item.materialCode.toLowerCase().includes(s)) ||
-        (item.category && item.category.toLowerCase().includes(s)) ||
-        (item.bestVendor?.vendorName && item.bestVendor.vendorName.toLowerCase().includes(s));
-      const matchesShortage = !onlyShortages || item.netShortage > 0;
-      
-      const matchesCategory = selectedCategoryFilter === 'all' || item.category === selectedCategoryFilter;
-      
-      let matchesVendor = true;
-      if (selectedVendorFilter === 'preferred_only') {
-        matchesVendor = Boolean(item.bestVendor?.isPreferred);
-      } else if (selectedVendorFilter !== 'all') {
-        const vId = item.bestVendor?.vendorId ? String(item.bestVendor.vendorId) : item.bestVendor?.vendorName;
-        matchesVendor = vId === selectedVendorFilter;
+      // 1. Search Query
+      if (searchTerm) {
+        const s = searchTerm.toLowerCase();
+        const matchesSearch =
+          (item.materialName && item.materialName.toLowerCase().includes(s)) ||
+          (item.description && item.description.toLowerCase().includes(s)) ||
+          (item.materialCode && item.materialCode.toLowerCase().includes(s)) ||
+          (item.category && item.category.toLowerCase().includes(s)) ||
+          (item.bestVendor?.vendorName && item.bestVendor.vendorName.toLowerCase().includes(s)) ||
+          (Array.isArray(item.mrpSources) && item.mrpSources.some((src: any) =>
+            (src.mrpNumber && src.mrpNumber.toLowerCase().includes(s)) ||
+            (src.customerName && src.customerName.toLowerCase().includes(s)) ||
+            (src.customerPoNumber && src.customerPoNumber.toLowerCase().includes(s))
+          ));
+        if (!matchesSearch) return false;
       }
 
-      return matchesSearch && matchesShortage && matchesCategory && matchesVendor;
+      // 2. Shortages Toggle
+      if (onlyShortages && item.netShortage <= 0) return false;
+      
+      // 3. Category Filter
+      if (selectedCategoryFilter !== 'all' && item.category !== selectedCategoryFilter) return false;
+      
+      // 4. Vendor Filter
+      if (selectedVendorFilter === 'preferred_only') {
+        if (!item.bestVendor?.isPreferred) return false;
+      } else if (selectedVendorFilter !== 'all') {
+        const vId = item.bestVendor?.vendorId ? String(item.bestVendor.vendorId) : item.bestVendor?.vendorName;
+        if (vId !== selectedVendorFilter) return false;
+      }
+
+      // 5. Date Filter (Plan Date vs Target Date)
+      if (dateFilter !== 'all') {
+        const rawDate = dateType === 'target'
+          ? (item.earliestTargetDate || item.mrpSources?.[0]?.targetDate)
+          : (item.latestPlanDate || item.mrpSources?.[0]?.planDate || item.mrpSources?.[0]?.createdAt);
+        if (!matchesDateFilter(rawDate)) return false;
+      }
+
+      // 6. Customer Filter
+      if (selectedCustomerFilter !== 'all') {
+        const targetCust = selectedCustomerFilter.toLowerCase();
+        const matchesCust =
+          (Array.isArray(item.customerNames) && item.customerNames.some((c: string) => c.toLowerCase().includes(targetCust))) ||
+          (Array.isArray(item.mrpSources) && item.mrpSources.some((src: any) => (src.customerName || '').toLowerCase().includes(targetCust)));
+        if (!matchesCust) return false;
+      }
+
+      // 7. Material Planning Status Filter
+      if (selectedPlanningStatusFilter !== 'all') {
+        const pStatus = item.materialPlanningStatus || (item.netShortage === 0 ? 'Stock Covered' : 'Not Planned');
+        if (selectedPlanningStatusFilter === 'not_planned') {
+          if (pStatus !== 'Not Planned' && pStatus !== 'Pending') return false;
+        } else if (selectedPlanningStatusFilter === 'in_procurement') {
+          if (!['PO Sent', 'Raised RFQ', 'PO In-Transit', 'Partially In-Transit'].includes(pStatus)) return false;
+        } else if (selectedPlanningStatusFilter === 'stock_covered') {
+          if (pStatus !== 'Stock Covered' && item.netShortage > 0) return false;
+        } else if (selectedPlanningStatusFilter === 'completed') {
+          if (pStatus !== 'Completed') return false;
+        }
+      }
+
+      return true;
     });
-  }, [currentTypeList, searchTerm, onlyShortages, selectedCategoryFilter, selectedVendorFilter]);
+  }, [
+    currentTypeList,
+    searchTerm,
+    onlyShortages,
+    selectedCategoryFilter,
+    selectedVendorFilter,
+    dateFilter,
+    startDate,
+    endDate,
+    dateType,
+    selectedCustomerFilter,
+    selectedPlanningStatusFilter
+  ]);
+
+  const isAnyFilterActive = 
+    searchTerm !== '' || 
+    dateFilter !== 'all' || 
+    selectedCustomerFilter !== 'all' || 
+    selectedPlanningStatusFilter !== 'all' || 
+    onlyShortages || 
+    selectedCategoryFilter !== 'all' || 
+    selectedVendorFilter !== 'all';
+
+  const handleResetAllFilters = () => {
+    setSearchTerm('');
+    setDateFilter('all');
+    setStartDate('');
+    setEndDate('');
+    setSelectedCustomerFilter('all');
+    setSelectedPlanningStatusFilter('all');
+    setOnlyShortages(false);
+    setSelectedCategoryFilter('all');
+    setSelectedVendorFilter('all');
+    setSelectedKeys(new Set());
+  };
 
   // Selection toggle (Exclusively in Types Classification View)
   const toggleSelect = (key: string) => {
@@ -574,204 +722,183 @@ export default function MRPProcurementWorkbench({
   // Render Consolidated Types Classification View (Reusable for Single Plan and All Active Plans Consolidated)
   const renderTypesClassificationView = (isConsolidated: boolean = false) => (
     <div className="space-y-3">
-      {/* Informative Banner when in Consolidated Cross-Plan Mode */}
-      {isConsolidated && (
-        <div className="bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-600/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-              <Package size={18} />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>Consolidated Shortages Across All Active MRP Plans</span>
-                <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-[10px] font-mono font-bold">
-                  {mrpTreeList.length} Active Plans
-                </span>
-              </h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Consolidated material shortages across all active MRP plans. Raise RFQs, auto-generate purchase orders grouped by vendor, or dispatch to PPC.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Total Items:</span>
-            <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
-              {totalWorkbenchMaterialsCount} items
+      {/* Type Switcher Pills with Arrow Controls & Smooth Touch Scroll */}
+      <div className="relative flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200/80 dark:border-slate-700/60 shadow-2xs">
+        {/* Left Scroll Chevron */}
+        <button
+          type="button"
+          onClick={() => scrollTypeTabs('left')}
+          className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white shrink-0 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+          title="Scroll tabs left"
+          aria-label="Scroll tabs left"
+        >
+          <ChevronLeft size={15} />
+        </button>
+
+        {/* Scrollable Tab Strip with Touch Pan & No Clipping */}
+        <div
+          ref={typeTabsRef}
+          className="flex items-center gap-1 overflow-x-auto scroll-smooth touch-pan-x min-w-0 flex-1 py-0.5 px-1 no-scrollbar"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTypeTab('rm');
+              setSelectedCategoryFilter('all');
+              setSelectedVendorFilter('all');
+              setSelectedKeys(new Set());
+            }}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
+              activeTypeTab === 'rm'
+                ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Package size={13} />
+            <span>🔩 Raw Materials</span>
+            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+              activeTypeTab === 'rm' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            }`}>
+              {classifiedLists.rmList?.length || 0}
             </span>
-          </div>
-        </div>
-      )}
+          </button>
 
-      {/* Type Switcher Pills */}
-      <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold overflow-x-auto no-scrollbar gap-1">
-        <button
-          onClick={() => {
-            setActiveTypeTab('rm');
-            setSelectedCategoryFilter('all');
-            setSelectedVendorFilter('all');
-            setSelectedKeys(new Set());
-          }}
-          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-            activeTypeTab === 'rm'
-              ? 'bg-white dark:bg-slate-900 text-cyan-600 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <Package size={13} />
-          <span>🔩 Raw Materials ({classifiedLists.rmList?.length || 0})</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTypeTab('bo');
+              setSelectedCategoryFilter('all');
+              setSelectedVendorFilter('all');
+              setSelectedKeys(new Set());
+            }}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
+              activeTypeTab === 'bo'
+                ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Boxes size={13} />
+            <span>📦 Bought Out Items</span>
+            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+              activeTypeTab === 'bo' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            }`}>
+              {classifiedLists.boList?.length || 0}
+            </span>
+          </button>
 
-        <button
-          onClick={() => {
-            setActiveTypeTab('bo');
-            setSelectedCategoryFilter('all');
-            setSelectedVendorFilter('all');
-            setSelectedKeys(new Set());
-          }}
-          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-            activeTypeTab === 'bo'
-              ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <Boxes size={13} />
-          <span>📦 Bought Out Items ({classifiedLists.boList?.length || 0})</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTypeTab('component');
+              setSelectedCategoryFilter('all');
+              setSelectedVendorFilter('all');
+              setSelectedKeys(new Set());
+            }}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
+              activeTypeTab === 'component'
+                ? 'bg-white dark:bg-slate-900 text-purple-600 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Factory size={13} />
+            <span>⚙️ Components</span>
+            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+              activeTypeTab === 'component' ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            }`}>
+              {classifiedLists.componentList?.length || 0}
+            </span>
+          </button>
 
-        <button
-          onClick={() => {
-            setActiveTypeTab('component');
-            setSelectedCategoryFilter('all');
-            setSelectedVendorFilter('all');
-            setSelectedKeys(new Set());
-          }}
-          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-            activeTypeTab === 'component'
-              ? 'bg-white dark:bg-slate-900 text-purple-600 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <Factory size={13} />
-          <span>⚙️ Components ({classifiedLists.componentList?.length || 0})</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTypeTab('subassembly');
+              setSelectedCategoryFilter('all');
+              setSelectedVendorFilter('all');
+              setSelectedKeys(new Set());
+            }}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
+              activeTypeTab === 'subassembly'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <GitBranch size={13} />
+            <span>🧩 Sub-Assemblies</span>
+            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+              activeTypeTab === 'subassembly' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            }`}>
+              {classifiedLists.subAssemblyList?.length || 0}
+            </span>
+          </button>
 
-        <button
-          onClick={() => {
-            setActiveTypeTab('subassembly');
-            setSelectedCategoryFilter('all');
-            setSelectedVendorFilter('all');
-            setSelectedKeys(new Set());
-          }}
-          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-            activeTypeTab === 'subassembly'
-              ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <GitBranch size={13} />
-          <span>🧩 Sub-Assemblies ({classifiedLists.subAssemblyList?.length || 0})</span>
-        </button>
-
-        <button
-          onClick={() => {
-            setActiveTypeTab('assembly');
-            setSelectedCategoryFilter('all');
-            setSelectedVendorFilter('all');
-            setSelectedKeys(new Set());
-          }}
-          className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-            activeTypeTab === 'assembly'
-              ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
-              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-          }`}
-        >
-          <CheckCircle2 size={13} />
-          <span>🏆 Assemblies ({classifiedLists.assemblyList?.length || 0})</span>
-        </button>
-      </div>
-
-      {/* Filter Bar: Category & Vendor */}
-      <div className="bg-slate-50/80 dark:bg-slate-800/50 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2 flex-wrap">
-          
-          {/* Category Filter */}
-          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
-            <Tag size={13} className="text-slate-400" />
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Category:</span>
-            <select
-              value={selectedCategoryFilter}
-              onChange={(e) => {
-                setSelectedCategoryFilter(e.target.value);
-                setSelectedKeys(new Set());
-              }}
-              className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
-            >
-              <option value="all">All Categories ({currentTypeList.length})</option>
-              {availableCategories.map((cat) => {
-                const count = currentTypeList.filter((it: any) => it.category === cat).length;
-                return (
-                  <option key={cat} value={cat}>
-                    {cat} ({count})
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-
-          {/* Vendor / Preferred Filter */}
-          <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs">
-            <Building2 size={13} className="text-slate-400" />
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Supplier:</span>
-            <select
-              value={selectedVendorFilter}
-              onChange={(e) => {
-                setSelectedVendorFilter(e.target.value);
-                setSelectedKeys(new Set());
-              }}
-              className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[200px] truncate"
-            >
-              <option value="all">All Suppliers ({currentTypeList.length})</option>
-              <option value="preferred_only">⭐ Preferred Suppliers Only ({currentTypeList.filter((it: any) => it.bestVendor?.isPreferred).length})</option>
-              {availableVendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.isPreferred ? "⭐ " : ""}{v.name} ({v.count})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Reset Filters */}
-          {(selectedCategoryFilter !== 'all' || selectedVendorFilter !== 'all') && (
-            <button
-              onClick={() => {
-                setSelectedCategoryFilter('all');
-                setSelectedVendorFilter('all');
-                setSelectedKeys(new Set());
-              }}
-              className="px-2.5 py-1 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 text-xs font-semibold cursor-pointer rounded-lg hover:bg-slate-200/60"
-            >
-              Reset Filters
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTypeTab('assembly');
+              setSelectedCategoryFilter('all');
+              setSelectedVendorFilter('all');
+              setSelectedKeys(new Set());
+            }}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap shrink-0 transition-all flex items-center gap-1.5 cursor-pointer text-xs font-bold ${
+              activeTypeTab === 'assembly'
+                ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <CheckCircle2 size={13} />
+            <span>🏆 Assemblies</span>
+            <span className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono ${
+              activeTypeTab === 'assembly' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+            }`}>
+              {classifiedLists.assemblyList?.length || 0}
+            </span>
+          </button>
         </div>
 
-        <div className="text-xs font-semibold text-slate-500">
-          Showing <b>{filteredConsolidatedList.length}</b> of <b>{currentTypeList.length}</b> items
-        </div>
+        {/* Right Scroll Chevron */}
+        <button
+          type="button"
+          onClick={() => scrollTypeTabs('right')}
+          className="p-1.5 text-slate-500 hover:text-slate-900 dark:hover:text-white shrink-0 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+          title="Scroll tabs right"
+          aria-label="Scroll tabs right"
+        >
+          <ChevronRight size={15} />
+        </button>
       </div>
 
       {/* Action Toolbar for Selected Items */}
       <div className="bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            {selectedKeys.size} item(s) selected in {activeTypeTab.toUpperCase()}
-          </span>
+        <div className="flex items-center gap-2 flex-wrap justify-between sm:justify-start">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              {selectedKeys.size} item(s) selected in {activeTypeTab.toUpperCase()}
+            </span>
+            <span className="text-xs font-semibold text-slate-400">
+              ({filteredConsolidatedList.length} of {currentTypeList.length} items)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const unplannedKeys = filteredConsolidatedList
+                .filter((i: any) => i.netShortage > 0 && (!i.materialPlanningStatus || i.materialPlanningStatus === 'Not Planned' || i.materialPlanningStatus === 'Pending'))
+                .map((i: any) => i.materialKey);
+              setSelectedKeys(new Set(unplannedKeys));
+            }}
+            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg font-bold text-xs transition-all flex items-center gap-1 cursor-pointer shrink-0"
+            title="Select all items with shortages where PO has not yet been raised"
+          >
+            <AlertTriangle size={11} className="text-amber-600" />
+            <span>Select Unplanned Shortages</span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scroll-smooth touch-pan-x flex-nowrap sm:flex-wrap justify-start sm:justify-end no-scrollbar">
           
           {/* Manual Status Bulk Dropdown */}
-          <div className="flex items-center">
+          <div className="flex items-center shrink-0">
             <select
               disabled={selectedKeys.size === 0}
               onChange={(e) => {
@@ -781,7 +908,7 @@ export default function MRPProcurementWorkbench({
                 }
               }}
               defaultValue=""
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700"
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all cursor-pointer outline-none border border-slate-200 dark:border-slate-700 shrink-0"
             >
               <option value="" disabled>🏷️ Set Status ({selectedKeys.size})</option>
               {STATUS_OPTIONS.map((opt) => (
@@ -794,7 +921,7 @@ export default function MRPProcurementWorkbench({
           <button
             onClick={handleCreateRFQ}
             disabled={selectedKeys.size === 0}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all flex items-center gap-1 cursor-pointer"
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs disabled:opacity-30 transition-all flex items-center gap-1 cursor-pointer shrink-0 whitespace-nowrap"
           >
             <FileText size={12} />
             <span>Create RFQ ({selectedKeys.size})</span>
@@ -803,7 +930,7 @@ export default function MRPProcurementWorkbench({
           <button
             onClick={handleOpenManualPO}
             disabled={selectedKeys.size === 0}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
             title="Open Outward PO Form prefilled with selected items"
           >
             <ShoppingCart size={12} />
@@ -817,7 +944,7 @@ export default function MRPProcurementWorkbench({
           <button
             onClick={handleBulkGeneratePO}
             disabled={selectedKeys.size === 0 || submittingPO}
-            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
             title="1-Click Auto Generate Purchase Orders grouped by vendor"
           >
             <Sparkles size={12} className="text-amber-400 dark:text-amber-600" />
@@ -829,7 +956,7 @@ export default function MRPProcurementWorkbench({
             <button
               onClick={handleSendToPPC}
               disabled={selectedKeys.size === 0 || submittingPPC}
-              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer"
+              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-30 transition-all flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
               title="Dispatch to PPC Order Intake for in-house manufacturing"
             >
               <Factory size={12} />
@@ -841,8 +968,13 @@ export default function MRPProcurementWorkbench({
 
       {/* Table with Selection Checkboxes & Inline Status Selector */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+        {/* Mobile horizontal scroll hint */}
+        <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
+          <span>📋 Material Shortages</span>
+          <span className="text-emerald-600 font-semibold">← Swipe horizontally →</span>
+        </div>
+        <div className="overflow-x-auto scroll-smooth touch-pan-x">
+          <table className="w-full min-w-[960px] text-xs text-left">
             <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
               <tr>
                 <th className="p-3 w-8 text-center">
@@ -861,13 +993,14 @@ export default function MRPProcurementWorkbench({
                 <th className="p-3 text-center">In-Transit PO</th>
                 <th className="p-3 text-center">True Net Shortage</th>
                 <th className="p-3">Preferred Supplier</th>
+                <th className="p-3 text-center">Planning Remark</th>
                 <th className="p-3 text-center">BOM Item Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredConsolidatedList.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-400">
+                  <td colSpan={10} className="p-8 text-center text-slate-400">
                     No {activeTypeTab.toUpperCase()} items found matching the selected filters.
                   </td>
                 </tr>
@@ -887,33 +1020,43 @@ export default function MRPProcurementWorkbench({
                       <td className="p-3">
                         <div className="font-bold text-slate-900 dark:text-white">{item.materialName}</div>
                         {item.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{item.description}</span>}
-                        {Array.isArray(item.mrpSources) && item.mrpSources.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1 mt-1">
-                            <span className="text-[10px] text-slate-400 font-medium">Demanded in:</span>
-                            {item.mrpSources.map((src: any, sIdx: number) => {
-                              const mrpNum = src.mrpNumber || src;
-                              const matchedPlan = mrpTreeList.find((p: any) => p.mrpNumber === mrpNum);
-                              return (
-                                <button
-                                  key={sIdx}
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (matchedPlan) handleSelectPlan(matchedPlan);
-                                  }}
-                                  className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
-                                    matchedPlan 
-                                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 cursor-pointer' 
-                                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
-                                  }`}
-                                  title={matchedPlan ? `Click to inspect ${mrpNum} Nested BOM` : mrpNum}
-                                >
-                                  {mrpNum} {src.quantity ? `(${src.quantity} ${item.unit})` : ''}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
+                        
+                        {/* Target Required Date & Sources */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {item.earliestTargetDate && (
+                            <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800/60 inline-flex items-center gap-1">
+                              <Calendar size={10} />
+                              Due: {new Date(item.earliestTargetDate).toLocaleDateString('en-IN')}
+                            </span>
+                          )}
+                          {Array.isArray(item.mrpSources) && item.mrpSources.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[10px] text-slate-400 font-medium">Demanded in:</span>
+                              {item.mrpSources.map((src: any, sIdx: number) => {
+                                const mrpNum = src.mrpNumber || src;
+                                const matchedPlan = mrpTreeList.find((p: any) => p.mrpNumber === mrpNum);
+                                return (
+                                  <button
+                                    key={sIdx}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (matchedPlan) handleSelectPlan(matchedPlan);
+                                    }}
+                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono transition-colors ${
+                                      matchedPlan 
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 cursor-pointer' 
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700'
+                                    }`}
+                                    title={matchedPlan ? `Click to inspect ${mrpNum} Nested BOM` : mrpNum}
+                                  >
+                                    {mrpNum} {src.requiredQty || src.quantity ? `(${src.requiredQty || src.quantity} ${item.unit})` : ''}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       <td className="p-3">
@@ -974,6 +1117,60 @@ export default function MRPProcurementWorkbench({
                         )}
                       </td>
 
+                      {/* Material Planning Status (Remark) */}
+                      <td className="p-3 text-center">
+                        {(() => {
+                          const pStatus = item.materialPlanningStatus || (item.netShortage === 0 ? 'Stock Covered' : 'Not Planned');
+                          if (pStatus === 'Completed') {
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border border-teal-300 whitespace-nowrap">
+                                ✓ Completed
+                              </span>
+                            );
+                          }
+                          if (pStatus === 'PO Sent') {
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 whitespace-nowrap">
+                                📦 PO Sent
+                              </span>
+                            );
+                          }
+                          if (pStatus === 'Raised RFQ') {
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 whitespace-nowrap">
+                                📑 RFQ Raised
+                              </span>
+                            );
+                          }
+                          if (pStatus === 'PO In-Transit') {
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300 whitespace-nowrap">
+                                🚚 PO In-Transit
+                              </span>
+                            );
+                          }
+                          if (pStatus === 'Partially In-Transit') {
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 whitespace-nowrap">
+                                ⏳ Partial In-Transit
+                              </span>
+                            );
+                          }
+                          if (pStatus === 'Stock Covered' || item.netShortage === 0) {
+                            return (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 whitespace-nowrap">
+                                ✅ Stock Covered
+                              </span>
+                            );
+                          }
+                          return (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1 whitespace-nowrap">
+                              <AlertTriangle size={10} /> ⚠️ Not Planned
+                            </span>
+                          );
+                        })()}
+                      </td>
+
                       {/* Interactive Manual Status Selector (Last Column) */}
                       <td className="p-3 text-center">
                         <div className="inline-block relative">
@@ -1008,73 +1205,327 @@ export default function MRPProcurementWorkbench({
       {/* ========================================================================= */}
       {/* VIEW 1: INITIAL MRP NUMBERS LIST (Click on an MRP number to view BOM)     */}
       {/* ========================================================================= */}
+      {/* ========================================================================= */}
+      {/* VIEW 1: INITIAL MRP NUMBERS LIST & UNIFIED TOP FILTER BAR                */}
+      {/* ========================================================================= */}
       {!selectedPlan && (
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           
-          {/* Header & Search */}
-          <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2">
-                <ShoppingCart className="text-emerald-600 w-5 h-5" />
-                <span>Procurement Workbench</span>
-              </h2>
+          {/* ========================================================================= */}
+          {/* UNIFIED FILTER BAR (Applies to both Plans View and Items Wise View)       */}
+          {/* ========================================================================= */}
+          <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+            
+            {/* Row 1: Title, View Mode Switcher, Search, Refresh */}
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap min-w-0">
+                <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2 shrink-0">
+                  <ShoppingCart className="text-emerald-600 w-5 h-5" />
+                  <span>Procurement Workbench</span>
+                </h2>
 
-              {/* View Mode Toggle: Plans vs Items Wise */}
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold shrink-0">
+                {/* View Mode Toggle: Plans vs Items Wise (Desktop/Tablet) */}
+                <div className="hidden sm:flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWorkbenchViewMode('plans');
+                      setSelectedKeys(new Set());
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                      workbenchViewMode === 'plans'
+                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="View MRP Demand Plans"
+                  >
+                    <Layers size={14} />
+                    <span>Plans ({filteredMrpList.length}/{mrpTreeList.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWorkbenchViewMode('items');
+                      setSelectedKeys(new Set());
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                      workbenchViewMode === 'items'
+                        ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                    title="Consolidated Shortages across All Active MRP Plans"
+                  >
+                    <Package size={14} />
+                    <span>Items Wise ({totalWorkbenchMaterialsCount})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Search & Refresh */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="relative flex-1 sm:w-64">
+                  <Search className="absolute left-3 top-2.5 text-slate-400 w-3.5 h-3.5" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder={workbenchViewMode === 'plans' ? "Search MRP #, Customer, FG..." : "Search Material, Category, Vendor..."}
+                    className="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none"
+                  />
+                  {searchTerm && (
+                    <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+
                 <button
-                  type="button"
-                  onClick={() => {
-                    setWorkbenchViewMode('plans');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    workbenchViewMode === 'plans'
-                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                  title="View MRP Plans"
+                  onClick={() => fetchWorkbenchData()}
+                  className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer shrink-0"
+                  title="Refresh"
                 >
-                  <Layers size={14} />
-                  <span>Plans ({mrpTreeList.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setWorkbenchViewMode('items');
-                    setSelectedKeys(new Set());
-                  }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    workbenchViewMode === 'items'
-                      ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
-                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                  title="Consolidated Shortages across All Active MRP Plans"
-                >
-                  <Package size={14} />
-                  <span>Items Wise ({totalWorkbenchMaterialsCount})</span>
+                  <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1 sm:w-64">
-                <Search className="absolute left-3 top-2.5 text-slate-400 w-3.5 h-3.5" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={workbenchViewMode === 'plans' ? "Search MRP #, Customer..." : "Search Material, Category, Supplier..."}
-                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs outline-none"
-                />
+            {/* Mobile View Mode Toggle (Full Width Grid on phones) */}
+            <div className="sm:hidden grid grid-cols-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkbenchViewMode('plans');
+                  setSelectedKeys(new Set());
+                }}
+                className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  workbenchViewMode === 'plans'
+                    ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                    : 'text-slate-500'
+                }`}
+              >
+                <Layers size={14} />
+                <span>Plans ({filteredMrpList.length}/{mrpTreeList.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkbenchViewMode('items');
+                  setSelectedKeys(new Set());
+                }}
+                className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  workbenchViewMode === 'items'
+                    ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                    : 'text-slate-500'
+                }`}
+              >
+                <Package size={14} />
+                <span>Items Wise ({totalWorkbenchMaterialsCount})</span>
+              </button>
+            </div>
+
+            {/* Row 2: Unified Date, Customer, Category, Supplier, Planning Status, and Quick Pills */}
+            <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+              
+              {/* Left/Center Filters: Date Dropdown, Customer, (Category & Supplier when items-wise), Planning Status */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1.5 lg:pb-0 max-w-full scroll-smooth touch-pan-x no-scrollbar flex-nowrap lg:flex-wrap">
+                
+                {/* Date Filter Dropdown with Plan / Target Mode */}
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
+                  <Calendar size={13} className="text-slate-400 shrink-0" />
+                  
+                  {/* Mode Selector: Plan Date vs Target Date */}
+                  <div className="flex bg-slate-200/70 dark:bg-slate-700/60 p-0.5 rounded-lg text-[10px] font-bold shrink-0 mr-1">
+                    <button
+                      type="button"
+                      onClick={() => setDateType('created')}
+                      className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                        dateType === 'created' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                      title="Filter by Plan Creation Date"
+                    >
+                      Plan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDateType('target')}
+                      className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                        dateType === 'target' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                      title="Filter by Requirement Delivery / Target Date"
+                    >
+                      Target
+                    </button>
+                  </div>
+
+                  {/* Date Range Dropdown */}
+                  <select
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value as any)}
+                    className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
+                  >
+                    <option value="all">All Dates</option>
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="7days">Last 7 Days</option>
+                    <option value="thisMonth">This Month</option>
+                    <option value="custom">Custom Range</option>
+                  </select>
+                </div>
+
+                {/* Custom Date Pickers (only shown if Custom Range is selected) */}
+                {dateFilter === 'custom' && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="bg-transparent text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                    />
+                    <span className="text-[11px] text-slate-400">to</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="bg-transparent text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
+                    />
+                    {(startDate || endDate) && (
+                      <button 
+                        onClick={() => { setStartDate(''); setEndDate(''); }}
+                        className="p-0.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer ml-0.5"
+                        title="Clear Dates"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Customer Dropdown */}
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
+                  <Building2 size={13} className="text-slate-400 shrink-0" />
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Customer:</span>
+                  <select
+                    value={selectedCustomerFilter}
+                    onChange={(e) => setSelectedCustomerFilter(e.target.value)}
+                    className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[130px] truncate"
+                  >
+                    <option value="all">All Customers</option>
+                    {availableCustomers.map((cust) => (
+                      <option key={cust} value={cust}>{cust}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Category Filter (Item Wise) */}
+                {workbenchViewMode === 'items' && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
+                    <Tag size={13} className="text-slate-400 shrink-0" />
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Category:</span>
+                    <select
+                      value={selectedCategoryFilter}
+                      onChange={(e) => {
+                        setSelectedCategoryFilter(e.target.value);
+                        setSelectedKeys(new Set());
+                      }}
+                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[140px] truncate"
+                    >
+                      <option value="all">All Categories ({currentTypeList.length})</option>
+                      {availableCategories.map((cat) => {
+                        const count = currentTypeList.filter((it: any) => it.category === cat).length;
+                        return (
+                          <option key={cat} value={cat}>
+                            {cat} ({count})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                {/* Supplier / Vendor Filter (Item Wise) */}
+                {workbenchViewMode === 'items' && (
+                  <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
+                    <Building2 size={13} className="text-slate-400 shrink-0" />
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Supplier:</span>
+                    <select
+                      value={selectedVendorFilter}
+                      onChange={(e) => {
+                        setSelectedVendorFilter(e.target.value);
+                        setSelectedKeys(new Set());
+                      }}
+                      className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs max-w-[150px] truncate"
+                    >
+                      <option value="all">All Suppliers ({currentTypeList.length})</option>
+                      <option value="preferred_only">⭐ Preferred Only ({currentTypeList.filter((it: any) => it.bestVendor?.isPreferred).length})</option>
+                      {availableVendors.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.isPreferred ? "⭐ " : ""}{v.name} ({v.count})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Planning Status Dropdown */}
+                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs shadow-2xs shrink-0">
+                  <CheckCircle2 size={13} className="text-slate-400 shrink-0" />
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Planning:</span>
+                  <select
+                    value={selectedPlanningStatusFilter}
+                    onChange={(e) => setSelectedPlanningStatusFilter(e.target.value as any)}
+                    className="bg-transparent font-bold text-slate-800 dark:text-slate-200 outline-none cursor-pointer text-xs"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="not_planned">⚠️ Not Planned (Pending Purchase)</option>
+                    <option value="in_procurement">📦 In Procurement / PO Sent</option>
+                    <option value="stock_covered">✅ Stock Covered</option>
+                    <option value="completed">✓ Completed</option>
+                  </select>
+                </div>
               </div>
 
-              <button
-                onClick={() => fetchWorkbenchData()}
-                className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer"
-                title="Refresh"
-              >
-                <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-              </button>
+              {/* Right: Quick Action Pills & Reset */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 shrink-0 touch-pan-x no-scrollbar flex-nowrap">
+                
+                {/* Quick Toggle: ⚠️ Not Planned Only */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanningStatusFilter(prev => prev === 'not_planned' ? 'all' : 'not_planned')}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1 ${
+                    selectedPlanningStatusFilter === 'not_planned'
+                      ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-300 dark:border-rose-700 shadow-2xs font-extrabold'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                  }`}
+                  title="Show only demands where material has NOT been planned/ordered yet"
+                >
+                  <AlertTriangle size={11} className={selectedPlanningStatusFilter === 'not_planned' ? "text-rose-600" : "text-amber-500"} />
+                  <span>Not Planned Only</span>
+                </button>
+
+                {/* Quick Toggle: Shortages Only */}
+                <button
+                  type="button"
+                  onClick={() => setOnlyShortages(prev => !prev)}
+                  className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1 ${
+                    onlyShortages
+                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs font-bold'
+                      : 'bg-slate-50 hover:bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <span>{onlyShortages ? '✓ Shortages Only' : 'Shortages Only'}</span>
+                </button>
+
+                {/* Reset Filters button */}
+                {isAnyFilterActive && (
+                  <button
+                    onClick={handleResetAllFilters}
+                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl cursor-pointer border border-slate-200 dark:border-slate-700 shrink-0"
+                    title="Reset All Filters"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1083,206 +1534,164 @@ export default function MRPProcurementWorkbench({
             renderTypesClassificationView(true)
           ) : (
             <>
-              {/* Date & Day Filter Bar */}
-              <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar w-full lg:w-auto flex-wrap sm:flex-nowrap">
-              
-              {/* Date Type Selector */}
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg text-[11px] font-bold shrink-0 mr-1">
-                <button
-                  onClick={() => setDateType('created')}
-                  className={`px-2 py-0.8 rounded-md transition-all cursor-pointer ${
-                    dateType === 'created' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-2xs font-bold' : 'text-slate-500'
-                  }`}
-                >
-                  Plan Date
-                </button>
-                <button
-                  onClick={() => setDateType('target')}
-                  className={`px-2 py-0.8 rounded-md transition-all cursor-pointer ${
-                    dateType === 'target' ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-2xs font-bold' : 'text-slate-500'
-                  }`}
-                >
-                  Target Date
-                </button>
-              </div>
-
-              {[
-                { id: 'all', label: 'All Dates' },
-                { id: 'today', label: 'Today' },
-                { id: 'yesterday', label: 'Yesterday' },
-                { id: '7days', label: 'Last 7 Days' },
-                { id: 'thisMonth', label: 'This Month' },
-                { id: 'custom', label: 'Custom Range' },
-              ].map((df) => (
-                <button
-                  key={df.id}
-                  onClick={() => setDateFilter(df.id as any)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                    dateFilter === df.id
-                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-bold'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                  }`}
-                >
-                  {df.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Custom Date Range Inputs */}
-            {dateFilter === 'custom' && (
-              <div className="flex items-center gap-1.5 w-full lg:w-auto flex-wrap sm:flex-nowrap">
-                <span className="text-[11px] text-slate-400 font-semibold">From:</span>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
-                />
-                <span className="text-[11px] text-slate-400 font-semibold">To:</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-semibold outline-none text-slate-700 dark:text-slate-200"
-                />
-                {(startDate || endDate) && (
-                  <button 
-                    onClick={() => { setStartDate(''); setEndDate(''); }}
-                    className="p-1 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
-                    title="Clear Dates"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* MRP Numbers Table */}
-          {loading ? (
-            <div className="p-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-2" />
-              <p className="text-xs text-slate-400 font-semibold">Loading MRP Demand Plans...</p>
-            </div>
-          ) : filteredMrpList.length === 0 ? (
-            <div className="p-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-              <Package className="w-10 h-10 text-slate-300 mx-auto mb-2 opacity-60" />
-              <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Create an MRP Demand Plan in Tab 1 to start procurement.</p>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
-                    <tr>
-                      <th className="p-3.5">MRP Number</th>
-                      <th className="p-3.5">Customer & PO Ref</th>
-                      <th className="p-3.5">Finished Goods (FG) Demand</th>
-                      <th className="p-3.5 text-center">Live Shortages</th>
-                      <th className="p-3.5 text-center">In-Transit POs</th>
-                      <th className="p-3.5 text-center">Procurement Status</th>
-                      <th className="p-3.5 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {filteredMrpList.map((plan: any) => {
-                      const fgCount = (plan.fgItems || []).length;
-                      const firstFG = (plan.fgItems || [])[0];
-
-                      return (
-                        <tr 
-                          key={plan._id}
-                          onClick={() => handleSelectPlan(plan)}
-                          className="hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 cursor-pointer transition-colors"
-                        >
-                          {/* MRP Number */}
-                          <td className="p-3.5">
-                            <span className="font-mono text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                              {plan.mrpNumber}
-                            </span>
-                          </td>
-
-                          {/* Customer & PO */}
-                          <td className="p-3.5">
-                            <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
-                            {plan.customerPoNumber && (
-                              <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
-                            )}
-                          </td>
-
-                          {/* FG Summary */}
-                          <td className="p-3.5">
-                            <div className="font-semibold text-slate-800 dark:text-slate-200">
-                              {firstFG?.fgItemName || "Finished Good"}
-                              {fgCount > 1 && <span className="text-slate-400 font-normal ml-1">+{fgCount - 1} more</span>}
-                            </div>
-                            <span className="text-[10px] text-slate-400 block font-mono">
-                              {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
-                            </span>
-                          </td>
-
-                          {/* Live Shortages */}
-                          <td className="p-3.5 text-center">
-                            {plan.planTotalShortages > 0 ? (
-                              <span className="inline-flex items-center gap-1 font-bold text-red-600 bg-red-50 dark:bg-red-950 px-2 py-0.5 rounded text-[11px]">
-                                <AlertTriangle size={11} /> {plan.planTotalShortages} Shortage Units
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded text-[11px]">
-                                <CheckCircle2 size={11} /> Stock Covered
-                              </span>
-                            )}
-                          </td>
-
-                          {/* In-Transit POs */}
-                          <td className="p-3.5 text-center">
-                            {plan.planTotalInTransit > 0 ? (
-                              <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded text-[11px]">
-                                {plan.planTotalInTransit} Units In-Transit
-                              </span>
-                            ) : (
-                              <span className="text-slate-300">-</span>
-                            )}
-                          </td>
-
-                          {/* Procurement Status */}
-                          <td className="p-3.5 text-center">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                              plan.isProcurementFulfilled 
-                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                            }`}>
-                              {plan.isProcurementFulfilled ? '✅ Procurement Fulfilled' : '⏳ Shortages Pending'}
-                            </span>
-                          </td>
-
-                          {/* Open BOM Trigger Button */}
-                          <td className="p-3.5 text-right">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSelectPlan(plan);
-                              }}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1 ml-auto cursor-pointer"
-                            >
-                              <span>View Nested BOM</span>
-                              <ChevronRight size={13} />
-                            </button>
-                          </td>
+              {/* MRP Numbers Table */}
+              {loading ? (
+                <div className="p-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <RefreshCw className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-2" />
+                  <p className="text-xs text-slate-400 font-semibold">Loading MRP Demand Plans...</p>
+                </div>
+              ) : filteredMrpList.length === 0 ? (
+                <div className="p-16 text-center bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <Package className="w-10 h-10 text-slate-300 mx-auto mb-2 opacity-60" />
+                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200">No MRP Plans Found</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Adjust your date or status filters, or create an MRP Demand Plan in Tab 1 to start procurement.</p>
+                </div>
+              ) : (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                  {/* Mobile horizontal scroll hint */}
+                  <div className="sm:hidden px-3 py-1.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 flex items-center justify-between">
+                    <span>📑 Demand Plans</span>
+                    <span className="text-emerald-600 font-semibold">← Swipe horizontally →</span>
+                  </div>
+                  <div className="overflow-x-auto scroll-smooth touch-pan-x">
+                    <table className="w-full min-w-[880px] text-xs text-left">
+                      <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="p-3.5">MRP Number</th>
+                          <th className="p-3.5">Customer & PO Ref</th>
+                          <th className="p-3.5">Dates (Plan / Due)</th>
+                          <th className="p-3.5">Finished Goods (FG) Demand</th>
+                          <th className="p-3.5 text-center">Live Shortages</th>
+                          <th className="p-3.5 text-center">In-Transit POs</th>
+                          <th className="p-3.5 text-center">Material Planning Status</th>
+                          <th className="p-3.5 text-right">Action</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {filteredMrpList.map((plan: any) => {
+                          const fgCount = (plan.fgItems || []).length;
+                          const firstFG = (plan.fgItems || [])[0];
+
+                          return (
+                            <tr 
+                              key={plan._id}
+                              onClick={() => handleSelectPlan(plan)}
+                              className="hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 cursor-pointer transition-colors"
+                            >
+                              {/* MRP Number */}
+                              <td className="p-3.5">
+                                <span className="font-mono text-xs font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                                  {plan.mrpNumber}
+                                </span>
+                              </td>
+
+                              {/* Customer & PO */}
+                              <td className="p-3.5">
+                                <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
+                                {plan.customerPoNumber && (
+                                  <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
+                                )}
+                              </td>
+
+                              {/* Dates: Plan Date & Due Date */}
+                              <td className="p-3.5">
+                                <div className="text-[11px] space-y-0.5">
+                                  {plan.planDate && (
+                                    <div className="text-slate-600 dark:text-slate-400">
+                                      <span className="text-[10px] text-slate-400 uppercase font-semibold">Plan: </span>
+                                      {new Date(plan.planDate).toLocaleDateString('en-IN')}
+                                    </div>
+                                  )}
+                                  {plan.targetDate && (
+                                    <div className="text-amber-700 dark:text-amber-400 font-semibold">
+                                      <span className="text-[10px] text-slate-400 uppercase font-semibold">Due: </span>
+                                      {new Date(plan.targetDate).toLocaleDateString('en-IN')}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+
+                              {/* FG Summary */}
+                              <td className="p-3.5">
+                                <div className="font-semibold text-slate-800 dark:text-slate-200">
+                                  {firstFG?.fgItemName || "Finished Good"}
+                                  {fgCount > 1 && <span className="text-slate-400 font-normal ml-1">+{fgCount - 1} more</span>}
+                                </div>
+                                <span className="text-[10px] text-slate-400 block font-mono">
+                                  {fgCount} FG Item{fgCount > 1 ? 's' : ''} planned
+                                </span>
+                              </td>
+
+                              {/* Live Shortages */}
+                              <td className="p-3.5 text-center">
+                                {plan.planTotalShortages > 0 ? (
+                                  <span className="inline-flex items-center gap-1 font-bold text-red-600 bg-red-50 dark:bg-red-950 px-2 py-0.5 rounded text-[11px]">
+                                    <AlertTriangle size={11} /> {plan.planTotalShortages} Shortage Units
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded text-[11px]">
+                                    <CheckCircle2 size={11} /> Stock Covered
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* In-Transit POs */}
+                              <td className="p-3.5 text-center">
+                                {plan.planTotalInTransit > 0 ? (
+                                  <span className="font-bold text-blue-600 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded text-[11px]">
+                                    {plan.planTotalInTransit} Units In-Transit
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
+                              </td>
+
+                              {/* Material Planning Status */}
+                              <td className="p-3.5 text-center">
+                                {plan.planTotalShortages === 0 ? (
+                                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 whitespace-nowrap">
+                                    ✅ Material Planned / Covered
+                                  </span>
+                                ) : plan.planTotalInTransit >= plan.planTotalShortages ? (
+                                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border border-blue-300 whitespace-nowrap">
+                                    🚚 PO In-Transit
+                                  </span>
+                                ) : plan.planTotalInTransit > 0 ? (
+                                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border border-purple-300 whitespace-nowrap">
+                                    ⏳ Partially In-Transit
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 inline-flex items-center gap-1 whitespace-nowrap">
+                                    <AlertTriangle size={10} /> ⚠️ Not Planned
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Open BOM Trigger Button */}
+                              <td className="p-3.5 text-right">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSelectPlan(plan);
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1 ml-auto cursor-pointer"
+                                >
+                                  <span>View Nested BOM</span>
+                                  <ChevronRight size={13} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
           )}
-        </>
+        </div>
       )}
-    </div>
-  )}
 
       {/* ========================================================================= */}
       {/* VIEW 2: SELECTED MRP PLAN WORKBENCH WITH NESTED BOM & CLASSIFICATIONS     */}
@@ -1318,16 +1727,16 @@ export default function MRPProcurementWorkbench({
             </div>
 
             {/* View Mode Switcher & Top Actions */}
-            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scroll-smooth touch-pan-x flex-nowrap sm:flex-wrap justify-between sm:justify-end no-scrollbar">
               
               {/* Mode Toggle: Nested Tree vs Type Classification */}
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold">
+              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-bold shrink-0">
                 <button
                   onClick={() => {
                     setViewMode('nested-tree');
                     setSelectedKeys(new Set());
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                     viewMode === 'nested-tree'
                       ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -1342,7 +1751,7 @@ export default function MRPProcurementWorkbench({
                     setViewMode('consolidated-types');
                     setSelectedKeys(new Set());
                   }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer shrink-0 whitespace-nowrap ${
                     viewMode === 'consolidated-types'
                       ? 'bg-white dark:bg-slate-900 text-emerald-600 shadow-xs'
                       : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
@@ -1357,7 +1766,7 @@ export default function MRPProcurementWorkbench({
               {viewMode === 'nested-tree' && (
                 <button
                   onClick={handleExportBOMPDF}
-                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0 whitespace-nowrap"
                   title="Export Multi-Level BOM PDF"
                 >
                   <Download size={13} />
@@ -1367,7 +1776,7 @@ export default function MRPProcurementWorkbench({
 
               <button
                 onClick={() => fetchWorkbenchData(selectedPlan._id)}
-                className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer"
+                className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl cursor-pointer shrink-0"
                 title="Refresh Live Stock"
               >
                 <RefreshCw size={13} className={loading ? "animate-spin" : ""} />

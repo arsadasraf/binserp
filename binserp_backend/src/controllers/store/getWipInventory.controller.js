@@ -144,6 +144,9 @@ export const getWipInventory = async (req, res) => {
       }
       const unit = item.unit || "PCS";
       const storeStock = getLiveStoreStock(item, id, code, name);
+      const hasSec = Boolean(item.hasSecondaryUnit || (item.secondaryUnit && Number(item.conversionFactor) > 0));
+      const secUnit = item.secondaryUnit || "";
+      const convFactor = Number(item.conversionFactor) || 1;
 
       const key = `${type}_${id || name.trim().toLowerCase()}`;
       if (!masterWipMap.has(key)) {
@@ -157,19 +160,34 @@ export const getWipInventory = async (req, res) => {
           itemType: type, // 'rm', 'bo', 'fg'
           categoryType: type === "rm" ? "Raw Material (RM)" : type === "bo" ? "Bought Out (BO)" : "Finished Goods (FG)",
           unit: unit,
+          hasSecondaryUnit: hasSec,
+          secondaryUnit: secUnit,
+          conversionFactor: convFactor,
           mainStoreStock: storeStock,
+          mainStoreSecondaryStock: hasSec ? parseFloat((storeStock * convFactor).toFixed(4)) : 0,
           totalIssuedQty: 0,
           totalJobWorkSentQty: 0,
           totalJobWorkReturnedQty: 0,
           totalReturnedQty: 0,
           totalFgConsumedQty: 0,
           shopfloorWipQty: 0,
+          shopfloorWipSecondaryQty: 0,
           pendingQcQty: 0,
+          pendingQcSecondaryQty: 0,
           jobWorkWipQty: 0,
+          jobWorkWipSecondaryQty: 0,
           pendingWipQty: 0,
+          pendingWipSecondaryQty: 0,
           lastMovementDate: item.updatedAt || item.createdAt || new Date(),
           transactions: []
         });
+      } else {
+        const existing = masterWipMap.get(key);
+        if (!existing.hasSecondaryUnit && hasSec) {
+          existing.hasSecondaryUnit = true;
+          existing.secondaryUnit = secUnit;
+          existing.conversionFactor = convFactor;
+        }
       }
       return key;
     };
@@ -201,6 +219,9 @@ export const getWipInventory = async (req, res) => {
         code: inv.materialCode,
         categoryId: inv.categoryId,
         unit: inv.unit,
+        hasSecondaryUnit: inv.hasSecondaryUnit,
+        secondaryUnit: inv.secondaryUnit,
+        conversionFactor: inv.conversionFactor,
         currentStock: inv.currentStock
       }, type);
     });
@@ -718,6 +739,14 @@ export const getWipInventory = async (req, res) => {
     // 7. Format Resulting Items
     masterWipMap.forEach(item => {
       item.pendingWipQty = (item.shopfloorWipQty || 0) + (item.jobWorkWipQty || 0);
+      const conv = Number(item.conversionFactor) || 1;
+      if (item.hasSecondaryUnit && item.secondaryUnit) {
+        item.mainStoreSecondaryStock = parseFloat(((item.mainStoreStock || 0) * conv).toFixed(4));
+        item.shopfloorWipSecondaryQty = parseFloat(((item.shopfloorWipQty || 0) * conv).toFixed(4));
+        item.pendingQcSecondaryQty = parseFloat(((item.pendingQcQty || 0) * conv).toFixed(4));
+        item.jobWorkWipSecondaryQty = parseFloat(((item.jobWorkWipQty || 0) * conv).toFixed(4));
+        item.pendingWipSecondaryQty = parseFloat(((item.pendingWipQty || 0) * conv).toFixed(4));
+      }
     });
 
     let allItems = Array.from(masterWipMap.values()).map(item => ({

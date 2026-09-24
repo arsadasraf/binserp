@@ -1,4 +1,5 @@
 import { incomingPOSchema, salesOrderSchema, quotationSchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
+import { mrpPlanSchema } from "../../models/purchase/index.js";
 import { customerSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { uploadOnS3 } from "../../utils/s3.js";
@@ -145,6 +146,7 @@ export const generateSalesOrderFromPO = asyncHandler(async (req, res) => {
 
 export const getAllIncomingPOs = asyncHandler(async (req, res) => {
   req.getModel("Customer", customerSchema);
+  req.getModel("MRPPlan", mrpPlanSchema);
   const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
   const DeliveryChallan = req.getModel("DeliveryChallan", deliveryChallanSchema);
   const Invoice = req.getModel("Invoice", invoiceSchema);

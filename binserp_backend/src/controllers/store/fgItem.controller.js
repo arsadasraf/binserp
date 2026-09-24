@@ -15,7 +15,7 @@ export const createFGItem = async (req, res) => {
     const FGItem = req.getModel('FGItem', fgItemSchema);
     const companyId = getCompanyId(req);
     const { userId, userName } = getUserAudit(req);
-    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
+    let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
 
     const parsedHasSecondary = hasSecondaryUnit === 'true' || hasSecondaryUnit === true;
     const parsedSecondaryUnit = (secondaryUnit || "").toString().trim();
@@ -74,6 +74,9 @@ export const createFGItem = async (req, res) => {
     }
 
     const validLocation = (location && mongoose.Types.ObjectId.isValid(location)) ? location : undefined;
+    const validCategory = (categoryId && mongoose.Types.ObjectId.isValid(categoryId)) 
+      ? categoryId 
+      : ((category && mongoose.Types.ObjectId.isValid(category)) ? category : undefined);
 
     // Handle photo uploads
     const photoUrls = [];
@@ -100,6 +103,8 @@ export const createFGItem = async (req, res) => {
       type,
       description: description || "",
       location: validLocation,
+      category: validCategory,
+      categoryId: validCategory,
       unit: (unit || "Nos").toString().trim(),
       hasSecondaryUnit: parsedHasSecondary,
       secondaryUnit: parsedSecondaryUnit,
@@ -140,6 +145,8 @@ export const getAllFGItems = async (req, res) => {
 
     const fgItems = await FGItem.find({ company: companyId })
       .populate('location', 'name')
+      .populate('category', 'name code unit')
+      .populate('categoryId', 'name code unit')
       .populate('bom.item', 'name componentName code componentCode unit rate descriptions description type') 
       .sort({ createdAt: -1 })
       .lean();
@@ -267,7 +274,7 @@ export const updateFGItem = async (req, res) => {
     const companyId = getCompanyId(req);
     const { id } = req.params;
     
-    let { name, code, type, description, location, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
+    let { name, code, type, description, location, category, categoryId, unit, bom, revisionNumber, reorderLevel, hsnCode, hasSecondaryUnit, secondaryUnit, conversionFactor } = req.body;
 
     let updateData = { name, code, type, description, revisionNumber };
     if (unit !== undefined) updateData.unit = (unit || "Nos").toString().trim();
@@ -289,6 +296,14 @@ export const updateFGItem = async (req, res) => {
 
     if (location !== undefined) {
       updateData.location = (location && mongoose.Types.ObjectId.isValid(location)) ? location : null;
+    }
+
+    if (category !== undefined || categoryId !== undefined) {
+      const validCategory = (categoryId && mongoose.Types.ObjectId.isValid(categoryId))
+        ? categoryId
+        : ((category && mongoose.Types.ObjectId.isValid(category)) ? category : null);
+      updateData.category = validCategory;
+      updateData.categoryId = validCategory;
     }
 
     // Parse bom if it's a string

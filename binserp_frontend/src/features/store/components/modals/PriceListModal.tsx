@@ -24,6 +24,8 @@ export default function PriceListModal({
     fgItem: "",
     price: "",
     taxRate: "18",
+    pricingUnit: "",
+    isSecondaryUnit: false,
     remarks: "",
   });
 
@@ -40,6 +42,8 @@ export default function PriceListModal({
           fgItem: itemObj?._id || initialData.fgItem || "",
           price: (initialData.price ?? existingConfig?.price ?? itemObj?.sellingPrice ?? "")?.toString(),
           taxRate: (initialData.taxRate ?? existingConfig?.taxRate ?? itemObj?.taxRate ?? "18")?.toString(),
+          pricingUnit: initialData.pricingUnit ?? existingConfig?.pricingUnit ?? "",
+          isSecondaryUnit: Boolean(initialData.isSecondaryUnit ?? existingConfig?.isSecondaryUnit),
           remarks: initialData.remarks || existingConfig?.remarks || "",
         });
       } else {
@@ -47,6 +51,8 @@ export default function PriceListModal({
           fgItem: "",
           price: "",
           taxRate: "18",
+          pricingUnit: "",
+          isSecondaryUnit: false,
           remarks: "",
         });
       }
@@ -65,6 +71,8 @@ export default function PriceListModal({
       fgItem: selectedId,
       price: (existingConfig?.price ?? selectedFg?.sellingPrice ?? prev.price)?.toString(),
       taxRate: (existingConfig?.taxRate ?? selectedFg?.taxRate ?? prev.taxRate ?? "18")?.toString(),
+      pricingUnit: existingConfig?.pricingUnit ?? (selectedFg?.hasSecondaryUnit ? selectedFg.unit : ""),
+      isSecondaryUnit: Boolean(existingConfig?.isSecondaryUnit),
       remarks: existingConfig?.remarks || prev.remarks,
     }));
   };
@@ -72,6 +80,15 @@ export default function PriceListModal({
   const selectedFgObj = fgItems.find(f => f._id === formData.fgItem) || (typeof initialData?.fgItem === "object" ? initialData?.fgItem : null);
   const isPreSelected = !!initialData?.fgItem;
   const resolvedHsnCode = selectedFgObj?.hsnCode || initialData?.hsnCode || "";
+
+  const hasDualUnit = Boolean(
+    selectedFgObj?.hasSecondaryUnit &&
+    selectedFgObj?.secondaryUnit &&
+    Number(selectedFgObj?.conversionFactor) > 0
+  );
+  const primaryUnit = selectedFgObj?.unit || 'Nos';
+  const secondaryUnit = selectedFgObj?.secondaryUnit || '';
+  const factor = Number(selectedFgObj?.conversionFactor) || 1;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,6 +113,8 @@ export default function PriceListModal({
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
         hsnCode: resolvedHsnCode,
+        pricingUnit: hasDualUnit ? (formData.isSecondaryUnit ? secondaryUnit : primaryUnit) : primaryUnit,
+        isSecondaryUnit: Boolean(hasDualUnit && formData.isSecondaryUnit),
       });
     } catch (err: any) {
       setError(err?.data?.message || err?.message || "Failed to save price list.");
@@ -168,11 +187,73 @@ export default function PriceListModal({
               )}
             </div>
 
+            {/* Dual-Unit Selection Box (shown if FG has secondary unit) */}
+            {hasDualUnit && (
+              <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/40 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <span>Pricing Unit</span>
+                    <span className="text-[10px] font-normal text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded">
+                      Dual Unit Item
+                    </span>
+                  </label>
+                  <span className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300">
+                    1 {primaryUnit} = {factor} {secondaryUnit}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, isSecondaryUnit: false, pricingUnit: primaryUnit }))}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                      !formData.isSecondaryUnit
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>Per {primaryUnit}</span>
+                    <span className={`text-[10px] font-normal ${!formData.isSecondaryUnit ? "text-indigo-100" : "text-slate-400"}`}>
+                      Primary Unit
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, isSecondaryUnit: true, pricingUnit: secondaryUnit }))}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                      formData.isSecondaryUnit
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>Per {secondaryUnit}</span>
+                    <span className={`text-[10px] font-normal ${formData.isSecondaryUnit ? "text-indigo-100" : "text-slate-400"}`}>
+                      Secondary Unit
+                    </span>
+                  </button>
+                </div>
+
+                {/* Live Equivalent Calculation */}
+                {formData.price && !isNaN(Number(formData.price)) && Number(formData.price) > 0 && (
+                  <div className="text-[11px] font-medium text-indigo-800 dark:text-indigo-200 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-indigo-200/50 dark:border-indigo-800/40 flex items-center justify-between font-mono">
+                    <span>Equivalent Rate:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                      {formData.isSecondaryUnit
+                        ? `₹${(Number(formData.price) * factor).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${primaryUnit}`
+                        : `₹${(Number(formData.price) / factor).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${secondaryUnit}`
+                      }
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Price & Tax Rate Inputs */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Selling Price (₹) <span className="text-red-500">*</span>
+                  Selling Price (₹ per {hasDualUnit ? (formData.isSecondaryUnit ? secondaryUnit : primaryUnit) : primaryUnit}) <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-xs text-gray-400 font-bold">₹</span>

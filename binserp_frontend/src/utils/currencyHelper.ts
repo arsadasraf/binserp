@@ -244,27 +244,80 @@ export const DEFAULT_EXCHANGE_RATES_TO_INR: Record<string, number> = {
   CNY: 11.95,
 };
 
+// Global in-memory cache with localStorage fallback
+let cachedExchangeRates: Record<string, number> = { ...DEFAULT_EXCHANGE_RATES_TO_INR };
+
+if (typeof window !== 'undefined') {
+  try {
+    const saved = localStorage.getItem('binserp_exchange_rates');
+    if (saved) {
+      cachedExchangeRates = { ...DEFAULT_EXCHANGE_RATES_TO_INR, ...JSON.parse(saved) };
+    }
+  } catch (e) {
+    // Ignore storage parse error
+  }
+}
+
+/**
+ * Updates the global exchange rates cache and persists to localStorage
+ */
+export const setGlobalExchangeRates = (rates: Record<string, number>) => {
+  if (!rates || typeof rates !== 'object') return;
+  cachedExchangeRates = { ...DEFAULT_EXCHANGE_RATES_TO_INR, ...rates };
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('binserp_exchange_rates', JSON.stringify(cachedExchangeRates));
+      window.dispatchEvent(new Event('binserp_exchange_rates_updated'));
+    } catch (e) {
+      // Ignore storage write error
+    }
+  }
+};
+
+/**
+ * Returns current active exchange rates map
+ */
+export const getGlobalExchangeRates = (): Record<string, number> => {
+  return { ...cachedExchangeRates };
+};
+
 /**
  * Returns exchange rate of currency to INR
  */
-export const getExchangeRateToINR = (currency?: string, customRate?: number): number => {
+export const getExchangeRateToINR = (
+  currency?: string,
+  customRate?: number,
+  customRatesMap?: Record<string, number>
+): number => {
   if (customRate && customRate > 0) return customRate;
   const code = normalizeCurrencyCode(currency);
+  if (code === 'INR') return 1.0;
+  if (customRatesMap && customRatesMap[code] && Number(customRatesMap[code]) > 0) {
+    return Number(customRatesMap[code]);
+  }
+  if (cachedExchangeRates[code] && Number(cachedExchangeRates[code]) > 0) {
+    return Number(cachedExchangeRates[code]);
+  }
   return DEFAULT_EXCHANGE_RATES_TO_INR[code] || 1.0;
 };
 
 /**
  * Converts any amount from selected currency to INR ₹
+ * Supports passing either a single customRate number or an exchangeRates dictionary
  */
 export const convertToINR = (
   amount: number | string | undefined | null,
   currency?: string,
-  customRate?: number
+  customRateOrMap?: number | Record<string, number>
 ): { rate: number; inrAmount: number; isForeign: boolean; formattedINR: string } => {
   const num = Number(amount || 0);
   const code = normalizeCurrencyCode(currency);
   const isForeign = code !== 'INR';
-  const rate = isForeign ? getExchangeRateToINR(code, customRate) : 1.0;
+
+  const customRate = typeof customRateOrMap === 'number' ? customRateOrMap : undefined;
+  const ratesMap = typeof customRateOrMap === 'object' && customRateOrMap !== null ? customRateOrMap : undefined;
+
+  const rate = isForeign ? getExchangeRateToINR(code, customRate, ratesMap) : 1.0;
   const inrAmount = isForeign ? num * rate : num;
 
   const formattedINR = `₹${inrAmount.toLocaleString('en-IN', {

@@ -22,6 +22,7 @@ export interface QuickItemMasterModalProps {
   initialName?: string;
   categories?: any[];
   locations?: any[];
+  contextLabel?: string;
   onItemCreated: (createdItem: any) => void;
 }
 
@@ -61,6 +62,7 @@ export default function QuickItemMasterModal({
   initialName = "",
   categories = [],
   locations = [],
+  contextLabel,
   onItemCreated,
 }: QuickItemMasterModalProps) {
   const [mounted, setMounted] = useState(false);
@@ -232,7 +234,7 @@ export default function QuickItemMasterModal({
       Swal.fire({
         icon: "success",
         title: "Master Item Registered!",
-        text: `"${name.trim()}" has been saved in Item Master and selected into your GRN.`,
+        text: `"${name.trim()}" has been saved in Item Master and selected into your ${contextLabel || "form"}.`,
         timer: 1800,
         showConfirmButton: false,
       });
@@ -618,7 +620,7 @@ export default function QuickItemMasterModal({
             ) : (
               <>
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Save to Master & Use in GRN</span>
+                <span>Save to Master & Use in {contextLabel || "Form"}</span>
               </>
             )}
           </button>

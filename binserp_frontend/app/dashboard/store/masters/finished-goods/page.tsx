@@ -64,6 +64,8 @@ export default function FinishedGoodsPage() {
     setEditingItem(item);
     setFormData({
       ...item,
+      category: typeof item.category === 'object' ? (item.category?._id || item.category?.name) : (item.category || item.categoryId?._id || item.categoryId || ''),
+      categoryId: typeof item.categoryId === 'object' ? item.categoryId?._id : (item.categoryId || (typeof item.category === 'object' ? item.category?._id : item.category) || ''),
       hsnCode: item.hsnCode || '',
       type: item.type || 'Component',
       unit: item.unit || 'Nos',
@@ -162,6 +164,18 @@ export default function FinishedGoodsPage() {
       submitData.append('revisionNumber', (formData.revisionNumber || '').toString().trim());
       submitData.append('reorderLevel', String(formData.reorderLevel ?? 0));
 
+      // Handle category cleanly
+      const rawCategory: any = (formData as any).category;
+      const rawCategoryId: any = (formData as any).categoryId;
+      const catVal = typeof rawCategory === 'object' && rawCategory !== null ? (rawCategory._id || rawCategory.name) : rawCategory;
+      const catIdVal = typeof rawCategoryId === 'object' && rawCategoryId !== null ? rawCategoryId._id : rawCategoryId;
+      if (catVal && String(catVal).trim()) {
+        submitData.append('category', String(catVal).trim());
+      }
+      if (catIdVal && String(catIdVal).trim()) {
+        submitData.append('categoryId', String(catIdVal).trim());
+      }
+
       // Handle location cleanly
       const locId = typeof formData.location === 'object' && formData.location !== null 
         ? formData.location._id 
@@ -207,7 +221,7 @@ export default function FinishedGoodsPage() {
         setToast({ type: 'success', message: `"${cleanName}" created successfully!` });
       }
       setIsModalOpen(false);
-      setFormData({ type: 'Component', unit: 'Nos', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1 });
+      setFormData({ type: 'Component', unit: 'Nos', hasSecondaryUnit: false, secondaryUnit: '', conversionFactor: 1, category: '', categoryId: '' });
       setPhotos([]);
       setEditingItem(null);
       setFormError(null);
@@ -283,9 +297,10 @@ export default function FinishedGoodsPage() {
 
       <div className="h-[calc(100dvh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
         <FinishedGoodsTable
+          categories={categories}
           onAdd={() => {
             setEditingItem(null);
-            setFormData({ type: 'Component', unit: 'Nos' });
+            setFormData({ type: 'Component', unit: 'Nos', category: '', categoryId: '' });
             setPhotos([]);
             setFormError(null);
             setIsModalOpen(true);

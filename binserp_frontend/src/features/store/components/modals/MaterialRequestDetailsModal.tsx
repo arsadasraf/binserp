@@ -148,9 +148,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                                     {item.hasSecondaryUnit && item.secondaryUnit && (
                                                         <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5">
                                                             {item.selectedUnit === item.secondaryUnit ? (
-                                                                <span>↳ = {item.quantity} {item.unit}</span>
+                                                                <span>↳ = {item.quantity || (item.conversionFactor ? Math.round(Number(item.secondaryQuantity || 0) / item.conversionFactor * 100) / 100 : item.secondaryQuantity)} {item.unit}</span>
                                                             ) : (
-                                                                <span>↳ = {item.secondaryQuantity} {item.secondaryUnit}</span>
+                                                                <span>↳ = {item.secondaryQuantity || Math.round(Number(item.quantity || 0) * (item.conversionFactor || 1) * 100) / 100} {item.secondaryUnit}</span>
                                                             )}
                                                         </div>
                                                     )}

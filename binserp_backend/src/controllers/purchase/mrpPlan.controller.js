@@ -27,6 +27,9 @@ export const createMRPPlan = async (req, res) => {
       customerPoNumber = "",
       customerPo,
       customerName = "",
+      customerPOs = [],
+      customerPoIds = [],
+      isConsolidated: isConsolidatedFlag,
       poDate,
       targetDate,
       remarks = "",
@@ -37,10 +40,70 @@ export const createMRPPlan = async (req, res) => {
       return res.status(400).json({ message: "At least one Finished Goods (FG) item is required for MRP calculation." });
     }
 
+    // Resolve Customer POs list (for single or multi-PO consolidation)
+    let resolvedCustomerPOs = [];
+    if (Array.isArray(customerPOs) && customerPOs.length > 0) {
+      resolvedCustomerPOs = customerPOs.map((p) => ({
+        customerPo: p.customerPo || p._id || p.id,
+        customerPoNumber: p.customerPoNumber || p.poNumber || "",
+        customer: p.customer?._id || p.customer,
+        customerName: p.customerName || p.customer?.name || "",
+        poDate: p.poDate ? new Date(p.poDate) : undefined,
+        targetDate: p.targetDate ? new Date(p.targetDate) : undefined,
+      }));
+    } else if (Array.isArray(customerPoIds) && customerPoIds.length > 0) {
+      const fetchedPOs = await IncomingPO.find({
+        company: companyId,
+        _id: { $in: customerPoIds },
+      }).populate("customer", "name code");
+
+      resolvedCustomerPOs = fetchedPOs.map((p) => ({
+        customerPo: p._id,
+        customerPoNumber: p.poNumber || "",
+        customer: p.customer?._id || p.customer,
+        customerName: p.customer?.name || p.customerName || "",
+        poDate: p.date ? new Date(p.date) : undefined,
+        targetDate: p.committedDispatchDate || p.deliveryDate || p.date,
+      }));
+    } else if (customerPo || customerPoNumber) {
+      resolvedCustomerPOs = [
+        {
+          customerPo: customerPo && mongoose.Types.ObjectId.isValid(customerPo) ? customerPo : undefined,
+          customerPoNumber: customerPoNumber || "",
+          customerName: customerName || "",
+          poDate: poDate ? new Date(poDate) : undefined,
+          targetDate: targetDate ? new Date(targetDate) : undefined,
+        },
+      ];
+    }
+
+    const isConsolidated = Boolean(isConsolidatedFlag || resolvedCustomerPOs.length > 1);
+
+    // Derived display fields for backward compatibility
+    const displayPoNumber = resolvedCustomerPOs.length > 0
+      ? resolvedCustomerPOs.map((p) => p.customerPoNumber).filter(Boolean).join(", ")
+      : customerPoNumber;
+
+    const displayCustomerName = resolvedCustomerPOs.length > 0
+      ? [...new Set(resolvedCustomerPOs.map((p) => p.customerName).filter(Boolean))].join(", ")
+      : customerName;
+
     const now = new Date();
     const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const mrpNumber = customMrpNumber || (customerPoNumber ? customerPoNumber : `MRP-${dateStr}-${randomSuffix}`);
+    
+    let mrpNumber = customMrpNumber;
+    if (!mrpNumber) {
+      if (isConsolidated) {
+        mrpNumber = `MRP-BATCH-${dateStr}-${randomSuffix}`;
+      } else if (customerPoNumber) {
+        mrpNumber = customerPoNumber;
+      } else if (resolvedCustomerPOs.length === 1 && resolvedCustomerPOs[0].customerPoNumber) {
+        mrpNumber = resolvedCustomerPOs[0].customerPoNumber;
+      } else {
+        mrpNumber = `MRP-${dateStr}-${randomSuffix}`;
+      }
+    }
 
     // Maps to aggregate RM, BO, SubAssemblies and Consumables across all FG items
     const rmMap = new Map();
@@ -148,8 +211,8 @@ export const createMRPPlan = async (req, res) => {
       return null;
     };
 
-    // Recursive BOM explosion function
-    const explodeItemTree = (itemName, itemCode, multiplierQty, parentName, level, nestedList, fgId, bId) => {
+    // Recursive BOM explosion function with Customer PO tracking
+    const explodeItemTree = (itemName, itemCode, multiplierQty, parentName, level, nestedList, fgId, bId, sourcePoNumber) => {
       const subBOM = findBOM(itemName, itemCode, bId, fgId);
       if (subBOM && Array.isArray(subBOM.items) && subBOM.items.length > 0 && level <= 5) {
         for (const subItem of subBOM.items) {
@@ -262,6 +325,7 @@ export const createMRPPlan = async (req, res) => {
               unit: unit,
               sourceFGName: parentName,
               sourceFGNames: [],
+              sourceCustomerPOs: [],
               status: "Pending",
             });
           }
@@ -271,32 +335,108 @@ export const createMRPPlan = async (req, res) => {
           }
           existing.requiredQuantity += grossQty;
           existing.shortage = Math.max(0, existing.requiredQuantity - existing.currentStock);
-          const fgLabel = `${parentName} (${grossQty} ${unit})`;
+
+          if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
+          if (sourcePoNumber && !existing.sourceCustomerPOs.includes(sourcePoNumber)) {
+            existing.sourceCustomerPOs.push(sourcePoNumber);
+          }
+
+          const poTag = sourcePoNumber ? ` [PO: ${sourcePoNumber}]` : "";
+          const fgLabel = `${parentName}${poTag} (${grossQty} ${unit})`;
           if (!existing.sourceFGNames.includes(fgLabel)) {
             existing.sourceFGNames.push(fgLabel);
           }
 
           // If it has sub-components, recurse into next level
           if (isSubAssembly) {
-            explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, undefined, undefined);
+            explodeItemTree(sName, sCode, grossQty, sName, level + 1, nestedList, undefined, undefined, sourcePoNumber);
           }
         }
       }
     };
 
+    // Deduplicate and aggregate Finished Goods line items
+    const mergedFgMap = new Map();
+
     for (const fg of fgItems) {
-      const fgQty = Number(fg.quantity) || 1;
-      const fgName = fg.fgItemName || fg.name || "";
-      const fgCode = fg.fgItemCode || fg.code || "";
-      const fgDesc = fg.description || "";
-      const fgTargetDate = fg.targetDate ? new Date(fg.targetDate) : undefined;
+      const rawQty = Number(fg.quantity) || 1;
+      const fgName = (fg.fgItemName || fg.name || "").trim();
+      const fgCode = (fg.fgItemCode || fg.code || "").trim();
       const fgId = fg.fgItem || fg._id;
+      const itemKey = fgId ? String(fgId) : (fgCode || fgName).toLowerCase();
+      if (!itemKey) continue;
+
+      const fgPoNumber = fg.customerPoNumber || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPoNumber : "");
+      const fgPoId = fg.customerPo || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPo : undefined);
+      const fgCustName = fg.customerName || (resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerName : "");
+      const fgTargetDate = fg.targetDate ? new Date(fg.targetDate) : undefined;
+      const fgPoDate = fg.poDeliveryDate ? new Date(fg.poDeliveryDate) : undefined;
+
+      if (!mergedFgMap.has(itemKey)) {
+        mergedFgMap.set(itemKey, {
+          fgItem: fgId,
+          fgItemName: fgName,
+          fgItemCode: fgCode,
+          description: fg.description || "",
+          quantity: 0,
+          unit: fg.unit || "PCS",
+          poDeliveryDate: fgPoDate,
+          targetDate: fgTargetDate,
+          customerPo: fgPoId,
+          customerPoNumber: fgPoNumber,
+          customerName: fgCustName,
+          bomId: fg.bomId,
+          bomNumber: fg.bomNumber,
+          sourceBreakdown: [],
+          sourceCustomerPOs: [],
+        });
+      }
+
+      const existing = mergedFgMap.get(itemKey);
+      existing.quantity += rawQty;
+      if (!existing.description && fg.description) existing.description = fg.description;
+      if (!existing.bomId && fg.bomId) existing.bomId = fg.bomId;
+
+      // Keep earliest targetDate & poDeliveryDate
+      if (fgTargetDate) {
+        if (!existing.targetDate || fgTargetDate < existing.targetDate) {
+          existing.targetDate = fgTargetDate;
+        }
+      }
+      if (fgPoDate) {
+        if (!existing.poDeliveryDate || fgPoDate < existing.poDeliveryDate) {
+          existing.poDeliveryDate = fgPoDate;
+        }
+      }
+
+      // Track source breakdown
+      existing.sourceBreakdown.push({
+        customerPo: fgPoId,
+        customerPoNumber: fgPoNumber,
+        customerName: fgCustName,
+        quantity: rawQty,
+      });
+
+      if (fgPoNumber && !existing.sourceCustomerPOs.includes(fgPoNumber)) {
+        existing.sourceCustomerPOs.push(fgPoNumber);
+      }
+    }
+
+    // Process merged FG items and explode BOM with merged gross quantities
+    for (const fg of mergedFgMap.values()) {
+      const fgQty = fg.quantity;
+      const fgName = fg.fgItemName;
+      const fgCode = fg.fgItemCode;
+      const fgDesc = fg.description;
+      const fgTargetDate = fg.targetDate;
+      const fgId = fg.fgItem;
+      const combinedPoNumbers = fg.sourceCustomerPOs.length > 0 ? fg.sourceCustomerPOs.join(", ") : fg.customerPoNumber;
 
       const bomDoc = findBOM(fgName, fgCode, fg.bomId, fgId);
       const nestedMaterials = [];
 
-      // Explode nested tree
-      explodeItemTree(fgName, fgCode, fgQty, fgName, 1, nestedMaterials, fgId, fg.bomId);
+      // Explode nested tree passing combined Customer PO numbers for child traceability
+      explodeItemTree(fgName, fgCode, fgQty, fgName, 1, nestedMaterials, fgId, fg.bomId, combinedPoNumbers);
 
       enrichedFgItems.push({
         fgItem: fgId,
@@ -305,10 +445,15 @@ export const createMRPPlan = async (req, res) => {
         description: fgDesc,
         quantity: fgQty,
         unit: fg.unit || "PCS",
-        poDeliveryDate: fg.poDeliveryDate ? new Date(fg.poDeliveryDate) : undefined,
+        poDeliveryDate: fg.poDeliveryDate,
         targetDate: fgTargetDate,
-        bomId: bomDoc?._id,
-        bomNumber: bomDoc?.bomNumber || (nestedMaterials.length > 0 ? "BOM-Active" : "BOM-Auto"),
+        customerPo: fg.customerPo,
+        customerPoNumber: combinedPoNumbers,
+        customerName: fg.customerName,
+        bomId: bomDoc?._id || fg.bomId,
+        bomNumber: bomDoc?.bomNumber || fg.bomNumber || (nestedMaterials.length > 0 ? "BOM-Active" : "BOM-Auto"),
+        sourceBreakdown: fg.sourceBreakdown,
+        sourceCustomerPOs: fg.sourceCustomerPOs,
         nestedMaterials: nestedMaterials,
       });
     }
@@ -321,11 +466,13 @@ export const createMRPPlan = async (req, res) => {
     const newPlan = await MRPPlan.create({
       company: companyId,
       mrpNumber,
-      customerPoNumber,
-      customerPo: customerPo || undefined,
-      customerName,
-      poDate: poDate ? new Date(poDate) : undefined,
-      targetDate: targetDate ? new Date(targetDate) : undefined,
+      customerPoNumber: displayPoNumber,
+      customerPo: resolvedCustomerPOs.length === 1 ? resolvedCustomerPOs[0].customerPo : undefined,
+      customerName: displayCustomerName,
+      isConsolidated,
+      customerPOs: resolvedCustomerPOs,
+      poDate: poDate ? new Date(poDate) : (resolvedCustomerPOs[0]?.poDate || undefined),
+      targetDate: targetDate ? new Date(targetDate) : (resolvedCustomerPOs[0]?.targetDate || undefined),
       remarks,
       status: "Planned",
       fgItems: enrichedFgItems,
@@ -337,25 +484,40 @@ export const createMRPPlan = async (req, res) => {
       createdByName: req.user?.name || req.user?.username || "Planner",
     });
 
-    // Auto-update Customer PO status to 'MRP Done'
-    if (customerPo || customerPoNumber) {
-      try {
-        const poQuery = { company: companyId };
-        if (customerPo && mongoose.Types.ObjectId.isValid(customerPo)) {
-          poQuery._id = customerPo;
-        } else if (customerPoNumber) {
-          poQuery.poNumber = customerPoNumber;
-        }
+    // Auto-update all linked Customer POs to 'MRP Done'
+    const poIdsToUpdate = resolvedCustomerPOs
+      .map((p) => p.customerPo)
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
 
-        const poDoc = await IncomingPO.findOne(poQuery);
-        if (poDoc) {
-          poDoc.status = "MRP Done";
-          poDoc.mrpPlan = newPlan._id;
-          poDoc.mrpNumber = newPlan.mrpNumber;
-          await poDoc.save();
-        }
+    if (poIdsToUpdate.length > 0) {
+      try {
+        await IncomingPO.updateMany(
+          { company: companyId, _id: { $in: poIdsToUpdate } },
+          {
+            $set: {
+              status: "MRP Done",
+              mrpPlan: newPlan._id,
+              mrpNumber: newPlan.mrpNumber,
+            },
+          }
+        );
       } catch (poErr) {
-        console.warn("Could not update IncomingPO status to MRP Done:", poErr);
+        console.warn("Could not update IncomingPOs to MRP Done:", poErr);
+      }
+    } else if (customerPoNumber) {
+      try {
+        await IncomingPO.updateOne(
+          { company: companyId, poNumber: customerPoNumber },
+          {
+            $set: {
+              status: "MRP Done",
+              mrpPlan: newPlan._id,
+              mrpNumber: newPlan.mrpNumber,
+            },
+          }
+        );
+      } catch (poErr) {
+        console.warn("Could not update IncomingPO by poNumber:", poErr);
       }
     }
 
@@ -389,6 +551,8 @@ export const getAllMRPPlans = async (req, res) => {
         { mrpNumber: { $regex: s, $options: "i" } },
         { customerPoNumber: { $regex: s, $options: "i" } },
         { customerName: { $regex: s, $options: "i" } },
+        { "customerPOs.customerPoNumber": { $regex: s, $options: "i" } },
+        { "customerPOs.customerName": { $regex: s, $options: "i" } },
         { "fgItems.fgItemName": { $regex: s, $options: "i" } },
       ];
     }
@@ -554,16 +718,26 @@ export const deleteMRPPlan = async (req, res) => {
       });
     }
 
-    // 3. Unlock linked IncomingPO if any
+    // 3. Unlock all linked IncomingPOs if any
+    const poIdsToUnlock = [];
     if (plan.customerPo) {
+      poIdsToUnlock.push(plan.customerPo);
+    }
+    if (Array.isArray(plan.customerPOs)) {
+      plan.customerPOs.forEach((p) => {
+        if (p.customerPo) poIdsToUnlock.push(p.customerPo);
+      });
+    }
+
+    if (poIdsToUnlock.length > 0) {
       try {
         const IncomingPO = req.getModel("IncomingPO", incomingPOSchema);
-        await IncomingPO.updateOne(
-          { _id: plan.customerPo },
-          { $set: { status: "Released", mrpPlan: null, mrpNumber: null } }
+        await IncomingPO.updateMany(
+          { _id: { $in: poIdsToUnlock } },
+          { $set: { status: "Accepted", mrpPlan: null, mrpNumber: null } }
         );
       } catch (poErr) {
-        console.warn("Could not unlock linked IncomingPO:", poErr);
+        console.warn("Could not unlock linked IncomingPOs:", poErr);
       }
     }
 

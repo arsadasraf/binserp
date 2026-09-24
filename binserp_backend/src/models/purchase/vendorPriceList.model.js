@@ -31,6 +31,15 @@ export const vendorPriceListSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    pricingUnit: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    isSecondaryUnit: {
+      type: Boolean,
+      default: false,
+    },
     remarks: String,
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -49,6 +49,11 @@ export const grnSchema = new mongoose.Schema(
     },
     poNumber: String,
     poReference: String,
+    invoiceNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     items: [
       {
         material: {
@@ -68,6 +73,7 @@ export const grnSchema = new mongoose.Schema(
           ref: "Component"
         },
         materialName: { type: String, required: true },
+        hsnCode: { type: String, trim: true, default: "" },
         quantity: { type: Number, required: true },
         unit: { type: String, default: "PCS" },
         rate: { type: Number, default: 0 },

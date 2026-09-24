@@ -158,6 +158,13 @@ export const getItemTransactionHistory = async (req, res) => {
                   ? `Shop Floor (${issuedToName})`
                   : (!issue.department || issue.department.toLowerCase() === 'store' ? 'Shop Floor' : `Shop Floor (${issue.department})`);
 
+                const hasSec = Boolean(item.hasSecondaryUnit);
+                const secUnit = item.secondaryUnit || '';
+                const convFactor = Number(item.conversionFactor) || 1;
+                const secQty = hasSec 
+                  ? (Number(item.secondaryQuantity) || Math.round(Number(item.quantity || 1) * convFactor * 10000) / 10000)
+                  : 0;
+
                 transactions.push({
                   _id: `${issue._id}_${idx}`,
                   itemType: isConsumable ? 'Consumable' : 'RawMaterial',
@@ -165,6 +172,10 @@ export const getItemTransactionHistory = async (req, res) => {
                   itemCode: item.materialCode || '',
                   itemName: item.materialName || '',
                   unit: item.unit || 'PCS',
+                  hasSecondaryUnit: hasSec,
+                  secondaryUnit: secUnit,
+                  secondaryQuantity: secQty,
+                  conversionFactor: convFactor,
                   movementType: 'OUTWARD',
                   transactionCategory: isConsumable ? 'MATERIAL_ISSUE_CONSUMABLE_OUTWARD' : 'MATERIAL_ISSUE_SHOPFLOOR_OUTWARD',
                   quantity: Number(item.quantity) || 1,

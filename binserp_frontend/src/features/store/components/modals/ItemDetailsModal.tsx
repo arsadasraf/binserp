@@ -440,10 +440,14 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                 {/* Category / Type */}
                                 <div className="bg-gray-50 dark:bg-gray-800/80 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-sm">
                                     <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wider font-bold block mb-1">
-                                        {type === 'bo' ? 'Category' : 'Component Type'}
+                                        {type === 'bo' ? 'Category' : (categoryName && categoryName !== '-' ? 'Category / Type' : 'Component Type')}
                                     </span>
-                                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate block" title={type === 'bo' ? categoryName : item.type}>
-                                        {type === 'bo' ? categoryName : (item.type || '-')}
+                                    <span className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate block" title={type === 'bo' ? categoryName : `${categoryName !== '-' ? `${categoryName} • ` : ''}${item.type || 'Component'}`}>
+                                        {type === 'bo' ? categoryName : (
+                                            categoryName && categoryName !== '-' 
+                                                ? `${categoryName} (${item.type || 'Component'})`
+                                                : (item.type || '-')
+                                        )}
                                     </span>
                                 </div>
 
@@ -675,8 +679,13 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                         <td className="px-3.5 py-2.5 font-semibold text-gray-800 dark:text-gray-200">
                                                             {tx.recipientOrSource || 'Shop Floor'}
                                                         </td>
-                                                        <td className="px-3.5 py-2.5 text-right font-extrabold text-rose-600">
-                                                            -{Math.abs(tx.quantity)} {tx.unit || item.unit}
+                                                        <td className="px-3.5 py-2.5 text-right font-extrabold text-rose-600 font-mono">
+                                                            <div>-{Math.abs(tx.quantity)} {tx.unit || item.unit}</div>
+                                                            {(tx.secondaryQuantity || (tx.hasSecondaryUnit && tx.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) ? (
+                                                                <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                    ({Math.abs(tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || item.conversionFactor || 1) * 100) / 100)} {tx.secondaryUnit || item.secondaryUnit})
+                                                                </div>
+                                                            ) : null}
                                                         </td>
                                                         <td className="px-3.5 py-2.5 text-gray-600 dark:text-gray-400 truncate max-w-[180px]" title={tx.purpose || tx.transactionCategory}>
                                                             {tx.purpose || tx.transactionCategory || 'Material Issue'}
@@ -709,29 +718,49 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                 </div>
 
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                                    <div className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-800 text-center">
+                                    <div className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-100 dark:border-gray-800 text-center flex flex-col justify-center">
                                         <span className="text-gray-400 block text-[10px] uppercase font-bold">Opening Balance</span>
                                         <span className="text-base font-black text-gray-800 dark:text-gray-200">
                                             {displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)} {item.unit}
                                         </span>
+                                        {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
+                                            <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                                                ({Math.round(((displayOpeningStock !== null ? displayOpeningStock : (item?.monthlyData?.openingStock || 0)) * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                            </span>
+                                        ) : null}
                                     </div>
-                                    <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/50 text-center">
+                                    <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/50 text-center flex flex-col justify-center">
                                         <span className="text-emerald-600 dark:text-emerald-400 block text-[10px] uppercase font-bold">Total Inward (+)</span>
                                         <span className="text-base font-black text-emerald-600 dark:text-emerald-400">
                                             +{item?.monthlyData?.totalInwardQuantity || 0} {item.unit}
                                         </span>
+                                        {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
+                                            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 font-mono mt-0.5">
+                                                (+{Math.round(((item?.monthlyData?.totalInwardQuantity || 0) * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                            </span>
+                                        ) : null}
                                     </div>
-                                    <div className="p-3 bg-rose-50/60 dark:bg-rose-950/30 rounded-xl border border-rose-100 dark:border-rose-900/50 text-center">
+                                    <div className="p-3 bg-rose-50/60 dark:bg-rose-950/30 rounded-xl border border-rose-100 dark:border-rose-900/50 text-center flex flex-col justify-center">
                                         <span className="text-rose-600 dark:text-rose-400 block text-[10px] uppercase font-bold">Total Outward (-)</span>
                                         <span className="text-base font-black text-rose-600 dark:text-rose-400">
                                             -{item?.monthlyData?.totalOutwardQuantity || 0} {item.unit}
                                         </span>
+                                        {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
+                                            <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 font-mono mt-0.5">
+                                                (-{Math.round(((item?.monthlyData?.totalOutwardQuantity || 0) * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                            </span>
+                                        ) : null}
                                     </div>
-                                    <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/50 text-center">
+                                    <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/50 text-center flex flex-col justify-center">
                                         <span className="text-indigo-600 dark:text-indigo-400 block text-[10px] uppercase font-bold">Net Current Stock</span>
                                         <span className="text-base font-black text-indigo-600 dark:text-indigo-400">
                                             {stock} {item.unit}
                                         </span>
+                                        {item.hasSecondaryUnit && item.secondaryUnit && (item.conversionFactor || 0) > 0 ? (
+                                            <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 font-mono mt-0.5">
+                                                ({Math.round((stock * (item.conversionFactor || 1)) * 100) / 100} {item.secondaryUnit})
+                                            </span>
+                                        ) : null}
                                     </div>
                                 </div>
                             </div>
@@ -869,13 +898,25 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                         )}
                                                                     </div>
                                                                 </td>
-                                                                <td className="px-4 py-3 text-center font-bold text-emerald-600">
-                                                                    +{grnItem ? (grnItem.quantity || grnItem.receivedQuantity) : (grn.quantity || '-')} {item.unit}
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <div className="font-bold text-emerald-600 font-mono">
+                                                                        +{grnItem ? (grnItem.quantity || grnItem.receivedQuantity) : (grn.quantity || '-')} {item.unit}
+                                                                    </div>
+                                                                    {(grnItem?.secondaryQuantity || (grnItem?.hasSecondaryUnit && item.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) ? (
+                                                                        <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                            ({grnItem?.secondaryQuantity || Math.round(Number(grnItem?.quantity || grnItem?.receivedQuantity || grn.quantity || 0) * (item.conversionFactor || 1) * 100) / 100} {grnItem?.secondaryUnit || item.secondaryUnit})
+                                                                        </div>
+                                                                    ) : null}
                                                                 </td>
                                                                 <td className="px-4 py-3 text-center font-semibold text-gray-700 dark:text-gray-300">
-                                                                    <div>
-                                                                        {grnItem ? (grnItem.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem.quantity || '-')) : '-'}
+                                                                    <div className="font-mono">
+                                                                        {grnItem ? (grnItem.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem.quantity || '-')) : '-'} {item.unit}
                                                                     </div>
+                                                                    {(grnItem?.secondaryAcceptedQuantity || (grnItem?.hasSecondaryUnit && item.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) && (
+                                                                        <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                            ({grnItem?.secondaryAcceptedQuantity || Math.round(Number(grnItem?.acceptedQuantity !== undefined ? grnItem.acceptedQuantity : (grnItem?.quantity || 0)) * (item.conversionFactor || 1) * 100) / 100} {grnItem?.secondaryUnit || item.secondaryUnit})
+                                                                        </div>
+                                                                    )}
                                                                     {rejCount > 0 && (
                                                                         <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block">
                                                                             ({rejCount} rejected)
@@ -992,8 +1033,15 @@ export default function ItemDetailsModal({ isOpen, onClose, item, type }: ItemDe
                                                                         {destinationDisplay}
                                                                     </span>
                                                                 </td>
-                                                                <td className="px-4 py-3 text-right font-bold text-rose-600">
-                                                                    -{Math.abs(tx.quantity)} {tx.unit || item.unit}
+                                                                <td className="px-4 py-3 text-right">
+                                                                    <div className="font-bold text-rose-600 font-mono">
+                                                                        -{Math.abs(tx.quantity)} {tx.unit || item.unit}
+                                                                    </div>
+                                                                    {(tx.secondaryQuantity || (tx.hasSecondaryUnit && tx.conversionFactor) || (item.hasSecondaryUnit && item.conversionFactor)) ? (
+                                                                        <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                                            ({Math.abs(tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || item.conversionFactor || 1) * 100) / 100)} {tx.secondaryUnit || item.secondaryUnit})
+                                                                        </div>
+                                                                    ) : null}
                                                                 </td>
                                                                 <td className="px-4 py-3">
                                                                     {isQCRejection ? (

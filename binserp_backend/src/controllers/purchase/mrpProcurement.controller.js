@@ -656,8 +656,13 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
       const fgEntry = fgTargetMap.get(fgK);
       fgEntry.grossRequired += fgQty;
       fgEntry.mrpSources.push({
+        mrpId: plan._id,
         mrpNumber: plan.mrpNumber,
-        customerName: plan.customerName,
+        customerPoNumber: fg.customerPoNumber || plan.customerPoNumber || "",
+        customerName: fg.customerName || plan.customerName || "",
+        targetDate: fg.targetDate || plan.targetDate,
+        planDate: plan.poDate || plan.date || plan.createdAt,
+        createdAt: plan.createdAt,
         requiredQty: fgQty
       });
 
@@ -716,8 +721,13 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         entry.netShortage = Math.max(0, entry.grossRequired - entry.currentPhysicalStock - entry.totalInTransitPO);
         entry.estimatedValue = entry.netShortage * (entry.bestVendor?.rate || entry.estimatedRate || 0);
         entry.mrpSources.push({
+          mrpId: plan._id,
           mrpNumber: plan.mrpNumber,
-          customerName: plan.customerName,
+          customerPoNumber: fg.customerPoNumber || plan.customerPoNumber || "",
+          customerName: fg.customerName || plan.customerName || "",
+          targetDate: fg.targetDate || plan.targetDate,
+          planDate: plan.poDate || plan.date || plan.createdAt,
+          createdAt: plan.createdAt,
           requiredQty: nQty
         });
 
@@ -736,6 +746,9 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
         balanceQuantity: Math.max(0, fgQty - fgReceived),
         unit: fg.unit || "PCS",
         targetDate: fg.targetDate,
+        customerPo: fg.customerPo,
+        customerPoNumber: fg.customerPoNumber,
+        customerName: fg.customerName,
         bomNumber: fg.bomNumber,
         nestedMaterials: nestedList
       };
@@ -743,26 +756,94 @@ export const getMRPProcurementWorkbench = asyncHandler(async (req, res) => {
 
     const isProcurementFulfilled = planTotalShortages === 0;
 
+    const planPlanningStatus = 
+      planTotalShortages === 0
+        ? "Stock Covered"
+        : (planTotalInTransit >= planTotalShortages
+            ? "PO In-Transit"
+            : (planTotalInTransit > 0 ? "Partially Planned" : "Not Planned"));
+
     return {
       _id: plan._id,
       mrpNumber: plan.mrpNumber,
       customerName: plan.customerName || "Internal Demand",
       customerPoNumber: plan.customerPoNumber,
+      isConsolidated: plan.isConsolidated || Boolean(plan.customerPOs?.length > 1),
+      customerPOs: plan.customerPOs || [],
+      planDate: plan.poDate || plan.date || plan.createdAt,
+      createdAt: plan.createdAt,
       targetDate: plan.targetDate,
       status: plan.status,
       isProcurementFulfilled,
       planTotalShortages,
       planTotalInTransit,
+      planPlanningStatus,
+      isMaterialPlanned: planTotalShortages === 0 || planTotalInTransit >= planTotalShortages,
       fgItems: fgItemsTree
     };
   });
 
+  // Helper to enrich each classified item with computed dates, customer lists, and Planning Status Remark
+  const enrichClassifiedItem = (item) => {
+    let earliestTargetDate = null;
+    let latestPlanDate = null;
+    const custSet = new Set();
+    const poSet = new Set();
+
+    (item.mrpSources || []).forEach(src => {
+      if (src.targetDate) {
+        const d = new Date(src.targetDate);
+        if (!isNaN(d.getTime())) {
+          if (!earliestTargetDate || d < earliestTargetDate) earliestTargetDate = d;
+        }
+      }
+      if (src.planDate || src.createdAt) {
+        const d = new Date(src.planDate || src.createdAt);
+        if (!isNaN(d.getTime())) {
+          if (!latestPlanDate || d > latestPlanDate) latestPlanDate = d;
+        }
+      }
+      if (src.customerName) custSet.add(src.customerName);
+      if (src.customerPoNumber) poSet.add(src.customerPoNumber);
+    });
+
+    const currentStatus = item.status || "Pending";
+    let materialPlanningStatus = "Not Planned";
+    if (["Completed", "Material Received", "Issued for Production"].includes(currentStatus)) {
+      materialPlanningStatus = "Completed";
+    } else if (currentStatus === "PO Sent" || currentStatus === "PO Raised") {
+      materialPlanningStatus = "PO Sent";
+    } else if (currentStatus === "Raised RFQ" || currentStatus === "RFQ Raised") {
+      materialPlanningStatus = "Raised RFQ";
+    } else if (item.netShortage === 0) {
+      materialPlanningStatus = "Stock Covered";
+    } else if (item.totalInTransitPO > 0 && item.totalInTransitPO >= item.netShortage) {
+      materialPlanningStatus = "PO In-Transit";
+    } else if (item.totalInTransitPO > 0) {
+      materialPlanningStatus = "Partially In-Transit";
+    } else {
+      materialPlanningStatus = "Not Planned";
+    }
+
+    const isMaterialPlanned = materialPlanningStatus !== "Not Planned";
+
+    return {
+      ...item,
+      earliestTargetDate,
+      latestPlanDate,
+      customerNames: Array.from(custSet),
+      customerPoNumbers: Array.from(poSet),
+      materialPlanningStatus,
+      isMaterialPlanned
+    };
+  };
+
   // Format Classified Arrays
-  const rmList = Array.from(rmMap.values());
-  const boList = Array.from(boMap.values());
-  const componentList = Array.from(componentMap.values());
-  const subAssemblyList = Array.from(subAssemblyMap.values());
-  const assemblyList = Array.from(assemblyMap.values());
+  const rmList = Array.from(rmMap.values()).map(enrichClassifiedItem);
+  const boList = Array.from(boMap.values()).map(enrichClassifiedItem);
+  const componentList = Array.from(componentMap.values()).map(enrichClassifiedItem);
+  const subAssemblyList = Array.from(subAssemblyMap.values()).map(enrichClassifiedItem);
+  const assemblyList = Array.from(assemblyMap.values()).map(enrichClassifiedItem);
 
   const allConsolidatedShortages = [...rmList, ...boList, ...componentList, ...subAssemblyList]
     .filter(i => i.netShortage > 0);

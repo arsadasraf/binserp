@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Inbox, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import Link from 'next/link';
+import { Inbox, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, AlertTriangle, IndianRupee, ChevronDown, ChevronUp, RotateCcw, Tag, Settings } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import { generateFrontendInwardRfqPDF } from '@/src/utils/frontendPdfHelper';
-import { getCurrencySymbol, CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
+import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
+import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 
 interface InwardRfqTabProps {
     token: string | null;
@@ -12,6 +14,7 @@ interface InwardRfqTabProps {
 }
 
 export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTabProps) {
+    const { exchangeRates, convertToINR } = useExchangeRates(token);
     const [loading, setLoading] = useState(true);
     const [rfqs, setRfqs] = useState<any[]>([]);
     const [fgItems, setFgItems] = useState<any[]>([]);
@@ -23,6 +26,9 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
     const [filterCustomer, setFilterCustomer] = useState<string>('All');
+    const [filterDateType, setFilterDateType] = useState<'entry' | 'expected' | 'either'>('entry');
+    const [filterMonth, setFilterMonth] = useState<string>(''); // format: 'YYYY-MM'
+    const [showDashboard, setShowDashboard] = useState<boolean>(true);
 
     // Create/Edit RFQ Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -330,6 +336,16 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         }
     };
 
+    // Helper to calculate total target value of an RFQ
+    const calculateRfqTotalTargetValue = useCallback((rfq: any) => {
+        if (!Array.isArray(rfq?.items)) return 0;
+        return rfq.items.reduce((sum: number, it: any) => {
+            const price = Number(it.targetPrice || 0);
+            const qty = Number(it.quantity || 1);
+            return sum + (price * qty);
+        }, 0);
+    }, []);
+
     const filteredRfqs = useMemo(() => {
         return (Array.isArray(rfqs) ? rfqs : []).filter((rfq: any) => {
             const matchSearch =
@@ -345,16 +361,304 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                 matchCustomer = custId?.toString() === filterCustomer?.toString();
             }
 
-            return matchSearch && matchStatus && matchCustomer;
+            let matchDate = true;
+            if (filterMonth) {
+                const getYearMonth = (val: any) => {
+                    if (!val) return '';
+                    const d = new Date(val);
+                    if (isNaN(d.getTime())) return '';
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                };
+
+                const entryYm = getYearMonth(rfq.date || rfq.createdAt);
+                const expectedYm = getYearMonth(rfq.expectedDeliveryDate || rfq.dueDate);
+
+                if (filterDateType === 'entry') {
+                    matchDate = entryYm === filterMonth;
+                } else if (filterDateType === 'expected') {
+                    matchDate = expectedYm === filterMonth;
+                } else {
+                    matchDate = entryYm === filterMonth || expectedYm === filterMonth;
+                }
+            }
+
+            return matchSearch && matchStatus && matchCustomer && matchDate;
         });
-    }, [rfqs, searchTerm, filterStatus, filterCustomer]);
+    }, [rfqs, searchTerm, filterStatus, filterCustomer, filterMonth, filterDateType]);
+
+    // Live RFQ count per status for the dropdown
+    const statusCounts = useMemo(() => {
+        const counts: Record<string, number> = { All: Array.isArray(rfqs) ? rfqs.length : 0 };
+        ['Draft', 'Open', 'Quoted', 'Closed', 'Rejected'].forEach(st => {
+            counts[st] = (Array.isArray(rfqs) ? rfqs : []).filter(r => r.status === st).length;
+        });
+        return counts;
+    }, [rfqs]);
+
+    // Overall RFQ Pipeline Financials in INR
+    const overallRfqFinancials = useMemo(() => {
+        let totalInr = 0;
+        let openInr = 0;
+        let openCount = 0;
+        let quotedInr = 0;
+        let quotedCount = 0;
+        let closedInr = 0;
+        let closedCount = 0;
+        const currencyTotals: Record<string, number> = {};
+        const currencyInrTotals: Record<string, number> = {};
+
+        (Array.isArray(rfqs) ? rfqs : []).forEach(rfq => {
+            if (rfq.status === 'Rejected') return;
+            const rfqTotal = calculateRfqTotalTargetValue(rfq);
+            const curr = (rfq.currency || 'INR').trim().toUpperCase();
+            currencyTotals[curr] = (currencyTotals[curr] || 0) + rfqTotal;
+
+            const inrConversion = convertToINR(rfqTotal, curr);
+            const inrVal = inrConversion.inrAmount;
+            totalInr += inrVal;
+            currencyInrTotals[curr] = (currencyInrTotals[curr] || 0) + inrVal;
+
+            if (rfq.status === 'Open' || rfq.status === 'Draft') {
+                openInr += inrVal;
+                openCount++;
+            } else if (rfq.status === 'Quoted') {
+                quotedInr += inrVal;
+                quotedCount++;
+            } else if (rfq.status === 'Closed') {
+                closedInr += inrVal;
+                closedCount++;
+            }
+        });
+
+        return {
+            totalInr,
+            formattedTotalInr: `₹${totalInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            openInr,
+            formattedOpenInr: `₹${openInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+            openCount,
+            quotedInr,
+            formattedQuotedInr: `₹${quotedInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+            quotedCount,
+            closedInr,
+            formattedClosedInr: `₹${closedInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+            closedCount,
+            currencyTotals,
+            currencyInrTotals,
+            hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
+        };
+    }, [rfqs, calculateRfqTotalTargetValue, convertToINR]);
+
+    // Consolidated Filtered RFQ Financials in INR
+    const consolidatedRfqFinancials = useMemo(() => {
+        let totalInr = 0;
+        const currencyTotals: Record<string, number> = {};
+        const currencyInrTotals: Record<string, number> = {};
+
+        (Array.isArray(filteredRfqs) ? filteredRfqs : []).forEach(rfq => {
+            if (rfq.status === 'Rejected') return;
+            const rfqTotal = calculateRfqTotalTargetValue(rfq);
+            if (rfqTotal <= 0) return;
+            const curr = (rfq.currency || 'INR').trim().toUpperCase();
+            currencyTotals[curr] = (currencyTotals[curr] || 0) + rfqTotal;
+
+            const inrConversion = convertToINR(rfqTotal, curr);
+            totalInr += inrConversion.inrAmount;
+            currencyInrTotals[curr] = (currencyInrTotals[curr] || 0) + inrConversion.inrAmount;
+        });
+
+        return {
+            totalInr,
+            formattedTotalInr: `₹${totalInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            currencyTotals,
+            currencyInrTotals,
+            hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
+        };
+    }, [filteredRfqs, calculateRfqTotalTargetValue, convertToINR]);
+
+    const hasActiveFilters = Boolean(searchTerm || filterStatus !== 'All' || filterCustomer !== 'All' || filterMonth);
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
+            {/* 1. EXECUTIVE INWARD RFQ DASHBOARD - CONVERTED PIPELINE VALUATIONS & METRICS */}
+            <div className="space-y-3">
+                {!showDashboard ? (
+                    <div className="bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pipeline Value:</span>
+                                <span className="font-mono font-bold text-slate-900 dark:text-white">{overallRfqFinancials.formattedTotalInr}</span>
+                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold">({rfqs.length} RFQs)</span>
+                            </div>
+                            <div className="hidden sm:flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-slate-500">Open RFQs:</span>
+                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{overallRfqFinancials.openCount} ({overallRfqFinancials.formattedOpenInr})</span>
+                            </div>
+                            <div className="hidden md:flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-slate-500">Quoted:</span>
+                                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{overallRfqFinancials.quotedCount} ({overallRfqFinancials.formattedQuotedInr})</span>
+                            </div>
+                            <div className="hidden md:flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-slate-500">Closed:</span>
+                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{overallRfqFinancials.closedCount}</span>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(true)}
+                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-900/50 cursor-pointer shrink-0 transition-colors"
+                        >
+                            <span>Show Dashboard</span>
+                            <ChevronDown size={14} />
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        {/* 4 Primary Executive KPI Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            {/* Card 1: Total Pipeline Target Value */}
+                            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Pipeline Value</span>
+                                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+                                        <IndianRupee size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                                        {overallRfqFinancials.formattedTotalInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{rfqs.length} RFQs</span>
+                                        <span>•</span>
+                                        <span>Converted to INR</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Card 2: Open RFQs */}
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Open' ? 'All' : 'Open')}
+                                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-blue-400 dark:hover:border-blue-600 transition-colors cursor-pointer group"
+                                title="Click to filter Open RFQs"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Open / Pending</span>
+                                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                                        <Clock size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 font-mono tracking-tight">
+                                        {overallRfqFinancials.formattedOpenInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-blue-600 dark:text-blue-400 font-extrabold">{overallRfqFinancials.openCount} RFQs</span>
+                                        <span>•</span>
+                                        <span>Awaiting Quotation</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Card 3: Quoted RFQs */}
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Quoted' ? 'All' : 'Quoted')}
+                                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-amber-400 dark:hover:border-amber-600 transition-colors cursor-pointer group"
+                                title="Click to filter Quoted RFQs"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Quoted RFQs</span>
+                                    <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                                        <FileText size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 font-mono tracking-tight">
+                                        {overallRfqFinancials.formattedQuotedInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-amber-600 dark:text-amber-400 font-extrabold">{overallRfqFinancials.quotedCount} RFQs</span>
+                                        <span>•</span>
+                                        <span>Quote Sent to Customer</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Card 4: Closed / Converted */}
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Closed' ? 'All' : 'Closed')}
+                                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors cursor-pointer group"
+                                title="Click to filter Closed RFQs"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Closed / Won</span>
+                                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                                        <CheckCircle2 size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                                        {overallRfqFinancials.formattedClosedInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">{overallRfqFinancials.closedCount} RFQs</span>
+                                        <span>•</span>
+                                        <span>Completed / PO Won</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Currency Conversion Info Bar from Store Prefix Settings */}
+                        <div className="bg-slate-50/80 dark:bg-slate-800/40 px-3.5 py-2 rounded-xl border border-slate-200/80 dark:border-slate-800 text-[11px] flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                    <Tag size={12} className="text-indigo-500" />
+                                    <span>Currency Conversion Rates (Store &gt; Masters &gt; Setting Prefix):</span>
+                                </span>
+                                <span className="font-mono text-slate-600 dark:text-slate-400">
+                                    1 USD ≈ ₹{(exchangeRates.USD || 84.50).toFixed(2)} | 1 EUR ≈ ₹{(exchangeRates.EUR || 92.00).toFixed(2)} | 1 GBP ≈ ₹{(exchangeRates.GBP || 108.00).toFixed(2)} | 1 AED ≈ ₹{(exchangeRates.AED || 23.00).toFixed(2)}
+                                </span>
+                            </div>
+
+                            <Link 
+                                href="/dashboard/store/masters/prefix-settings"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 hover:underline shrink-0"
+                            >
+                                <Settings size={11} />
+                                <span>Manage Exchange Rates</span>
+                            </Link>
+                        </div>
+
+                        {/* Foreign Currency Breakdown (if order book has foreign currencies) */}
+                        {overallRfqFinancials.hasForeign && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                                <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1">Foreign Breakdown:</span>
+                                {Object.keys(overallRfqFinancials.currencyTotals).map(curr => {
+                                    const amt = overallRfqFinancials.currencyTotals[curr];
+                                    if (amt <= 0) return null;
+                                    const sym = getCurrencySymbol(curr);
+                                    const isForeign = curr !== 'INR';
+                                    return (
+                                        <div key={curr} className="px-2 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium flex items-center gap-1">
+                                            <span className="font-bold text-slate-700 dark:text-slate-200">{sym}{amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {curr}</span>
+                                            {isForeign && (
+                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
+                                                    (≈ ₹{(overallRfqFinancials.currencyInrTotals[curr] || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
             
             {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                {/* Primary Row: Search + Action Buttons */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                     <div className="relative flex-1 min-w-[200px]">
                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                         <input
@@ -362,48 +666,145 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                             placeholder="Search RFQ #, Customer or Item..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            className="w-full pl-10 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                         />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                title="Clear search"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                     </div>
 
-                    {/* Customer Filter Dropdown */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Customer:</label>
-                        <select
-                            value={filterCustomer}
-                            onChange={(e) => setFilterCustomer(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-[220px] truncate"
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className="flex-1 sm:flex-initial px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border border-slate-200 dark:border-slate-700"
+                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
                         >
-                            <option value="All">All Customers</option>
-                            {(Array.isArray(customers) ? customers : []).map((c: any) => (
-                                <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
-                                    {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
-                                </option>
-                            ))}
-                        </select>
+                            {showDashboard ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                            <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleOpenCreateModal}
+                            className="flex-1 sm:flex-initial px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} /> <span>Log Inward RFQ</span>
+                        </button>
                     </div>
                 </div>
 
-                {/* Right Side: Status Filter + Create RFQ Button */}
-                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                        {['All', 'Draft', 'Open', 'Quoted', 'Closed', 'Rejected'].map(status => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-indigo-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
+                {/* Filters Row: Customer Dropdown + Status Dropdown + Month Date Filter + Reset */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+                        {/* Customer Filter Dropdown */}
+                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[150px] sm:min-w-0">
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Customer:</label>
+                            <select
+                                value={filterCustomer}
+                                onChange={(e) => setFilterCustomer(e.target.value)}
+                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-full sm:max-w-[240px]"
                             >
-                                {status}
-                            </button>
-                        ))}
+                                <option value="All">All Customers</option>
+                                {(Array.isArray(customers) ? customers : []).map((c: any) => (
+                                    <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
+                                        {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Status Filter Dropdown */}
+                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[160px] sm:min-w-0">
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Status:</label>
+                            <select
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-full sm:max-w-[260px]"
+                            >
+                                <option value="All">All Statuses ({statusCounts.All || 0})</option>
+                                <option value="Draft">Draft ({statusCounts.Draft || 0})</option>
+                                <option value="Open">Open ({statusCounts.Open || 0})</option>
+                                <option value="Quoted">Quoted ({statusCounts.Quoted || 0})</option>
+                                <option value="Closed">Closed ({statusCounts.Closed || 0})</option>
+                                <option value="Rejected">Rejected ({statusCounts.Rejected || 0})</option>
+                            </select>
+                        </div>
+
+                        {/* Month-Based Date Filter */}
+                        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 flex-1 sm:flex-none min-w-[230px] sm:min-w-0">
+                            <Calendar size={13} className="text-indigo-500 shrink-0" />
+                            <select
+                                value={filterDateType}
+                                onChange={(e) => setFilterDateType(e.target.value as any)}
+                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer pr-1"
+                                title="Select date basis for month filter"
+                            >
+                                <option value="entry">RFQ / Log Month</option>
+                                <option value="expected">Expected Month</option>
+                                <option value="either">Either Month</option>
+                            </select>
+                            <div className="relative flex items-center">
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => setFilterMonth(e.target.value)}
+                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-center"
+                                    title="Choose month (YYYY-MM)"
+                                />
+                                {filterMonth && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterMonth('')}
+                                        className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
+                                        title="Clear month filter"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
-                    <button
-                        onClick={handleOpenCreateModal}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                    >
-                        <Plus size={15} /> Create Inward RFQ
-                    </button>
+                    {/* Reset Filters Button */}
+                    {hasActiveFilters && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSearchTerm('');
+                                setFilterStatus('All');
+                                setFilterCustomer('All');
+                                setFilterMonth('');
+                                setFilterDateType('entry');
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 ml-auto sm:ml-0"
+                            title="Reset all search queries and filters"
+                        >
+                            <RotateCcw size={12} />
+                            <span>Reset Filters</span>
+                        </button>
+                    )}
+                </div>
+
+                {/* Live Counter & Pipeline Indicator */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                        <span>Showing <strong className="text-slate-900 dark:text-white font-bold">{filteredRfqs.length}</strong> of <strong className="text-slate-900 dark:text-white font-bold">{rfqs.length}</strong> Inward RFQs</span>
+                        {hasActiveFilters && (
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 text-[10px] font-bold">Filtered</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1 font-mono text-xs">
+                        <span>Target Pipeline:</span>
+                        <strong className="text-indigo-600 dark:text-indigo-400 font-extrabold text-sm">{consolidatedRfqFinancials.formattedTotalInr}</strong>
+                    </div>
                 </div>
             </div>
 
@@ -414,26 +815,51 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             ) : filteredRfqs.length === 0 ? (
                 <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
                     <Inbox className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Inward RFQs Found</h3>
-                    <p className="text-xs text-slate-500 mt-1">Create an Inward RFQ to log customer quote requests.</p>
+                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                        {hasActiveFilters ? "No Inward RFQs Match Filter" : "No Inward RFQs Found"}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1">
+                        {hasActiveFilters 
+                            ? "Try adjusting or resetting your search and filter criteria."
+                            : "Create an Inward RFQ to log customer quote requests."}
+                    </p>
+                    {hasActiveFilters && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSearchTerm('');
+                                setFilterStatus('All');
+                                setFilterCustomer('All');
+                                setFilterMonth('');
+                                setFilterDateType('entry');
+                            }}
+                            className="mt-4 px-3 py-1.5 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                        >
+                            <RotateCcw size={13} />
+                            <span>Reset All Filters</span>
+                        </button>
+                    )}
                 </div>
             ) : (
                 /* Table & Cards View */
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
-                                <tr>
-                                    <th className="px-4 py-3.5">RFQ Number</th>
-                                    <th className="px-4 py-3.5">Target Items</th>
-                                    <th className="px-4 py-3.5 text-center">Expected Date</th>
-                                    <th className="px-4 py-3.5">Customer</th>
-                                    <th className="px-4 py-3.5 text-center">Status</th>
-                                    <th className="px-4 py-3.5 text-center">Received / Logged By</th>
-                                    <th className="px-4 py-3.5 text-right">Actions</th>
-                                </tr>
-                            </thead>
+                <div className="space-y-3">
+
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                        {/* Desktop Table View - Scrollable with Sticky Header */}
+                        <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px]">
+                            <table className="w-full text-sm text-left relative">
+                                <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
+                                    <tr>
+                                        <th className="px-4 py-3.5">RFQ Number</th>
+                                        <th className="px-4 py-3.5">Target Items</th>
+                                        <th className="px-4 py-3.5 text-right">Target Value</th>
+                                        <th className="px-4 py-3.5 text-center">Expected Date</th>
+                                        <th className="px-4 py-3.5">Customer</th>
+                                        <th className="px-4 py-3.5 text-center">Status</th>
+                                        <th className="px-4 py-3.5 text-center">Received / Logged By</th>
+                                        <th className="px-4 py-3.5 text-right">Actions</th>
+                                    </tr>
+                                </thead>
                             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                                 {filteredRfqs.map((rfq) => {
                                     const firstItemName = rfq.items?.[0]?.fgItem?.name || rfq.items?.[0]?.itemName || 'FG Item';
@@ -453,6 +879,36 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                         {extraCount > 0 && <span className="text-xs text-slate-400 font-normal ml-1 flex-inline">+{extraCount} more</span>}
                                                     </div>
                                                 ) : 'Items'}
+                                            </td>
+
+                                            {/* Target Value Column */}
+                                            <td className="px-4 py-3.5 text-right font-mono text-xs">
+                                                {(() => {
+                                                    const rfqTargetTotal = calculateRfqTotalTargetValue(rfq);
+                                                    if (rfqTargetTotal <= 0) return <span className="text-slate-400 font-sans">-</span>;
+                                                    const inr = convertToINR(rfqTargetTotal, rfq.currency);
+                                                    return (
+                                                        <div>
+                                                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                                                <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
+                                                                    {getCurrencySymbol(rfq.currency)}{rfqTargetTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </span>
+                                                                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                                    {normalizeCurrencyCode(rfq.currency)}
+                                                                </span>
+                                                            </div>
+                                                            {inr.isForeign ? (
+                                                                <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5" title={`Rate: 1 ${rfq.currency} = ₹${inr.rate.toFixed(2)}`}>
+                                                                    ≈ {inr.formattedINR} <span className="font-normal text-slate-400">(@ ₹{inr.rate.toFixed(2)})</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-[10px] font-medium text-slate-400 mt-0.5">
+                                                                    Consolidated: ₹{rfqTargetTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
 
                                             <td className="px-4 py-3.5 text-center font-bold text-slate-700 dark:text-slate-300 text-xs">
@@ -578,8 +1034,21 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                         </div>
                                     </div>
 
-                                    <div className="bg-slate-50 dark:bg-slate-700/40 p-2.5 rounded-lg text-xs">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase block mb-0.5">Target Items</span>
+                                    <div className="bg-slate-50 dark:bg-slate-700/40 p-2.5 rounded-lg text-xs space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Target Items</span>
+                                            {(() => {
+                                                const rfqTargetTotal = calculateRfqTotalTargetValue(rfq);
+                                                if (rfqTargetTotal <= 0) return null;
+                                                const inr = convertToINR(rfqTargetTotal, rfq.currency);
+                                                return (
+                                                    <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                                        {getCurrencySymbol(rfq.currency)}{rfqTargetTotal.toLocaleString()}
+                                                        {inr.isForeign && <span className="text-emerald-600 font-mono ml-1 text-[10px]">(≈ {inr.formattedINR})</span>}
+                                                    </span>
+                                                );
+                                            })()}
+                                        </div>
                                         <p className="font-semibold text-slate-800 dark:text-slate-200">
                                             {firstItemName} {extraCount > 0 && <span className="text-slate-400 font-normal">(+{extraCount} more)</span>}
                                         </p>
@@ -626,6 +1095,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                         })}
                     </div>
                 </div>
+            </div>
             )}
 
             {/* Create / Edit Inward RFQ Modal */}
@@ -939,7 +1409,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                         <div className="p-6 overflow-y-auto space-y-5">
                             
                             {/* General Status & Interactive Control */}
-                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
                                 <div>
                                     <span className="text-slate-400 block mb-0.5">Expected Delivery Date:</span>
                                     <strong className="text-slate-800 dark:text-slate-200 font-bold">
@@ -952,6 +1422,26 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                     <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
                                         {selectedRfq.currency || 'INR'} ({getCurrencySymbol(selectedRfq.currency)})
                                     </strong>
+                                </div>
+
+                                <div>
+                                    <span className="text-slate-400 block mb-0.5">Estimated Target Total:</span>
+                                    {(() => {
+                                        const tot = calculateRfqTotalTargetValue(selectedRfq);
+                                        const inr = convertToINR(tot, selectedRfq.currency);
+                                        return (
+                                            <div>
+                                                <strong className="text-indigo-600 dark:text-indigo-400 font-extrabold font-mono text-sm block">
+                                                    {getCurrencySymbol(selectedRfq.currency)}{tot.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </strong>
+                                                {inr.isForeign && tot > 0 && (
+                                                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 font-mono block mt-0.5">
+                                                        ≈ {inr.formattedINR} (@ ₹{inr.rate.toFixed(2)})
+                                                    </span>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
 
                                 <div>

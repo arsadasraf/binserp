@@ -461,10 +461,36 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
 
       // Valid enum: ["Component", "Sub Assembly", "Assembly"]
       let validType = "Assembly";
-      const catType = (item.type || item.category || '').toString().trim().toLowerCase();
+      const catType = (item.type || '').toString().trim().toLowerCase();
       if (catType.includes('sub')) validType = 'Sub Assembly';
       else if (catType.includes('comp')) validType = 'Component';
-      else validType = 'Assembly';
+      else if (catType.includes('assembly')) validType = 'Assembly';
+
+      // Resolve category if provided
+      let categoryId = undefined;
+      const rawCategory = (item.category || item.categoryName || '').toString().trim();
+      if (rawCategory && !['component', 'sub assembly', 'sub-assembly', 'assembly'].includes(rawCategory.toLowerCase())) {
+        let category = await Category.findOne({
+          company: companyId,
+          $or: [
+            { name: { $regex: new RegExp(`^${rawCategory.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+            { code: rawCategory }
+          ]
+        });
+        if (!category) {
+          try {
+            category = await Category.create({
+              company: companyId,
+              name: rawCategory,
+              code: `CAT-${Math.floor(1000 + Math.random() * 9000)}`,
+              description: `${rawCategory} Category`
+            });
+          } catch (e) {
+            category = await Category.findOne({ company: companyId, name: { $regex: new RegExp(`^${rawCategory.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+          }
+        }
+        if (category) categoryId = category._id;
+      }
 
       // Resolve BOM components if provided
       const resolvedBOM = [];
@@ -644,6 +670,7 @@ export const bulkImportMasters = asyncHandler(async (req, res) => {
         revisionNumber: cleanRev,
         description: item.description || '',
         ...(locationId ? { location: locationId } : {}),
+        ...(categoryId ? { category: categoryId, categoryId: categoryId } : {}),
         ...(resolvedBOM.length > 0 ? { bom: resolvedBOM } : {}),
         createdBy: userId,
         createdByName: userName,

@@ -49,6 +49,8 @@ export default function BoWipInventoryPage() {
         activeSubTab="bo"
         title="Bought Out (BO) WIP Inventory"
         description="Perpetual Work-in-Progress inventory for all Bought Out components issued to production"
+        vendorPriceLists={storeData.vendorPriceLists}
+        priceLists={storeData.priceLists}
         onError={handleError}
         onSuccess={handleSuccess}
       />

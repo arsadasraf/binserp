@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
+import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialRequestSchema, vendorSchema, customerSchema, locationSchema, categorySchema, rmBoItemSchema, consumableItemSchema, fgItemSchema, companyInfoSchema, jobWorkSchema, jobWorkSupplierSchema } from "../../models/store/index.js";
 import { userSchema } from "../../models/user/index.js";
 import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../models/sales/index.js";
 import { storePrefixSchema } from "../../models/store/index.js";
@@ -47,6 +47,8 @@ export const getAllGRNs = async (req, res) => {
   req.getModel('Vendor', vendorSchema);
   req.getModel('Customer', customerSchema);
   req.getModel('RmBoItem', rmBoItemSchema);
+  req.getModel('ConsumableItem', consumableItemSchema);
+  req.getModel('FGItem', fgItemSchema);
   req.getModel('Component', componentSchema);
   req.getModel('User', userSchema);
 
@@ -54,10 +56,14 @@ export const getAllGRNs = async (req, res) => {
     const companyId = getCompanyId(req);
     const grns = await GRN.find({ company: companyId })
       .populate("receivedBy", "name userId email")
+      .populate("createdBy", "name userId email")
+      .populate("updatedBy", "name userId email")
       .populate("supplier", "name code")
       .populate("customer", "name code")
-      .populate("items.material", "name code category descriptions description specification")
-      .populate("items.component", "componentName componentCode descriptions description specification")
+      .populate("items.material", "name code itemType category categoryId descriptions description specification hsnCode")
+      .populate("items.consumable", "name code category categoryId descriptions description specification hsnCode")
+      .populate("items.fgItem", "name code descriptions description specification hsnCode")
+      .populate("items.component", "componentName componentCode descriptions description specification hsnCode")
       .sort({ createdAt: -1 });
 
     // Sign photos and pdfs for preview

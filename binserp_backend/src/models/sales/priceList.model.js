@@ -27,6 +27,15 @@ export const priceListSchema = new mongoose.Schema(
       required: false,
       trim: true,
     },
+    pricingUnit: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    isSecondaryUnit: {
+      type: Boolean,
+      default: false,
+    },
     remarks: {
       type: String,
     },

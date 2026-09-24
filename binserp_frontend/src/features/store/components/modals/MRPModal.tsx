@@ -15,7 +15,11 @@ import {
     Package,
     Building,
     Boxes,
-    Check
+    Check,
+    CheckSquare,
+    Square,
+    Filter,
+    ListFilter
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import Swal from 'sweetalert2';
@@ -26,6 +30,7 @@ interface MRPModalProps {
     onSuccess: () => void;
     token: string;
     initialData?: any;
+    preselectedPoIds?: string[];
 }
 
 interface FGRow {
@@ -40,9 +45,19 @@ interface FGRow {
     bomId?: string;
     bomNumber?: string;
     isFromOA?: boolean;
+    customerPo?: string;
+    customerPoNumber?: string;
+    customerName?: string;
+    sourceBreakdown?: Array<{
+        customerPo?: string;
+        customerPoNumber: string;
+        customerName: string;
+        quantity: number;
+    }>;
+    sourceCustomerPOs?: string[];
 }
 
-export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData }: MRPModalProps) {
+export default function MRPModal({ isOpen, onClose, onSuccess, token, initialData, preselectedPoIds }: MRPModalProps) {
     const [loading, setLoading] = useState(false);
     const [submitting, setSubmitting] = useState(false);
 
@@ -52,6 +67,13 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
     const [bomsList, setBomsList] = useState<any[]>([]);
     const [incomingPOs, setIncomingPOs] = useState<any[]>([]);
     const [existingMRPPlans, setExistingMRPPlans] = useState<any[]>([]);
+
+    // Plan Mode: Single PO vs Consolidated Multi-PO
+    const [planMode, setPlanMode] = useState<'single' | 'consolidated'>('single');
+    const [selectedMultiPoIds, setSelectedMultiPoIds] = useState<string[]>([]);
+    const [multiPoSearch, setMultiPoSearch] = useState('');
+    const [multiPoCustomerFilter, setMultiPoCustomerFilter] = useState('all');
+    const [multiPoMrpFilter, setMultiPoMrpFilter] = useState<'pending' | 'all' | 'mrp_done'>('pending');
 
     // Form State
     const [mrpNumber, setMrpNumber] = useState('');
@@ -100,9 +122,189 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    // Helper: Extract mapped FG rows from any Customer PO object
+    const extractFGRowsFromPO = (po: any, fgList = fgItemList, bomList = bomsList): FGRow[] => {
+        if (!po || !Array.isArray(po.items) || po.items.length === 0) return [];
+
+        const resolvedPoDate = po.deliveryDate
+            ? new Date(po.deliveryDate).toISOString().split('T')[0]
+            : (po.date ? new Date(po.date).toISOString().split('T')[0] : '');
+
+        let resolvedCommittedDate = '';
+        if (po.committedDispatchDate) {
+            resolvedCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
+        } else if (resolvedPoDate) {
+            resolvedCommittedDate = resolvedPoDate;
+        }
+
+        const cName = po.customerName || (typeof po.customer === 'object' ? po.customer?.name : '') || '';
+
+        return po.items.map((item: any) => {
+            const pName = item.productName || item.name || item.itemName || '';
+            const pCode = item.productCode || item.code || '';
+            const fgObj = fgList.find(
+                (f) =>
+                    f._id === item.fgItem ||
+                    f._id === (item.fgItem?._id || item.fgItem) ||
+                    (pName && f.name?.toLowerCase() === pName.toLowerCase()) ||
+                    (pCode && f.code?.toLowerCase() === pCode.toLowerCase())
+            );
+            const matchedBom = bomList.find(
+                (b) =>
+                    (fgObj &&
+                        (b.productName?.toLowerCase() === fgObj.name?.toLowerCase() ||
+                            b.productCode === fgObj.code)) ||
+                    (pName && b.productName?.toLowerCase() === pName.toLowerCase()) ||
+                    (pCode && b.productCode === pCode)
+            );
+
+            const qty = (item.quantity || 1) - (item.dispatchedQuantity || item.billedQuantity || 0);
+
+            const itemPoDate = item.expectedDeliveryDate
+                ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
+                : resolvedPoDate;
+
+            let itemCommittedDate = '';
+            let isFromOA = false;
+            if (item.committedDeliveryDate) {
+                itemCommittedDate = new Date(item.committedDeliveryDate).toISOString().split('T')[0];
+                isFromOA = true;
+            } else if (po.committedDispatchDate) {
+                itemCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
+                isFromOA = true;
+            } else {
+                itemCommittedDate = itemPoDate || resolvedCommittedDate;
+            }
+
+            return {
+                fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
+                fgItemName: fgObj?.name || pName || 'Finished Good',
+                fgItemCode: fgObj?.code || pCode || '',
+                description: item.description || fgObj?.description || fgObj?.descriptions || '',
+                quantity: qty > 0 ? qty : Number(item.quantity) || 1,
+                unit: item.unit || fgObj?.unit || 'PCS',
+                poDeliveryDate: itemPoDate,
+                targetDate: itemCommittedDate,
+                isFromOA,
+                customerPo: po._id,
+                customerPoNumber: po.poNumber || '',
+                customerName: cName,
+                bomId: matchedBom?._id,
+                bomNumber: matchedBom?.bomNumber || (fgObj?.bom?.length > 0 ? `BOM-${fgObj.code || fgObj.name}` : undefined)
+            };
+        });
+    };
+
+    // Helper: Sync multi-PO selected items into FG table without duplicating line items
+    const syncMultiPORows = (poIds: string[], posList = incomingPOs, fgs = fgItemList, boms = bomsList) => {
+        if (poIds.length === 0) {
+            setFgRows([
+                { fgItem: '', fgItemName: '', fgItemCode: '', description: '', quantity: 1, unit: 'PCS', poDeliveryDate: '', targetDate }
+            ]);
+            setCustomerName('');
+            setCustomerPoNumber('');
+            return;
+        }
+
+        const itemMap = new Map<string, FGRow>();
+        let earliestDate = '';
+
+        poIds.forEach((id) => {
+            const po = posList.find((p) => String(p._id || p.id) === String(id));
+            if (po) {
+                const rows = extractFGRowsFromPO(po, fgs, boms);
+                rows.forEach((row) => {
+                    const itemKey = (row.fgItem || row.fgItemCode || row.fgItemName).toLowerCase().trim();
+                    if (!itemKey) return;
+
+                    if (!itemMap.has(itemKey)) {
+                        itemMap.set(itemKey, {
+                            ...row,
+                            sourceBreakdown: [
+                                {
+                                    customerPo: row.customerPo,
+                                    customerPoNumber: row.customerPoNumber || '',
+                                    customerName: row.customerName || '',
+                                    quantity: row.quantity
+                                }
+                            ],
+                            sourceCustomerPOs: row.customerPoNumber ? [row.customerPoNumber] : []
+                        });
+                    } else {
+                        const existing = itemMap.get(itemKey)!;
+                        existing.quantity += row.quantity;
+                        if (!existing.description && row.description) existing.description = row.description;
+                        if (!existing.bomId && row.bomId) {
+                            existing.bomId = row.bomId;
+                            existing.bomNumber = row.bomNumber;
+                        }
+
+                        // Keep earliest targetDate & poDeliveryDate
+                        if (row.targetDate) {
+                            if (!existing.targetDate || row.targetDate < existing.targetDate) {
+                                existing.targetDate = row.targetDate;
+                            }
+                        }
+                        if (row.poDeliveryDate) {
+                            if (!existing.poDeliveryDate || row.poDeliveryDate < existing.poDeliveryDate) {
+                                existing.poDeliveryDate = row.poDeliveryDate;
+                            }
+                        }
+
+                        // Track source breakdown
+                        if (!existing.sourceBreakdown) existing.sourceBreakdown = [];
+                        existing.sourceBreakdown.push({
+                            customerPo: row.customerPo,
+                            customerPoNumber: row.customerPoNumber || '',
+                            customerName: row.customerName || '',
+                            quantity: row.quantity
+                        });
+
+                        if (!existing.sourceCustomerPOs) existing.sourceCustomerPOs = [];
+                        if (row.customerPoNumber && !existing.sourceCustomerPOs.includes(row.customerPoNumber)) {
+                            existing.sourceCustomerPOs.push(row.customerPoNumber);
+                        }
+
+                        // Update combined PO & Customer labels
+                        existing.customerPoNumber = existing.sourceCustomerPOs.join(', ');
+                        if (row.customerName && existing.customerName && !existing.customerName.includes(row.customerName)) {
+                            existing.customerName = `${existing.customerName}, ${row.customerName}`;
+                        }
+                    }
+                });
+
+                const cDate = po.committedDispatchDate || po.deliveryDate || po.date;
+                if (cDate) {
+                    const iso = new Date(cDate).toISOString().split('T')[0];
+                    if (!earliestDate || iso < earliestDate) {
+                        earliestDate = iso;
+                    }
+                }
+            }
+        });
+
+        const mergedRows = Array.from(itemMap.values());
+        if (mergedRows.length > 0) {
+            setFgRows(mergedRows);
+        }
+        if (earliestDate) {
+            setTargetDate(earliestDate);
+        }
+
+        const selectedDocs = posList.filter((p) => poIds.some((id) => String(id) === String(p._id || p.id)));
+        const custNames = [...new Set(selectedDocs.map((p) => p.customerName || (typeof p.customer === 'object' ? p.customer?.name : '')).filter(Boolean))];
+        setCustomerName(custNames.join(', '));
+        setCustomerPoNumber(selectedDocs.map((p) => p.poNumber).filter(Boolean).join(', '));
+    };
+
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
+                const isMulti = Boolean(initialData.isConsolidated || (initialData.customerPOs && initialData.customerPOs.length > 1));
+                setPlanMode(isMulti ? 'consolidated' : 'single');
+                if (isMulti && Array.isArray(initialData.customerPOs)) {
+                    setSelectedMultiPoIds(initialData.customerPOs.map((p: any) => p.customerPo || p._id || p.id).filter(Boolean));
+                }
                 setMrpNumber(initialData.mrpNumber || '');
                 setSelectedCustomerId(initialData.customer || '');
                 setCustomerName(initialData.customerName || '');
@@ -123,11 +325,34 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                         unit: f.unit || 'PCS',
                         poDeliveryDate: f.poDeliveryDate ? new Date(f.poDeliveryDate).toISOString().split('T')[0] : '',
                         targetDate: f.targetDate ? new Date(f.targetDate).toISOString().split('T')[0] : '',
+                        customerPo: f.customerPo || undefined,
+                        customerPoNumber: f.customerPoNumber || '',
+                        customerName: f.customerName || '',
                         bomId: f.bomId || '',
                         bomNumber: f.bomNumber || ''
                     })));
                 }
+            } else if (preselectedPoIds && preselectedPoIds.length > 0) {
+                setPlanMode('consolidated');
+                setSelectedMultiPoIds(preselectedPoIds);
+                const now = new Date();
+                const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+                const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+                setMrpNumber(`MRP-BATCH-${dateStr}-${randomSuffix}`);
+                setSelectedCustomerId('');
+                setCustomerName('');
+                setCustomerSearch('');
+                setSelectedPOId('');
+                setCustomerPoNumber('');
+                setPoSearch('');
+                setRemarks('');
+                setPoDate('');
+                const future = new Date();
+                future.setDate(future.getDate() + 7);
+                setTargetDate(future.toISOString().split('T')[0]);
             } else {
+                setPlanMode('single');
+                setSelectedMultiPoIds([]);
                 const now = new Date();
                 const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
                 const randomSuffix = Math.floor(1000 + Math.random() * 9000);
@@ -154,7 +379,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
             loadDropdownMasters();
         }
-    }, [isOpen, initialData]);
+    }, [isOpen, initialData, preselectedPoIds]);
 
     const loadDropdownMasters = async () => {
         setLoading(true);
@@ -167,20 +392,30 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                 apiGet('/api/purchase/mrp/plans', token)
             ]);
 
+            let loadedFGs: any[] = [];
+            let loadedBOMs: any[] = [];
+            let loadedPOs: any[] = [];
+
             if (custRes.status === 'fulfilled' && custRes.value) {
                 setCustomerList(Array.isArray(custRes.value) ? custRes.value : (custRes.value.customers || custRes.value.data || []));
             }
             if (fgRes.status === 'fulfilled' && fgRes.value) {
-                setFgItemList(Array.isArray(fgRes.value) ? fgRes.value : (fgRes.value.fgItems || fgRes.value.data || []));
+                loadedFGs = Array.isArray(fgRes.value) ? fgRes.value : (fgRes.value.fgItems || fgRes.value.data || []);
+                setFgItemList(loadedFGs);
             }
             if (bomRes.status === 'fulfilled' && bomRes.value) {
-                setBomsList(Array.isArray(bomRes.value) ? bomRes.value : (bomRes.value.boms || bomRes.value.data || []));
+                loadedBOMs = Array.isArray(bomRes.value) ? bomRes.value : (bomRes.value.boms || bomRes.value.data || []);
+                setBomsList(loadedBOMs);
             }
             if (poRes.status === 'fulfilled' && poRes.value) {
-                const pos = Array.isArray(poRes.value)
+                loadedPOs = Array.isArray(poRes.value)
                     ? poRes.value
                     : (poRes.value.pos || poRes.value.incomingPOs || poRes.value.data || []);
-                setIncomingPOs(pos);
+                setIncomingPOs(loadedPOs);
+
+                if (preselectedPoIds && preselectedPoIds.length > 0 && !initialData) {
+                    syncMultiPORows(preselectedPoIds, loadedPOs, loadedFGs, loadedBOMs);
+                }
             }
             if (mrpRes.status === 'fulfilled' && mrpRes.value) {
                 setExistingMRPPlans(Array.isArray(mrpRes.value) ? mrpRes.value : (mrpRes.value.mrpPlans || mrpRes.value.data || []));
@@ -204,13 +439,12 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         );
     }, [customerList, customerSearch]);
 
-    // Open Customer POs list (filtered by selected customer if any, and by search query)
+    // Open Customer POs list for Single PO mode
     const availablePOs = useMemo(() => {
         let pos = (incomingPOs || []).filter(
             (p: any) => p && p.status !== 'Cancelled' && p.status !== 'Completed'
         );
 
-        // If a customer is selected, narrow down to that customer
         if (selectedCustomerId) {
             pos = pos.filter((p: any) => {
                 const cId = p.customer?._id || (typeof p.customer === 'string' ? p.customer : p.customer?.id);
@@ -228,7 +462,6 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
         if (poSearch.trim()) {
             const q = poSearch.toLowerCase().trim();
-            // Don't filter out if poSearch is just the selected PO's number
             if (selectedPOId && (q === `po #${customerPoNumber}`.toLowerCase() || q === customerPoNumber.toLowerCase())) {
                 return pos;
             }
@@ -242,6 +475,76 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         return pos;
     }, [incomingPOs, selectedCustomerId, customerName, poSearch, selectedPOId, customerPoNumber]);
 
+    // Check if a Customer PO already has an MRP plan generated
+    const isPoMrpGenerated = (po: any) => {
+        if (!po) return false;
+        if (po.status === 'MRP Done') return true;
+        return (existingMRPPlans || []).some(
+            (m: any) =>
+                String(m.customerPo) === String(po._id) ||
+                (m.customerPOs || []).some((cp: any) => String(cp.customerPo || cp._id) === String(po._id)) ||
+                (po.poNumber && m.customerPoNumber && (
+                    m.customerPoNumber === po.poNumber ||
+                    m.customerPoNumber.split(',').map((s: string) => s.trim()).includes(po.poNumber)
+                ))
+        );
+    };
+
+    // Available POs for Multi-PO mode (filtered by customer, search, and MRP-generated status)
+    const availableMultiPOs = useMemo(() => {
+        let pos = (incomingPOs || []).filter(
+            (p: any) => p && p.status !== 'Cancelled' && p.status !== 'Completed'
+        );
+
+        if (multiPoCustomerFilter && multiPoCustomerFilter !== 'all') {
+            pos = pos.filter((p: any) => {
+                const cId = p.customer?._id || (typeof p.customer === 'string' ? p.customer : p.customer?.id);
+                return cId && String(cId) === String(multiPoCustomerFilter);
+            });
+        }
+
+        if (multiPoSearch.trim()) {
+            const q = multiPoSearch.toLowerCase().trim();
+            pos = pos.filter((p: any) =>
+                (p.poNumber && p.poNumber.toLowerCase().includes(q)) ||
+                (p.customerName && p.customerName.toLowerCase().includes(q)) ||
+                (p.customer?.name && p.customer.name.toLowerCase().includes(q)) ||
+                (p.items && p.items.some((it: any) => (it.productName || it.fgItem?.name || '').toLowerCase().includes(q)))
+            );
+        }
+
+        if (multiPoMrpFilter === 'pending') {
+            pos = pos.filter((p: any) => !isPoMrpGenerated(p));
+        } else if (multiPoMrpFilter === 'mrp_done') {
+            pos = pos.filter((p: any) => isPoMrpGenerated(p));
+        }
+
+        return pos;
+    }, [incomingPOs, multiPoCustomerFilter, multiPoSearch, multiPoMrpFilter, existingMRPPlans]);
+
+    // Statistics of matching POs for multi-PO filters
+    const multiPoStats = useMemo(() => {
+        let base = (incomingPOs || []).filter((p: any) => p && p.status !== 'Cancelled' && p.status !== 'Completed');
+        if (multiPoCustomerFilter && multiPoCustomerFilter !== 'all') {
+            base = base.filter((p: any) => {
+                const cId = p.customer?._id || (typeof p.customer === 'string' ? p.customer : p.customer?.id);
+                return cId && String(cId) === String(multiPoCustomerFilter);
+            });
+        }
+        if (multiPoSearch.trim()) {
+            const q = multiPoSearch.toLowerCase().trim();
+            base = base.filter((p: any) =>
+                (p.poNumber && p.poNumber.toLowerCase().includes(q)) ||
+                (p.customerName && p.customerName.toLowerCase().includes(q)) ||
+                (p.customer?.name && p.customer.name.toLowerCase().includes(q))
+            );
+        }
+        const total = base.length;
+        const mrpDoneCount = base.filter(isPoMrpGenerated).length;
+        const pendingCount = total - mrpDoneCount;
+        return { total, mrpDoneCount, pendingCount };
+    }, [incomingPOs, multiPoCustomerFilter, multiPoSearch, existingMRPPlans]);
+
     // Check if the currently selected PO has an existing MRP plan
     const duplicateMrpPlan = useMemo(() => {
         if (!selectedPOId && !customerPoNumber) return null;
@@ -251,7 +554,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         );
     }, [existingMRPPlans, selectedPOId, customerPoNumber]);
 
-    // Handle Customer Selection
+    // Handle Customer Selection in Single Mode
     const handleSelectCustomer = (customer: any) => {
         if (!customer) {
             setSelectedCustomerId('');
@@ -268,7 +571,6 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         setCustomerSearch(name);
         setIsCustomerDropdownOpen(false);
 
-        // If currently selected PO does not belong to this customer, reset PO
         if (selectedPOId) {
             const currentPO = incomingPOs.find((p) => (p._id || p.id) === selectedPOId);
             const poCustId = currentPO?.customer?._id || (typeof currentPO?.customer === 'string' ? currentPO?.customer : currentPO?.customer?.id);
@@ -281,7 +583,7 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         }
     };
 
-    // Handle Customer PO Selection
+    // Handle Customer PO Selection in Single Mode
     const handleSelectCustomerPO = (po: any) => {
         if (!po) {
             setSelectedPOId('');
@@ -303,12 +605,10 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
         setPoSearch(`PO #${po.poNumber}`);
         setIsPoDropdownOpen(false);
 
-        // Per requirement: If MRP is made with Customer PO, MRP number is the Customer PO number
         if (po.poNumber) {
             setMrpNumber(po.poNumber);
         }
 
-        // Auto-fill customer if not already selected
         const cName = po.customerName || (typeof po.customer === 'object' ? po.customer?.name : '') || '';
         const cId = typeof po.customer === 'object' ? po.customer?._id : po.customer;
         if (cName && !customerName) {
@@ -319,13 +619,11 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setSelectedCustomerId(cId);
         }
 
-        // 1. Resolve Customer PO Date (deliveryDate or date)
         const resolvedPoDate = po.deliveryDate
             ? new Date(po.deliveryDate).toISOString().split('T')[0]
             : (po.date ? new Date(po.date).toISOString().split('T')[0] : '');
         setPoDate(resolvedPoDate);
 
-        // 2. Resolve Overall OA Committed Date
         let resolvedCommittedDate = '';
         if (po.committedDispatchDate) {
             resolvedCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
@@ -336,64 +634,31 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
             setTargetDate(resolvedCommittedDate);
         }
 
-        // 3. Auto-populate FG items from PO
-        if (Array.isArray(po.items) && po.items.length > 0) {
-            const mappedRows: FGRow[] = po.items.map((item: any) => {
-                const pName = item.productName || item.name || item.itemName || '';
-                const pCode = item.productCode || item.code || '';
-                const fgObj = fgItemList.find(
-                    (f) =>
-                        f._id === item.fgItem ||
-                        f._id === (item.fgItem?._id || item.fgItem) ||
-                        (pName && f.name?.toLowerCase() === pName.toLowerCase()) ||
-                        (pCode && f.code?.toLowerCase() === pCode.toLowerCase())
-                );
-                const matchedBom = bomsList.find(
-                    (b) =>
-                        (fgObj &&
-                            (b.productName?.toLowerCase() === fgObj.name?.toLowerCase() ||
-                                b.productCode === fgObj.code)) ||
-                        (pName && b.productName?.toLowerCase() === pName.toLowerCase()) ||
-                        (pCode && b.productCode === pCode)
-                );
-
-                const qty = (item.quantity || 1) - (item.dispatchedQuantity || item.billedQuantity || 0);
-
-                // Row PO Date
-                const itemPoDate = item.expectedDeliveryDate
-                    ? new Date(item.expectedDeliveryDate).toISOString().split('T')[0]
-                    : resolvedPoDate;
-
-                // Row Committed Date
-                let itemCommittedDate = '';
-                let isFromOA = false;
-                if (item.committedDeliveryDate) {
-                    itemCommittedDate = new Date(item.committedDeliveryDate).toISOString().split('T')[0];
-                    isFromOA = true;
-                } else if (po.committedDispatchDate) {
-                    itemCommittedDate = new Date(po.committedDispatchDate).toISOString().split('T')[0];
-                    isFromOA = true;
-                } else {
-                    itemCommittedDate = itemPoDate || resolvedCommittedDate;
-                }
-
-                return {
-                    fgItem: fgObj?._id || (typeof item.fgItem === 'object' ? item.fgItem?._id : item.fgItem) || '',
-                    fgItemName: fgObj?.name || pName || 'Finished Good',
-                    fgItemCode: fgObj?.code || pCode || '',
-                    description: item.description || fgObj?.description || fgObj?.descriptions || '',
-                    quantity: qty > 0 ? qty : Number(item.quantity) || 1,
-                    unit: item.unit || fgObj?.unit || 'PCS',
-                    poDeliveryDate: itemPoDate,
-                    targetDate: itemCommittedDate,
-                    isFromOA,
-                    bomId: matchedBom?._id,
-                    bomNumber: matchedBom?.bomNumber || (fgObj?.bom?.length > 0 ? `BOM-${fgObj.code || fgObj.name}` : undefined)
-                };
-            });
-
-            setFgRows(mappedRows);
+        const rows = extractFGRowsFromPO(po, fgItemList, bomsList);
+        if (rows.length > 0) {
+            setFgRows(rows);
         }
+    };
+
+    // Handle Toggling PO in Multi-PO mode
+    const handleToggleMultiPO = (poId: string) => {
+        setSelectedMultiPoIds((prev) => {
+            const next = prev.includes(poId) ? prev.filter((id) => id !== poId) : [...prev, poId];
+            syncMultiPORows(next);
+            return next;
+        });
+    };
+
+    const handleSelectAllMultiPOs = () => {
+        const eligible = availableMultiPOs.map((p: any) => p._id);
+        const next = Array.from(new Set([...selectedMultiPoIds, ...eligible]));
+        setSelectedMultiPoIds(next);
+        syncMultiPORows(next);
+    };
+
+    const handleClearMultiPOs = () => {
+        setSelectedMultiPoIds([]);
+        syncMultiPORows([]);
     };
 
     // Filtered FG Items for table row search
@@ -497,16 +762,39 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
         setSubmitting(true);
         try {
-            const payload = {
+            const isConsolidated = planMode === 'consolidated' || selectedMultiPoIds.length > 1;
+            const payload: any = {
                 mrpNumber,
-                customerPo: selectedPOId || undefined,
-                customerPoNumber: customerPoNumber || undefined,
-                customerName: customerName || 'Internal Production',
-                poDate: poDate || undefined,
+                isConsolidated,
                 targetDate,
                 remarks,
                 fgItems: validItems
             };
+
+            if (isConsolidated && selectedMultiPoIds.length > 0) {
+                payload.customerPoIds = selectedMultiPoIds;
+                const contributingPOs = incomingPOs.filter((p) =>
+                    selectedMultiPoIds.some((id) => String(id) === String(p._id || p.id))
+                );
+                payload.customerPOs = contributingPOs.map((p) => ({
+                    customerPo: p._id,
+                    customerPoNumber: p.poNumber || '',
+                    customer: p.customer?._id || p.customer,
+                    customerName: p.customerName || (typeof p.customer === 'object' ? p.customer?.name : '') || '',
+                    poDate: p.date,
+                    targetDate: p.committedDispatchDate || p.deliveryDate || p.date,
+                }));
+                payload.customerPoNumber = contributingPOs.map((p) => p.poNumber).filter(Boolean).join(', ');
+                payload.customerName = [
+                    ...new Set(contributingPOs.map((p) => p.customerName || (typeof p.customer === 'object' ? p.customer?.name : '')).filter(Boolean))
+                ].join(', ');
+                payload.poDate = contributingPOs[0]?.date || undefined;
+            } else {
+                payload.customerPo = selectedPOId || undefined;
+                payload.customerPoNumber = customerPoNumber || undefined;
+                payload.customerName = customerName || 'Internal Production';
+                payload.poDate = poDate || undefined;
+            }
 
             if (initialData && (initialData._id || initialData.id)) {
                 await apiPut(`/api/purchase/mrp/plan/${initialData._id || initialData.id}`, payload, token);
@@ -567,220 +855,473 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
 
                 {/* Form Body */}
                 <form onSubmit={handleSubmit} className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-5">
-                    {/* Top Bar: Customer Search & Open PO Quick Selector */}
-                    <div className="bg-gradient-to-r from-indigo-50/90 to-blue-50/70 dark:from-indigo-950/40 dark:to-slate-900 p-4 rounded-2xl border border-indigo-200/80 dark:border-indigo-800 space-y-3">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
-                                <Sparkles size={15} className="text-indigo-600 dark:text-indigo-400" />
-                                <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
-                                    Customer & PO Linkage
-                                </h3>
-                            </div>
-                            {(selectedCustomerId || selectedPOId || customerName) && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setSelectedCustomerId('');
-                                        setCustomerName('');
-                                        setCustomerSearch('');
-                                        setSelectedPOId('');
-                                        setCustomerPoNumber('');
-                                        setPoSearch('');
-                                        setPoDate('');
-                                    }}
-                                    className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
-                                >
-                                    <X size={12} /> Clear Customer & PO Link
-                                </button>
-                            )}
-                        </div>
-
-                        {/* Customer Search & PO Select Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Customer Dropdown */}
-                            <div className="relative" ref={customerDropdownRef}>
-                                <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block mb-1">
-                                    Customer
-                                </label>
-                                <div className="relative">
-                                    <Building className="absolute left-3 top-2.5 text-indigo-500" size={15} />
-                                    <input
-                                        type="text"
-                                        placeholder="Search customer..."
-                                        value={customerSearch}
-                                        onFocus={() => setIsCustomerDropdownOpen(true)}
-                                        onChange={(e) => {
-                                            setCustomerSearch(e.target.value);
-                                            setCustomerName(e.target.value);
-                                            setIsCustomerDropdownOpen(true);
-                                        }}
-                                        className="w-full pl-9 pr-8 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-2xs"
-                                    />
-                                    {customerSearch && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSelectCustomer(null)}
-                                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Customer Dropdown Results */}
-                                {isCustomerDropdownOpen && (
-                                    <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 p-1 space-y-0.5">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSelectCustomer(null)}
-                                            className="w-full text-left px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
-                                        >
-                                            -- Internal Production (No Customer) --
-                                        </button>
-                                        {filteredCustomers.length === 0 ? (
-                                            <div className="p-3 text-center text-xs text-slate-400">
-                                                No customer found
-                                            </div>
-                                        ) : (
-                                            filteredCustomers.map((cust: any) => {
-                                                const isSelected = selectedCustomerId === cust._id;
-                                                return (
-                                                    <button
-                                                        key={cust._id}
-                                                        type="button"
-                                                        onClick={() => handleSelectCustomer(cust)}
-                                                        className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-colors flex items-center justify-between cursor-pointer ${
-                                                            isSelected
-                                                                ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold'
-                                                                : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                                        }`}
-                                                    >
-                                                        <div>
-                                                            <span className="font-bold block">{cust.name || cust.companyName}</span>
-                                                            <span className="text-[10px] text-slate-400 font-mono">
-                                                                {cust.code || ''} {cust.city ? `• ${cust.city}` : ''}
-                                                            </span>
-                                                        </div>
-                                                        {isSelected && <Check size={14} className="text-indigo-600" />}
-                                                    </button>
-                                                );
-                                            })
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Customer PO Dropdown */}
-                            <div className="relative" ref={poDropdownRef}>
-                                <div className="flex items-center justify-between mb-1">
-                                    <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">
-                                        Customer PO
-                                    </label>
-                                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-indigo-200/80 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
-                                        {availablePOs.length} Open POs
+                    {/* Plan Mode Switcher: Single Customer PO vs Consolidated Multi-PO */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-100/90 dark:bg-slate-850 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 rounded-xl border border-slate-200/80 dark:border-slate-750 shadow-2xs">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPlanMode('single');
+                                    if (mrpNumber.startsWith('MRP-BATCH-')) {
+                                        const now = new Date();
+                                        const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+                                        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+                                        setMrpNumber(customerPoNumber || `MRP-${dateStr}-${randomSuffix}`);
+                                    }
+                                }}
+                                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    planMode === 'single'
+                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
+                            >
+                                <FileText size={14} /> Single Customer PO
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setPlanMode('consolidated');
+                                    const now = new Date();
+                                    const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+                                    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+                                    setMrpNumber(`MRP-BATCH-${dateStr}-${randomSuffix}`);
+                                    if (selectedPOId && !selectedMultiPoIds.includes(selectedPOId)) {
+                                        const next = [selectedPOId];
+                                        setSelectedMultiPoIds(next);
+                                        syncMultiPORows(next);
+                                    }
+                                }}
+                                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    planMode === 'consolidated'
+                                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-xs'
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                                }`}
+                            >
+                                <Sparkles size={14} /> Consolidated Multi-PO (Batch MRP)
+                                {selectedMultiPoIds.length > 0 && (
+                                    <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-black">
+                                        {selectedMultiPoIds.length}
                                     </span>
-                                </div>
-                                <div className="relative">
-                                    <FileText className="absolute left-3 top-2.5 text-indigo-500" size={15} />
-                                    <input
-                                        type="text"
-                                        placeholder="Search open PO # or customer..."
-                                        value={poSearch}
-                                        onFocus={() => setIsPoDropdownOpen(true)}
-                                        onChange={(e) => {
-                                            setPoSearch(e.target.value);
-                                            setIsPoDropdownOpen(true);
-                                        }}
-                                        className="w-full pl-9 pr-8 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-2xs"
-                                    />
-                                    {selectedPOId && (
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSelectCustomerPO(null)}
-                                            className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
-                                        >
-                                            <X size={14} />
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Open PO Dropdown List */}
-                                {isPoDropdownOpen && (
-                                    <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 p-1 space-y-0.5">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSelectCustomerPO(null)}
-                                            className="w-full text-left px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
-                                        >
-                                            -- Direct Manual Entry (No PO Linked) --
-                                        </button>
-                                        {availablePOs.length === 0 ? (
-                                            <div className="p-3 text-center text-xs text-slate-400">
-                                                No open purchase orders found.
-                                            </div>
-                                        ) : (
-                                            availablePOs.map((po: any) => {
-                                                const isSelected = selectedPOId === po._id;
-                                                const hasMrp = existingMRPPlans.some(
-                                                    (m) =>
-                                                        String(m.customerPo) === String(po._id) ||
-                                                        (po.poNumber && m.customerPoNumber === po.poNumber)
-                                                );
-
-                                                return (
-                                                    <button
-                                                        key={po._id}
-                                                        type="button"
-                                                        onClick={() => handleSelectCustomerPO(po)}
-                                                        className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-colors flex items-center justify-between cursor-pointer ${
-                                                            isSelected
-                                                                ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold'
-                                                                : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                                        }`}
-                                                    >
-                                                        <div>
-                                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                                <span className="font-mono font-bold">PO #{po.poNumber}</span>
-                                                                {po.committedDispatchDate ? (
-                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                                                        OA Committed: {new Date(po.committedDispatchDate).toLocaleDateString()}
-                                                                    </span>
-                                                                ) : po.deliveryDate ? (
-                                                                    <span className="text-[9px] font-medium text-slate-500">
-                                                                        Due: {new Date(po.deliveryDate).toLocaleDateString()}
-                                                                    </span>
-                                                                ) : null}
-                                                                {hasMrp && (
-                                                                    <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                                                                        MRP Exists
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <span className="text-[10px] text-slate-500 block mt-0.5">
-                                                                {po.customerName || po.customer?.name || 'Customer'} •{' '}
-                                                                {po.items?.length || 0} items
-                                                            </span>
-                                                        </div>
-                                                        {isSelected && <Check size={14} className="text-indigo-600" />}
-                                                    </button>
-                                                );
-                                            })
-                                        )}
-                                    </div>
                                 )}
-                            </div>
+                            </button>
                         </div>
 
-                        {/* Duplicate MRP Alert Warning */}
-                        {duplicateMrpPlan && (
-                            <div className="px-3 py-2 bg-amber-100/90 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center gap-2 text-amber-900 dark:text-amber-200 text-xs animate-in fade-in">
-                                <AlertTriangle size={14} className="text-amber-600 shrink-0" />
-                                <span className="font-bold">
-                                    MRP Plan ({duplicateMrpPlan.mrpNumber}) already exists for PO #{customerPoNumber}
-                                </span>
+                        {planMode === 'consolidated' && (
+                            <div className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                                <span>Batch Mode: Combines multiple customer orders into a single consolidated purchase demand.</span>
                             </div>
                         )}
                     </div>
+
+                    {/* Top Bar: Customer Search & Open PO Quick Selector (Single Mode) */}
+                    {planMode === 'single' ? (
+                        <div className="bg-gradient-to-r from-indigo-50/90 to-blue-50/70 dark:from-indigo-950/40 dark:to-slate-900 p-4 rounded-2xl border border-indigo-200/80 dark:border-indigo-800 space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                    <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                                        Single Customer & PO Linkage
+                                    </h3>
+                                </div>
+                                {(selectedCustomerId || selectedPOId || customerName) && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedCustomerId('');
+                                            setCustomerName('');
+                                            setCustomerSearch('');
+                                            setSelectedPOId('');
+                                            setCustomerPoNumber('');
+                                            setPoSearch('');
+                                            setPoDate('');
+                                        }}
+                                        className="text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
+                                    >
+                                        <X size={12} /> Clear Customer & PO Link
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Customer Search & PO Select Grid */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Customer Dropdown */}
+                                <div className="relative" ref={customerDropdownRef}>
+                                    <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider block mb-1">
+                                        Customer
+                                    </label>
+                                    <div className="relative">
+                                        <Building className="absolute left-3 top-2.5 text-indigo-500" size={15} />
+                                        <input
+                                            type="text"
+                                            placeholder="Search customer..."
+                                            value={customerSearch}
+                                            onFocus={() => setIsCustomerDropdownOpen(true)}
+                                            onChange={(e) => {
+                                                setCustomerSearch(e.target.value);
+                                                setCustomerName(e.target.value);
+                                                setIsCustomerDropdownOpen(true);
+                                            }}
+                                            className="w-full pl-9 pr-8 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-2xs"
+                                        />
+                                        {customerSearch && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSelectCustomer(null)}
+                                                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Customer Dropdown Results */}
+                                    {isCustomerDropdownOpen && (
+                                        <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 p-1 space-y-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSelectCustomer(null)}
+                                                className="w-full text-left px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                                            >
+                                                -- Internal Production (No Customer) --
+                                            </button>
+                                            {filteredCustomers.length === 0 ? (
+                                                <div className="p-3 text-center text-xs text-slate-400">
+                                                    No customer found
+                                                </div>
+                                            ) : (
+                                                filteredCustomers.map((cust: any) => {
+                                                    const isSelected = selectedCustomerId === cust._id;
+                                                    return (
+                                                        <button
+                                                            key={cust._id}
+                                                            type="button"
+                                                            onClick={() => handleSelectCustomer(cust)}
+                                                            className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-colors flex items-center justify-between cursor-pointer ${
+                                                                isSelected
+                                                                    ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold'
+                                                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                                            }`}
+                                                        >
+                                                            <div>
+                                                                <span className="font-bold block">{cust.name || cust.companyName}</span>
+                                                                <span className="text-[10px] text-slate-400 font-mono">
+                                                                    {cust.code || ''} {cust.city ? `• ${cust.city}` : ''}
+                                                                </span>
+                                                            </div>
+                                                            {isSelected && <Check size={14} className="text-indigo-600" />}
+                                                        </button>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Customer PO Dropdown */}
+                                <div className="relative" ref={poDropdownRef}>
+                                    <div className="flex items-center justify-between mb-1">
+                                        <label className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">
+                                            Customer PO
+                                        </label>
+                                        <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-indigo-200/80 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200">
+                                            {availablePOs.length} Open POs
+                                        </span>
+                                    </div>
+                                    <div className="relative">
+                                        <FileText className="absolute left-3 top-2.5 text-indigo-500" size={15} />
+                                        <input
+                                            type="text"
+                                            placeholder="Search open PO # or customer..."
+                                            value={poSearch}
+                                            onFocus={() => setIsPoDropdownOpen(true)}
+                                            onChange={(e) => {
+                                                setPoSearch(e.target.value);
+                                                setIsPoDropdownOpen(true);
+                                            }}
+                                            className="w-full pl-9 pr-8 py-2 bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 shadow-2xs"
+                                        />
+                                        {selectedPOId && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSelectCustomerPO(null)}
+                                                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Open PO Dropdown List */}
+                                    {isPoDropdownOpen && (
+                                        <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 p-1 space-y-0.5">
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSelectCustomerPO(null)}
+                                                className="w-full text-left px-3 py-2 rounded-xl text-xs text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                                            >
+                                                -- Direct Manual Entry (No PO Linked) --
+                                            </button>
+                                            {availablePOs.length === 0 ? (
+                                                <div className="p-3 text-center text-xs text-slate-400">
+                                                    No open purchase orders found.
+                                                </div>
+                                            ) : (
+                                                availablePOs.map((po: any) => {
+                                                    const isSelected = selectedPOId === po._id;
+                                                    const hasMrp = existingMRPPlans.some(
+                                                        (m) =>
+                                                            String(m.customerPo) === String(po._id) ||
+                                                            (po.poNumber && m.customerPoNumber === po.poNumber)
+                                                    );
+
+                                                    return (
+                                                        <button
+                                                            key={po._id}
+                                                            type="button"
+                                                            onClick={() => handleSelectCustomerPO(po)}
+                                                            className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-colors flex items-center justify-between cursor-pointer ${
+                                                                isSelected
+                                                                    ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold'
+                                                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                                            }`}
+                                                        >
+                                                            <div>
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    <span className="font-mono font-bold">PO #{po.poNumber}</span>
+                                                                    {po.committedDispatchDate ? (
+                                                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                                            OA Committed: {new Date(po.committedDispatchDate).toLocaleDateString()}
+                                                                        </span>
+                                                                    ) : po.deliveryDate ? (
+                                                                        <span className="text-[9px] font-medium text-slate-500">
+                                                                            Due: {new Date(po.deliveryDate).toLocaleDateString()}
+                                                                        </span>
+                                                                    ) : null}
+                                                                    {hasMrp && (
+                                                                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                                                            MRP Exists
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-[10px] text-slate-500 block mt-0.5">
+                                                                    {po.customerName || po.customer?.name || 'Customer'} •{' '}
+                                                                    {po.items?.length || 0} items
+                                                                </span>
+                                                            </div>
+                                                            {isSelected && <Check size={14} className="text-indigo-600" />}
+                                                        </button>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Duplicate MRP Alert Warning */}
+                            {duplicateMrpPlan && (
+                                <div className="px-3 py-2 bg-amber-100/90 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 rounded-xl flex items-center gap-2 text-amber-900 dark:text-amber-200 text-xs animate-in fade-in">
+                                    <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                                    <span className="font-bold">
+                                        MRP Plan ({duplicateMrpPlan.mrpNumber}) already exists for PO #{customerPoNumber}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* Consolidated Multi-PO Selection Panel */
+                        <div className="bg-gradient-to-br from-indigo-50/90 via-purple-50/50 to-slate-50 dark:from-indigo-950/40 dark:via-purple-950/20 dark:to-slate-900 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-800/80 space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <div className="flex items-center gap-2">
+                                    <Boxes className="text-indigo-600 dark:text-indigo-400" size={16} />
+                                    <div>
+                                        <h3 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
+                                            Select Customer POs to Consolidate
+                                        </h3>
+                                        <p className="text-[11px] text-slate-500">
+                                            Check 2 or more customer POs. All FG requirements will be consolidated into a single procurement demand.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleSelectAllMultiPOs}
+                                        className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-lg text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    >
+                                        <CheckSquare size={13} /> Select All Eligible
+                                    </button>
+                                    {selectedMultiPoIds.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={handleClearMultiPOs}
+                                            className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-750 rounded-lg text-[11px] font-bold text-rose-600 hover:bg-rose-50 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                        >
+                                            <X size={13} /> Clear
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Filters Bar for Multi-PO: Search, Customer Filter & MRP Generated Filter */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search PO #, customer, product..."
+                                        value={multiPoSearch}
+                                        onChange={(e) => setMultiPoSearch(e.target.value)}
+                                        className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+                                    />
+                                </div>
+
+                                <div className="relative">
+                                    <Filter className="absolute left-3 top-2.5 text-slate-400" size={14} />
+                                    <select
+                                        value={multiPoCustomerFilter}
+                                        onChange={(e) => setMultiPoCustomerFilter(e.target.value)}
+                                        className="w-full pl-8 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+                                    >
+                                        <option value="all">All Customers</option>
+                                        {customerList.map((c: any) => (
+                                            <option key={c._id} value={c._id}>
+                                                {c.name || c.companyName}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="relative">
+                                    <select
+                                        value={multiPoMrpFilter}
+                                        onChange={(e: any) => setMultiPoMrpFilter(e.target.value)}
+                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-800/80 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs cursor-pointer text-slate-800 dark:text-slate-200"
+                                    >
+                                        <option value="pending">Pending MRP Only (Exclude Planned)</option>
+                                        <option value="all">All Open POs (Include MRP Done)</option>
+                                        <option value="mrp_done">MRP Done Only</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Multi-PO Filter Stats & Quick Exclude Toggle */}
+                            <div className="flex items-center justify-between text-[11px] text-slate-500 flex-wrap gap-2 px-1">
+                                <span>
+                                    Showing <strong className="text-slate-800 dark:text-slate-200">{availableMultiPOs.length}</strong> of <strong className="text-slate-800 dark:text-slate-200">{multiPoStats.total}</strong> Customer POs
+                                    {multiPoMrpFilter === 'pending' && multiPoStats.mrpDoneCount > 0 && (
+                                        <span className="text-amber-600 dark:text-amber-400 font-medium ml-1">
+                                            ({multiPoStats.mrpDoneCount} already planned excluded)
+                                        </span>
+                                    )}
+                                </span>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setMultiPoMrpFilter((prev) => (prev === 'pending' ? 'all' : 'pending'))}
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-colors cursor-pointer border flex items-center gap-1 ${
+                                        multiPoMrpFilter === 'pending'
+                                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300'
+                                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-300'
+                                    }`}
+                                >
+                                    <span>{multiPoMrpFilter === 'pending' ? '✓ Exclude MRP Done (Active)' : 'Exclude MRP Done (Off)'}</span>
+                                </button>
+                            </div>
+
+                            {/* Multi-PO Selection Grid / Cards */}
+                            <div className="max-h-52 overflow-y-auto pr-1 space-y-1.5">
+                                {availableMultiPOs.length === 0 ? (
+                                    <div className="p-4 text-center text-xs text-slate-400 bg-white/60 dark:bg-slate-900/60 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                                        No open Customer POs found matching your search and filter criteria.
+                                    </div>
+                                ) : (
+                                    availableMultiPOs.map((po: any) => {
+                                        const isChecked = selectedMultiPoIds.includes(po._id);
+                                        const hasMrp = isPoMrpGenerated(po);
+                                        const totalQty = (po.items || []).reduce((sum: number, it: any) => sum + (Number(it.quantity) || 0), 0);
+
+                                        return (
+                                            <div
+                                                key={po._id}
+                                                onClick={() => handleToggleMultiPO(po._id)}
+                                                className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                                                    isChecked
+                                                        ? 'bg-indigo-500/10 border-indigo-500/40 dark:bg-indigo-950/40 dark:border-indigo-700 shadow-xs'
+                                                        : 'bg-white dark:bg-slate-900/90 border-slate-200/80 dark:border-slate-800 hover:border-indigo-300'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className="shrink-0 text-indigo-600 dark:text-indigo-400">
+                                                        {isChecked ? <CheckSquare size={18} /> : <Square size={18} className="text-slate-300 dark:text-slate-600" />}
+                                                    </div>
+                                                    <div>
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="font-mono font-black text-xs text-slate-900 dark:text-white">
+                                                                PO #{po.poNumber}
+                                                            </span>
+                                                            <span className="font-semibold text-xs text-slate-700 dark:text-slate-300">
+                                                                {po.customerName || po.customer?.name || 'Customer'}
+                                                            </span>
+                                                            {po.committedDispatchDate ? (
+                                                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                                                    OA: {new Date(po.committedDispatchDate).toLocaleDateString()}
+                                                                </span>
+                                                            ) : null}
+                                                            {hasMrp && (
+                                                                <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                                                    MRP Exists
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                                                            <span>Date: {po.date ? new Date(po.date).toLocaleDateString() : 'N/A'}</span>
+                                                            <span>•</span>
+                                                            <span>{po.items?.length || 0} Products ({totalQty} total units)</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="text-right shrink-0">
+                                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                        po.status === 'Accepted'
+                                                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                                                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                                    }`}>
+                                                        {po.status}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+
+                            {/* Multi-PO Consolidated Summary Banner */}
+                            {selectedMultiPoIds.length > 0 && (
+                                <div className="p-2.5 bg-indigo-600/10 dark:bg-indigo-950/50 border border-indigo-500/30 rounded-xl flex items-center justify-between flex-wrap gap-2 text-xs">
+                                    <div className="flex items-center gap-2">
+                                        <CheckCircle2 size={15} className="text-indigo-600 dark:text-indigo-400" />
+                                        <span className="font-bold text-indigo-950 dark:text-indigo-200">
+                                            {selectedMultiPoIds.length} Customer PO(s) Consolidated
+                                        </span>
+                                        <span className="text-slate-500">•</span>
+                                        <span className="text-slate-600 dark:text-slate-300">
+                                            {fgRows.filter((r) => r.fgItemName || r.fgItem).length} FG item lines generated
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => syncMultiPORows(selectedMultiPoIds)}
+                                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                    >
+                                        Reload All PO Items
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* Metadata Header Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800">
@@ -931,10 +1472,42 @@ export default function MRPModal({ isOpen, onClose, onSuccess, token, initialDat
                                                 </div>
 
                                                 {row.bomNumber && (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1">
+                                                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-1 mr-2">
                                                         <CheckCircle2 size={11} /> BOM Linked: {row.bomNumber}
                                                     </span>
                                                 )}
+
+                                                {row.sourceBreakdown && row.sourceBreakdown.length > 1 ? (
+                                                    <div className="mt-1 space-y-1">
+                                                        <div className="flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                                            <Layers size={10} />
+                                                            <span>Merged from {row.sourceBreakdown.length} Customer POs:</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            {row.sourceBreakdown.map((b, bIdx) => (
+                                                                <span
+                                                                    key={bIdx}
+                                                                    className="inline-flex items-center gap-1 text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                                                                    title={`${b.customerName ? `${b.customerName} — ` : ''}${b.quantity} ${row.unit}`}
+                                                                >
+                                                                    <span>{b.customerPoNumber}:</span>
+                                                                    <span className="font-extrabold text-blue-900 dark:text-blue-100">{b.quantity} {row.unit}</span>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ) : row.customerPoNumber ? (
+                                                    <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                                        <span className="inline-flex items-center gap-1 text-[10px] text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 px-1.5 py-0.5 rounded-md font-bold">
+                                                            <FileText size={10} /> PO #{row.customerPoNumber}
+                                                        </span>
+                                                        {row.customerName && (
+                                                            <span className="text-[10px] text-slate-500 font-medium">
+                                                                {row.customerName}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : null}
 
                                                 {/* Search Results Dropdown */}
                                                 {activeFGSearchIdx === idx && (

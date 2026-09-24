@@ -59,8 +59,35 @@ export const getCompanyInfo = async (req, res) => {
           console.error("Error signing company logo:", e);
         }
       }
+      if (!infoObj.companyName && req.company?.companyName) {
+        infoObj.companyName = req.company.companyName;
+      }
       return res.status(200).json(infoObj);
     }
+
+    // Fallback to registered Company entity context
+    if (req.company) {
+      const compObj = req.company.toObject ? req.company.toObject() : { ...req.company };
+      delete compObj.password;
+      return res.status(200).json({
+        company: compObj._id,
+        companyName: compObj.companyName || compObj.name || '',
+        legalName: compObj.companyName || '',
+        tradeName: compObj.companyName || '',
+        contactPerson: compObj.contactPerson || compObj.name || '',
+        contactNumber: compObj.contactNumber || compObj.phone || '',
+        email: compObj.email || '',
+        city: compObj.city || '',
+        state: compObj.state || '',
+        pincode: compObj.pincode || '',
+        billingAddress: compObj.address || compObj.billingAddress || [compObj.city, compObj.state, compObj.pincode].filter(Boolean).join(', ') || '',
+        shippingAddress: compObj.address || compObj.shippingAddress || [compObj.city, compObj.state, compObj.pincode].filter(Boolean).join(', ') || '',
+        gstNumber: compObj.gstNumber || compObj.gst || compObj.gstin || '',
+        panNumber: compObj.panNumber || compObj.pan || '',
+        logo: compObj.logo || ''
+      });
+    }
+
     res.status(200).json({});
   } catch (error) {
     res.status(500).json({ message: error.message });

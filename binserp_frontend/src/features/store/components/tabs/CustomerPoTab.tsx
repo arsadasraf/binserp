@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { 
     FileCheck, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, 
     ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, 
     History, ShieldCheck, Download, ShoppingBag, ShoppingCart, Truck, IndianRupee, 
     FileText, CheckCircle, PackageCheck, Lock, Upload, Paperclip, ExternalLink, Image as ImageIcon,
-    AlertTriangle, Package
+    AlertTriangle, Package, Layers, RotateCcw, Tag, Settings, SlidersHorizontal, CheckSquare, Square,
+    ChevronDown, ChevronUp
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
 import OrderAcknowledgementModal from '../modals/OrderAcknowledgementModal';
+import MRPModal from '../modals/MRPModal';
+import MRPDetailsModal from '../modals/MRPDetailsModal';
 import CustomerPOItemWiseView from '../views/CustomerPOItemWiseView';
 import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
-import { getCurrencySymbol, CURRENCY_OPTIONS } from '@/src/utils/currencyHelper';
+import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
+import { useExchangeRates } from '@/src/hooks/useExchangeRates';
 
 interface CustomerPoTabProps {
     token: string | null;
@@ -20,6 +25,7 @@ interface CustomerPoTabProps {
 }
 
 export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoTabProps) {
+    const { exchangeRates, convertToINR } = useExchangeRates(token);
     const [loading, setLoading] = useState(true);
     const [poList, setPoList] = useState<any[]>([]);
     const [quotations, setQuotations] = useState<any[]>([]);
@@ -30,7 +36,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
     const [filterCustomer, setFilterCustomer] = useState<string>('All');
+    const [excludeMrpDone, setExcludeMrpDone] = useState(false);
+    const [filterDateType, setFilterDateType] = useState<'entry' | 'committed' | 'either'>('entry');
+    const [filterMonth, setFilterMonth] = useState<string>(''); // format: 'YYYY-MM'
     const [viewMode, setViewMode] = useState<'po' | 'items'>('po');
+    const [showDashboard, setShowDashboard] = useState<boolean>(true);
 
     const uniquePoItemsCount = useMemo(() => {
         const itemKeys = new Set<string>();
@@ -111,6 +121,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const [poFilePreview, setPoFilePreview] = useState<string | null>(null);
     const [existingPdf, setExistingPdf] = useState<string | null>(null);
     const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
+    const [isDragging, setIsDragging] = useState(false);
+    const [viewingMrpPlan, setViewingMrpPlan] = useState<any | null>(null);
 
     const [newPo, setNewPo] = useState({
         poNumber: '',
@@ -180,11 +192,11 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 });
                 const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.unitPrice || 0));
                 const priceText = rate > 0 ? ` — ₹${rate}` : '';
-                const descText = m.description ? ` (${m.description})` : '';
-                const codeText = m.code ? ` [${m.code}]` : '';
+                const desc = m.description || m.descriptions || '';
+                const descText = desc ? ` — ${desc}` : '';
                 return {
                     value: (m._id || m.id)?.toString(),
-                    label: `${m.name || m.itemName || 'FG Item'}${codeText}${descText}${priceText}`,
+                    label: `${m.name || m.itemName || 'FG Item'}${descText}${priceText}`,
                     rate: rate,
                     raw: m,
                     priceEntry: pEntry
@@ -629,96 +641,649 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                 matchCustomer = custId?.toString() === filterCustomer?.toString();
             }
 
-            return matchSearch && matchStatus && matchCustomer;
+            const matchMrpDone = !excludeMrpDone || p.status !== 'MRP Done';
+
+            let matchDate = true;
+            if (filterMonth) {
+                const getYearMonth = (val: any) => {
+                    if (!val) return '';
+                    const d = new Date(val);
+                    if (isNaN(d.getTime())) return '';
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                };
+
+                const entryYm = getYearMonth(p.date || p.createdAt);
+                const commitYm = getYearMonth(p.committedDispatchDate);
+
+                if (filterDateType === 'entry') {
+                    matchDate = entryYm === filterMonth;
+                } else if (filterDateType === 'committed') {
+                    matchDate = commitYm === filterMonth;
+                } else {
+                    matchDate = entryYm === filterMonth || commitYm === filterMonth;
+                }
+            }
+
+            return matchSearch && matchStatus && matchCustomer && matchMrpDone && matchDate;
         });
-    }, [poList, searchTerm, filterStatus, filterCustomer]);
+    }, [poList, searchTerm, filterStatus, filterCustomer, excludeMrpDone, filterMonth, filterDateType]);
+
+    // Live PO count per status for the dropdown
+    const statusCounts = useMemo(() => {
+        const counts: Record<string, number> = { All: Array.isArray(poList) ? poList.length : 0 };
+        ['Received', 'Accepted', 'MRP Done', 'Partially Dispatched', 'Completed', 'Cancelled'].forEach(st => {
+            counts[st] = (Array.isArray(poList) ? poList : []).filter(p => p.status === st).length;
+        });
+        return counts;
+    }, [poList]);
+
+    // Overall Order Book Financials in INR (Configured in Store > Master > Setting Prefix)
+    const overallFinancials = useMemo(() => {
+        let totalInr = 0;
+        let readyForMrpInr = 0;
+        let readyForMrpCount = 0;
+        let inProgressInr = 0;
+        let inProgressCount = 0;
+        let completedInr = 0;
+        let completedCount = 0;
+        const currencyTotals: Record<string, number> = {};
+        const currencyInrTotals: Record<string, number> = {};
+
+        (Array.isArray(poList) ? poList : []).forEach(po => {
+            if (po.status === 'Cancelled') return;
+            const amount = Number(po.totalAmount || po.subtotal || 0);
+            const curr = (po.currency || 'INR').trim().toUpperCase();
+            currencyTotals[curr] = (currencyTotals[curr] || 0) + amount;
+
+            const inrConversion = convertToINR(amount, curr);
+            const inrVal = inrConversion.inrAmount;
+            totalInr += inrVal;
+            currencyInrTotals[curr] = (currencyInrTotals[curr] || 0) + inrVal;
+
+            if (po.status === 'Received' || po.status === 'Accepted') {
+                readyForMrpInr += inrVal;
+                readyForMrpCount++;
+            } else if (po.status === 'MRP Done' || po.status === 'Partially Dispatched') {
+                inProgressInr += inrVal;
+                inProgressCount++;
+            } else if (po.status === 'Completed') {
+                completedInr += inrVal;
+                completedCount++;
+            }
+        });
+
+        return {
+            totalInr,
+            formattedTotalInr: `₹${totalInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            readyForMrpInr,
+            formattedReadyForMrpInr: `₹${readyForMrpInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+            readyForMrpCount,
+            inProgressInr,
+            formattedInProgressInr: `₹${inProgressInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+            inProgressCount,
+            completedInr,
+            formattedCompletedInr: `₹${completedInr.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+            completedCount,
+            currencyTotals,
+            currencyInrTotals,
+            hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
+        };
+    }, [poList, convertToINR]);
+
+    // Filtered Order Book Financials in INR
+    const consolidatedFinancials = useMemo(() => {
+        let totalInr = 0;
+        const currencyTotals: Record<string, number> = {};
+        const currencyInrTotals: Record<string, number> = {};
+
+        (Array.isArray(filteredPoList) ? filteredPoList : []).forEach(po => {
+            if (po.status === 'Cancelled') return;
+            const amount = Number(po.totalAmount || po.subtotal || 0);
+            const curr = (po.currency || 'INR').trim().toUpperCase();
+            currencyTotals[curr] = (currencyTotals[curr] || 0) + amount;
+
+            const inrConversion = convertToINR(amount, curr);
+            totalInr += inrConversion.inrAmount;
+            currencyInrTotals[curr] = (currencyInrTotals[curr] || 0) + inrConversion.inrAmount;
+        });
+
+        return {
+            totalInr,
+            formattedTotalInr: `₹${totalInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            currencyTotals,
+            currencyInrTotals,
+            hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
+        };
+    }, [filteredPoList, convertToINR]);
+
+    // Consolidated MRP Creation from Multi-PO Selection
+    const [selectedPoIds, setSelectedPoIds] = useState<string[]>([]);
+    const [isMrpModalOpen, setIsMrpModalOpen] = useState(false);
+
+    // Selected POs Financials in INR
+    const selectedFinancials = useMemo(() => {
+        let selectedInr = 0;
+        const selectedCurrencies: Record<string, number> = {};
+        const selectedPos = (Array.isArray(poList) ? poList : []).filter(p => selectedPoIds.includes(p._id));
+
+        selectedPos.forEach(po => {
+            const amount = Number(po.totalAmount || po.subtotal || 0);
+            const curr = (po.currency || 'INR').trim().toUpperCase();
+            selectedCurrencies[curr] = (selectedCurrencies[curr] || 0) + amount;
+            const inr = convertToINR(amount, curr);
+            selectedInr += inr.inrAmount;
+        });
+
+        return {
+            count: selectedPos.length,
+            selectedInr,
+            formattedSelectedInr: `₹${selectedInr.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            selectedCurrencies,
+            hasForeign: Object.keys(selectedCurrencies).some(c => c !== 'INR' && selectedCurrencies[c] > 0)
+        };
+    }, [poList, selectedPoIds, convertToINR]);
+
+    const handleViewMrpPlan = async (po: any) => {
+        const mrpId = po.mrpPlan?._id || (typeof po.mrpPlan === 'string' ? po.mrpPlan : null);
+        const mrpNo = po.mrpNumber || po.mrpPlan?.mrpNumber;
+        if (!token) return;
+        try {
+            if (po.mrpPlan && typeof po.mrpPlan === 'object' && po.mrpPlan.fgItems) {
+                setViewingMrpPlan(po.mrpPlan);
+                return;
+            }
+            if (mrpId) {
+                const res = await apiGet(`/api/purchase/mrp-plan/${mrpId}`, token);
+                if (res?.mrpPlan || res?.data) {
+                    setViewingMrpPlan(res.mrpPlan || res.data);
+                    return;
+                }
+            }
+            if (mrpNo) {
+                const res = await apiGet(`/api/purchase/mrp-plan?search=${encodeURIComponent(mrpNo)}`, token);
+                const plans = res?.mrpPlans || res?.data || [];
+                const matched = plans.find((p: any) => p.mrpNumber === mrpNo);
+                if (matched) {
+                    setViewingMrpPlan(matched);
+                    return;
+                }
+            }
+            onError(`Could not find details for MRP: ${mrpNo || 'Linked Plan'}`);
+        } catch (err: any) {
+            console.error("Failed to load MRP plan details:", err);
+            onError(err.message || "Failed to load MRP plan details");
+        }
+    };
+
+    const isPoEligibleForMRP = (po: any) => {
+        return po && (po.status === 'Received' || po.status === 'Accepted');
+    };
+
+    const eligibleFilteredPOs = useMemo(() => {
+        return (Array.isArray(filteredPoList) ? filteredPoList : []).filter(isPoEligibleForMRP);
+    }, [filteredPoList]);
+
+    const allFilteredSelected = filteredPoList.length > 0 && filteredPoList.every(po => selectedPoIds.includes(po._id));
+    const allEligibleSelected = allFilteredSelected;
+
+    const toggleSelectAllFiltered = () => {
+        if (allFilteredSelected) {
+            const filteredIds = new Set(filteredPoList.map(p => p._id));
+            setSelectedPoIds(prev => prev.filter(id => !filteredIds.has(id)));
+        } else {
+            const toAdd = filteredPoList.map(p => p._id);
+            setSelectedPoIds(prev => Array.from(new Set([...prev, ...toAdd])));
+        }
+    };
+    const toggleSelectAllEligible = toggleSelectAllFiltered;
+
+    const toggleSelectPo = (poId: string) => {
+        setSelectedPoIds(prev => prev.includes(poId) ? prev.filter(id => id !== poId) : [...prev, poId]);
+    };
+
+    const hasActiveFilters = Boolean(searchTerm || filterStatus !== 'All' || filterCustomer !== 'All' || excludeMrpDone || filterMonth);
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
+            {/* 1. EXECUTIVE CUSTOMER PO DASHBOARD - CONVERTED VALUATIONS & METRICS */}
+            <div className="space-y-3">
+                {!showDashboard ? (
+                    <div className="bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order Book:</span>
+                                <span className="font-mono font-bold text-slate-900 dark:text-white">{overallFinancials.formattedTotalInr}</span>
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-extrabold">({poList.length} POs)</span>
+                            </div>
+                            <div className="hidden sm:flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Ready for MRP:</span>
+                                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{overallFinancials.readyForMrpCount} POs</span>
+                            </div>
+                            <div className="hidden md:flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">In Progress:</span>
+                                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">{overallFinancials.inProgressCount} POs</span>
+                            </div>
+                            <div className="hidden md:flex items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Completed:</span>
+                                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{overallFinancials.completedCount} POs</span>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(true)}
+                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/50 cursor-pointer shrink-0 transition-colors"
+                        >
+                            <span>Show Dashboard</span>
+                            <ChevronDown size={14} />
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        {/* 4 Primary Executive KPI Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                            {/* Card 1: Total Order Book */}
+                            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-blue-300 dark:hover:border-blue-700 transition-colors">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Order Book</span>
+                                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold">
+                                        <IndianRupee size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                                        {overallFinancials.formattedTotalInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-blue-600 dark:text-blue-400 font-extrabold">{poList.length} POs</span>
+                                        <span>•</span>
+                                        <span>Converted to INR</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Card 2: Ready for MRP / Demand Planning */}
+                            <div 
+                                onClick={() => {
+                                    if (filterStatus === 'Received' || filterStatus === 'Accepted') {
+                                        setFilterStatus('All');
+                                    } else {
+                                        setFilterStatus('Received');
+                                    }
+                                }}
+                                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-indigo-400 dark:hover:border-indigo-600 transition-colors cursor-pointer group"
+                                title="Click to filter Ready for MRP POs"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ready for MRP</span>
+                                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                                        <Layers size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono tracking-tight">
+                                        {overallFinancials.formattedReadyForMrpInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{overallFinancials.readyForMrpCount} POs</span>
+                                        <span>•</span>
+                                        <span>Received & Accepted</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Card 3: MRP In Progress / Production */}
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'MRP Done' ? 'All' : 'MRP Done')}
+                                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-amber-400 dark:hover:border-amber-600 transition-colors cursor-pointer group"
+                                title="Click to filter MRP Done POs"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">MRP In Progress</span>
+                                    <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                                        <Clock size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 font-mono tracking-tight">
+                                        {overallFinancials.formattedInProgressInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-amber-600 dark:text-amber-400 font-extrabold">{overallFinancials.inProgressCount} POs</span>
+                                        <span>•</span>
+                                        <span>MRP Planned / Dispatched</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Card 4: Completed / Fulfilled */}
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Completed' ? 'All' : 'Completed')}
+                                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between gap-2.5 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors cursor-pointer group"
+                                title="Click to filter Completed POs"
+                            >
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Completed & Invoiced</span>
+                                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                                        <CheckCircle2 size={16} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+                                        {overallFinancials.formattedCompletedInr}
+                                    </div>
+                                    <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
+                                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">{overallFinancials.completedCount} POs</span>
+                                        <span>•</span>
+                                        <span>100% Dispatched</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Currency Conversion Info Bar from Store Prefix Settings */}
+                        <div className="bg-slate-50/80 dark:bg-slate-800/40 px-3.5 py-2 rounded-xl border border-slate-200/80 dark:border-slate-800 text-[11px] flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-extrabold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                    <Tag size={12} className="text-blue-500" />
+                                    <span>Currency Conversion Rates (Store &gt; Masters &gt; Setting Prefix):</span>
+                                </span>
+                                <span className="font-mono text-slate-600 dark:text-slate-400">
+                                    1 USD ≈ ₹{(exchangeRates.USD || 84.50).toFixed(2)} | 1 EUR ≈ ₹{(exchangeRates.EUR || 92.00).toFixed(2)} | 1 GBP ≈ ₹{(exchangeRates.GBP || 108.00).toFixed(2)} | 1 AED ≈ ₹{(exchangeRates.AED || 23.00).toFixed(2)}
+                                </span>
+                            </div>
+
+                            <Link 
+                                href="/dashboard/store/masters/prefix-settings"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 hover:underline shrink-0"
+                            >
+                                <Settings size={11} />
+                                <span>Manage Exchange Rates</span>
+                            </Link>
+                        </div>
+
+                        {/* Foreign Currency Breakdown (if order book has foreign currencies) */}
+                        {overallFinancials.hasForeign && (
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                                <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1">Foreign Breakdown:</span>
+                                {Object.keys(overallFinancials.currencyTotals).map(curr => {
+                                    const amt = overallFinancials.currencyTotals[curr];
+                                    if (amt <= 0) return null;
+                                    const sym = getCurrencySymbol(curr);
+                                    const isForeign = curr !== 'INR';
+                                    return (
+                                        <div key={curr} className="px-2 py-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-[11px] font-medium flex items-center gap-1">
+                                            <span className="font-bold text-slate-700 dark:text-slate-200">{sym}{amt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {curr}</span>
+                                            {isForeign && (
+                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">
+                                                    (≈ ₹{(overallFinancials.currencyInrTotals[curr] || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })})
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </>
+                )}
+
+                {/* Dynamic Selection Summary Banner (when 1+ POs selected) */}
+                {selectedPoIds.length > 0 && (
+                    <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 text-white p-3.5 sm:p-4 rounded-2xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full bg-white animate-pulse"></span>
+                                <span className="font-extrabold text-xs uppercase tracking-wider text-blue-100">Active Multi-PO Selection</span>
+                            </div>
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                                <span className="text-2xl font-black font-mono">{selectedFinancials.formattedSelectedInr}</span>
+                                <span className="text-xs text-blue-100 font-bold">({selectedFinancials.count} Customer PO{selectedFinancials.count > 1 ? 's' : ''} Selected)</span>
+                            </div>
+                            {selectedFinancials.hasForeign && (
+                                <div className="text-[10px] text-blue-100 font-mono">
+                                    Converted into INR using Store Prefix Settings rates
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2 flex-wrap self-end md:self-center">
+                            <button
+                                type="button"
+                                onClick={() => setIsMrpModalOpen(true)}
+                                className="px-4 py-2 bg-white hover:bg-blue-50 text-indigo-700 font-extrabold text-xs rounded-xl shadow-xs flex items-center gap-1.5 transition-all transform hover:scale-[1.02] cursor-pointer"
+                            >
+                                <Layers size={14} className="text-indigo-600" />
+                                <span>Create Consolidated MRP ({selectedFinancials.count})</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedPoIds([])}
+                                className="px-3 py-2 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                            >
+                                Clear Selection
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder={viewMode === 'items' ? "Search Item Name, Description, PO #..." : "Search PO #, Customer or Item..."}
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+                {/* Primary Row: Search + View Mode Switcher + Action Buttons */}
+                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+                    {/* Search Input & View Mode */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 min-w-0">
+                        <div className="relative flex-1 min-w-[200px]">
+                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                            <input
+                                type="text"
+                                placeholder={viewMode === 'items' ? "Search Item Name, Description, PO #..." : "Search PO #, Customer or Item..."}
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            />
+                            {searchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                    title="Clear search"
+                                >
+                                    <X size={14} />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* View Mode Toggle Button */}
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80 self-stretch sm:self-auto">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('po')}
+                                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    viewMode === 'po'
+                                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                                title="View Customer Purchase Orders"
+                            >
+                                <FileCheck size={14} />
+                                <span>POs ({poList.length})</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('items')}
+                                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    viewMode === 'items'
+                                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                                title="View All Items and their Customer POs"
+                            >
+                                <Package size={14} />
+                                <span>Items ({uniquePoItemsCount})</span>
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Small View Mode Toggle Button next to search bar */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80 self-stretch sm:self-auto">
+                    {/* Action Buttons */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
                         <button
                             type="button"
-                            onClick={() => setViewMode('po')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                viewMode === 'po'
-                                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
-                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                            title="View Customer Purchase Orders"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className="flex-1 sm:flex-initial px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border border-slate-200 dark:border-slate-700"
+                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
                         >
-                            <FileCheck size={14} />
-                            <span>POs ({poList.length})</span>
+                            {showDashboard ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                            <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('items')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                viewMode === 'items'
-                                    ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
-                                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                            title="View All Items and their Customer POs"
-                        >
-                            <Package size={14} />
-                            <span>Items ({uniquePoItemsCount})</span>
-                        </button>
-                    </div>
 
-                    {/* Customer Filter Dropdown */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Customer:</label>
-                        <select
-                            value={filterCustomer}
-                            onChange={(e) => setFilterCustomer(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-[220px] truncate"
+                        <button
+                            type="button"
+                            onClick={() => setIsMrpModalOpen(true)}
+                            className={`flex-1 sm:flex-initial px-3.5 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                                selectedPoIds.length > 0 
+                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm' 
+                                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                            }`}
+                            title="Create Single Consolidated MRP from multiple Customer POs"
                         >
-                            <option value="All">All Customers</option>
-                            {(Array.isArray(customers) ? customers : []).map((c: any) => (
-                                <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
-                                    {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
-                                </option>
-                            ))}
-                        </select>
+                            <Layers size={15} />
+                            <span>Create Consolidated MRP {selectedPoIds.length > 0 ? `(${selectedPoIds.length})` : ''}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={handleOpenCreateModal}
+                            className="flex-1 sm:flex-initial px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} />
+                            <span>Log Customer PO</span>
+                        </button>
                     </div>
                 </div>
 
-                {/* Right Side: Status Filter Tabs + Log Customer PO Button */}
-                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
-                    {viewMode === 'po' && (
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0">
-                            {['All', 'Received', 'Accepted', 'MRP Done', 'Partially Dispatched', 'Completed', 'Cancelled'].map(status => (
-                                <button
-                                    key={status}
-                                    onClick={() => setFilterStatus(status)}
-                                    className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer ${filterStatus === status ? 'bg-white dark:bg-slate-900 text-blue-600 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}
-                                >
-                                    {status}
-                                </button>
-                            ))}
+                {/* Filters Row: Customer Dropdown + Status Dropdown + Month Date Filter + Hide MRP Done Pill + Reset */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
+                        {/* Customer Filter Dropdown */}
+                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[150px] sm:min-w-0">
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Customer:</label>
+                            <select
+                                value={filterCustomer}
+                                onChange={(e) => setFilterCustomer(e.target.value)}
+                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-full sm:max-w-[240px]"
+                            >
+                                <option value="All">All Customers</option>
+                                {(Array.isArray(customers) ? customers : []).map((c: any) => (
+                                    <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
+                                        {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
-                    )}
 
-                    <button
-                        onClick={handleOpenCreateModal}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                    >
-                        <Plus size={15} /> Log Customer PO
-                    </button>
+                        {/* Status Filter Dropdown */}
+                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[160px] sm:min-w-0">
+                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Status:</label>
+                            <select
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-full sm:max-w-[260px]"
+                            >
+                                <option value="All">All Statuses ({statusCounts.All || 0})</option>
+                                <option value="Received">Received ({statusCounts.Received || 0})</option>
+                                <option value="Accepted">Accepted ({statusCounts.Accepted || 0})</option>
+                                <option value="MRP Done">MRP Done ({statusCounts['MRP Done'] || 0})</option>
+                                <option value="Partially Dispatched">Partially Dispatched ({statusCounts['Partially Dispatched'] || 0})</option>
+                                <option value="Completed">Completed ({statusCounts.Completed || 0})</option>
+                                <option value="Cancelled">Cancelled ({statusCounts.Cancelled || 0})</option>
+                            </select>
+                        </div>
+
+                        {/* Month-Based Date Filter (Entry Date / Committed Date) */}
+                        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 flex-1 sm:flex-none min-w-[230px] sm:min-w-0">
+                            <Calendar size={13} className="text-blue-500 shrink-0" />
+                            <select
+                                value={filterDateType}
+                                onChange={(e) => setFilterDateType(e.target.value as any)}
+                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer pr-1"
+                                title="Select date basis for month filter"
+                            >
+                                <option value="entry">PO / Entry Month</option>
+                                <option value="committed">Committed Month</option>
+                                <option value="either">Either Month</option>
+                            </select>
+                            <div className="relative flex items-center">
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => setFilterMonth(e.target.value)}
+                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer text-center"
+                                    title="Choose month (YYYY-MM)"
+                                />
+                                {filterMonth && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterMonth('')}
+                                        className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
+                                        title="Clear month filter"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Hide MRP Done Pill Toggle */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setExcludeMrpDone(prev => !prev);
+                                if (filterStatus === 'MRP Done') setFilterStatus('All');
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1.5 ${
+                                excludeMrpDone
+                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={excludeMrpDone ? "Currently hiding MRP Done POs. Click to show all." : "Click to hide Customer POs where MRP has already been created"}
+                        >
+                            <span>{excludeMrpDone ? '✓ Exclude MRP Done' : 'Hide MRP Done'}</span>
+                        </button>
+                    </div>
+
+                    {/* Reset Filters Button */}
+                    {hasActiveFilters && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setSearchTerm('');
+                                setFilterStatus('All');
+                                setFilterCustomer('All');
+                                setExcludeMrpDone(false);
+                                setFilterMonth('');
+                                setFilterDateType('entry');
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 ml-auto sm:ml-0"
+                            title="Reset all search queries and filters"
+                        >
+                            <RotateCcw size={12} />
+                            <span>Reset Filters</span>
+                        </button>
+                    )}
+                </div>
+
+                {/* Live Counter & Valuation Indicator */}
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                        <span>Showing <strong className="text-slate-900 dark:text-white font-bold">{filteredPoList.length}</strong> of <strong className="text-slate-900 dark:text-white font-bold">{poList.length}</strong> Customer POs</span>
+                        {hasActiveFilters && (
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 text-[10px] font-bold">Filtered</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1 font-mono text-xs">
+                        <span>Converted Valuation:</span>
+                        <strong className="text-blue-600 dark:text-blue-400 font-extrabold text-sm">{consolidatedFinancials.formattedTotalInr}</strong>
+                    </div>
                 </div>
             </div>
 
@@ -734,24 +1299,59 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             ) : (
                 <>
 
-            {loading ? (
-                <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                </div>
-            ) : filteredPoList.length === 0 ? (
-                <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
-                    <FileCheck className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-                    <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Customer Purchase Orders Found</h3>
-                    <p className="text-xs text-slate-500 mt-1">Log incoming customer POs to initiate fulfillment, DCs, and invoicing.</p>
-                </div>
-            ) : (
-                /* Table & Cards View */
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    {/* Desktop Table View */}
-                    <div className="hidden md:block overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+                    {loading ? (
+                        <div className="flex justify-center p-16 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                        </div>
+                    ) : filteredPoList.length === 0 ? (
+                        <div className="text-center py-16 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                            <FileCheck className="mx-auto h-12 w-12 text-slate-300 mb-3" />
+                            <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                                {hasActiveFilters ? "No Customer Purchase Orders Match Filter" : "No Customer Purchase Orders Found"}
+                            </h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                                {hasActiveFilters 
+                                    ? "Try adjusting or resetting your search and filter criteria."
+                                    : "Log incoming customer POs to initiate fulfillment, DCs, and invoicing."}
+                            </p>
+                            {hasActiveFilters && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchTerm('');
+                                        setFilterStatus('All');
+                                        setFilterCustomer('All');
+                                        setExcludeMrpDone(false);
+                                        setFilterMonth('');
+                                        setFilterDateType('entry');
+                                    }}
+                                    className="mt-4 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 border border-blue-200 dark:border-blue-800 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                                >
+                                    <RotateCcw size={13} />
+                                    <span>Reset All Filters</span>
+                                </button>
+                            )}
+                        </div>
+                    ) : (
+                        /* Table & Cards View */
+                        <div className="space-y-3">
+
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+                        {/* Desktop Table View - Scrollable with Sticky Header */}
+                        <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px]">
+                        <table className="w-full text-sm text-left relative">
+                            <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                                 <tr>
+                                    <th className="px-3 py-3.5 w-10 text-center">
+                                        <input
+                                            type="checkbox"
+                                            checked={allFilteredSelected}
+                                            onChange={toggleSelectAllFiltered}
+                                            disabled={filteredPoList.length === 0}
+                                            title={filteredPoList.length === 0 ? "No Customer POs to select" : "Select all POs in current view"}
+                                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4 disabled:opacity-30 disabled:cursor-not-allowed"
+                                        />
+                                    </th>
                                     <th className="px-4 py-3.5">Customer PO #</th>
                                     <th className="px-4 py-3.5">Customer Name</th>
                                     <th className="px-4 py-3.5 text-center">PO Date</th>
@@ -773,9 +1373,20 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     const remDays = commitDate
                                         ? Math.ceil((new Date(commitDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
                                         : null;
+                                    const isSelected = selectedPoIds.includes(po._id);
+                                    const isEligible = isPoEligibleForMRP(po);
 
                                     return (
-                                        <tr key={po._id || po.poNumber} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors">
+                                        <tr key={po._id || po.poNumber} className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/50 transition-colors ${isSelected ? 'bg-blue-50/70 dark:bg-blue-950/30' : ''}`}>
+                                            <td className="px-3 py-3.5 text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isSelected}
+                                                    onChange={() => toggleSelectPo(po._id)}
+                                                    title={po.mrpNumber ? `Linked to MRP #${po.mrpNumber}` : "Select Customer PO"}
+                                                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4"
+                                                />
+                                            </td>
                                             <td className="px-4 py-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span>{po.poNumber}</span>
@@ -801,6 +1412,22 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     <span className="block text-[10px] text-slate-400 font-sans font-normal">
                                                         Ref Quote: {po.quotationReference.quotationNumber}
                                                     </span>
+                                                )}
+                                                {(po.mrpNumber || po.mrpPlan) && (
+                                                    <div className="mt-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleViewMrpPlan(po);
+                                                            }}
+                                                            title="Click to view linked MRP demand plan & explosion"
+                                                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                                                        >
+                                                            <Layers size={10} />
+                                                            <span>MRP: {po.mrpNumber || (typeof po.mrpPlan === 'object' ? po.mrpPlan.mrpNumber : 'Linked')}</span>
+                                                        </button>
+                                                    </div>
                                                 )}
                                             </td>
 
@@ -867,8 +1494,30 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 )}
                                             </td>
 
-                                            <td className="px-4 py-3.5 text-right font-mono font-extrabold text-blue-600 dark:text-blue-400 text-sm">
-                                                {getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <td className="px-4 py-3.5 text-right font-mono text-sm">
+                                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                                    <span className="font-extrabold text-blue-600 dark:text-blue-400">
+                                                        {getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                        {normalizeCurrencyCode(po.currency)}
+                                                    </span>
+                                                </div>
+                                                {(() => {
+                                                    const inr = convertToINR(total, po.currency);
+                                                    if (inr.isForeign) {
+                                                        return (
+                                                            <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5" title={`Conversion: 1 ${po.currency} = ₹${inr.rate.toFixed(2)} INR`}>
+                                                                ≈ {inr.formattedINR} <span className="font-normal text-slate-400">(@ ₹{inr.rate.toFixed(2)})</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <div className="text-[10px] font-medium text-slate-400 mt-0.5">
+                                                            Consolidated: ₹{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
 
                                             <td className="px-4 py-3.5 text-center">
@@ -967,8 +1616,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         </table>
                     </div>
 
-                    {/* Mobile Card View */}
-                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
+                    {/* Mobile Card View - Scrollable */}
+                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40 max-h-[calc(100vh-270px)] overflow-y-auto">
                         {filteredPoList.map((po) => {
                             const total = Number(po.totalAmount || po.subtotal || 0);
                             const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
@@ -979,15 +1628,26 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 ? Math.max(0, Math.round((new Date(commitDate).getTime() - new Date(po.date).getTime()) / (1000 * 60 * 60 * 24)))
                                 : null;
 
+                            const isSelected = selectedPoIds.includes(po._id);
+                            const isEligible = isPoEligibleForMRP(po);
+
                             return (
                                 <div
                                     key={po._id || po.poNumber}
-                                    className="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3"
+                                    className={`bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col gap-3 transition-colors ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''}`}
                                 >
                                     <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-700 pb-2.5">
-                                        <div>
-                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{po.poNumber}</span>
+                                        <div className="flex items-start gap-2.5">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => toggleSelectPo(po._id)}
+                                                title={po.mrpNumber ? `Linked to MRP #${po.mrpNumber}` : "Select Customer PO"}
+                                                className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer w-4 h-4"
+                                            />
+                                            <div>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="font-mono font-bold text-blue-600 dark:text-blue-400 text-sm">{po.poNumber}</span>
                                                 {(po.pdf || (Array.isArray(po.photos) && po.photos.length > 0)) && (
                                                     <a
                                                         href={po.pdf || po.photos[0]}
@@ -1020,8 +1680,25 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     Ref Quote: {po.quotationReference.quotationNumber}
                                                 </span>
                                             )}
+                                            {(po.mrpNumber || po.mrpPlan) && (
+                                                <div className="mt-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleViewMrpPlan(po);
+                                                        }}
+                                                        title="Click to view linked MRP demand plan & explosion"
+                                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
+                                                    >
+                                                        <Layers size={10} />
+                                                        <span>MRP: {po.mrpNumber || (typeof po.mrpPlan === 'object' ? po.mrpPlan.mrpNumber : 'Linked')}</span>
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                        <select
+                                    </div>
+                                    <select
                                             value={po.status || 'Received'}
                                             onChange={(e) => handleStatusChange(po._id, e.target.value)}
                                             className={`px-2.5 py-1 rounded-full text-xs font-bold border-none outline-none cursor-pointer ${
@@ -1064,9 +1741,27 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 uppercase">Total Amount</span>
-                                            <p className="font-extrabold text-sm text-blue-600 dark:text-blue-400 font-mono">
-                                                {getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            <p className="font-extrabold text-sm text-blue-600 dark:text-blue-400 font-mono flex items-center gap-1 flex-wrap">
+                                                <span>{getCurrencySymbol(po.currency)}{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                                    {normalizeCurrencyCode(po.currency)}
+                                                </span>
                                             </p>
+                                            {(() => {
+                                                const inr = convertToINR(total, po.currency);
+                                                if (inr.isForeign) {
+                                                    return (
+                                                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block font-mono">
+                                                            ≈ {inr.formattedINR} (@ ₹{inr.rate.toFixed(2)})
+                                                        </span>
+                                                    );
+                                                }
+                                                return (
+                                                    <span className="text-[10px] font-medium text-slate-400 block font-mono">
+                                                        Consolidated: ₹{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
                                         <div>
                                             <span className="text-[10px] font-bold text-slate-400 uppercase">Created By</span>
@@ -1116,6 +1811,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         })}
                     </div>
                 </div>
+            </div>
             )}
                 </>
             )}
@@ -1482,12 +2178,33 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         </label>
 
                                         {!poFile && !existingPdf && existingPhotos.length === 0 ? (
-                                            <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-blue-500 rounded-2xl cursor-pointer bg-white dark:bg-slate-900 transition-all group">
-                                                <div className="w-12 h-12 bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-2xl flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                                            <label
+                                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+                                                onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+                                                onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); }}
+                                                onDrop={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    setIsDragging(false);
+                                                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                                                        handleFileChange({ target: { files: e.dataTransfer.files } } as any);
+                                                    }
+                                                }}
+                                                className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-2xl cursor-pointer transition-all group ${
+                                                    isDragging
+                                                        ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/60 ring-4 ring-blue-500/20 scale-[1.01]'
+                                                        : 'border-slate-300 dark:border-slate-700 hover:border-blue-500 bg-white dark:bg-slate-900'
+                                                }`}
+                                            >
+                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-2 transition-transform ${
+                                                    isDragging
+                                                        ? 'bg-blue-600 text-white scale-110 animate-bounce'
+                                                        : 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 group-hover:scale-110'
+                                                }`}>
                                                     <Upload size={22} />
                                                 </div>
                                                 <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                                    Click to upload or drag & drop PO
+                                                    {isDragging ? 'Drop PO File Here' : 'Click to upload or drag & drop PO'}
                                                 </span>
                                                 <span className="text-[11px] text-slate-400 mt-0.5">
                                                     PDF Document or JPEG / PNG Photo of Customer PO
@@ -1729,9 +2446,18 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                                         <div>
                                             <span className="text-slate-400 block mb-0.5">Total PO Value:</span>
-                                            <strong className="text-blue-600 font-extrabold font-mono text-sm">
+                                            <strong className="text-blue-600 font-extrabold font-mono text-sm block">
                                                 {getCurrencySymbol(selectedPo.currency)}{Number(selectedPo.totalAmount || selectedPo.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                             </strong>
+                                            {(() => {
+                                                const inr = convertToINR(Number(selectedPo.totalAmount || selectedPo.subtotal || 0), selectedPo.currency);
+                                                if (!inr.isForeign) return null;
+                                                return (
+                                                    <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 font-mono block mt-0.5">
+                                                        ≈ {inr.formattedINR} (Rate: ₹{inr.rate.toFixed(2)})
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
 
                                         <div>
@@ -2214,6 +2940,57 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         onSuccess("Customer PO Acknowledged & Accepted successfully!");
                     }}
                     onError={onError}
+                />
+            )}
+
+            {/* Floating Bulk Action Bar for Consolidated MRP Creation */}
+            {selectedPoIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-40 bg-slate-900/95 text-white dark:bg-slate-800/95 border border-slate-700 shadow-2xl backdrop-blur-md px-5 py-3 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                        <span className="text-xs font-bold text-slate-200">
+                            <span className="text-white font-black text-sm">{selectedPoIds.length}</span> Customer PO{selectedPoIds.length > 1 ? 's' : ''} Selected
+                        </span>
+                    </div>
+                    <div className="h-4 w-px bg-slate-700" />
+                    <button
+                        type="button"
+                        onClick={() => setIsMrpModalOpen(true)}
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md flex items-center gap-1.5 transition-all transform hover:scale-[1.02] cursor-pointer"
+                    >
+                        <Layers size={14} /> Create Consolidated MRP ({selectedPoIds.length})
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setSelectedPoIds([])}
+                        className="text-xs text-slate-400 hover:text-white px-2 py-1 transition-colors cursor-pointer"
+                    >
+                        Clear
+                    </button>
+                </div>
+            )}
+
+            {/* Consolidated / Single MRP Modal */}
+            {isMrpModalOpen && (
+                <MRPModal
+                    isOpen={isMrpModalOpen}
+                    onClose={() => setIsMrpModalOpen(false)}
+                    onSuccess={() => {
+                        setSelectedPoIds([]);
+                        fetchData();
+                        onSuccess("MRP Plan created successfully!");
+                    }}
+                    token={token || ''}
+                    preselectedPoIds={selectedPoIds}
+                />
+            )}
+
+            {/* Linked MRP Plan Details Modal */}
+            {viewingMrpPlan && (
+                <MRPDetailsModal
+                    isOpen={!!viewingMrpPlan}
+                    onClose={() => setViewingMrpPlan(null)}
+                    mrpPlan={viewingMrpPlan}
                 />
             )}
 

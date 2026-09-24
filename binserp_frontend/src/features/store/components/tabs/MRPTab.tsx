@@ -356,10 +356,10 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
       
       {/* 1. TOP-LEVEL VIEW SWITCHER: PLANS | WORKBENCH | 360 WIP */}
       <div className="bg-white dark:bg-slate-900 p-2 sm:p-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 overflow-x-auto scroll-smooth touch-pan-x py-0.5 no-scrollbar">
           <button
             onClick={() => setMainView('plans')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
               mainView === 'plans'
                 ? 'bg-indigo-600 text-white shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -374,7 +374,7 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
 
           <button
             onClick={() => setMainView('workbench')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
               mainView === 'workbench'
                 ? 'bg-emerald-600 text-white shadow-xs'
                 : 'text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
@@ -644,16 +644,41 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                             >
                               {/* MRP Number */}
                               <td className="p-3.5">
-                                <span className="font-mono text-xs font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
-                                  {plan.mrpNumber}
-                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-mono text-xs font-black text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                                    {plan.mrpNumber}
+                                  </span>
+                                  {plan.isConsolidated && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800" title={`Consolidated from ${plan.customerPOs?.length || 'multiple'} Customer POs`}>
+                                      Consolidated ({plan.customerPOs?.length || 2} POs)
+                                    </span>
+                                  )}
+                                </div>
                               </td>
 
                               {/* Customer & PO */}
                               <td className="p-3.5">
-                                <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
-                                {plan.customerPoNumber && (
-                                  <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
+                                {plan.isConsolidated && plan.customerPOs && plan.customerPOs.length > 0 ? (
+                                  <div>
+                                    <div className="flex items-center gap-1 font-bold text-slate-900 dark:text-white text-xs">
+                                      <Layers size={12} className="text-amber-500 shrink-0" />
+                                      <span>Multi-Customer Demand ({plan.customerPOs.length} POs)</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {plan.customerPOs.map((cpo: any, idx: number) => (
+                                        <span key={idx} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700" title={cpo.customerName || ''}>
+                                          {cpo.customerPoNumber}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <strong className="text-slate-900 dark:text-white block">{plan.customerName || "Internal Demand"}</strong>
+                                    {plan.customerPoNumber && (
+                                      <span className="font-mono text-[10px] text-slate-400">PO: {plan.customerPoNumber}</span>
+                                    )}
+                                  </>
                                 )}
                               </td>
 
@@ -830,6 +855,12 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                       <span className="px-2.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-mono font-black">
                         {selectedDemandPlan.mrpNumber}
                       </span>
+                      {selectedDemandPlan.isConsolidated && (
+                        <span className="px-2 py-0.5 rounded-lg text-[11px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                          <Layers size={12} />
+                          <span>Consolidated ({selectedDemandPlan.customerPOs?.length || 2} Customer POs)</span>
+                        </span>
+                      )}
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
                         {selectedDemandPlan.customerName}
                       </span>
@@ -837,6 +868,16 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                         <span className="text-[10px] text-slate-400 font-mono">PO: {selectedDemandPlan.customerPoNumber}</span>
                       )}
                     </div>
+                    {selectedDemandPlan.isConsolidated && selectedDemandPlan.customerPOs && selectedDemandPlan.customerPOs.length > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                        <span className="text-[11px] text-slate-400 font-semibold">Linked POs:</span>
+                        {selectedDemandPlan.customerPOs.map((cpo: any, cIdx: number) => (
+                          <span key={cIdx} className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {cpo.customerPoNumber} {cpo.customerName ? `(${cpo.customerName})` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1 flex-wrap">
                       <span>Created by: <strong className="text-slate-700 dark:text-slate-200">{selectedDemandPlan.createdByName || "Planner"}</strong></span>
                       {selectedDemandPlan.updatedByName && (
@@ -970,7 +1011,25 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
                           <tr key={fgIdx} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
                             {/* FG Name & Description */}
                             <td className="p-3.5">
-                              <strong className="text-slate-900 dark:text-white block text-sm">{fg.fgItemName}</strong>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <strong className="text-slate-900 dark:text-white block text-sm">{fg.fgItemName}</strong>
+                                {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {fg.sourceBreakdown.map((b: any, bIdx: number) => (
+                                      <span key={bIdx} className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200" title={b.customerName ? `${b.customerName}` : ''}>
+                                        {b.customerPoNumber}: {b.quantity} {fg.unit || 'PCS'}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : fg.customerPoNumber ? (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200">
+                                    PO: {fg.customerPoNumber}
+                                  </span>
+                                ) : null}
+                                {fg.customerName && (!fg.sourceBreakdown || fg.sourceBreakdown.length <= 1) && (
+                                  <span className="text-[10px] text-slate-400 font-medium">({fg.customerName})</span>
+                                )}
+                              </div>
                               {fg.description && <span className="text-xs text-slate-500 italic block mt-0.5">{fg.description}</span>}
                             </td>
 

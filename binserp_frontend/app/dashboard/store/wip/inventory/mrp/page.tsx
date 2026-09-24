@@ -49,6 +49,8 @@ export default function MrpWipInventoryPage() {
         activeSubTab="mrp"
         title="MRP WIP Inventory"
         description="Comprehensive WIP tracking aggregated per MRP demand plan with live completion status"
+        vendorPriceLists={storeData.vendorPriceLists}
+        priceLists={storeData.priceLists}
         onError={handleError}
         onSuccess={handleSuccess}
       />

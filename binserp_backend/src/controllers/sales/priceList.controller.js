@@ -11,7 +11,7 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
-  const { fgItem, price, taxRate, hsnCode, remarks } = req.body;
+  const { fgItem, price, taxRate, hsnCode, remarks, pricingUnit, isSecondaryUnit } = req.body;
 
   if (!fgItem || price === undefined || taxRate === undefined) {
     return res.status(400).json({ message: "FG Item, price, and tax rate are required." });
@@ -25,7 +25,14 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
 
   const priceListEntry = await PriceList.findOneAndUpdate(
     { company: companyId, fgItem: fgItemObjectId },
-    { price: Number(price), taxRate: Number(taxRate), hsnCode: resolvedHsn, remarks },
+    { 
+      price: Number(price), 
+      taxRate: Number(taxRate), 
+      hsnCode: resolvedHsn, 
+      remarks,
+      pricingUnit: pricingUnit || "",
+      isSecondaryUnit: Boolean(isSecondaryUnit),
+    },
     { new: true, upsert: true }
   );
 
@@ -54,7 +61,7 @@ export const getAllPriceLists = asyncHandler(async (req, res) => {
   const priceLists = await PriceList.find({ company: companyId })
     .populate({
       path: "fgItem",
-      select: "name code partNumber hsnCode type description descriptions specification unit sellingPrice taxRate",
+      select: "name code partNumber hsnCode type description descriptions specification unit hasSecondaryUnit secondaryUnit conversionFactor sellingPrice taxRate",
     })
     .sort({ updatedAt: -1 });
 

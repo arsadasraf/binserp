@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { getApiBaseUrl } from "@/src/utils/config";
 import {
   Search,
@@ -18,7 +18,12 @@ import {
   CheckCircle2,
   Clock,
   Boxes,
-  ArrowUpDown
+  ArrowUpDown,
+  LayoutGrid,
+  Eye,
+  ChevronDown,
+  X,
+  TrendingUp
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -31,6 +36,10 @@ interface Transaction {
   movementType: "INWARD" | "OUTWARD";
   transactionCategory: string;
   quantity: number;
+  hasSecondaryUnit?: boolean;
+  secondaryUnit?: string;
+  secondaryQuantity?: number;
+  conversionFactor?: number;
   previousStock: number;
   newStock: number;
   referenceDocType: string;
@@ -67,6 +76,7 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
 type DateFilterMode = "preset" | "day" | "month" | "range";
 
 export default function StockTransactionLedgerTable({ token }: StockTransactionLedgerTableProps) {
+  const [showDashboard, setShowDashboard] = useState<boolean>(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -292,66 +302,132 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
   // Quick stats calculations
   const totalInwardQty = transactions.filter(t => t.movementType === "INWARD").reduce((sum, t) => sum + (t.quantity || 0), 0);
   const totalOutwardQty = transactions.filter(t => t.movementType === "OUTWARD").reduce((sum, t) => sum + (t.quantity || 0), 0);
+  const uniqueItemsCount = useMemo(() => {
+    const set = new Set((transactions || []).map((t: any) => t.itemCode || t.itemName));
+    return set.size;
+  }, [transactions]);
 
   return (
     <div className="space-y-4">
-      {/* Top Metrics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
-            <ArrowUpDown size={18} />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Total Entries</p>
-            <h4 className="text-base font-bold text-gray-900 dark:text-white font-mono">{totalCount}</h4>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-            <ArrowDownLeft size={18} />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Page Inward Qty</p>
-            <h4 className="text-base font-bold text-emerald-600 dark:text-emerald-400 font-mono">+{totalInwardQty.toLocaleString()}</h4>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400">
-            <ArrowUpRight size={18} />
-          </div>
-          <div>
-            <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Page Outward Qty</p>
-            <h4 className="text-base font-bold text-rose-600 dark:text-rose-400 font-mono">-{totalOutwardQty.toLocaleString()}</h4>
-          </div>
-        </div>
-
-        <div className="bg-white dark:bg-gray-900 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400">
-              <Boxes size={18} />
-            </div>
-            <div>
-              <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Export Ledger</p>
-              <h4 className="text-xs font-bold text-gray-900 dark:text-white">Excel Report</h4>
-            </div>
+      {/* Top Metrics / Executive KPI Cards */}
+      {!showDashboard ? (
+        /* Collapsed Single-Line Summary Bar */
+        <div className="bg-white dark:bg-gray-900 px-3.5 py-2.5 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center flex-wrap gap-2.5 sm:gap-4 text-gray-600 dark:text-gray-300">
+            <span className="font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-1.5">
+              <Boxes size={14} className="text-blue-600" />
+              Total Entries: <strong className="text-blue-600 font-mono">{totalCount}</strong>
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span>
+              Net Inward: <strong className="text-emerald-600 font-mono">+{totalInwardQty.toLocaleString()}</strong>
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span>
+              Net Outward: <strong className="text-rose-600 font-mono">-{totalOutwardQty.toLocaleString()}</strong>
+            </span>
+            <span className="text-gray-300 dark:text-gray-600">|</span>
+            <span>
+              Unique Items: <strong className="text-purple-600 font-mono">{uniqueItemsCount}</strong>
+            </span>
           </div>
           <button
-            onClick={exportToExcel}
-            title="Download Excel Spreadsheet"
-            className="p-2 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 rounded-xl transition-all border border-emerald-200/60 dark:border-emerald-800/60"
+            type="button"
+            onClick={() => setShowDashboard(true)}
+            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
           >
-            <Download size={16} />
+            <span>Show Dashboard</span>
+            <ChevronDown size={14} />
           </button>
         </div>
-      </div>
+      ) : (
+        /* Expanded 4 KPI Cards */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Card 1: Total Entries */}
+          <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Total Entries</span>
+              <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                <ArrowUpDown size={16} />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+              {totalCount} <span className="text-xs font-semibold text-slate-500 font-sans">Movements</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Audit Log Coverage</span>
+              <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">Store Ledger</span>
+            </div>
+          </div>
+
+          {/* Card 2: Net Inward Movement */}
+          <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Page Inward Qty</span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                <ArrowDownLeft size={16} />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono tracking-tight">
+              +{totalInwardQty.toLocaleString()}
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Receipts / Inwards</span>
+              <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">Stock In</span>
+            </div>
+          </div>
+
+          {/* Card 3: Net Outward Movement */}
+          <div className="bg-gradient-to-br from-rose-50/90 via-white to-slate-50 dark:from-rose-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-rose-100 dark:border-rose-900/40 shadow-2xs relative overflow-hidden">
+            <div className="flex items-center justify-between text-rose-600 dark:text-rose-400 mb-1.5">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Page Outward Qty</span>
+              <div className="w-8 h-8 rounded-xl bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center">
+                <ArrowUpRight size={16} />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tracking-tight">
+              -{totalOutwardQty.toLocaleString()}
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Issues & Dispatches</span>
+              <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">Stock Out</span>
+            </div>
+          </div>
+
+          {/* Card 4: Unique Items & Export */}
+          <div className="bg-gradient-to-br from-purple-50/90 via-white to-slate-50 dark:from-purple-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs relative overflow-hidden flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-purple-600 dark:text-purple-400 mb-1.5">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Unique SKUs & Export</span>
+                <div className="w-8 h-8 rounded-xl bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center">
+                  <Boxes size={16} />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono tracking-tight">
+                {uniqueItemsCount} <span className="text-xs font-semibold text-slate-500 font-sans">Items</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between pt-1 border-t border-purple-100/60 dark:border-purple-900/40">
+              <span className="text-[11px] text-slate-500">Export Ledger</span>
+              <button
+                type="button"
+                onClick={exportToExcel}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
+                title="Download Excel Spreadsheet"
+              >
+                <Download size={12} />
+                <span>Excel</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Search & Filter Header Bar */}
       <div className="bg-white dark:bg-gray-900 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm space-y-3">
         {/* Main Controls Row */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          {/* Search Box */}
+          {/* Search Box with Clear Button */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
@@ -362,12 +438,33 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+              className="w-full pl-10 pr-9 py-2 bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-gray-900 dark:text-gray-100 placeholder-gray-400"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => { setSearch(""); setPage(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                title="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
 
           {/* Action & Filter Controls */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Dashboard Show/Hide Toggle */}
+            <button
+              type="button"
+              onClick={() => setShowDashboard(!showDashboard)}
+              className="px-2.5 sm:px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/60 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+              title={showDashboard ? "Hide executive dashboard" : "Show executive dashboard"}
+            >
+              {showDashboard ? <LayoutGrid size={13} className="text-indigo-600" /> : <Eye size={13} className="text-gray-500" />}
+              <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
+            </button>
+
             {/* Item Type (RM, BO, Consumables, FG, Component) */}
             <select
               value={itemTypeFilter}
@@ -556,10 +653,10 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
         ) : (
           <>
             {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px] relative">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-50/80 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  <tr className="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-800/95 backdrop-blur-xs border-b border-gray-100 dark:border-gray-800 text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider shadow-2xs">
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Item Details</th>
                     <th className="py-3 px-4">Item Type</th>
@@ -635,10 +732,15 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                         </td>
 
                         {/* Quantity */}
-                        <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
-                          <span className={isInward ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                        <td className="py-3 px-4 text-right font-mono whitespace-nowrap">
+                          <div className={`font-bold ${isInward ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
                             {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
-                          </span>
+                          </div>
+                          {(tx.hasSecondaryUnit || (tx.secondaryQuantity !== undefined && tx.secondaryQuantity > 0)) && (
+                            <div className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                              ({isInward ? "+" : "-"}{tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || 1) * 100) / 100} {tx.secondaryUnit})
+                            </div>
+                          )}
                         </td>
 
                         {/* Prev -> New Stock Balance */}
@@ -703,7 +805,7 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
             </div>
 
             {/* Mobile Card View */}
-            <div className="block md:hidden p-3 space-y-3 bg-gray-50/50 dark:bg-gray-900/40 pb-28 sm:pb-20">
+            <div className="block md:hidden max-h-[calc(100vh-270px)] overflow-y-auto p-3 space-y-3 bg-gray-50/50 dark:bg-gray-900/40 pb-28 sm:pb-20">
               {transactions.map((tx) => {
                 const isInward = tx.movementType === "INWARD";
                 const catMeta = CATEGORY_LABELS[tx.transactionCategory] || {
@@ -733,16 +835,23 @@ export default function StockTransactionLedgerTable({ token }: StockTransactionL
                           </span>
                         </div>
                       </div>
-                      <span
-                        className={`shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
-                          isInward
-                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60"
-                            : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200/60"
-                        }`}
-                      >
-                        {isInward ? <ArrowDownLeft size={13} /> : <ArrowUpRight size={13} />}
-                        {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
-                      </span>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            isInward
+                              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200/60"
+                              : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200/60"
+                          }`}
+                        >
+                          {isInward ? <ArrowDownLeft size={13} /> : <ArrowUpRight size={13} />}
+                          {isInward ? "+" : "-"}{tx.quantity} {tx.unit}
+                        </span>
+                        {(tx.hasSecondaryUnit || (tx.secondaryQuantity !== undefined && tx.secondaryQuantity > 0)) && (
+                          <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                            ({isInward ? "+" : "-"}{tx.secondaryQuantity || Math.round(Number(tx.quantity) * (tx.conversionFactor || 1) * 100) / 100} {tx.secondaryUnit})
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5 text-xs">

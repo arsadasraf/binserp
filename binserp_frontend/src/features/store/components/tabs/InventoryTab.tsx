@@ -47,6 +47,8 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         consumables = [],
         customers,
         inventoryList = [],
+        vendorPriceLists = [],
+        priceLists = [],
         refetch,
     } = storeData;
 
@@ -394,9 +396,13 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
         return allStoreMaterials.length > 0 ? allStoreMaterials : (effectiveRmList || []);
     }, [activeSubTab, allStoreMaterials, inHouseComponents, effectiveRmList]);
 
-    const activeGrnType = activeSubTab === 'inhouse' || activeSubTab === 'fg-history' 
-        ? 'inhouse' 
-        : (activeSubTab === 'consumable' ? 'consumable' : (activeSubTab === 'rm' ? 'rm' : 'bo'));
+    const activeGrnType = editingGRN?.type 
+        ? editingGRN.type 
+        : (activeSubTab === 'bo' 
+            ? 'bo' 
+            : (activeSubTab === 'consumable' 
+                ? 'consumable' 
+                : (activeSubTab === 'inhouse' || activeSubTab === 'fg-history' ? 'inhouse' : 'rm')));
 
     // Helper to handle GRN Submit
     const onGRNSubmit = async (grnData: any) => {
@@ -445,6 +451,7 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                 supplier: item.supplier?._id || item.supplier || '',
                 locationId: '',
                 category: item.items?.[0]?.material?.category?.name || '',
+                type: item.type || (item.grnType ? (item.grnType === 'FG' ? 'inhouse' : item.grnType.toLowerCase()) : 'rm'),
                 taxRate: item.taxRate || 0,
                 items: item.items || [],
             };
@@ -473,6 +480,8 @@ export default function InventoryTab({ storeData, token, masterTab, setMasterTab
                     <InventoryTable
                         data={activeSubTab === 'consumable' ? mappedConsumableInventory : activeSubTab === 'rm' ? mappedRmInventory : activeSubTab === 'bo' ? mappedBoInventory : []}
                         inHouseData={activeSubTab === 'inhouse' ? inHouseComponents : []}
+                        vendorPriceLists={vendorPriceLists}
+                        priceLists={priceLists}
                         onEdit={handleMasterEdit}
                         onDelete={handleDelete}
                         activeSubTab={activeSubTab === 'inhouse' ? 'inhouse' : activeSubTab === 'consumable' ? 'consumable' : (activeSubTab === 'rm' ? 'rm' : 'bo')}

@@ -159,8 +159,8 @@ export const updateJobWorkChallan = async (req, res) => {
           unit: item.unit || "PCS",
           unitPrice: rateValue,
           processRate: rateValue,
-          processAmount: sentQtyNum * rateValue,
-          processType: item.processType || "Job Work",
+          processType: item.processType || (req.body.purpose === "Others" && req.body.otherPurpose ? req.body.otherPurpose : req.body.purpose) || existingChallan.purpose || "Machining",
+          purpose: item.purpose || (req.body.purpose === "Others" && req.body.otherPurpose ? req.body.otherPurpose : req.body.purpose) || existingChallan.purpose || "Machining",
           description: item.description || "",
           returningItems: processedReturningItems,
           status: item.status || "Sent"

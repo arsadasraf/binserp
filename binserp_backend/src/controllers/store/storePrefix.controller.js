@@ -13,11 +13,26 @@ export const getStorePrefixSettings = async (req, res) => {
         const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
         let settings = await StorePrefix.findOne();
 
+        const defaultRates = {
+            USD: 86.80,
+            EUR: 92.50,
+            GBP: 108.20,
+            AED: 23.63,
+            CAD: 61.50,
+            AUD: 55.40,
+            SGD: 64.20,
+            JPY: 0.56,
+            CNY: 11.95,
+        };
+
         if (!settings) {
             settings = new StorePrefix();
         }
 
-        res.status(200).json({ settings });
+        const settingsObj = settings.toObject ? settings.toObject() : { ...settings };
+        settingsObj.exchangeRates = { ...defaultRates, ...(settingsObj.exchangeRates || {}) };
+
+        res.status(200).json({ settings: settingsObj });
     } catch (error) {
         console.error("Error fetching store prefix settings:", error);
         res.status(500).json({
@@ -35,6 +50,18 @@ export const updateStorePrefixSettings = async (req, res) => {
         }
 
         const StorePrefix = req.getModel("StorePrefix", storePrefixSchema);
+
+        const defaultRates = {
+            USD: 86.80,
+            EUR: 92.50,
+            GBP: 108.20,
+            AED: 23.63,
+            CAD: 61.50,
+            AUD: 55.40,
+            SGD: 64.20,
+            JPY: 0.56,
+            CNY: 11.95,
+        };
 
         const updateData = {
             grnPrefix: req.body.grnPrefix,
@@ -56,6 +83,17 @@ export const updateStorePrefixSettings = async (req, res) => {
             quotationOutwardPrefix: req.body.quotationOutwardPrefix,
             quotationInwardPrefix: req.body.quotationInwardPrefix,
         };
+
+        if (req.body.exchangeRates && typeof req.body.exchangeRates === 'object') {
+            const sanitizedRates = { ...defaultRates };
+            Object.keys(req.body.exchangeRates).forEach(currency => {
+                const val = Number(req.body.exchangeRates[currency]);
+                if (!isNaN(val) && val > 0) {
+                    sanitizedRates[currency] = val;
+                }
+            });
+            updateData.exchangeRates = sanitizedRates;
+        }
 
         Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
 

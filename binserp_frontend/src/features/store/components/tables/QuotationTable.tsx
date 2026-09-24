@@ -8,7 +8,7 @@ import { Edit2, Trash2, Download, Search, Plus, FileText, Eye } from 'lucide-rea
 import { CompanyInfo } from "@/src/features/store/types/store.types";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { getCurrencySymbol } from "@/src/utils/currencyHelper";
+import { getCurrencySymbol, convertToINR } from "@/src/utils/currencyHelper";
 
 interface QuotationTableProps {
     data: any[];
@@ -282,8 +282,19 @@ export default function QuotationTable({ data = [], companyInfo, onCreate, onEdi
                                         <div>{item.transportationType || 'Included'} {item.transportationCharges ? `(${getCurrencySymbol(item.currency)}${item.transportationCharges})` : ''}</div>
                                         <div>{item.packagingType || 'Standard'} {item.packagingCharges ? `(${getCurrencySymbol(item.currency)}${item.packagingCharges})` : ''}</div>
                                     </td>
-                                    <td className="px-6 py-4 text-right font-bold text-indigo-600 dark:text-indigo-400">
-                                        {getCurrencySymbol(item.currency)} {Number(item.totalAmount || 0).toFixed(2)}
+                                    <td className="px-6 py-4 text-right font-mono">
+                                        <div className="font-bold text-indigo-600 dark:text-indigo-400">
+                                            {getCurrencySymbol(item.currency)} {Number(item.totalAmount || 0).toFixed(2)}
+                                        </div>
+                                        {(() => {
+                                            const inr = convertToINR(item.totalAmount, item.currency);
+                                            if (!inr.isForeign) return null;
+                                            return (
+                                                <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                                                    ≈ {inr.formattedINR}
+                                                </div>
+                                            );
+                                        })()}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${

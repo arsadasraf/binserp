@@ -49,6 +49,8 @@ export default function FgWipInventoryPage() {
         activeSubTab="fg"
         title="Finished Goods & In-House Components WIP Inventory"
         description="Perpetual WIP-to-WIP tracking for in-house sub-assemblies, components & finished goods"
+        vendorPriceLists={storeData.vendorPriceLists}
+        priceLists={storeData.priceLists}
         onError={handleError}
         onSuccess={handleSuccess}
       />

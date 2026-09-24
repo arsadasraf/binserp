@@ -7,6 +7,69 @@
 import { getCurrencySymbol, convertAmountToWords, formatCurrencyAmount } from "./currencyHelper";
 import { API_BASE_URL } from "./config";
 
+let _memoryCompanyInfo: any = null;
+
+export const resolveCompanyInfo = (companyInfo?: any): any => {
+    let resolved = companyInfo && (companyInfo.companyName || companyInfo.name || companyInfo.legalName) ? { ...companyInfo } : null;
+
+    if (!resolved && _memoryCompanyInfo) {
+        resolved = { ..._memoryCompanyInfo };
+    }
+
+    if (!resolved && typeof window !== 'undefined') {
+        try {
+            const storeCached = localStorage.getItem("storeCompanyInfo");
+            const storedCompany = localStorage.getItem("companyInfo");
+            const storedUser = localStorage.getItem("userInfo");
+
+            if (storeCached) {
+                resolved = JSON.parse(storeCached);
+            } else if (storedCompany) {
+                resolved = JSON.parse(storedCompany);
+            } else if (storedUser) {
+                const parsedUser = JSON.parse(storedUser);
+                resolved = parsedUser.company || parsedUser;
+            }
+        } catch (e) {
+            console.warn("Could not parse company info from localStorage:", e);
+        }
+    }
+
+    if (companyInfo && typeof companyInfo === 'object') {
+        resolved = { ...(resolved || {}), ...companyInfo };
+    }
+
+    if (resolved && (resolved.companyName || resolved.name || resolved.legalName)) {
+        _memoryCompanyInfo = resolved;
+    }
+
+    return resolved || {};
+};
+
+export const fetchCompanyInfoFromApi = async (): Promise<any> => {
+    try {
+        if (typeof window === 'undefined') return null;
+        const token = localStorage.getItem('token');
+        if (!token) return null;
+        const res = await fetch(`${API_BASE_URL}/api/store/company-info`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (data && (data.companyName || data.name || data.legalName)) {
+                _memoryCompanyInfo = data;
+                try {
+                    localStorage.setItem('storeCompanyInfo', JSON.stringify(data));
+                } catch (e) {}
+                return data;
+            }
+        }
+    } catch (e) {
+        console.error("Failed to fetch company info from API:", e);
+    }
+    return null;
+};
+
 export interface PrintDocumentData {
     doc: any;
     companyInfo?: any;
@@ -14,7 +77,7 @@ export interface PrintDocumentData {
 }
 
 export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
-    const { doc, companyInfo, vendors = [] } = data;
+    const { doc, vendors = [] } = data;
 
     if (!doc) {
         alert("No document data provided for PDF generation");
@@ -36,12 +99,13 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
     const vendorEmail = vendorObj?.email || '';
 
     // 2. Resolve Company Details
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compEmail = companyInfo?.email || '';
-    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
-    const compPan = companyInfo?.panNumber || companyInfo?.pan || 'N/A';
+    const comp = resolveCompanyInfo(data.companyInfo);
+    const compName = comp?.companyName || comp?.name || comp?.legalName || comp?.tradeName || 'COMPANY NAME';
+    const compAddress = comp?.billingAddress || comp?.address || [comp?.city, comp?.state, comp?.pincode].filter(Boolean).join(', ') || '';
+    const compPhone = comp?.contactNumber || comp?.phone || '';
+    const compEmail = comp?.email || '';
+    const compGst = comp?.gstNumber || comp?.gstin || comp?.gst || 'N/A';
+    const compPan = comp?.panNumber || comp?.pan || 'N/A';
 
     const copyTypes = [
         'ORIGINAL FOR CONSIGNEE',
@@ -78,7 +142,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                             ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal; font-style: italic;">${item.description}</div>` : ''}
                         </td>
                         <td style="text-align: center; font-weight: bold; padding: 5px 4px;">${sentQty} ${item.unit || 'PCS'}</td>
-                        <td style="text-align: left; padding: 5px 6px;"><b>${item.processType || 'Job Work'}</b></td>
+                        <td style="text-align: left; padding: 5px 6px;"><b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b></td>
                         <td style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                         <td style="text-align: right; font-family: monospace; font-weight: bold; padding: 5px 6px;">${lineVal > 0 ? '₹' + lineVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>
                     </tr>
@@ -179,7 +243,7 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                             ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; padding: 5px 3px;">${idx + 1}</td>` : ''}
                             ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; font-weight: bold; padding: 5px 6px;">${item.itemName || ''} ${item.description ? `<div style="font-size: 8px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}</td>` : ''}
                             ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-weight: bold; padding: 5px 4px;">${item.quantitySent || ''} ${item.unit || 'PCS'}</td>` : ''}
-                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; padding: 5px 6px;"><b>${item.processType || 'Job Work'}</b></td>` : ''}
+                            ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: left; padding: 5px 6px;"><b>${item.processType || (doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : doc.purpose) || 'Job Work'}</b></td>` : ''}
                             ${rIdx === 0 ? `<td rowspan="${retList.length}" style="text-align: center; font-family: monospace; font-weight: bold; padding: 5px 4px;">${rate > 0 ? '₹' + rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</td>` : ''}
                             <td style="text-align: left; font-weight: bold; color: #1e3a8a; padding: 5px 6px;">${ret.receivedItemName || ''}</td>
                             <td style="text-align: center; padding: 5px 4px;">${expQty} ${ret.receivingUnit || 'PCS'}</td>
@@ -286,6 +350,10 @@ export const generateFrontendReturnableDCPDF = (data: PrintDocumentData) => {
                                 <td style="padding: 3px 0; font-weight: 900; font-size: 13px; color: #1e3a8a;">${doc.challanNumber || '-'}</td>
                                 <td style="padding: 3px 0; color: #64748b; text-align: right;"><b>Date:</b></td>
                                 <td style="padding: 3px 0; text-align: right; font-weight: bold;">${new Date(doc.date || Date.now()).toLocaleDateString('en-GB')}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 3px 0; color: #1e3a8a;"><b>Purpose:</b></td>
+                                <td colspan="3" style="padding: 3px 0; font-weight: bold; font-size: 11px; color: #1e3a8a;">${doc.purpose === 'Others' && doc.otherPurpose ? doc.otherPurpose : (doc.purpose || doc.items?.[0]?.processType || 'Job Work')}</td>
                             </tr>
                             <tr>
                                 <td style="padding: 3px 0; color: #64748b;"><b>E-Way Bill:</b></td>
@@ -406,12 +474,13 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
     const vendorEmail = vendor?.email || rfq.vendorEmail || '';
 
     // Resolve Company Details
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compEmail = companyInfo?.email || '';
-    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
-    const compPan = companyInfo?.panNumber || companyInfo?.pan || 'N/A';
+    const comp = resolveCompanyInfo(companyInfo);
+    const compName = comp?.companyName || comp?.name || comp?.legalName || comp?.tradeName || 'COMPANY NAME';
+    const compAddress = comp?.billingAddress || comp?.address || [comp?.city, comp?.state, comp?.pincode].filter(Boolean).join(', ') || '';
+    const compPhone = comp?.contactNumber || comp?.phone || '';
+    const compEmail = comp?.email || '';
+    const compGst = comp?.gstNumber || comp?.gstin || comp?.gst || 'N/A';
+    const compPan = comp?.panNumber || comp?.pan || 'N/A';
 
     const items = rfq.items || [];
     let totalQty = 0;
@@ -629,11 +698,12 @@ export const generateFrontendInwardRfqPDF = (data: { rfq: any; customer?: any; c
     const custEmail = custObj?.email || rfq.customerEmail || '';
 
     // Resolve Company Details
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compEmail = companyInfo?.email || '';
-    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const comp = resolveCompanyInfo(companyInfo);
+    const compName = comp?.companyName || comp?.name || comp?.legalName || comp?.tradeName || 'COMPANY NAME';
+    const compAddress = comp?.billingAddress || comp?.address || [comp?.city, comp?.state, comp?.pincode].filter(Boolean).join(', ') || '';
+    const compPhone = comp?.contactNumber || comp?.phone || '';
+    const compEmail = comp?.email || '';
+    const compGst = comp?.gstNumber || comp?.gstin || comp?.gst || 'N/A';
 
     const rfqCurrSym = getCurrencySymbol(rfq.currency);
     const rfqCurrCode = rfq.currency || 'INR';
@@ -854,11 +924,12 @@ export const generateFrontendOutwardQuotationPDF = (data: { quotation: any; cust
     const custEmail = custObj?.email || quotation.customerEmail || '';
 
     // Resolve Company Details
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compEmail = companyInfo?.email || '';
-    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const comp = resolveCompanyInfo(companyInfo);
+    const compName = comp?.companyName || comp?.name || comp?.legalName || comp?.tradeName || 'COMPANY NAME';
+    const compAddress = comp?.billingAddress || comp?.address || [comp?.city, comp?.state, comp?.pincode].filter(Boolean).join(', ') || '';
+    const compPhone = comp?.contactNumber || comp?.phone || '';
+    const compEmail = comp?.email || '';
+    const compGst = comp?.gstNumber || comp?.gstin || comp?.gst || 'N/A';
 
     const quotCurrSym = getCurrencySymbol(quotation.currency);
     const quotCurrCode = quotation.currency || 'INR';
@@ -1112,11 +1183,12 @@ export const generateFrontendVendorQuotationPDF = (data: { quotation: any; vendo
     const vendorEmail = vendorObj?.email || quotation.vendorEmail || '';
 
     // Resolve Company Details
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compEmail = companyInfo?.email || '';
-    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const comp = resolveCompanyInfo(companyInfo);
+    const compName = comp?.companyName || comp?.name || comp?.legalName || comp?.tradeName || 'COMPANY NAME';
+    const compAddress = comp?.billingAddress || comp?.address || [comp?.city, comp?.state, comp?.pincode].filter(Boolean).join(', ') || '';
+    const compPhone = comp?.contactNumber || comp?.phone || '';
+    const compEmail = comp?.email || '';
+    const compGst = comp?.gstNumber || comp?.gstin || comp?.gst || 'N/A';
 
     const items = quotation.items || [];
     let totalQty = 0;
@@ -2365,11 +2437,36 @@ export interface PrintGrnData {
     vendors?: any[];
 }
 
-export const generateFrontendGrnPDF = (data: PrintGrnData) => {
-    const { grn, companyInfo, vendors = [] } = data;
+export const generateFrontendGrnPDF = async (data: PrintGrnData) => {
+    const { grn, vendors = [] } = data;
     if (!grn) {
         alert("No GRN data provided for PDF generation");
         return;
+    }
+
+    // Immediately open window on user click so browser pop-up blocker does NOT block it
+    const printWindow = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+    if (printWindow) {
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head><title>Loading GRN Document...</title></head>
+            <body style="font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f8fafc; color: #475569;">
+                <div style="text-align: center;">
+                    <div style="font-size: 18px; font-weight: bold; margin-bottom: 8px;">Preparing GRN Document...</div>
+                    <div style="font-size: 13px; color: #94a3b8;">Loading company details and layout...</div>
+                </div>
+            </body>
+            </html>
+        `);
+    }
+
+    let companyInfo = resolveCompanyInfo(data.companyInfo);
+    if (!companyInfo?.companyName && !companyInfo?.name && !companyInfo?.legalName) {
+        const fetched = await fetchCompanyInfoFromApi();
+        if (fetched) {
+            companyInfo = resolveCompanyInfo(fetched);
+        }
     }
 
     let vendorObj: any = grn.supplier || grn.vendor;
@@ -2381,11 +2478,19 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
     const partyGst = vendorObj?.gst || vendorObj?.gstNumber || 'N/A';
     const partyPhone = vendorObj?.phone || vendorObj?.contactNumber || '';
 
-    const compName = companyInfo?.companyName || 'COMPANY NAME';
-    const compAddress = companyInfo?.billingAddress || companyInfo?.address || '';
-    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || '';
-    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || 'N/A';
+    const compName = companyInfo?.companyName || companyInfo?.name || companyInfo?.legalName || companyInfo?.tradeName || 'COMPANY NAME';
+    const compAddressRaw = companyInfo?.billingAddress || companyInfo?.address || companyInfo?.companyAddress || '';
+    const compCityState = [companyInfo?.city, companyInfo?.state, companyInfo?.pincode ? `- ${companyInfo.pincode}` : ''].filter(Boolean).join(' ');
+    const compAddress = [compAddressRaw, compCityState].filter(Boolean).join(', ') || compAddressRaw;
+    const compPhone = companyInfo?.contactNumber || companyInfo?.phone || companyInfo?.mobile || '';
+    const compEmail = companyInfo?.email || '';
+    const compGst = companyInfo?.gstNumber || companyInfo?.gstin || companyInfo?.gst || 'N/A';
     const compPan = companyInfo?.panNumber || companyInfo?.pan || 'N/A';
+
+    let compLogo = companyInfo?.logo || companyInfo?.logoUrl || companyInfo?.companyLogo || '';
+    if (compLogo && !compLogo.startsWith('http') && !compLogo.startsWith('data:')) {
+        compLogo = `${API_BASE_URL}${compLogo.startsWith('/') ? '' : '/'}${compLogo}`;
+    }
 
     const grnNo = grn.grnNumber || 'GRN-0001';
     const grnDate = grn.date ? new Date(grn.date).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB');
@@ -2436,6 +2541,8 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
             ? `<div>${rejQty}</div><div style="font-size: 9px; color: #dc2626; font-weight: bold;">(${secRejQty} ${secUnit})</div>`
             : (rejQty > 0 ? `${rejQty}` : '-');
 
+        const hsn = item.hsnCode || item.material?.hsnCode || item.fgItem?.hsnCode || item.component?.hsnCode || '-';
+
         itemsTableRowsHtml += `
             <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
                 <td style="padding: 6px 8px; text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
@@ -2443,6 +2550,7 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                     <div style="font-weight: bold; color: #0f172a;">${name}</div>
                     ${desc ? `<div style="font-size: 10px; color: #64748b; margin-top: 2px;">📝 ${desc}</div>` : ''}
                 </td>
+                <td style="padding: 6px 8px; text-align: center; font-family: monospace; font-size: 10px; color: #475569;">${hsn}</td>
                 <td style="padding: 6px 8px; text-align: center; font-weight: bold;">${rcvDisplay}</td>
                 <td style="padding: 6px 8px; text-align: center; color: #16a34a; font-weight: bold;">${accDisplay}</td>
                 <td style="padding: 6px 8px; text-align: center; color: ${rejQty > 0 ? '#dc2626' : '#94a3b8'}; font-weight: bold;">${rejDisplay}</td>
@@ -2464,13 +2572,18 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
     const pagesHtml = copyTypes.map((copyTitle) => `
         <div class="page" style="page-break-after: always; width: 100%; max-width: 800px; margin: 0 auto 30px auto; background: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
             <!-- Top Copy Header -->
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 15px;">
-                <div>
-                    <h2 style="margin: 0; font-size: 20px; font-weight: 900; color: #1e1b4b; letter-spacing: -0.5px;">${compName}</h2>
-                    <div style="font-size: 10px; color: #64748b; margin-top: 2px;">${compAddress}</div>
-                    <div style="font-size: 10px; color: #64748b;">GSTIN: <strong style="color: #0f172a;">${compGst}</strong> | PAN: <strong>${compPan}</strong> ${compPhone ? `| Ph: ${compPhone}` : ''}</div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #4f46e5; padding-bottom: 8px; margin-bottom: 15px;">
+                <div style="display: flex; align-items: center; gap: 14px; flex: 1;">
+                    ${compLogo ? `
+                        <img src="${compLogo}" alt="${compName}" style="max-height: 52px; max-width: 140px; object-fit: contain;" />
+                    ` : ''}
+                    <div>
+                        <h2 style="margin: 0; font-size: 20px; font-weight: 900; color: #1e1b4b; letter-spacing: -0.5px;">${compName}</h2>
+                        ${compAddress ? `<div style="font-size: 10px; color: #64748b; margin-top: 2px;">${compAddress}</div>` : ''}
+                        <div style="font-size: 10px; color: #64748b;">GSTIN: <strong style="color: #0f172a;">${compGst}</strong> | PAN: <strong>${compPan}</strong> ${compPhone ? `| Ph: ${compPhone}` : ''} ${compEmail ? `| Email: ${compEmail}` : ''}</div>
+                    </div>
                 </div>
-                <div style="text-align: right;">
+                <div style="text-align: right; flex-shrink: 0; margin-left: 10px;">
                     <div style="display: inline-block; background: #4f46e5; color: #fff; padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase;">
                         GOODS RECEIPT NOTE (GRN)
                     </div>
@@ -2496,12 +2609,22 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                         <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grnDate}</div>
                     </div>
                     <div>
-                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">${grn.mrpNumber ? 'MRP Plan' : 'PO Reference'}</div>
-                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grn.mrpNumber ? `MRP #${grn.mrpNumber}` : (grn.poReference || grn.purchaseOrder?.poNumber || 'Direct / Offline')}</div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">PO Number</div>
+                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grn.poNumber || grn.purchaseOrder?.poNumber || (grn.poReference && !grn.invoiceNumber ? grn.poReference : 'Direct / None')}</div>
                     </div>
                     <div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">Invoice Number</div>
+                        <div style="font-size: 11px; font-weight: bold; color: #0f172a;">${grn.invoiceNumber || grn.invoiceNo || (grn.poReference && grn.poReference !== grn.poNumber ? grn.poReference : '-') || '-'}</div>
+                    </div>
+                    ${grn.mrpNumber ? `
+                    <div>
+                        <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">MRP Plan</div>
+                        <div style="font-size: 11px; font-weight: bold; color: #7c3aed;">MRP #${grn.mrpNumber}</div>
+                    </div>
+                    ` : ''}
+                    <div>
                         <div style="font-size: 9px; font-weight: bold; color: #94a3b8; text-transform: uppercase;">QC Status</div>
-                        <div style="font-size: 11px; font-weight: bold; color: ${grn.qcStatus === 'Passed' ? '#16a34a' : '#4f46e5'};">${grn.qcStatus || (grn.qcRequired ? 'Pending QC' : 'Direct Accepted')}</div>
+                        <div style="font-size: 11px; font-weight: bold; color: ${grn.qcStatus === 'Passed' || grn.qcStatus === 'Completed' ? '#16a34a' : '#4f46e5'};">${grn.qcStatus || (grn.qcRequired ? 'Pending QC' : 'Direct Accepted')}</div>
                     </div>
                 </div>
             </div>
@@ -2510,14 +2633,15 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
             <table style="width: 100%; border-collapse: collapse; margin-bottom: 15px; border: 1px solid #cbd5e1;">
                 <thead>
                     <tr style="background: #1e1b4b; color: #fff; font-size: 10px; text-transform: uppercase; font-weight: 800;">
-                        <th style="padding: 7px 8px; width: 30px; text-align: center;">#</th>
+                        <th style="padding: 7px 8px; width: 28px; text-align: center;">#</th>
                         <th style="padding: 7px 8px; text-align: left;">Item Description</th>
-                        <th style="padding: 7px 8px; width: 60px; text-align: center;">Rcv Qty</th>
-                        <th style="padding: 7px 8px; width: 60px; text-align: center;">Acc Qty</th>
-                        <th style="padding: 7px 8px; width: 60px; text-align: center;">Rej Qty</th>
-                        <th style="padding: 7px 8px; width: 50px; text-align: center;">Unit</th>
-                        <th style="padding: 7px 8px; width: 70px; text-align: right;">Rate (₹)</th>
-                        <th style="padding: 7px 8px; width: 85px; text-align: right;">Total (₹)</th>
+                        <th style="padding: 7px 8px; width: 65px; text-align: center;">HSN/SAC</th>
+                        <th style="padding: 7px 8px; width: 55px; text-align: center;">Rcv Qty</th>
+                        <th style="padding: 7px 8px; width: 55px; text-align: center;">Acc Qty</th>
+                        <th style="padding: 7px 8px; width: 55px; text-align: center;">Rej Qty</th>
+                        <th style="padding: 7px 8px; width: 45px; text-align: center;">Unit</th>
+                        <th style="padding: 7px 8px; width: 65px; text-align: right;">Rate (₹)</th>
+                        <th style="padding: 7px 8px; width: 80px; text-align: right;">Total (₹)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -2525,7 +2649,7 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                 </tbody>
                 <tfoot>
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px; border-top: 2px solid #cbd5e1;">
-                        <td colspan="2" style="padding: 7px 8px; text-align: right; text-transform: uppercase;">${grnTaxRate > 0 ? 'Total Qty / Subtotal:' : 'Total:'}</td>
+                        <td colspan="3" style="padding: 7px 8px; text-align: right; text-transform: uppercase;">${grnTaxRate > 0 ? 'Total Qty / Subtotal:' : 'Total:'}</td>
                         <td style="padding: 7px 8px; text-align: center;">${totalRcvQty}</td>
                         <td style="padding: 7px 8px; text-align: center; color: #16a34a;">${totalAccQty}</td>
                         <td style="padding: 7px 8px; text-align: center; color: ${totalRejQty > 0 ? '#dc2626' : '#64748b'};">${totalRejQty}</td>
@@ -2535,11 +2659,11 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
                     </tr>
                     ${grnTaxRate > 0 ? `
                     <tr style="background: #f8fafc; font-weight: bold; font-size: 11px;">
-                        <td colspan="7" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">GST (${grnTaxRate}%):</td>
+                        <td colspan="8" style="padding: 5px 8px; text-align: right; color: #4f46e5; font-size: 10px; text-transform: uppercase;">GST (${grnTaxRate}%):</td>
                         <td style="padding: 5px 8px; text-align: right; font-size: 11px; color: #4f46e5; font-weight: 700;">+ ₹${grnTaxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     <tr style="background: #eef2ff; font-weight: 900; font-size: 12px; border-top: 1px solid #c7d2fe;">
-                        <td colspan="7" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST):</td>
+                        <td colspan="8" style="padding: 8px; text-align: right; text-transform: uppercase; color: #1e1b4b;">Whole GRN Price (with GST):</td>
                         <td style="padding: 8px; text-align: right; font-size: 12px; color: #059669; font-weight: 900;">₹${grnGrandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                     ` : ''}
@@ -2564,12 +2688,12 @@ export const generateFrontendGrnPDF = (data: PrintGrnData) => {
         </div>
     `).join('');
 
-    const printWindow = window.open('', '_blank');
     if (!printWindow) {
         alert("Pop-up blocked! Please allow pop-ups to print/download the GRN PDF.");
         return;
     }
 
+    printWindow.document.open();
     printWindow.document.write(`
         <!DOCTYPE html>
         <html>

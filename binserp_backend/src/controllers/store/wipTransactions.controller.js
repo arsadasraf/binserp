@@ -65,7 +65,11 @@ export const returnWipToStore = asyncHandler(async (req, res) => {
         recipientOrSource: "Main Store",
         purpose: remarks || `Unused material returned from Shopfloor WIP${mrpNumber ? ` (MRP #${mrpNumber})` : ""}`,
         performedBy: userId,
-        performedByName: userName
+        performedByName: userName,
+        hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
+        secondaryUnit: req.body.secondaryUnit,
+        secondaryQuantity: Number(req.body.secondaryQuantity) || 0,
+        conversionFactor: Number(req.body.conversionFactor) || 1
       }
     );
   }
@@ -79,6 +83,10 @@ export const returnWipToStore = asyncHandler(async (req, res) => {
     movementType: "INWARD",
     transactionCategory: "WIP_RETURN_TO_STORE",
     quantity: returnQty,
+    hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
+    secondaryUnit: req.body.secondaryUnit,
+    secondaryQuantity: Number(req.body.secondaryQuantity) || 0,
+    conversionFactor: Number(req.body.conversionFactor) || 1,
     referenceDocType: "WIPReturn",
     referenceDocNumber: docNumber,
     recipientOrSource: "Main Store Stock",
@@ -124,6 +132,10 @@ export const recordWipScrap = asyncHandler(async (req, res) => {
     movementType: "OUTWARD",
     transactionCategory: "WIP_SCRAP_WRITEOFF",
     quantity: scrapQty,
+    hasSecondaryUnit: Boolean(req.body.hasSecondaryUnit),
+    secondaryUnit: req.body.secondaryUnit,
+    secondaryQuantity: Number(req.body.secondaryQuantity) || 0,
+    conversionFactor: Number(req.body.conversionFactor) || 1,
     referenceDocType: "WIPScrap",
     referenceDocNumber: docNumber,
     recipientOrSource: `Shop Floor Scrap Register (${scrapReason})`,

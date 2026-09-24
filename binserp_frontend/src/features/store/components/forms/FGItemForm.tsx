@@ -20,6 +20,7 @@ interface FGItemFormProps {
 export default function FGItemForm({
     formData,
     setFormData,
+    categories = [],
     locations = [],
     rawMaterials = [],
     boughtOuts = [],
@@ -77,6 +78,14 @@ export default function FGItemForm({
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData((prev: any) => ({ ...prev, [name]: value }));
+    };
+
+    const handleCategoryChange = (val: string) => {
+        setFormData((prev: any) => ({
+            ...prev,
+            category: val,
+            categoryId: val,
+        }));
     };
 
     // Helper to track duplicate BOM items by compound key (itemType:itemId)
@@ -337,7 +346,7 @@ export default function FGItemForm({
                         <span>Item Details</span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                         <div className="sm:col-span-1">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                                 Classification <span className="text-red-500">*</span>
@@ -357,6 +366,19 @@ export default function FGItemForm({
 
                         <div className="sm:col-span-1">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
+                                Category
+                            </label>
+                            <SearchableSelect
+                                options={(categories || []).map(c => ({ value: c._id, label: c.name || '' }))}
+                                value={typeof formData.categoryId === 'object' ? (formData.categoryId?._id || '') : (formData.categoryId || (typeof formData.category === 'object' ? formData.category?._id : formData.category) || '')}
+                                onChange={handleCategoryChange}
+                                allowCustom={true}
+                                placeholder="Select or type category..."
+                            />
+                        </div>
+
+                        <div className="sm:col-span-1">
+                            <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                                 Revision
                             </label>
                             <input
@@ -369,7 +391,7 @@ export default function FGItemForm({
                             />
                         </div>
 
-                        <div className="sm:col-span-2">
+                        <div className="sm:col-span-3">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                                 Item Name <span className="text-red-500">*</span>
                             </label>
@@ -400,7 +422,7 @@ export default function FGItemForm({
                             )}
                         </div>
 
-                        <div className="sm:col-span-2">
+                        <div className="sm:col-span-3">
                             <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                                 Description
                             </label>

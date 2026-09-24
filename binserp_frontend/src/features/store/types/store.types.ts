@@ -323,6 +323,8 @@ export interface GRNFormData {
     supplier?: string; // Made optional
     customerId?: string; // Added for InHouse
     poReference?: string;  // Optional PO reference number
+    invoiceNumber?: string; // Vendor invoice number
+    poNumber?: string; // Linked or manual PO number
     pdf?: string;  // URL to uploaded PDF (invoice/document)
     photos?: string[];  // Array of photo URLs
     qcRequired?: boolean; // New field for QC Workflow
@@ -330,6 +332,7 @@ export interface GRNFormData {
     material?: string;  // Material ID from master
     component?: string; // Component ID (not inventory)
     materialName?: string;
+    hsnCode?: string;
     quantity: number;
     unit?: string;  // Auto-filled from material's category
     locationId: string;
@@ -339,6 +342,8 @@ export interface GRNFormData {
     items?: Array<{
         material: string;
         materialName: string;
+        hsnCode?: string;
+        description?: string;
         quantity: number;
         unit: string;
         locationId: string;
@@ -511,6 +516,12 @@ export interface JobWorkReturningItem {
     quantityToBeReceived: number;
     quantityReceived?: number;
     receivingUnit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantityToBeReceived?: number;
+    secondaryQuantityReceived?: number;
+    selectedUnit?: string;
     status?: 'Sent' | 'Partial' | 'Completed';
 }
 
@@ -520,11 +531,18 @@ export interface JobWorkItem {
     itemName: string;
     itemType: 'rm' | 'bo' | 'inhouse' | 'fg' | 'custom';
     processType: string;
+    purpose?: string;
     processRate?: number;
     processAmount?: number;
     quantitySent: number;
     quantityReceived: number;
     unit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantitySent?: number;
+    secondaryQuantityReceived?: number;
+    selectedUnit?: string;
     unitPrice?: number;
     description?: string;
     status: 'Sent' | 'Partial' | 'Completed';
@@ -547,12 +565,31 @@ export interface JobWorkAssemblyOutputItem {
     quantityToBeReceived: number;
     quantityReceived?: number;
     receivingUnit: string;
+    hasSecondaryUnit?: boolean;
+    secondaryUnit?: string;
+    conversionFactor?: number;
+    secondaryQuantityToBeReceived?: number;
+    secondaryQuantityReceived?: number;
+    selectedUnit?: string;
     processType?: string;
     processRate?: number;
     processAmount?: number;
     description?: string;
     status?: 'Sent' | 'Partial' | 'Completed';
 }
+
+export const JOB_WORK_PURPOSES = [
+    "Cutting",
+    "Machining",
+    "Welding",
+    "Sanding",
+    "Heat Treatment",
+    "Surface Finishing",
+    "Coating",
+    "Others"
+] as const;
+
+export type JobWorkPurpose = typeof JOB_WORK_PURPOSES[number];
 
 export interface JobWorkAssemblyGroup {
     id?: string;
@@ -575,6 +612,8 @@ export interface JobWorkChallan {
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
+    purpose?: string;
+    otherPurpose?: string;
     operationMode?: 'discrete' | 'assembly';
     assemblyOutputItem?: JobWorkAssemblyOutputItem;
     assemblyGroups?: JobWorkAssemblyGroup[];
@@ -603,6 +642,8 @@ export interface JobWorkFormData {
     freightType?: 'To pay' | 'Paid';
     ewayBillNo?: string;
     jobWorkType?: 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card' | 'inventory-conversion';
+    purpose?: string;
+    otherPurpose?: string;
     operationMode?: 'discrete' | 'assembly';
     assemblyOutputItem?: JobWorkAssemblyOutputItem;
     assemblyGroups?: JobWorkAssemblyGroup[];
@@ -619,10 +660,17 @@ export interface JobWorkFormData {
         itemName?: string;
         itemType: 'rm' | 'bo' | 'fg' | 'inhouse';
         processType: string;
+        purpose?: string;
         processRate?: number;
         processAmount?: number;
         quantitySent: number;
         unit: string;
+        hasSecondaryUnit?: boolean;
+        secondaryUnit?: string;
+        conversionFactor?: number;
+        secondaryQuantitySent?: number;
+        secondaryQuantityReceived?: number;
+        selectedUnit?: string;
         unitPrice?: number;
         description?: string;
         returningItems: JobWorkReturningItem[];

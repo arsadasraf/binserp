@@ -273,10 +273,10 @@ export default function CustomerPOItemWiseView({
           </div>
         ) : (
           <>
-            {/* Desktop Table View */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
+            {/* Desktop Table View - Scrollable with Sticky Header */}
+            <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] min-h-[350px]">
+              <table className="w-full text-sm text-left relative">
+                <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 shadow-2xs">
                   <tr>
                     <th className="px-4 py-3.5 text-center w-12">#</th>
                     <th className="px-4 py-3.5">Item Name & Description</th>

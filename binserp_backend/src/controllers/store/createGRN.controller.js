@@ -53,6 +53,8 @@ export const createGRN = async (req, res) => {
       quantity, 
       status, 
       items, 
+      invoiceNumber,
+      poNumber,
       poReference, 
       purchaseOrder, 
       mrpPlan,
@@ -69,8 +71,19 @@ export const createGRN = async (req, res) => {
     else if (qcRequired === 'false') qcRequired = false;
     else qcRequired = !!qcRequired;
 
-    // Normalize type
-    const normalizedType = (type || 'rm').toLowerCase();
+    // Normalize type with prefix detection fallback
+    let normalizedType = (type || 'rm').toLowerCase();
+    const upperGrnNum = (grnNumber || '').toUpperCase().trim();
+    if (upperGrnNum.startsWith('GRN-RM') || upperGrnNum.includes('-RM/') || upperGrnNum.includes('/RM/')) {
+      normalizedType = 'rm';
+    } else if (upperGrnNum.startsWith('GRN-BO') || upperGrnNum.includes('-BO/') || upperGrnNum.includes('/BO/')) {
+      normalizedType = 'bo';
+    } else if (upperGrnNum.startsWith('GRN-CON') || upperGrnNum.includes('-CON/') || upperGrnNum.includes('/CON/')) {
+      normalizedType = 'consumable';
+    } else if (upperGrnNum.startsWith('GRN-FG') || upperGrnNum.includes('-FG/') || upperGrnNum.includes('/FG/')) {
+      normalizedType = 'inhouse';
+    }
+
     const isFG = normalizedType === 'inhouse' || normalizedType === 'fg';
     const isConsumable = normalizedType === 'consumable' || normalizedType === 'consumables' || normalizedType === 'consumable-item';
     const isBO = normalizedType === 'bo' || normalizedType === 'bought-out';
@@ -300,6 +313,7 @@ export const createGRN = async (req, res) => {
           fgItem: validFgItemId,
           component: validComponentId,
           materialName: itemName || 'Received Item',
+          hsnCode: item.hsnCode || doc?.hsnCode || "",
           description: item.description || item.descriptions || doc?.descriptions || doc?.description || undefined,
           quantity: qty,
           unit: itemUnit,
@@ -332,6 +346,7 @@ export const createGRN = async (req, res) => {
       itemsArray.push({
         material: isValidObjectId(material.toString()) ? material.toString() : undefined,
         materialName: req.body.materialName || 'Material Item',
+        hsnCode: req.body.hsnCode || "",
         description: req.body.description || req.body.descriptions || undefined,
         quantity: qty,
         unit: req.body.unit || 'PCS',
@@ -375,8 +390,9 @@ export const createGRN = async (req, res) => {
       supplierAddress: supplierAddress || undefined,
       customer: rawCustomerId && isValidObjectId(rawCustomerId.toString()) ? rawCustomerId.toString() : undefined,
       purchaseOrder: purchaseOrder && isValidObjectId(purchaseOrder.toString()) ? purchaseOrder.toString() : undefined,
-      poNumber: poReference || "",
-      poReference: poReference || "",
+      invoiceNumber: invoiceNumber || poReference || "",
+      poNumber: poNumber || poReference || "",
+      poReference: invoiceNumber || poNumber || poReference || "",
       mrpPlan: mrpPlan && isValidObjectId(mrpPlan.toString()) ? mrpPlan.toString() : undefined,
       mrpNumber: mrpNumber || "",
       items: itemsArray,
@@ -397,12 +413,12 @@ export const createGRN = async (req, res) => {
     });
 
     // Update Linked Purchase Order Item Quantities & Status if linked
-    if (purchaseOrder || poReference) {
+    if (purchaseOrder || poNumber || poReference) {
       try {
         const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
         const poQuery = purchaseOrder && isValidObjectId(purchaseOrder.toString())
           ? { _id: purchaseOrder, company: companyId } 
-          : { poNumber: poReference, company: companyId };
+          : { poNumber: poNumber || poReference, company: companyId };
         
         const poDoc = await PurchaseOrder.findOne(poQuery);
         if (poDoc) {

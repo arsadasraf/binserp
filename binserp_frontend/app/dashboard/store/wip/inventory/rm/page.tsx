@@ -49,6 +49,8 @@ export default function RmWipInventoryPage() {
         activeSubTab="rm"
         title="Raw Materials (RM) WIP Inventory"
         description="Perpetual Work-in-Progress inventory for all Raw Materials issued to shop floor & job work"
+        vendorPriceLists={storeData.vendorPriceLists}
+        priceLists={storeData.priceLists}
         onError={handleError}
         onSuccess={handleSuccess}
       />

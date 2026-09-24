@@ -35,6 +35,8 @@ export default function VendorPriceListModal({
     price: "",
     taxRate: "18",
     isPreferred: false,
+    pricingUnit: "",
+    isSecondaryUnit: false,
     remarks: "",
   });
 
@@ -100,6 +102,8 @@ export default function VendorPriceListModal({
           price: initialData.price?.toString() || "",
           taxRate: initialData.taxRate?.toString() || "18",
           isPreferred: Boolean(initialData.isPreferred),
+          pricingUnit: initialData.pricingUnit || "",
+          isSecondaryUnit: Boolean(initialData.isSecondaryUnit),
           remarks: initialData.remarks || "",
         });
       } else {
@@ -109,12 +113,37 @@ export default function VendorPriceListModal({
           price: "",
           taxRate: "18",
           isPreferred: false,
+          pricingUnit: "",
+          isSecondaryUnit: false,
           remarks: "",
         });
       }
       setError("");
     }
   }, [isOpen, initialData]);
+
+  // Find selected material object to inspect dual-unit settings
+  const selectedMaterialObj = useMemo(() => {
+    if (!formData.material) return null;
+    let list: any[] = [];
+    if (itemType === 'rm') list = rawMaterialsList.length > 0 ? rawMaterialsList : (propRawMaterials || propMaterials || []);
+    else if (itemType === 'bo') list = boughtOutsList.length > 0 ? boughtOutsList : (propBoughtOuts || propMaterials || []);
+    else list = consumablesList.length > 0 ? consumablesList : (propConsumables || propMaterials || []);
+
+    const found = list.find((m: any) => (m._id || m.id)?.toString() === formData.material?.toString());
+    if (found) return found;
+    if (initialData?.material && typeof initialData.material === 'object') return initialData.material;
+    return null;
+  }, [formData.material, itemType, rawMaterialsList, boughtOutsList, consumablesList, propRawMaterials, propBoughtOuts, propConsumables, propMaterials, initialData]);
+
+  const hasDualUnit = Boolean(
+    selectedMaterialObj?.hasSecondaryUnit &&
+    selectedMaterialObj?.secondaryUnit &&
+    Number(selectedMaterialObj?.conversionFactor) > 0
+  );
+  const primaryUnit = selectedMaterialObj?.unit || 'PCS';
+  const secondaryUnit = selectedMaterialObj?.secondaryUnit || '';
+  const factor = Number(selectedMaterialObj?.conversionFactor) || 1;
 
   const activeMaterialOptions = useMemo(() => {
     let list: any[] = [];
@@ -153,7 +182,7 @@ export default function VendorPriceListModal({
 
   const vendorOptions = useMemo(() => {
     const list = [
-      { value: "", label: "-- None (General / Base Price) --" }
+      { value: "", label: "-- None (Standard Base Price) --" }
     ];
     (Array.isArray(vendorsList) ? vendorsList : []).forEach(v => {
       list.push({
@@ -181,7 +210,9 @@ export default function VendorPriceListModal({
         vendor: formData.vendor || null,
         price: Number(formData.price),
         taxRate: Number(formData.taxRate),
-        isPreferred: Boolean(formData.isPreferred),
+        isPreferred: Boolean(formData.vendor && formData.isPreferred),
+        pricingUnit: hasDualUnit ? (formData.isSecondaryUnit ? secondaryUnit : primaryUnit) : primaryUnit,
+        isSecondaryUnit: Boolean(hasDualUnit && formData.isSecondaryUnit),
         remarks: formData.remarks,
       });
     } catch (err: any) {
@@ -202,9 +233,9 @@ export default function VendorPriceListModal({
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col max-h-[92vh] border border-gray-100 dark:border-gray-800">
         <div className="px-5 py-3.5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/75 dark:bg-gray-800/60">
           <div className="flex items-center gap-2">
-            <Tag className="w-5 h-5 text-blue-600" />
+            <Tag className="w-5 h-5 text-indigo-600" />
             <h2 className="text-base font-bold text-gray-900 dark:text-white">
-              {initialData ? "Edit Vendor Price Sheet" : "Set Vendor Price Sheet"}
+              {initialData ? "Edit Item Price List" : "Set Item Price List"}
             </h2>
           </div>
           <button
@@ -298,42 +329,72 @@ export default function VendorPriceListModal({
               )}
             </div>
 
-            {/* Vendor Searchable Dropdown */}
-            <div>
-              <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                Vendor / Supplier
-              </label>
-              <SearchableSelect
-                options={vendorOptions}
-                value={formData.vendor}
-                onChange={(val: any) => setFormData(prev => ({ ...prev, vendor: val }))}
-                placeholder="Select Vendor / Supplier..."
-              />
-            </div>
+            {/* Dual-Unit Selection Box (shown if item has secondary unit) */}
+            {hasDualUnit && (
+              <div className="p-3 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/40 rounded-xl space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
+                    <span>Pricing Unit</span>
+                    <span className="text-[10px] font-normal text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-900/60 px-1.5 py-0.5 rounded">
+                      Dual Unit Item
+                    </span>
+                  </label>
+                  <span className="text-[11px] font-mono text-indigo-700 dark:text-indigo-300">
+                    1 {primaryUnit} = {factor} {secondaryUnit}
+                  </span>
+                </div>
 
-            {/* Set as Preferred Supplier Checkbox */}
-            <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 rounded-xl flex items-start gap-2.5">
-              <input
-                type="checkbox"
-                id="isPreferredVendor"
-                checked={formData.isPreferred}
-                onChange={(e) => setFormData({ ...formData, isPreferred: e.target.checked })}
-                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 mt-0.5 cursor-pointer"
-              />
-              <label htmlFor="isPreferredVendor" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
-                <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                  ⭐ Set as Preferred Supplier for this Material
-                </span>
-                <span className="text-[11px] text-slate-500 block mt-0.5">
-                  Procurement Workbench and Auto-PO will prioritize this vendor when generating Purchase Orders.
-                </span>
-              </label>
-            </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, isSecondaryUnit: false, pricingUnit: primaryUnit }))}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                      !formData.isSecondaryUnit
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>Per {primaryUnit}</span>
+                    <span className={`text-[10px] font-normal ${!formData.isSecondaryUnit ? "text-indigo-100" : "text-slate-400"}`}>
+                      Primary Unit
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormData(prev => ({ ...prev, isSecondaryUnit: true, pricingUnit: secondaryUnit }))}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                      formData.isSecondaryUnit
+                        ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                        : "bg-white dark:bg-gray-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>Per {secondaryUnit}</span>
+                    <span className={`text-[10px] font-normal ${formData.isSecondaryUnit ? "text-indigo-100" : "text-slate-400"}`}>
+                      Secondary Unit
+                    </span>
+                  </button>
+                </div>
+
+                {/* Live Equivalent Calculation */}
+                {formData.price && !isNaN(Number(formData.price)) && Number(formData.price) > 0 && (
+                  <div className="text-[11px] font-medium text-indigo-800 dark:text-indigo-200 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-lg border border-indigo-200/50 dark:border-indigo-800/40 flex items-center justify-between font-mono">
+                    <span>Equivalent Rate:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                      {formData.isSecondaryUnit
+                        ? `₹${(Number(formData.price) * factor).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${primaryUnit}`
+                        : `₹${(Number(formData.price) / factor).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${secondaryUnit}`
+                      }
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
-                  Price (₹) <span className="text-red-500">*</span>
+                  Price (₹ per {hasDualUnit ? (formData.isSecondaryUnit ? secondaryUnit : primaryUnit) : primaryUnit}) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
@@ -342,7 +403,7 @@ export default function VendorPriceListModal({
                   placeholder="0.00"
                   value={formData.price}
                   onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500 outline-none"
                   required
                 />
               </div>
@@ -353,7 +414,7 @@ export default function VendorPriceListModal({
                 <select
                   value={formData.taxRate}
                   onChange={(e) => setFormData({ ...formData, taxRate: e.target.value })}
-                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+                  className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                   required
                 >
                   <option value="0">0%</option>
@@ -365,6 +426,43 @@ export default function VendorPriceListModal({
               </div>
             </div>
 
+            {/* Vendor / Supplier (Optional Reference) */}
+            <div className="space-y-2 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center justify-between">
+                  <span>Vendor / Supplier (Optional)</span>
+                  <span className="text-[11px] font-normal text-slate-400">Leave blank for standard base rate</span>
+                </label>
+                <SearchableSelect
+                  options={vendorOptions}
+                  value={formData.vendor}
+                  onChange={(val: any) => setFormData(prev => ({ ...prev, vendor: val }))}
+                  placeholder="-- None (Standard Base Price) --"
+                />
+              </div>
+
+              {/* Set as Preferred Supplier Checkbox (only shown if vendor selected) */}
+              {formData.vendor && (
+                <div className="p-3 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/40 rounded-xl flex items-start gap-2.5 animate-in fade-in duration-100">
+                  <input
+                    type="checkbox"
+                    id="isPreferredVendor"
+                    checked={formData.isPreferred}
+                    onChange={(e) => setFormData({ ...formData, isPreferred: e.target.checked })}
+                    className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 mt-0.5 cursor-pointer"
+                  />
+                  <label htmlFor="isPreferredVendor" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <span className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                      ⭐ Preferred Supplier for this Material
+                    </span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5">
+                      Procurement Workbench will prioritize this vendor quote when generating Purchase Orders.
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1.5">
                 Remarks (Optional)
@@ -372,7 +470,7 @@ export default function VendorPriceListModal({
               <textarea
                 value={formData.remarks}
                 onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+                className="w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
                 rows={2}
                 placeholder="Optional notes or supplier quote reference..."
               />
@@ -392,10 +490,10 @@ export default function VendorPriceListModal({
             type="submit"
             form="vendorPriceListForm"
             disabled={loading}
-            className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+            className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
           >
             <Save size={15} />
-            {loading ? "Saving..." : "Save Price"}
+            {loading ? "Saving..." : (initialData ? "Update Price List" : "Save Price List")}
           </button>
         </div>
       </div>

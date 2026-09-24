@@ -4,7 +4,7 @@ import {
     FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
     AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert 
 } from 'lucide-react';
-import { JobWorkChallan, Vendor, JobWorkSupplier } from "@/src/features/store/types/store.types";
+import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
 import JobWorkPreviewModal from '../modals/JobWorkPreviewModal';
@@ -73,6 +73,7 @@ export default function JobWorkStore({
     const [filterMode, setFilterMode] = useState<'daily' | 'monthly' | 'yearly'>('daily');
     const [filterDate, setFilterDate] = useState('');
     const [filterSupplier, setFilterSupplier] = useState('');
+    const [filterPurpose, setFilterPurpose] = useState('all');
     const [workflowFilter, setWorkflowFilter] = useState<'all' | 'store-conversion' | 'store-to-wip' | 'wip-to-wip' | 'route-card'>('all');
 
     // Prefill data for editing
@@ -109,6 +110,18 @@ export default function JobWorkStore({
         const minutes = Math.floor((totalSeconds % 3600) / 60);
         const seconds = totalSeconds % 60;
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    };
+
+    const getPurposeBadgeStyle = (purposeStr?: string) => {
+        const p = (purposeStr || 'Machining').toLowerCase();
+        if (p.includes('cut')) return 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800';
+        if (p.includes('machin')) return 'bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+        if (p.includes('weld')) return 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300 border-amber-200 dark:border-amber-800';
+        if (p.includes('sand')) return 'bg-lime-50 text-lime-700 dark:bg-lime-950 dark:text-lime-300 border-lime-200 dark:border-lime-800';
+        if (p.includes('heat')) return 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+        if (p.includes('surface') || p.includes('finish') || p.includes('polish')) return 'bg-teal-50 text-teal-700 dark:bg-teal-950 dark:text-teal-300 border-teal-200 dark:border-teal-800';
+        if (p.includes('coat') || p.includes('paint')) return 'bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border-purple-200 dark:border-purple-800';
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700';
     };
 
     const openPreview = (challan: JobWorkChallan) => {
@@ -243,6 +256,11 @@ export default function JobWorkStore({
             }
 
             if (filterSupplier && c.vendor?._id !== filterSupplier) return false;
+
+            if (filterPurpose !== 'all') {
+                const chalPurpose = (c.purpose || c.items?.[0]?.processType || 'Machining').toLowerCase();
+                if (chalPurpose !== filterPurpose.toLowerCase()) return false;
+            }
 
             // Date Filter Logic (Day / Month / Year)
             if (filterDate) {
@@ -459,6 +477,18 @@ export default function JobWorkStore({
                                 return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
                             })}
                         </select>
+
+                        {/* Purpose Filter */}
+                        <select
+                            value={filterPurpose}
+                            onChange={(e) => setFilterPurpose(e.target.value)}
+                            className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[170px] truncate"
+                        >
+                            <option value="all">🎯 All Purposes</option>
+                            {JOB_WORK_PURPOSES.map(p => (
+                                <option key={p} value={p}>{p}</option>
+                            ))}
+                        </select>
                     </div>
 
                     {/* Right: Date Mode Switcher + Dynamic Date Picker + Live Count */}
@@ -535,6 +565,7 @@ export default function JobWorkStore({
                                         <th className="px-4 py-3">Challan Details</th>
                                         <th className="px-4 py-3">Subcontractor / Vendor</th>
                                         <th className="px-3.5 py-3">MRP Plan Ref</th>
+                                        <th className="px-4 py-3">Purpose of Outward</th>
                                         <th className="px-4 py-3">Outward Material Sent</th>
                                         <th className="px-4 py-3">Expected Return Item(s)</th>
                                         <th className="px-3.5 py-3">Dates & Status</th>
@@ -634,6 +665,11 @@ export default function JobWorkStore({
                                                                  challan.jobWorkType === 'wip-to-wip' ? 'WIP ➔ WIP' : 'RM Conv.'}
                                                             </span>
 
+                                                            {/* Purpose Badge */}
+                                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${getPurposeBadgeStyle(challan.purpose || primarySentItem?.processType)}`} title="Purpose of Outward Movement">
+                                                                {challan.purpose === 'Others' && challan.otherPurpose ? challan.otherPurpose : (challan.purpose || primarySentItem?.processType || 'Machining')}
+                                                            </span>
+
                                                             {/* Mode Badge */}
                                                             {isAssembly ? (
                                                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-200 dark:border-amber-800 uppercase tracking-tight" title="Many components welded / assembled into 1 return item">
@@ -678,7 +714,20 @@ export default function JobWorkStore({
                                                     )}
                                                 </td>
 
-                                                {/* 5. Outward Material(s) Sent (Strict AGENTS.md compliance: Name bold, description italic) */}
+                                                {/* 5. Purpose of Outward Movement */}
+                                                <td className="px-4 py-3">
+                                                    <div className="flex flex-col items-start gap-1">
+                                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border uppercase tracking-wider inline-flex items-center gap-1.5 shadow-xs ${getPurposeBadgeStyle(challan.purpose || primarySentItem?.purpose || primarySentItem?.processType)}`}>
+                                                            <span>🎯</span>
+                                                            <span>{challan.purpose === 'Others' && challan.otherPurpose ? challan.otherPurpose : (challan.purpose || primarySentItem?.purpose || primarySentItem?.processType || 'Machining')}</span>
+                                                        </span>
+                                                        {challan.purpose === 'Others' && challan.otherPurpose && (
+                                                            <span className="text-[10px] text-slate-400 italic">Custom: {challan.otherPurpose}</span>
+                                                        )}
+                                                    </div>
+                                                </td>
+
+                                                {/* 6. Outward Material(s) Sent (Strict AGENTS.md compliance: Name bold, description italic) */}
                                                 <td className="px-4 py-3 max-w-xs">
                                                     <div>
                                                         <div className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">
@@ -900,6 +949,13 @@ export default function JobWorkStore({
                                             >
                                                 DC #{challan.challanNumber}
                                             </span>
+                                            <div className="flex items-center gap-1.5 my-1">
+                                                <span className="text-[10px] font-bold text-slate-400 uppercase">Purpose:</span>
+                                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border inline-flex items-center gap-1 ${getPurposeBadgeStyle(challan.purpose || primarySentItem?.purpose || primarySentItem?.processType)}`}>
+                                                    <span>🎯</span>
+                                                    <span>{challan.purpose === 'Others' && challan.otherPurpose ? challan.otherPurpose : (challan.purpose || primarySentItem?.purpose || primarySentItem?.processType || 'Machining')}</span>
+                                                </span>
+                                            </div>
                                             <h4 className="font-bold text-slate-900 dark:text-white text-xs">
                                                 {challan.vendor?.name || 'Vendor'}
                                             </h4>

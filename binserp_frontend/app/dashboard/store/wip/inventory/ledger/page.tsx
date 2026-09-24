@@ -49,6 +49,8 @@ export default function LedgerWipInventoryPage() {
         activeSubTab="ledger"
         title="WIP Movement Ledger"
         description="Comprehensive real-time transaction ledger across all Store Issues, Job Work dispatches & FG GRN consumptions"
+        vendorPriceLists={storeData.vendorPriceLists}
+        priceLists={storeData.priceLists}
         onError={handleError}
         onSuccess={handleSuccess}
       />

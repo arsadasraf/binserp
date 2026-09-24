@@ -3,6 +3,9 @@ import { API_BASE_URL } from '@/src/utils/config';
 import { Edit2, Save, X } from 'lucide-react';
 import LoadingSpinner from '@/src/components/LoadingSpinner';
 
+import { DEFAULT_EXCHANGE_RATES_TO_INR, CURRENCY_OPTIONS, getCurrencySymbol } from '@/src/utils/currencyHelper';
+import { Globe, IndianRupee } from 'lucide-react';
+
 interface StorePrefixSettings {
     grnPrefix: string;
     poPrefix: string;
@@ -18,6 +21,7 @@ interface StorePrefixSettings {
     incomingRfqPrefix: string;
     quotationOutwardPrefix: string;
     quotationInwardPrefix: string;
+    exchangeRates?: Record<string, number>;
 }
 
 interface StorePrefixFormProps {
@@ -39,6 +43,7 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
         incomingRfqPrefix: '',
         quotationOutwardPrefix: '',
         quotationInwardPrefix: '',
+        exchangeRates: { ...DEFAULT_EXCHANGE_RATES_TO_INR },
     });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -77,6 +82,10 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
                     incomingRfqPrefix: data.settings.incomingRfqPrefix || 'RFQ',
                     quotationOutwardPrefix: data.settings.quotationOutwardPrefix || 'QT-OUT',
                     quotationInwardPrefix: data.settings.quotationInwardPrefix || 'QT-IN',
+                    exchangeRates: {
+                        ...DEFAULT_EXCHANGE_RATES_TO_INR,
+                        ...(data.settings.exchangeRates || {})
+                    }
                 };
                 setSettings(fetchedSettings);
                 setOriginalSettings(fetchedSettings);
@@ -330,6 +339,63 @@ export default function StorePrefixForm({ token, onError, onSuccess }: StorePref
                         <p className="text-xs text-gray-400 mt-1">Example: {settings.quotationInwardPrefix}-2024-001</p>
                     </div>
 
+                </div>
+
+                {/* Section: Currency Conversion Rates to INR */}
+                <div className="pt-6 border-t border-gray-100 dark:border-gray-700 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
+                            <IndianRupee size={18} className="text-blue-600" />
+                            <span>Currency Conversion Rates (Base: ₹1.00 INR)</span>
+                        </div>
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                            <Globe size={13} className="text-blue-500" />
+                            Used across Store &gt; Sales &gt; Inward RFQs, Customer POs, Quotations & Billing
+                        </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        {CURRENCY_OPTIONS.filter(c => c.code !== 'INR').map(curr => {
+                            const currentRate = settings.exchangeRates?.[curr.code] !== undefined
+                                ? settings.exchangeRates[curr.code]
+                                : (DEFAULT_EXCHANGE_RATES_TO_INR[curr.code] || 1.0);
+
+                            return (
+                                <div key={curr.code} className="p-3 bg-gray-50 dark:bg-gray-900/60 rounded-xl border border-gray-200 dark:border-gray-700">
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <span className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                                            {curr.symbol} {curr.name} ({curr.code})
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs text-slate-400 font-mono">1 {curr.code} = ₹</span>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0.0001"
+                                            value={currentRate || ''}
+                                            disabled={!isEditing}
+                                            onChange={e => {
+                                                const val = parseFloat(e.target.value) || 0;
+                                                setSettings(prev => ({
+                                                    ...prev,
+                                                    exchangeRates: {
+                                                        ...(prev.exchangeRates || {}),
+                                                        [curr.code]: val
+                                                    }
+                                                }));
+                                            }}
+                                            className={`w-full px-2.5 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-blue-500/20 ${!isEditing && 'opacity-60 cursor-not-allowed'}`}
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 mt-1 block">
+                                        Benchmark: ₹{DEFAULT_EXCHANGE_RATES_TO_INR[curr.code] || '1.00'}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 <div className="flex justify-end pt-4 border-t border-gray-100 dark:border-gray-700 gap-3">

@@ -742,6 +742,7 @@ export function useStoreData(activeTab: TabType, masterTab: MasterType, token: s
         consumables: consumablesData,
         materials: materialsData,
         vendorPriceLists: vendorPriceListsData,
+        priceLists: priceListsData,
         mrpPlans: mrpsData,
         mrps: mrpsData,
         refetch: fetchData,

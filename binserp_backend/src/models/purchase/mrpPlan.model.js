@@ -23,6 +23,27 @@ export const mrpPlanSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    // Multi-Customer PO Support for Consolidated MRP
+    isConsolidated: {
+      type: Boolean,
+      default: false,
+    },
+    customerPOs: [
+      {
+        customerPo: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "IncomingPO",
+        },
+        customerPoNumber: { type: String, default: "" },
+        customer: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Customer",
+        },
+        customerName: { type: String, default: "" },
+        poDate: { type: Date },
+        targetDate: { type: Date },
+      },
+    ],
     poDate: {
       type: Date,
     },
@@ -53,6 +74,24 @@ export const mrpPlanSchema = new mongoose.Schema(
         unit: { type: String, default: "PCS" },
         poDeliveryDate: { type: Date },
         targetDate: { type: Date },
+        customerPo: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "IncomingPO",
+        },
+        customerPoNumber: { type: String, default: "" },
+        customerName: { type: String, default: "" },
+        sourceBreakdown: [
+          {
+            customerPo: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "IncomingPO",
+            },
+            customerPoNumber: { type: String, default: "" },
+            customerName: { type: String, default: "" },
+            quantity: { type: Number, default: 0 },
+          },
+        ],
+        sourceCustomerPOs: [{ type: String }],
         bomId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "BOM",
@@ -94,6 +133,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         unit: { type: String, default: "PCS" },
         sourceFGName: { type: String, default: "" },
         sourceFGNames: [{ type: String }],
+        sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
       },
     ],
@@ -114,6 +154,8 @@ export const mrpPlanSchema = new mongoose.Schema(
         shortage: { type: Number, default: 0 },
         unit: { type: String, default: "PCS" },
         sourceFGName: { type: String, default: "" },
+        sourceFGNames: [{ type: String }],
+        sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
       },
     ],
@@ -130,6 +172,8 @@ export const mrpPlanSchema = new mongoose.Schema(
         shortage: { type: Number, default: 0 },
         unit: { type: String, default: "PCS" },
         sourceFGName: { type: String, default: "" },
+        sourceFGNames: [{ type: String }],
+        sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
       },
     ],
@@ -147,6 +191,7 @@ export const mrpPlanSchema = new mongoose.Schema(
         unit: { type: String, default: "PCS" },
         sourceFGName: { type: String, default: "" },
         sourceFGNames: [{ type: String }],
+        sourceCustomerPOs: [{ type: String }],
         status: { type: String, default: "Pending" },
       },
     ],

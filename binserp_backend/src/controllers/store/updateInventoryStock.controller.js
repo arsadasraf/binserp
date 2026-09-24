@@ -201,11 +201,18 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       previousStock = 0;
       newStock = (!isPending) ? Math.max(0, quantity) : 0;
 
+      const hasSecVal = hasSecondaryUnit !== undefined ? Boolean(hasSecondaryUnit) : Boolean(material?.hasSecondaryUnit);
+      const secUnitVal = secondaryUnit !== undefined ? secondaryUnit : (material?.secondaryUnit || "");
+      const convFactorVal = Number(options.conversionFactor ?? material?.conversionFactor ?? 1);
+
       inventory = await Inventory.create({
         company: companyId,
         materialCode,
         materialName,
         unit: resolvedUnit,
+        hasSecondaryUnit: hasSecVal,
+        secondaryUnit: secUnitVal,
+        conversionFactor: convFactorVal,
         currentStock: newStock,
         qcPendingStock: (isPending) ? Math.max(0, quantity) : 0,
         locationId: resolvedLocId || undefined,
@@ -238,6 +245,25 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
       }
       if (categoryId) {
         inventory.categoryId = categoryId;
+      }
+
+      // Keep secondary unit properties synchronized on the Inventory document
+      if (hasSecondaryUnit !== undefined) {
+        inventory.hasSecondaryUnit = Boolean(hasSecondaryUnit);
+      } else if (material?.hasSecondaryUnit !== undefined) {
+        inventory.hasSecondaryUnit = Boolean(material.hasSecondaryUnit);
+      }
+
+      if (secondaryUnit !== undefined) {
+        inventory.secondaryUnit = secondaryUnit;
+      } else if (material?.secondaryUnit) {
+        inventory.secondaryUnit = material.secondaryUnit;
+      }
+
+      if (options.conversionFactor !== undefined) {
+        inventory.conversionFactor = Number(options.conversionFactor);
+      } else if (material?.conversionFactor) {
+        inventory.conversionFactor = Number(material.conversionFactor);
       }
 
       await inventory.save();
@@ -278,9 +304,10 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
 
       const resolvedHasSec = hasSecondaryUnit !== undefined ? Boolean(hasSecondaryUnit) : Boolean(material?.hasSecondaryUnit);
       const resolvedSecUnit = secondaryUnit !== undefined ? secondaryUnit : (material?.secondaryUnit || "");
-      const resolvedSecQty = secondaryQuantity !== undefined 
-        ? Math.abs(secondaryQuantity) 
-        : (resolvedHasSec && material?.conversionFactor ? Math.abs(quantity * material.conversionFactor) : 0);
+      const convFactor = Number(options.conversionFactor ?? material?.conversionFactor ?? 1);
+      const resolvedSecQty = (secondaryQuantity !== undefined && secondaryQuantity !== null && Number(secondaryQuantity) > 0)
+        ? Math.abs(Number(secondaryQuantity)) 
+        : (resolvedHasSec && convFactor > 0 ? Math.round(Math.abs(quantity * convFactor) * 10000) / 10000 : 0);
 
       await recordStockTransaction(req, {
         itemType: transactionItemType,
@@ -291,6 +318,7 @@ export const updateInventoryStock = async (req, materialId, quantity, unit, loca
         hasSecondaryUnit: resolvedHasSec,
         secondaryUnit: resolvedSecUnit,
         secondaryQuantity: resolvedSecQty,
+        conversionFactor: convFactor,
         movementType,
         transactionCategory: transactionCategory || defaultCategory,
         quantity: Math.abs(quantity),

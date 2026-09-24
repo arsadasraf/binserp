@@ -20,6 +20,17 @@ export const storePrefixSchema = new mongoose.Schema(
         outgoingRfqPrefix: { type: String, default: "RFQ-OUT" },
         quotationOutwardPrefix: { type: String, default: "QT-OUT" },
         quotationInwardPrefix: { type: String, default: "QT-IN" },
+        exchangeRates: {
+            USD: { type: Number, default: 86.80 },
+            EUR: { type: Number, default: 92.50 },
+            GBP: { type: Number, default: 108.20 },
+            AED: { type: Number, default: 23.63 },
+            CAD: { type: Number, default: 61.50 },
+            AUD: { type: Number, default: 55.40 },
+            SGD: { type: Number, default: 64.20 },
+            JPY: { type: Number, default: 0.56 },
+            CNY: { type: Number, default: 11.95 },
+        },
     },
     { timestamps: true }
 );

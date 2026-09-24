@@ -102,6 +102,7 @@ export const MASTER_EXCEL_CONFIGS: Record<string, { title: string; filename: str
         columns: [
             { label: 'FG Code', key: 'code', sample: 'FG-0001' },
             { label: 'FG Name*', key: 'name', required: true, sample: 'Electric Motor 2HP' },
+            { label: 'Category', key: 'category', sample: 'Motors' },
             { label: 'Description', key: 'description', sample: '3-Phase AC Induction Motor 2HP 415V' },
             { label: 'Revision Number', key: 'revisionNumber', sample: 'Rev 1.0' },
             { label: 'Item Type* (Assembly/Sub Assembly/Component)', key: 'type', required: true, sample: 'Assembly' },
@@ -642,6 +643,7 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                             lastParentFG = {
                                 name: currentName,
                                 type: mappedItem.type || 'Assembly',
+                                category: mappedItem.category || '',
                                 unit: mappedItem.unit || 'Nos',
                                 code: mappedItem.code || '',
                                 location: mappedItem.location || '',
@@ -653,6 +655,7 @@ export const parseMasterExcelFile = async (file: File, masterTab: string): Promi
                             // Forward-fill parent FG properties so secondary BOM rows pass validation
                             mappedItem.name = lastParentFG.name;
                             mappedItem.type = mappedItem.type || lastParentFG.type;
+                            mappedItem.category = mappedItem.category || lastParentFG.category;
                             mappedItem.unit = mappedItem.unit || lastParentFG.unit;
                             mappedItem.code = mappedItem.code || lastParentFG.code;
                             mappedItem.location = mappedItem.location || lastParentFG.location;

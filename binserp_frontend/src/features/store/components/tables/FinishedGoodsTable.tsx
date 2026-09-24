@@ -9,6 +9,7 @@ import { RowNotice } from './MaterialTable';
 
 interface FinishedGoodsTableProps {
   data: any[];
+  categories?: any[];
   onEdit: (item: any) => void;
   onDelete: (id: string) => void;
   onView?: (item: any) => void;
@@ -20,6 +21,7 @@ interface FinishedGoodsTableProps {
 
 export default function FinishedGoodsTable({ 
   data, 
+  categories = [],
   onEdit, 
   onDelete, 
   onView, 
@@ -28,11 +30,35 @@ export default function FinishedGoodsTable({
   rowNotice = null,
   onClearRowNotice
 }: FinishedGoodsTableProps) {
+  const [selectedCategory, setSelectedCategory] = React.useState<string>('all');
+
+  const categoryOptions = React.useMemo(() => {
+    const map = new Map<string, string>();
+    (categories || []).forEach((c: any) => {
+      if (c?.name) map.set(c.name, c.name);
+    });
+    (data || []).forEach((item: any) => {
+      const name = item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : '');
+      if (name && name !== '-') map.set(name, name);
+    });
+    return Array.from(map.values()).sort();
+  }, [categories, data]);
+
+  const filteredData = React.useMemo(() => {
+    if (!selectedCategory || selectedCategory === 'all') return data || [];
+    return (data || []).filter((item: any) => {
+      const catName = item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : '');
+      const catId = item.category?._id || item.categoryId?._id || (typeof item.categoryId === 'string' ? item.categoryId : '');
+      return catName === selectedCategory || catId === selectedCategory;
+    });
+  }, [data, selectedCategory]);
+
   const exportToExcel = () => {
-    const exportData = (data || []).map((item, idx) => ({
+    const exportData = (filteredData || []).map((item, idx) => ({
       'S.No': idx + 1,
       'Product Name': item.name || '-',
       'Item Code': item.code || '-',
+      'Category': item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : '-') || '-',
       'Type': item.type || '-',
       'Unit': item.unit || 'Nos',
       'HSN Code': item.hsnCode || '-',
@@ -113,6 +139,21 @@ export default function FinishedGoodsTable({
           {item.type || 'Component'}
         </span>
       )
+    },
+    {
+      id: 'category',
+      label: 'Category',
+      getValue: (item) => item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : '') || '-',
+      render: (item) => {
+        const catName = item.category?.name || item.categoryId?.name || (typeof item.category === 'string' ? item.category : '');
+        return catName && catName !== '-' ? (
+          <span className="px-2 py-0.5 rounded-full text-xs font-medium border bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800">
+            {catName}
+          </span>
+        ) : (
+          <span className="text-slate-400 text-xs">-</span>
+        );
+      }
     },
     {
       id: 'unit',
@@ -268,12 +309,27 @@ export default function FinishedGoodsTable({
     <>
       <DataTable
         columns={columns}
-        data={data}
+        data={filteredData}
         onRowClick={onView}
         searchPlaceholder="Search finished goods..."
-        searchableKeys={['name', 'description', 'descriptions', 'type', 'revisionNumber', 'unit', 'hsnCode']}
+        searchableKeys={['name', 'description', 'descriptions', 'type', 'revisionNumber', 'unit', 'hsnCode', 'category']}
         actionButton={
           <div className="flex flex-wrap items-center gap-2">
+            {categoryOptions.length > 0 && (
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="px-2.5 py-1.5 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs"
+                title="Filter by Category"
+              >
+                <option value="all">All Categories ({data?.length || 0})</option>
+                {categoryOptions.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            )}
             <StoreMasterExcelActions
               masterTab="fg-items"
               onExport={exportToExcel}

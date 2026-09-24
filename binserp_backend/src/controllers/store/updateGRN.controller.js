@@ -236,6 +236,12 @@ export const updateGRN = async (req, res) => {
       }
     }
 
+    if (req.body.invoiceNumber && !req.body.poReference) {
+      req.body.poReference = req.body.invoiceNumber;
+    } else if (req.body.poNumber && !req.body.poReference) {
+      req.body.poReference = req.body.poNumber;
+    }
+
     if (req.body.taxRate !== undefined) {
       req.body.taxRate = parseFloat(req.body.taxRate) || 0;
     }

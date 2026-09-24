@@ -65,10 +65,16 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
         {/* Modal Header */}
         <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-start shrink-0 border-b border-indigo-900">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-0.5 bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-lg text-xs font-mono font-bold">
                 {mrpPlan.mrpNumber}
               </span>
+              {mrpPlan.isConsolidated && (
+                <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                  <Layers size={12} />
+                  <span>Consolidated ({mrpPlan.customerPOs?.length || 2} Customer POs)</span>
+                </span>
+              )}
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                 mrpPlan.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
                 mrpPlan.status === 'In Production' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
@@ -96,6 +102,16 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
                 )}
               </span>
             </p>
+            {mrpPlan.isConsolidated && mrpPlan.customerPOs && mrpPlan.customerPOs.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-indigo-900/60 text-[11px]">
+                <span className="text-indigo-300 font-semibold">Consolidated POs:</span>
+                {mrpPlan.customerPOs.map((cpo: any, idx: number) => (
+                  <span key={idx} className="px-2 py-0.5 rounded bg-indigo-900/50 text-indigo-200 font-mono text-[10px] border border-indigo-700/50">
+                    {cpo.customerPoNumber} {cpo.customerName ? `(${cpo.customerName})` : ''}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <button
@@ -179,7 +195,25 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
                     return (
                       <tr key={idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                         <td className="p-3">
-                          <strong className="text-slate-900 dark:text-white block">{fg.fgItemName}</strong>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <strong className="text-slate-900 dark:text-white block">{fg.fgItemName}</strong>
+                            {fg.sourceBreakdown && fg.sourceBreakdown.length > 1 ? (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {fg.sourceBreakdown.map((b: any, bIdx: number) => (
+                                  <span key={bIdx} className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200" title={b.customerName ? `${b.customerName}` : ''}>
+                                    {b.customerPoNumber}: {b.quantity} {fg.unit || 'PCS'}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : fg.customerPoNumber ? (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200">
+                                PO: {fg.customerPoNumber}
+                              </span>
+                            ) : null}
+                            {fg.customerName && (!fg.sourceBreakdown || fg.sourceBreakdown.length <= 1) && (
+                              <span className="text-[10px] text-slate-400 font-medium">({fg.customerName})</span>
+                            )}
+                          </div>
                           {fg.description && <span className="block text-[11px] text-slate-500 italic mt-0.5">{fg.description}</span>}
                         </td>
                         <td className="p-3 text-center font-mono text-[10px] text-slate-500">

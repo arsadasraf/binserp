@@ -101,7 +101,11 @@ export const getItemGRNHistory = async (req, res) => {
             material: id,
             quantity: tx.quantity,
             receivedQuantity: tx.quantity,
-            acceptedQuantity: tx.quantity
+            acceptedQuantity: tx.quantity,
+            hasSecondaryUnit: tx.hasSecondaryUnit || false,
+            secondaryUnit: tx.secondaryUnit || "",
+            secondaryQuantity: tx.secondaryQuantity || 0,
+            conversionFactor: tx.conversionFactor || 1,
           }]
         });
       }

@@ -25,11 +25,25 @@ export default function WipActionModal({
   const [reason, setReason] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
+  const unit = wipItem?.unit || "PCS";
+  const hasDualUnit = Boolean(wipItem?.hasSecondaryUnit && wipItem?.secondaryUnit && Number(wipItem?.conversionFactor) > 0);
+  const secondaryUnit = wipItem?.secondaryUnit || "";
+  const conversionFactor = Number(wipItem?.conversionFactor) || 1;
+  const [selectedUnit, setSelectedUnit] = useState<string>(unit);
+
   if (!isOpen || !wipItem) return null;
 
   const maxQty = Number(wipItem.shopfloorWipQty || wipItem.pendingWipQty || 0);
-  const unit = wipItem.unit || "PCS";
+  const maxSecondaryQty = hasDualUnit ? parseFloat((maxQty * conversionFactor).toFixed(4)) : 0;
   const isReturn = mode === "return";
+  const isSecondaryActive = hasDualUnit && selectedUnit === secondaryUnit;
+  const effectiveMax = isSecondaryActive ? maxSecondaryQty : maxQty;
+  const activeUnitLabel = isSecondaryActive ? secondaryUnit : unit;
+
+  const numInput = parseFloat(quantity) || 0;
+  const liveConverted = isSecondaryActive
+    ? (conversionFactor > 0 && numInput > 0 ? parseFloat((numInput / conversionFactor).toFixed(4)) : 0)
+    : (hasDualUnit && numInput > 0 ? parseFloat((numInput * conversionFactor).toFixed(4)) : 0);
 
   const returnPresets = [
     "Excess Material Issued",
@@ -58,8 +72,8 @@ export default function WipActionModal({
       return;
     }
 
-    if (numQty > maxQty) {
-      onError(`Quantity cannot exceed current shopfloor WIP balance (${maxQty} ${unit})`);
+    if (numQty > effectiveMax) {
+      onError(`Quantity cannot exceed current shopfloor WIP balance (${effectiveMax} ${activeUnitLabel})`);
       return;
     }
 
@@ -68,14 +82,30 @@ export default function WipActionModal({
       return;
     }
 
+    const finalPrimaryQty = isSecondaryActive
+      ? parseFloat((numQty / conversionFactor).toFixed(4))
+      : numQty;
+
+    const finalSecondaryQty = isSecondaryActive
+      ? numQty
+      : (hasDualUnit ? parseFloat((numQty * conversionFactor).toFixed(4)) : 0);
+
     try {
       setLoading(true);
       const endpoint = isReturn ? "/api/store/wip/return-to-store" : "/api/store/wip/scrap";
       const payload = {
         materialId: wipItem.id || wipItem._id,
+        materialName: wipItem.materialName || wipItem.name,
         materialType: wipItem.categoryType || (wipItem.materialCategory?.toLowerCase()) || (wipItem.type?.toLowerCase()) || "rm",
-        quantity: numQty,
+        quantity: finalPrimaryQty,
+        unit: unit,
+        hasSecondaryUnit: hasDualUnit,
+        secondaryUnit: secondaryUnit,
+        secondaryQuantity: finalSecondaryQty,
+        conversionFactor: conversionFactor,
         reason: reason.trim(),
+        remarks: reason.trim(),
+        scrapReason: reason.trim()
       };
 
       const res = await apiRequest(endpoint, {
@@ -160,6 +190,11 @@ export default function WipActionModal({
                 <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
                   {maxQty} {unit}
                 </span>
+                {hasDualUnit && (
+                  <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-mono">
+                    ≈ {maxSecondaryQty} {secondaryUnit}
+                  </span>
+                )}
               </div>
               <div>
                 <span className="text-slate-400 block text-[10px]">
@@ -172,18 +207,57 @@ export default function WipActionModal({
             </div>
           </div>
 
+          {/* Dual Unit Toggle if applicable */}
+          {hasDualUnit && (
+            <div className="flex items-center justify-between p-2.5 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-xl">
+              <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                Operating Unit:
+              </span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUnit(unit);
+                    setQuantity("");
+                  }}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    !isSecondaryActive
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white"
+                  }`}
+                >
+                  Primary ({unit})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUnit(secondaryUnit);
+                    setQuantity("");
+                  }}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    isSecondaryActive
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : "bg-white/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-white"
+                  }`}
+                >
+                  Secondary ({secondaryUnit})
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Quantity Input */}
           <div className="space-y-1.5">
             <div className="flex justify-between items-center">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                {isReturn ? "Return Quantity" : "Scrap Quantity"} ({unit}) <span className="text-red-500">*</span>
+                {isReturn ? "Return Quantity" : "Scrap Quantity"} ({activeUnitLabel}) <span className="text-red-500">*</span>
               </label>
               <button
                 type="button"
-                onClick={() => setQuantity(String(maxQty))}
+                onClick={() => setQuantity(String(effectiveMax))}
                 className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 cursor-pointer"
               >
-                Max ({maxQty} {unit})
+                Max ({effectiveMax} {activeUnitLabel})
               </button>
             </div>
             <div className="relative">
@@ -191,17 +265,22 @@ export default function WipActionModal({
                 type="number"
                 step="any"
                 min="0.0001"
-                max={maxQty}
+                max={effectiveMax}
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                placeholder={`0.00 (${unit})`}
+                placeholder={`0.00 (${activeUnitLabel})`}
                 required
                 className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
               />
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-400">
-                {unit}
+                {activeUnitLabel}
               </span>
             </div>
+            {hasDualUnit && numInput > 0 && (
+              <div className="text-[11px] text-amber-700 dark:text-amber-300 font-mono text-right">
+                ↳ Equivalent: <strong>{liveConverted} {isSecondaryActive ? unit : secondaryUnit}</strong>
+              </div>
+            )}
           </div>
 
           {/* Preset Buttons */}

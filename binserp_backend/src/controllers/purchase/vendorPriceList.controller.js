@@ -13,7 +13,7 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
   const VendorPriceList = req.getModel("VendorPriceList", vendorPriceListSchema);
   const companyId = getCompanyId(req);
 
-  const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred } = req.body;
+  const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred, pricingUnit, isSecondaryUnit } = req.body;
 
   if (!material) {
     throw new ApiError(400, "Material is required");
@@ -45,6 +45,8 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
     if (validUntil !== undefined) existingPriceList.validUntil = validUntil;
     if (remarks !== undefined) existingPriceList.remarks = remarks;
     if (isPreferred !== undefined) existingPriceList.isPreferred = Boolean(isPreferred);
+    if (pricingUnit !== undefined) existingPriceList.pricingUnit = pricingUnit;
+    if (isSecondaryUnit !== undefined) existingPriceList.isSecondaryUnit = Boolean(isSecondaryUnit);
     
     await existingPriceList.save();
     return res.status(200).json(new ApiResponse(200, existingPriceList, "Price List updated successfully"));
@@ -59,6 +61,8 @@ export const createVendorPriceList = asyncHandler(async (req, res) => {
     validFrom,
     validUntil,
     isPreferred: Boolean(isPreferred),
+    pricingUnit: pricingUnit || "",
+    isSecondaryUnit: Boolean(isSecondaryUnit),
     remarks,
     createdBy: req.user?.id || req.user?._id,
   });
@@ -96,16 +100,16 @@ export const getVendorPriceLists = asyncHandler(async (req, res) => {
     // Query separated collections in parallel
     const [rawMaterials, boughtOuts, consumables, rmBoItems] = await Promise.all([
       RawMaterial.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos')
+        .select('name code unit category descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
         .lean(),
       BoughtOut.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos')
+        .select('name code unit category descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
         .lean(),
       ConsumableItem.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos')
+        .select('name code unit category descriptions description specification photos hasSecondaryUnit secondaryUnit conversionFactor')
         .lean(),
       RmBoItem.find({ company: companyId, _id: { $in: validObjectIds } })
-        .select('name code unit category descriptions description specification photos itemType')
+        .select('name code unit category descriptions description specification photos itemType hasSecondaryUnit secondaryUnit conversionFactor')
         .lean()
     ]);
 
@@ -143,7 +147,7 @@ export const updateVendorPriceList = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const companyId = getCompanyId(req);
 
-  const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred } = req.body;
+  const { vendor, material, price, taxRate, validFrom, validUntil, remarks, isPreferred, pricingUnit, isSecondaryUnit } = req.body;
 
   const updateData = {};
   if (price !== undefined) updateData.price = Number(price);
@@ -158,6 +162,8 @@ export const updateVendorPriceList = asyncHandler(async (req, res) => {
   if (validUntil !== undefined) updateData.validUntil = validUntil;
   if (remarks !== undefined) updateData.remarks = remarks;
   if (isPreferred !== undefined) updateData.isPreferred = Boolean(isPreferred);
+  if (pricingUnit !== undefined) updateData.pricingUnit = pricingUnit;
+  if (isSecondaryUnit !== undefined) updateData.isSecondaryUnit = Boolean(isSecondaryUnit);
 
   if (updateData.isPreferred) {
     const existing = await VendorPriceList.findOne({ _id: id, company: companyId });

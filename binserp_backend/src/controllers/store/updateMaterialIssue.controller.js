@@ -116,7 +116,20 @@ export const updateMaterialIssue = async (req, res) => {
             req,
             materialId,
             -Number(item.quantity),
-            item.unit || "PCS"
+            item.unit || "PCS",
+            undefined,
+            {
+              itemType: materialIssue.type === 'consumable' ? 'Consumable' : (materialIssue.type === 'bo' ? 'BoughtOut' : 'RawMaterial'),
+              transactionCategory: materialIssue.type === 'consumable' ? 'MATERIAL_ISSUE_CONSUMABLE_OUTWARD' : 'MATERIAL_ISSUE_SHOPFLOOR_OUTWARD',
+              referenceDocType: "MaterialIssue",
+              referenceDocId: materialIssue._id,
+              referenceDocNumber: materialIssue.issueNumber,
+              recipientOrSource: `Shop Floor (${materialIssue.department || 'Store'})`,
+              hasSecondaryUnit: item.hasSecondaryUnit || false,
+              secondaryUnit: item.secondaryUnit || "",
+              secondaryQuantity: item.secondaryQuantity || 0,
+              conversionFactor: item.conversionFactor || 1,
+            }
           );
           
           try {
@@ -176,7 +189,20 @@ export const updateMaterialIssue = async (req, res) => {
             req,
             materialId,
             Number(item.quantity),
-            item.unit || "PCS"
+            item.unit || "PCS",
+            undefined,
+            {
+              itemType: materialIssue.type === 'consumable' ? 'Consumable' : (materialIssue.type === 'bo' ? 'BoughtOut' : 'RawMaterial'),
+              transactionCategory: "STOCK_ADJUSTMENT_INWARD",
+              referenceDocType: "MaterialIssue",
+              referenceDocId: materialIssue._id,
+              referenceDocNumber: materialIssue.issueNumber,
+              recipientOrSource: `Store (Reversal from ${materialIssue.department || 'Shop Floor'})`,
+              hasSecondaryUnit: item.hasSecondaryUnit || false,
+              secondaryUnit: item.secondaryUnit || "",
+              secondaryQuantity: item.secondaryQuantity || 0,
+              conversionFactor: item.conversionFactor || 1,
+            }
           );
           
           try {

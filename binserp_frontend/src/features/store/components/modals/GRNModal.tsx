@@ -37,6 +37,7 @@ interface MaterialEntry {
     material: string;
     materialName?: string;
     description?: string;
+    hsnCode?: string;
     quantity: number;
     unit?: string;
     category?: string;
@@ -70,10 +71,13 @@ export default function GRNModal({
     const safeCustomers = Array.isArray(customers) ? customers : [];
 
     // Form states
+    const [grnType, setGrnType] = useState<string>(type || 'rm');
     const [grnNumber, setGrnNumber] = useState('');
     const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
     const [supplier, setSupplier] = useState('');
     const [customer, setCustomer] = useState('');
+    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [poNumber, setPoNumber] = useState('');
     const [poReference, setPoReference] = useState('');
     const [selectedPO, setSelectedPO] = useState('');
     const [vendorActivePOs, setVendorActivePOs] = useState<any[]>([]);
@@ -109,6 +113,30 @@ export default function GRNModal({
     const [quickMasterTargetIndex, setQuickMasterTargetIndex] = useState<number | null>(null);
     const [localExtraMaterials, setLocalExtraMaterials] = useState<any[]>([]);
 
+    const [companyInfo, setCompanyInfo] = useState<any>(null);
+
+    useEffect(() => {
+        try {
+            const cached = localStorage.getItem("storeCompanyInfo") || localStorage.getItem("companyInfo");
+            if (cached) setCompanyInfo(JSON.parse(cached));
+        } catch (e) {}
+
+        const token = typeof window !== 'undefined' ? localStorage.getItem("token") : null;
+        if (token) {
+            fetch(`${API_BASE_URL}/api/store/company-info`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data && (data.companyName || data.name)) {
+                    setCompanyInfo(data);
+                    try { localStorage.setItem("storeCompanyInfo", JSON.stringify(data)); } catch (e) {}
+                }
+            })
+            .catch(() => {});
+        }
+    }, []);
+
     const clearError = (fieldKey: string) => {
         setFormErrors(prev => {
             if (!prev[fieldKey]) return prev;
@@ -122,6 +150,7 @@ export default function GRNModal({
         material: '',
         materialName: '',
         description: '',
+        hsnCode: '',
         quantity: 0,
         unit: '',
         category: '',
@@ -198,15 +227,31 @@ export default function GRNModal({
         return `${prefix}/${year}${month}${day}-${hours}${minutes}${seconds}`;
     };
 
+    const handleSwitchType = (newType: string) => {
+        setGrnType(newType);
+        let activePrefix = prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM';
+        if (newType === 'inhouse' || newType === 'fg') {
+            activePrefix = prefixSettings?.fgGrnPrefix || 'GRN-FG';
+        } else if (newType === 'bo') {
+            activePrefix = prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-BO';
+        } else if (newType === 'consumable') {
+            activePrefix = (prefixSettings as any)?.consumablePrefix || 'GRN-CON';
+        }
+        setGrnNumber(generateGRNNumber(newType, activePrefix));
+    };
+
     // Initialize form when modal opens
     useEffect(() => {
         if (isOpen) {
+            const resolvedType = initialData?.type || type || 'rm';
+            setGrnType(resolvedType);
+
             let activePrefix = prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-RM';
-            if (type === 'inhouse' || type === 'fg') {
+            if (resolvedType === 'inhouse' || resolvedType === 'fg') {
                 activePrefix = prefixSettings?.fgGrnPrefix || 'GRN-FG';
-            } else if (type === 'bo') {
+            } else if (resolvedType === 'bo') {
                 activePrefix = prefixSettings?.rmBoGrnPrefix || prefixSettings?.grnPrefix || 'GRN-BO';
-            } else if (type === 'consumable') {
+            } else if (resolvedType === 'consumable') {
                 activePrefix = (prefixSettings as any)?.consumablePrefix || 'GRN-CON';
             }
 
@@ -218,7 +263,9 @@ export default function GRNModal({
                 setDate(initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : '');
                 setSupplier(typeof (initialData as any).supplier === 'object' && (initialData as any).supplier !== null ? ((initialData as any).supplier as any)._id : ((initialData as any).supplier || ''));
                 setCustomer((initialData as any).customerId || (initialData as any).customer || '');
-                setPoReference((initialData as any).poReference || (initialData as any).poNumber || '');
+                setInvoiceNumber((initialData as any).invoiceNumber || (initialData as any).invoiceNo || '');
+                setPoNumber((initialData as any).poNumber || (initialData as any).poReference || '');
+                setPoReference((initialData as any).invoiceNumber || (initialData as any).poReference || (initialData as any).poNumber || '');
                 setSelectedPO((initialData as any).purchaseOrder || '');
                 setMrpPlan((initialData as any).mrpPlan || '');
                 setMrpNumber((initialData as any).mrpNumber || '');
@@ -232,6 +279,7 @@ export default function GRNModal({
                         const mObj = item.material || item.component || item.fgItem;
                         const matId = typeof mObj === 'object' && mObj !== null ? mObj._id : (mObj || '');
                         const desc = item.description || item.descriptions || (typeof mObj === 'object' ? (mObj.descriptions || mObj.description) : '');
+                        const hsn = item.hsnCode || (typeof mObj === 'object' ? (mObj.hsnCode || mObj.hsn) : '') || '';
                         const hasSec = Boolean(item.hasSecondaryUnit ?? (typeof mObj === 'object' ? mObj?.hasSecondaryUnit : false));
                         const secUnit = item.secondaryUnit || (typeof mObj === 'object' ? mObj?.secondaryUnit : '') || '';
                         const convFactor = Number(item.conversionFactor ?? (typeof mObj === 'object' ? mObj?.conversionFactor : 0)) || 0;
@@ -244,6 +292,7 @@ export default function GRNModal({
                             material: matId,
                             materialName: item.materialName || (typeof mObj === 'object' ? mObj.name : '') || '',
                             description: desc || '',
+                            hsnCode: hsn,
                             quantity: priQty,
                             unit: item.unit || '',
                             category: item.category || '',
@@ -261,10 +310,12 @@ export default function GRNModal({
                     setMaterialEntries(entries);
                 }
             } else {
-                setGrnNumber(generateGRNNumber(type, activePrefix));
+                setGrnNumber(generateGRNNumber(resolvedType, activePrefix));
                 setDate(new Date().toISOString().split('T')[0]);
                 setSupplier('');
                 setCustomer('');
+                setInvoiceNumber('');
+                setPoNumber('');
                 setPoReference('');
                 setSelectedPO('');
                 setMrpPlan('');
@@ -282,6 +333,7 @@ export default function GRNModal({
                     material: '',
                     materialName: '',
                     description: '',
+                    hsnCode: '',
                     quantity: 0,
                     unit: '',
                     category: '',
@@ -302,7 +354,7 @@ export default function GRNModal({
     // Fetch active Outward POs released from Purchase tab when supplier changes (RM, BO, Consumables)
     useEffect(() => {
         const supplierId = typeof supplier === 'object' ? (supplier as any)?._id : supplier;
-        if (supplierId && type !== 'inhouse' && type !== 'fg') {
+        if (supplierId && grnType !== 'inhouse' && grnType !== 'fg') {
             setLoadingPOs(true);
             const fetchPOs = async () => {
                 try {
@@ -329,11 +381,11 @@ export default function GRNModal({
             setSelectedPO('');
             setPoLinkedNotice(null);
         }
-    }, [supplier, type]);
+    }, [supplier, grnType]);
 
     // Fetch active MRP plans for InHouse / FG GRN
     useEffect(() => {
-        if (isOpen && (type === 'inhouse' || type === 'fg')) {
+        if (isOpen && (grnType === 'inhouse' || grnType === 'fg')) {
             const token = localStorage.getItem('token');
             if (token) {
                 apiGet('/api/purchase/mrp/plans', token)
@@ -341,7 +393,7 @@ export default function GRNModal({
                     .catch(err => console.error("Failed to load MRP plans for FG GRN:", err));
             }
         }
-    }, [isOpen, type]);
+    }, [isOpen, grnType]);
 
     // Format material options with descriptions for SearchableSelect
     const materialOptions = useMemo(() => {
@@ -413,6 +465,7 @@ export default function GRNModal({
                 material: String(newItem._id),
                 materialName: newItem.name,
                 description: newItem.descriptions || newItem.description || '',
+                hsnCode: newItem.hsnCode || newItem.hsn || '',
                 unit: newItem.unit || 'PCS',
                 selectedUnit: newItem.unit || 'PCS',
                 category: typeof newItem.categoryId === 'object' ? newItem.categoryId?.name : (newItem.category || ''),
@@ -433,6 +486,7 @@ export default function GRNModal({
     const handleSelectPO = (poId: string) => {
         setSelectedPO(poId);
         if (!poId) {
+            setPoNumber('');
             setPoReference('');
             setPoLinkedNotice(null);
             return;
@@ -441,6 +495,7 @@ export default function GRNModal({
         const foundPO = vendorActivePOs.find(p => p._id === poId);
         if (!foundPO) return;
 
+        setPoNumber(foundPO.poNumber || '');
         setPoReference(foundPO.poNumber || '');
 
         // Set global tax rate if present on PO
@@ -459,7 +514,8 @@ export default function GRNModal({
                 pendingQuantity: foundPO.pendingQuantity,
                 unit: foundPO.unit,
                 rate: foundPO.rate,
-                category: foundPO.category
+                category: foundPO.category,
+                hsnCode: foundPO.hsnCode
             }] : []);
 
         if (poItemsList.length > 0) {
@@ -485,6 +541,10 @@ export default function GRNModal({
                 const desc = poItem.description || poItem.descriptions || 
                     (typeof materialObj === 'object' && materialObj !== null ? (materialObj.descriptions || materialObj.description) : '') ||
                     (matchedSafeMat?.descriptions || matchedSafeMat?.description || '');
+
+                const hsn = poItem.hsnCode || 
+                    (typeof materialObj === 'object' && materialObj !== null ? (materialObj.hsnCode || materialObj.hsn) : '') ||
+                    (matchedSafeMat?.hsnCode || '');
 
                 let unit = poItem.unit || (typeof materialObj === 'object' && materialObj !== null ? materialObj.unit : '') || matchedSafeMat?.unit || '';
                 if (!unit && matchedSafeMat?.categoryId && typeof matchedSafeMat.categoryId === 'object') {
@@ -527,6 +587,7 @@ export default function GRNModal({
                     material: matId,
                     materialName: matName || 'Material Item',
                     description: desc || '',
+                    hsnCode: hsn || '',
                     quantity: finalPriQty,
                     unit: unit || 'PCS',
                     category: category || '',
@@ -577,6 +638,7 @@ export default function GRNModal({
                 const fgId = typeof fgObj === 'object' && fgObj !== null ? fgObj._id : (fgObj || mrpItem.material || mrpItem._id || '');
                 const fgName = typeof fgObj === 'object' && fgObj !== null ? (fgObj.name || fgObj.fgItemName) : (mrpItem.fgItemName || mrpItem.productName || mrpItem.name || '');
                 const desc = mrpItem.description || (typeof fgObj === 'object' ? (fgObj.descriptions || fgObj.description) : '') || '';
+                const hsn = (typeof fgObj === 'object' && fgObj !== null ? (fgObj.hsnCode || fgObj.hsn) : '') || mrpItem.hsnCode || '';
                 const unit = mrpItem.unit || (typeof fgObj === 'object' ? fgObj?.unit : 'PCS') || 'PCS';
                 const plannedQty = Number(mrpItem.quantity) || Number(mrpItem.plannedQuantity) || 0;
                 const receivedQty = Number(mrpItem.receivedQuantity) || 0;
@@ -596,6 +658,7 @@ export default function GRNModal({
                     material: fgId,
                     materialName: fgName,
                     description: desc,
+                    hsnCode: hsn || '',
                     quantity: finalPriQty,
                     unit: unit,
                     category: 'Finished Goods',
@@ -621,6 +684,7 @@ export default function GRNModal({
             material: '',
             materialName: '',
             description: '',
+            hsnCode: '',
             quantity: 0,
             unit: '',
             category: '',
@@ -661,6 +725,7 @@ export default function GRNModal({
                 if (selectedMaterial) {
                     updated[index].materialName = selectedMaterial.name;
                     updated[index].description = (selectedMaterial as any).descriptions || (selectedMaterial as any).description || '';
+                    updated[index].hsnCode = (selectedMaterial as any).hsnCode || (selectedMaterial as any).hsn || '';
 
                     let unitVal = (selectedMaterial as any).unit || '';
                     if (!unitVal && selectedMaterial.category && typeof selectedMaterial.category === 'object') {
@@ -698,6 +763,16 @@ export default function GRNModal({
                     updated[index].secondaryCurrentStock = secStock;
                     updated[index].secondaryQuantity = secQty;
                     updated[index].selectedUnit = unitVal || 'PCS';
+
+                    // If creating new GRN and choosing first item, auto-align type with itemType if mismatched
+                    if (!isEditing && prev.length === 1) {
+                        const matItemType = ((selectedMaterial as any).itemType || '').toLowerCase();
+                        if (matItemType.includes('bought') && grnType === 'rm') {
+                            handleSwitchType('bo');
+                        } else if (matItemType.includes('raw') && grnType === 'bo') {
+                            handleSwitchType('rm');
+                        }
+                    }
                 }
             } else if (field === 'quantity') {
                 const pVal = Number(value) || 0;
@@ -765,11 +840,11 @@ export default function GRNModal({
         }
 
         const supplierId = typeof supplier === 'object' ? (supplier as any)?._id : supplier;
-        if (type !== 'inhouse' && type !== 'fg' && !supplierId) {
+        if (grnType !== 'inhouse' && grnType !== 'fg' && !supplierId) {
             errors.supplier = "Supplier / Vendor is required";
         }
 
-        if ((type === 'inhouse' || type === 'fg') && isMrpRequired && !mrpPlan) {
+        if ((grnType === 'inhouse' || grnType === 'fg') && isMrpRequired && !mrpPlan) {
             errors.mrpPlan = "Please select an Open Production MRP Plan";
         }
 
@@ -818,6 +893,7 @@ export default function GRNModal({
                 materialName: entry.materialName || 'Material Item',
                 description: entry.description || '',
                 descriptions: entry.description || '',
+                hsnCode: entry.hsnCode || '',
                 quantity: priQty,
                 unit: entry.unit || 'PCS',
                 hasSecondaryUnit: hasSec,
@@ -835,11 +911,11 @@ export default function GRNModal({
         const formData = new FormData();
         formData.append('grnNumber', grnNumber);
         formData.append('date', date);
-        formData.append('type', type);
+        formData.append('type', grnType);
         formData.append('qcRequired', String(qcRequired));
         formData.append('items', JSON.stringify(items));
 
-        const isCommercialGRN = type !== 'inhouse' && type !== 'fg';
+        const isCommercialGRN = grnType !== 'inhouse' && grnType !== 'fg';
         const subtotalCalc = items.reduce((sum, it) => sum + (it.quantity * (it.rate || 0)), 0);
         const taxRateToSave = isCommercialGRN ? Number(globalTaxRate) || 0 : 0;
         const taxAmountCalc = (subtotalCalc * taxRateToSave) / 100;
@@ -850,10 +926,12 @@ export default function GRNModal({
         formData.append('taxAmount', String(taxAmountCalc));
         formData.append('totalAmount', String(totalAmountCalc));
 
-        if (type !== 'inhouse' && type !== 'fg') {
+        if (grnType !== 'inhouse' && grnType !== 'fg') {
             formData.append('supplier', supplierId);
             if (selectedPO) formData.append('purchaseOrder', selectedPO);
-            if (poReference) formData.append('poReference', poReference);
+            if (invoiceNumber) formData.append('invoiceNumber', invoiceNumber);
+            if (poNumber) formData.append('poNumber', poNumber);
+            formData.append('poReference', invoiceNumber || poNumber || poReference || '');
             if (pdfFile) formData.append('pdf', pdfFile);
             photoFiles.forEach(photo => formData.append('photos', photo));
             if (isEditing) formData.append('existingPhotos', JSON.stringify(existingPhotos));
@@ -876,7 +954,9 @@ export default function GRNModal({
                 type,
                 supplierName: supplierObj?.name,
                 customerName: customerObj?.name,
-                poReference: poReference || selectedPO,
+                invoiceNumber: invoiceNumber || '',
+                poNumber: poNumber || '',
+                poReference: invoiceNumber || poNumber || poReference || selectedPO,
                 items,
                 photos: [...existingPhotos, ...localPhotoUrls],
                 pdfName: pdfFile?.name,
@@ -894,7 +974,7 @@ export default function GRNModal({
     };
 
     // Calculate totals
-    const isCommercialGRN = type !== 'inhouse' && type !== 'fg';
+    const isCommercialGRN = grnType !== 'inhouse' && grnType !== 'fg';
     const totalItemsCount = materialEntries.filter(m => m.material).length;
     const totalQuantity = materialEntries.reduce((sum, m) => sum + (Number(m.quantity) || 0), 0);
     const subtotal = materialEntries.reduce((sum, m) => sum + ((Number(m.quantity) || 0) * (Number(m.rate) || 0)), 0);
@@ -902,18 +982,18 @@ export default function GRNModal({
     const grandTotalWithTax = subtotal + taxAmount;
 
     const theme = {
-        title: type === 'inhouse' || type === 'fg' 
+        title: grnType === 'inhouse' || grnType === 'fg' 
             ? 'Finished Goods / In-House GRN' 
-            : (type === 'consumable' ? 'Consumable Items GRN' : (type === 'bo' ? 'Bought Out (BO) GRN' : 'Raw Material (RM) GRN')),
-        badgeBg: type === 'inhouse' || type === 'fg' 
+            : (grnType === 'consumable' ? 'Consumable Items GRN' : (grnType === 'bo' ? 'Bought Out (BO) GRN' : 'Raw Material (RM) GRN')),
+        badgeBg: grnType === 'inhouse' || grnType === 'fg' 
             ? 'bg-purple-100 text-purple-800' 
-            : (type === 'consumable' ? 'bg-amber-100 text-amber-800' : (type === 'bo' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800')),
-        itemLabel: type === 'inhouse' || type === 'fg' 
+            : (grnType === 'consumable' ? 'bg-amber-100 text-amber-800' : (grnType === 'bo' ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800')),
+        itemLabel: grnType === 'inhouse' || grnType === 'fg' 
             ? 'Finished Good' 
-            : (type === 'consumable' ? 'Consumable Material' : (type === 'bo' ? 'Bought Out Item' : 'Raw Material')),
-        buttonBg: type === 'inhouse' || type === 'fg' 
+            : (grnType === 'consumable' ? 'Consumable Material' : (grnType === 'bo' ? 'Bought Out Item' : 'Raw Material')),
+        buttonBg: grnType === 'inhouse' || grnType === 'fg' 
             ? 'bg-purple-600 hover:bg-purple-700' 
-            : (type === 'consumable' ? 'bg-amber-600 hover:bg-amber-700' : (type === 'bo' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'))
+            : (grnType === 'consumable' ? 'bg-amber-600 hover:bg-amber-700' : (grnType === 'bo' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-600 hover:bg-blue-700'))
     };
 
     if (!isOpen) return null;
@@ -1071,7 +1151,7 @@ export default function GRNModal({
                         <div className="flex items-center gap-2">
                             <button
                                 type="button"
-                                onClick={() => generateFrontendGrnPDF({ grn: createdGRNData })}
+                                onClick={() => generateFrontendGrnPDF({ grn: createdGRNData, companyInfo })}
                                 className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
                             >
                                 <Download size={14} />
@@ -1116,7 +1196,7 @@ export default function GRNModal({
             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
                 
                 {/* Thin, Sleek Modal Header */}
-                <div className="px-4 sm:px-5 py-3 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
+                <div className="px-4 sm:px-5 py-3 bg-slate-900 text-white flex flex-wrap justify-between items-center gap-3 flex-shrink-0 border-b border-slate-800">
                     <div className="flex items-center gap-2 sm:gap-3">
                         <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
                             <Upload className="w-4 h-4" />
@@ -1125,11 +1205,35 @@ export default function GRNModal({
                             <h2 className="text-sm sm:text-base font-black tracking-tight flex items-center gap-2">
                                 <span>{isEditing ? `Edit ${theme.title}` : `New ${theme.title}`}</span>
                                 <span className="bg-indigo-900/80 text-indigo-200 border border-indigo-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">
-                                    {type.toUpperCase()}
+                                    {grnType.toUpperCase()}
                                 </span>
                             </h2>
                         </div>
                     </div>
+
+                    {!isEditing && (
+                        <div className="flex items-center gap-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700/80">
+                            {[
+                                { id: 'rm', label: 'Raw Material (RM)', activeClass: 'bg-blue-600 text-white' },
+                                { id: 'bo', label: 'Bought Out (BO)', activeClass: 'bg-emerald-600 text-white' },
+                                { id: 'consumable', label: 'Consumable', activeClass: 'bg-amber-600 text-white' },
+                                { id: 'inhouse', label: 'Finished Goods (FG)', activeClass: 'bg-purple-600 text-white' },
+                            ].map((t) => (
+                                <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => handleSwitchType(t.id)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                        grnType === t.id
+                                            ? `${t.activeClass} shadow-sm`
+                                            : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+                                    }`}
+                                >
+                                    {t.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
 
                     <button
                         onClick={onClose}
@@ -1196,7 +1300,7 @@ export default function GRNModal({
                             </div>
 
                             {/* Supplier for RM, BO, Consumable */}
-                            {type !== 'inhouse' && type !== 'fg' && (
+                            {grnType !== 'inhouse' && grnType !== 'fg' && (
                                 <div className="sm:col-span-2 lg:col-span-1" data-has-error={!!formErrors.supplier}>
                                     <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
                                         <span>Supplier / Vendor <span className="text-red-500">*</span></span>
@@ -1223,7 +1327,7 @@ export default function GRNModal({
                             )}
 
                             {/* For FG / InHouse GRN: Simple MRP Compulsory Toggle & Simple QC Check Toggle */}
-                            {(type === 'inhouse' || type === 'fg') && (
+                            {(grnType === 'inhouse' || grnType === 'fg') && (
                                 <>
                                     {/* Simple MRP Compulsory Toggle */}
                                     <div className="flex flex-col justify-center">
@@ -1338,17 +1442,45 @@ export default function GRNModal({
                                 </div>
                             )}
 
-                            {/* Manual PO / Invoice Ref */}
+                            {/* PO Number */}
                             {type !== 'inhouse' && type !== 'fg' && (
                                 <div>
-                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                        PO / Invoice Ref No.
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                                        <span>PO Number</span>
+                                        {selectedPO && <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">Linked</span>}
                                     </label>
                                     <input
                                         type="text"
-                                        value={poReference}
-                                        onChange={(e) => setPoReference(e.target.value)}
-                                        placeholder="Manual / Offline Ref"
+                                        value={poNumber}
+                                        onChange={(e) => {
+                                            setPoNumber(e.target.value);
+                                            setPoReference(e.target.value);
+                                        }}
+                                        readOnly={!!selectedPO}
+                                        placeholder={selectedPO ? "From selected PO" : "Direct / Offline PO"}
+                                        className={`w-full h-9 px-2.5 border rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 ${
+                                            selectedPO 
+                                                ? 'bg-indigo-50/50 dark:bg-indigo-950/30 border-indigo-200 dark:border-indigo-800 text-indigo-950 dark:text-indigo-200 font-semibold cursor-not-allowed'
+                                                : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700'
+                                        }`}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Invoice Number */}
+                            {type !== 'inhouse' && type !== 'fg' && (
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                        Invoice Number
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={invoiceNumber}
+                                        onChange={(e) => {
+                                            setInvoiceNumber(e.target.value);
+                                            if (!poNumber) setPoReference(e.target.value);
+                                        }}
+                                        placeholder="e.g. INV-2024-001"
                                         className="w-full h-9 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500"
                                     />
                                 </div>
@@ -1562,7 +1694,8 @@ export default function GRNModal({
                                 <thead>
                                     <tr className="bg-slate-100/75 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">
                                         <th className="py-2.5 px-3 w-12 text-center shrink-0">#</th>
-                                        <th className="py-2.5 px-3 min-w-[320px] lg:min-w-[420px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-3 min-w-[260px] lg:min-w-[340px]">{theme.itemLabel} & Description <span className="text-red-500">*</span></th>
+                                        <th className="py-2.5 px-2.5 w-28 lg:w-32 text-center shrink-0">HSN/SAC</th>
                                         <th className="py-2.5 px-3 w-32 lg:w-36 shrink-0">Qty Received <span className="text-red-500">*</span></th>
                                         <th className="py-2.5 px-3 w-28 lg:w-32 text-center shrink-0">Unit & Stock</th>
                                         <th className="py-2.5 px-3 w-32 lg:w-36 shrink-0">Rate (₹)</th>
@@ -1621,6 +1754,15 @@ export default function GRNModal({
                                                             <span className="truncate italic">{entry.description}</span>
                                                         </div>
                                                     )}
+                                                </td>
+                                                <td className="py-2 px-2.5 w-28 lg:w-32 shrink-0">
+                                                    <input
+                                                        type="text"
+                                                        value={entry.hsnCode || ''}
+                                                        onChange={(e) => handleMaterialChange(index, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN Code"
+                                                        className="w-full h-9 px-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono text-center focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
+                                                    />
                                                 </td>
                                                 <td className="py-2 px-3 w-32 lg:w-36 shrink-0" data-has-error={hasQuantityError}>
                                                     <div className="space-y-1">
@@ -1820,6 +1962,20 @@ export default function GRNModal({
                                                     📝 {entry.description}
                                                 </div>
                                             )}
+                                        </div>
+
+                                        {/* HSN/SAC Code */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold uppercase text-slate-500 mb-1">
+                                                HSN/SAC Code
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={entry.hsnCode || ''}
+                                                onChange={(e) => handleMaterialChange(index, 'hsnCode', e.target.value)}
+                                                placeholder="HSN Code"
+                                                className="w-full h-8 px-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs font-mono text-center outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 dark:text-slate-200"
+                                            />
                                         </div>
 
                                         {/* Qty, Unit & Rate Grid */}

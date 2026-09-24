@@ -4,10 +4,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     X, Plus, Trash2, Package, User, Calendar, Hash, FileText, 
     Truck, Box, Calculator, Layers, Sparkles, ChevronDown, Check, ArrowRight, ShieldCheck, Info, Percent,
-    Search, Copy, AlertCircle, ArrowUpRight
+    Search, Copy, AlertCircle, ArrowUpRight, PackagePlus
 } from 'lucide-react';
 import { POModalProps } from "@/src/features/store/types/store.types";
 import SearchableSelect from '../SearchableSelect';
+import QuickItemMasterModal from './QuickItemMasterModal';
+import QuickVendorMasterModal from './QuickVendorMasterModal';
 import { apiGet } from '@/src/lib/api';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
@@ -101,6 +103,20 @@ export default function POModal({
     const [validationErrorList, setValidationErrorList] = useState<string[]>([]);
     const [firstErrorRowIndex, setFirstErrorRowIndex] = useState<number | null>(null);
 
+    // Quick Item Master Modal state
+    const [isQuickItemModalOpen, setIsQuickItemModalOpen] = useState(false);
+    const [quickItemInitialName, setQuickItemInitialName] = useState('');
+    const [quickItemTargetIndex, setQuickItemTargetIndex] = useState<number | null>(null);
+
+    // Quick Vendor Master Modal state
+    const [isQuickVendorModalOpen, setIsQuickVendorModalOpen] = useState(false);
+    const [quickVendorInitialName, setQuickVendorInitialName] = useState('');
+    const [localExtraVendors, setLocalExtraVendors] = useState<any[]>([]);
+
+    // Categories & locations for QuickItemMasterModal
+    const [categoriesList, setCategoriesList] = useState<any[]>([]);
+    const [locationsList, setLocationsList] = useState<any[]>([]);
+
     // Steel RM Weight Calculator state
     const [showSteelCalc, setShowSteelCalc] = useState(false);
     const [steelCalc, setSteelCalc] = useState<SteelCalcState>({
@@ -142,12 +158,16 @@ export default function POModal({
                 apiGet('/api/store/consumable-item', token).catch(() => []),
                 apiGet('/api/purchase/price-list', token).catch(() => ({ data: [] })),
                 apiGet('/api/store/prefix', token).catch(() => null),
-            ]).then(([rmRes, boRes, conRes, plRes, prefixRes]) => {
+                apiGet('/api/store/category', token).catch(() => []),
+                apiGet('/api/store/location', token).catch(() => []),
+            ]).then(([rmRes, boRes, conRes, plRes, prefixRes, catRes, locRes]) => {
                 setRawMaterialsList(Array.isArray(rmRes) ? rmRes : (rmRes?.rawMaterials || []));
                 setBoughtOutsList(Array.isArray(boRes) ? boRes : (boRes?.boughtOuts || []));
                 setConsumablesList(Array.isArray(conRes) ? conRes : (conRes?.consumables || conRes?.consumableItems || []));
                 const pl = Array.isArray(plRes?.data) ? plRes.data : (Array.isArray(plRes) ? plRes : []);
                 setFetchedPriceLists(pl);
+                setCategoriesList(Array.isArray(catRes) ? catRes : (catRes?.categories || []));
+                setLocationsList(Array.isArray(locRes) ? locRes : (locRes?.locations || []));
 
                 // If not editing an existing PO, generate fresh PO number using outward prefix setting
                 if (!initialData || !initialData.poNumber) {
@@ -310,12 +330,27 @@ export default function POModal({
         })));
     };
 
+    // Combined vendor list including on-the-fly created vendors
+    const allVendors = useMemo(() => {
+        const combined = [...(vendors || []), ...localExtraVendors];
+        const unique: any[] = [];
+        const seen = new Set<string>();
+        combined.forEach(v => {
+            const id = (v._id || v.id)?.toString();
+            if (id && !seen.has(id)) {
+                seen.add(id);
+                unique.push(v);
+            }
+        });
+        return unique;
+    }, [vendors, localExtraVendors]);
+
     // Vendor options
     const vendorOptions = useMemo(() => {
         const list: any[] = [];
         const seen = new Set<string>();
-        (vendors || []).forEach((v: any) => {
-            const val = v._id || v.id;
+        allVendors.forEach((v: any) => {
+            const val = (v._id || v.id)?.toString();
             const name = v.name || v.companyName || 'Vendor';
             const city = v.city || (v.address ? v.address.split(',')[0] : '');
             const label = city ? `${name} (${city})` : name;
@@ -325,7 +360,80 @@ export default function POModal({
             }
         });
         return list;
-    }, [vendors]);
+    }, [allVendors]);
+
+    // Open Quick Vendor Master Modal
+    const handleOpenQuickVendorModal = (initialName: string = '') => {
+        setQuickVendorInitialName(initialName);
+        setIsQuickVendorModalOpen(true);
+    };
+
+    // Callback when vendor is created via QuickVendorMasterModal
+    const handleQuickVendorCreated = (newVendor: any) => {
+        if (!newVendor || !newVendor._id) return;
+        setLocalExtraVendors(prev => {
+            const exists = prev.some(v => String(v._id) === String(newVendor._id));
+            return exists ? prev : [...prev, newVendor];
+        });
+        setVendor(String(newVendor._id));
+        setVendorName(newVendor.name || '');
+    };
+
+    // Open Quick Item Master Modal
+    const handleOpenQuickItemMasterModal = (initialName: string = '', targetIndex: number | null = null) => {
+        setQuickItemInitialName(initialName);
+        setQuickItemTargetIndex(targetIndex !== null ? targetIndex : materialEntries.length - 1);
+        setIsQuickItemModalOpen(true);
+    };
+
+    // Callback when item is created via QuickItemMasterModal
+    const handleQuickItemCreated = (newItem: any) => {
+        if (!newItem || !newItem._id) return;
+
+        // 1. Add to corresponding active material list
+        if (poCategory === 'rm') {
+            setRawMaterialsList(prev => {
+                const exists = prev.some(m => String(m._id) === String(newItem._id));
+                return exists ? prev : [...prev, newItem];
+            });
+        } else if (poCategory === 'bo') {
+            setBoughtOutsList(prev => {
+                const exists = prev.some(m => String(m._id) === String(newItem._id));
+                return exists ? prev : [...prev, newItem];
+            });
+        } else if (poCategory === 'consumable') {
+            setConsumablesList(prev => {
+                const exists = prev.some(m => String(m._id) === String(newItem._id));
+                return exists ? prev : [...prev, newItem];
+            });
+        }
+
+        // 2. Populate into target row
+        const targetIdx = quickItemTargetIndex !== null && quickItemTargetIndex >= 0 && quickItemTargetIndex < materialEntries.length
+            ? quickItemTargetIndex
+            : materialEntries.length - 1;
+
+        setMaterialEntries(prev => {
+            const copy = [...prev];
+            const current = copy[targetIdx] || {};
+            const qty = Number(current.quantity) || 0;
+            const rate = Number(current.rate) || 0;
+            const lineSub = qty * rate;
+
+            copy[targetIdx] = {
+                ...current,
+                itemType: poCategory,
+                material: String(newItem._id),
+                materialName: newItem.name || current.materialName || '',
+                description: newItem.descriptions || newItem.description || current.description || '',
+                hsnCode: newItem.hsnCode || current.hsnCode || '',
+                unit: newItem.unit || current.unit || (poCategory === 'rm' ? 'KG' : 'PCS'),
+                category: typeof newItem.categoryId === 'object' ? newItem.categoryId?.name : (newItem.category || current.category || ''),
+                amount: lineSub,
+            };
+            return copy;
+        });
+    };
 
     // Material Dropdown Options: Show Material Name with Description (No code)
     const rmOptions = useMemo(() => {
@@ -754,6 +862,7 @@ export default function POModal({
     if (!isOpen) return null;
 
     return (
+        <>
         <div className="fixed inset-0 z-50 flex items-center justify-center p-1 sm:p-3 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-[98vw] max-w-[1750px] max-h-[97vh] flex flex-col overflow-hidden border border-slate-200 dark:border-slate-800">
                 
@@ -909,22 +1018,48 @@ export default function POModal({
                             </div>
 
                             <div className="sm:col-span-2">
-                                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
-                                    <User size={13} className="text-cyan-600" />
-                                    Vendor / Supplier <span className="text-rose-500">*</span>
-                                </label>
-                                <SearchableSelect
-                                    options={vendorOptions}
-                                    value={vendor}
-                                    displayLabel={vendorName || undefined}
-                                    onChange={(val: any) => {
-                                        setVendor(val);
-                                        const found = vendorOptions.find(o => o.value === val);
-                                        if (found) setVendorName(found.label);
-                                    }}
-                                    hasError={hasAttemptedSubmit && !vendor}
-                                    placeholder="Search and Select Vendor / Supplier..."
-                                />
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                        <User size={13} className="text-cyan-600" />
+                                        <span>Vendor / Supplier</span>
+                                        <span className="text-rose-500">*</span>
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleOpenQuickVendorModal()}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-md text-[11px] font-bold shadow-xs transition-colors cursor-pointer"
+                                        title="Vendor not in master? Click to register a new vendor master on the fly"
+                                    >
+                                        <Plus className="w-3 h-3" />
+                                        <span>+ Add Vendor</span>
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                    <div className="flex-1">
+                                        <SearchableSelect
+                                            options={vendorOptions}
+                                            value={vendor}
+                                            displayLabel={vendorName || undefined}
+                                            allowCustom={true}
+                                            onCreateCustom={(typedQuery) => handleOpenQuickVendorModal(typedQuery)}
+                                            onChange={(val: any) => {
+                                                setVendor(val);
+                                                const found = vendorOptions.find(o => o.value === val);
+                                                if (found) setVendorName(found.label);
+                                            }}
+                                            hasError={hasAttemptedSubmit && !vendor}
+                                            placeholder="Search and Select Vendor / Supplier..."
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleOpenQuickVendorModal()}
+                                        className="p-2 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 dark:hover:bg-cyan-900/60 rounded-xl border border-cyan-200 dark:border-cyan-800 transition-colors shrink-0 cursor-pointer"
+                                        title="Add new Vendor to Master"
+                                    >
+                                        <Plus size={15} />
+                                    </button>
+                                </div>
                                 {hasAttemptedSubmit && !vendor && (
                                     <p className="text-[11px] font-semibold text-rose-600 mt-1">Please select a vendor / supplier.</p>
                                 )}
@@ -968,6 +1103,17 @@ export default function POModal({
                                         </button>
                                     )}
                                 </div>
+
+                                {/* On-the-fly Master Item Creation Button */}
+                                <button
+                                    type="button"
+                                    onClick={() => handleOpenQuickItemMasterModal()}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                    title="Item not in master? Click to register a new master item on the fly"
+                                >
+                                    <PackagePlus className="w-3.5 h-3.5" />
+                                    <span>+ Add New Master Item</span>
+                                </button>
 
                                 {poCategory === 'rm' && (
                                     <button
@@ -1184,13 +1330,22 @@ export default function POModal({
                                                             <SearchableSelect
                                                                 options={currentOptionsToUse}
                                                                 value={entry.material || ''}
-                                                                displayLabel={entry.materialName || undefined}
+                                                                displayLabel={entry.materialName ? (entry.description ? `${entry.materialName} — ${entry.description}` : entry.materialName) : undefined}
                                                                 onChange={(val: any) => handleMaterialSelect(index, val)}
                                                                 allowCustom={true}
+                                                                onCreateCustom={(typedQuery) => handleOpenQuickItemMasterModal(typedQuery, index)}
                                                                 hasError={Boolean(rowErrors.materialName || isDuplicate)}
                                                                 placeholder={`Select or search ${poCategory === 'rm' ? 'Raw Material' : poCategory === 'bo' ? 'Bought Out' : 'Consumable'}...`}
                                                             />
                                                         </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenQuickItemMasterModal('', index)}
+                                                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors shrink-0 cursor-pointer"
+                                                            title="Add new item to Master"
+                                                        >
+                                                            <PackagePlus size={14} />
+                                                        </button>
                                                     </div>
 
                                                     {/* Duplicate Item Real-time Warning Badge */}
@@ -1570,27 +1725,27 @@ export default function POModal({
                         </div>
 
                         {/* Right: Consolidated GST Tax & Grand Total */}
-                        <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-5 rounded-2xl border border-indigo-900/60 shadow-lg flex flex-col justify-between space-y-4">
+                        <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4">
                             <div>
-                                <div className="flex items-center justify-between pb-3 border-b border-indigo-800/60">
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                                     <div className="flex items-center gap-2">
-                                        <Percent className="w-4 h-4 text-cyan-400" />
-                                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-cyan-200">
+                                        <Percent className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                                        <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
                                             Consolidated GST & Grand Total
                                         </h4>
                                     </div>
-                                    <span className="text-[10px] font-bold text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60">
+                                    <span className="text-[10px] font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/60 px-2 py-0.5 rounded-md border border-cyan-200 dark:border-cyan-800">
                                         Applied once on Subtotal
                                     </span>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3 pt-3 text-xs">
                                     <div>
-                                        <label className="block text-[11px] font-bold text-indigo-200 mb-1">GST Tax Type</label>
+                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">GST Tax Type</label>
                                         <select
                                             value={gstType}
                                             onChange={(e) => setGstType(e.target.value as any)}
-                                            className="w-full px-2.5 py-1.5 bg-indigo-950/80 border border-indigo-700/80 rounded-xl text-xs font-bold text-white cursor-pointer"
+                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 cursor-pointer focus:ring-2 focus:ring-cyan-500"
                                         >
                                             <option value="intra_state">Intra-State (CGST + SGST)</option>
                                             <option value="inter_state">Inter-State (IGST)</option>
@@ -1598,11 +1753,11 @@ export default function POModal({
                                     </div>
 
                                     <div>
-                                        <label className="block text-[11px] font-bold text-indigo-200 mb-1">GST Tax Rate (%)</label>
+                                        <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">GST Tax Rate (%)</label>
                                         <select
                                             value={taxRate}
                                             onChange={(e) => setTaxRate(Number(e.target.value))}
-                                            className="w-full px-2.5 py-1.5 bg-indigo-950/80 border border-indigo-700/80 rounded-xl text-xs font-bold text-white cursor-pointer"
+                                            className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-100 cursor-pointer focus:ring-2 focus:ring-cyan-500"
                                         >
                                             <option value={0}>0% (Exempted / Nil)</option>
                                             <option value={5}>5% GST</option>
@@ -1615,49 +1770,49 @@ export default function POModal({
                             </div>
 
                             {/* Summary Price Breakdown */}
-                            <div className="space-y-2 pt-3 border-t border-indigo-800/60 text-xs">
-                                <div className="flex justify-between text-indigo-200">
+                            <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
+                                <div className="flex justify-between text-slate-600 dark:text-slate-400">
                                     <span>Items Subtotal:</span>
-                                    <span className="font-mono font-bold text-white">
+                                    <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
                                         ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                 </div>
 
                                 {totalLogistics > 0 && (
-                                    <div className="flex justify-between text-indigo-300/90 text-[11px]">
+                                    <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px]">
                                         <span>Freight & Packaging:</span>
-                                        <span className="font-mono">₹{totalLogistics.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        <span className="font-mono font-medium text-slate-700 dark:text-slate-300">₹{totalLogistics.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
 
                                 {totalLogistics > 0 && (
-                                    <div className="flex justify-between text-cyan-300 font-bold border-t border-indigo-800/40 pt-1 text-[11px]">
+                                    <div className="flex justify-between text-slate-700 dark:text-slate-300 font-bold border-t border-slate-100 dark:border-slate-800 pt-1 text-[11px]">
                                         <span>Taxable Base Amount:</span>
-                                        <span className="font-mono">₹{taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        <span className="font-mono text-slate-900 dark:text-slate-100">₹{taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
 
                                 {gstType === 'intra_state' ? (
                                     <>
-                                        <div className="flex justify-between text-indigo-300/80 text-[11px]">
+                                        <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px]">
                                             <span>CGST ({cgstRate}% on Taxable Base):</span>
-                                            <span className="font-mono">₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className="font-mono text-slate-700 dark:text-slate-300">₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
-                                        <div className="flex justify-between text-indigo-300/80 text-[11px]">
+                                        <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px]">
                                             <span>SGST ({sgstRate}% on Taxable Base):</span>
-                                            <span className="font-mono">₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                            <span className="font-mono text-slate-700 dark:text-slate-300">₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                         </div>
                                     </>
                                 ) : (
-                                    <div className="flex justify-between text-indigo-300/80 text-[11px]">
+                                    <div className="flex justify-between text-slate-500 dark:text-slate-400 text-[11px]">
                                         <span>IGST ({igstRate}% on Taxable Base):</span>
-                                        <span className="font-mono">₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                        <span className="font-mono text-slate-700 dark:text-slate-300">₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                 )}
 
-                                <div className="flex justify-between items-baseline pt-2 border-t border-indigo-700/80 text-sm font-extrabold text-white">
-                                    <span className="text-cyan-300 uppercase tracking-wider">Grand Total (Incl. GST):</span>
-                                    <span className="text-xl font-mono text-cyan-400">
+                                <div className="flex justify-between items-baseline pt-3 border-t-2 border-slate-200 dark:border-slate-700 text-sm font-extrabold bg-slate-50 dark:bg-slate-800/60 -mx-4 -mb-4 sm:-mx-5 sm:-mb-5 p-4 rounded-b-2xl">
+                                    <span className="text-slate-800 dark:text-slate-200 uppercase tracking-wider text-xs font-bold">Grand Total (Incl. GST):</span>
+                                    <span className="text-xl font-mono font-extrabold text-cyan-700 dark:text-cyan-400">
                                         ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                 </div>
@@ -1692,5 +1847,40 @@ export default function POModal({
                 </form>
             </div>
         </div>
+
+        {/* Quick Item Master Modal for on-the-fly item registration */}
+        <QuickItemMasterModal
+            isOpen={isQuickItemModalOpen}
+            onClose={() => {
+                setIsQuickItemModalOpen(false);
+                setQuickItemInitialName('');
+                setQuickItemTargetIndex(null);
+            }}
+            defaultType={poCategory}
+            initialName={quickItemInitialName}
+            categories={categoriesList}
+            locations={locationsList}
+            contextLabel="Purchase Order"
+            onItemCreated={handleQuickItemCreated}
+        />
+
+        {/* Quick Vendor Master Modal for on-the-fly vendor registration */}
+        <QuickVendorMasterModal
+            isOpen={isQuickVendorModalOpen}
+            onClose={() => {
+                setIsQuickVendorModalOpen(false);
+                setQuickVendorInitialName('');
+            }}
+            initialName={quickVendorInitialName}
+            defaultVendorType={
+                poCategory === 'rm'
+                    ? 'Rm Vendor'
+                    : poCategory === 'bo'
+                    ? 'BO Vendor'
+                    : 'Consumable Vendor'
+            }
+            onVendorCreated={handleQuickVendorCreated}
+        />
+        </>
     );
 }

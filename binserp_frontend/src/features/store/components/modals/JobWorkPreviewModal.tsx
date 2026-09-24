@@ -192,6 +192,19 @@ export default function JobWorkPreviewModal({
                                     <strong className="text-slate-800 dark:text-slate-200">{challan.estimatedWeight ? `${challan.estimatedWeight} Kgs` : 'N/A'}</strong>
                                 </div>
 
+                                {/* Purpose of Outward Movement Banner */}
+                                <div className="col-span-2 bg-indigo-50/70 dark:bg-indigo-950/40 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-900 flex items-center justify-between">
+                                    <div>
+                                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 uppercase font-bold block">Purpose of Outward Movement</span>
+                                        <strong className="text-indigo-950 dark:text-indigo-200 font-extrabold text-sm flex items-center gap-1.5 mt-0.5">
+                                            🎯 {challan.purpose === 'Others' && challan.otherPurpose ? challan.otherPurpose : (challan.purpose || challan.items?.[0]?.processType || 'Machining')}
+                                        </strong>
+                                    </div>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                        Returnable DC
+                                    </span>
+                                </div>
+
                                 {challan.estimatedPrice ? (
                                     <div className="col-span-2 bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                                         <span className="text-[10px] text-slate-400 uppercase font-semibold block">Estimated Material Job Value</span>
@@ -241,7 +254,7 @@ export default function JobWorkPreviewModal({
                                                         {item.quantitySent} <span className="text-xs text-slate-400">{item.unit}</span>
                                                     </td>
                                                     <td className="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300">
-                                                        <span className="font-semibold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</span>
+                                                        <span className="font-semibold text-slate-800 dark:text-slate-200">🎯 {item.purpose || item.processType || challan.purpose || 'Job Work'}</span>
                                                         {item.itemType && (
                                                             <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 uppercase">{item.itemType}</span>
                                                         )}
@@ -436,7 +449,9 @@ export default function JobWorkPreviewModal({
 
                                                         {rIdx === 0 && (
                                                             <td rowSpan={retList.length} className="px-4 py-3.5 border-l border-slate-100 dark:border-slate-800 align-top text-xs">
-                                                                <div className="font-bold text-slate-800 dark:text-slate-200">{item.processType || 'Job Work'}</div>
+                                                                <div className="font-bold text-slate-800 dark:text-slate-200">
+                                                                    🎯 {item.purpose || item.processType || challan.purpose || 'Job Work'}
+                                                                </div>
                                                                 {(item.processRate || item.unitPrice) ? (
                                                                     <div className="text-indigo-600 dark:text-indigo-400 font-bold font-mono mt-0.5">
                                                                         Rate: ₹{Number(item.processRate != null ? item.processRate : item.unitPrice).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {item.unit || 'PCS'}

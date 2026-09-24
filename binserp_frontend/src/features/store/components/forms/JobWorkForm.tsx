@@ -14,7 +14,7 @@ import {
   AlertTriangle,
   AlertCircle
 } from 'lucide-react';
-import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem, JobWorkAssemblyOutputItem, JobWorkAssemblyGroup } from "@/src/features/store/types/store.types";
+import { Vendor, RmBoItem, JobWorkFormData, JobWorkSupplier, JobWorkReturningItem, JobWorkAssemblyOutputItem, JobWorkAssemblyGroup, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
 import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { getItemDescription } from '@/src/utils/itemDisplayHelper';
@@ -82,6 +82,8 @@ export default function JobWorkForm({
         estimatedWeight: 0,
         estimatedPrice: 0,
         jobWorkType: 'store-conversion',
+        purpose: 'Machining',
+        otherPurpose: '',
         operationMode: 'discrete',
         assemblyOutputItem: {
             item: '',
@@ -450,6 +452,8 @@ export default function JobWorkForm({
                 ...rest,
                 vendor: vendorId,
                 jobWorkType: (initialData as any).jobWorkType || 'store-conversion',
+                purpose: (initialData as any).purpose || (initialData as any).items?.[0]?.processType || 'Machining',
+                otherPurpose: (initialData as any).otherPurpose || '',
                 mrpNumber: (initialData as any).mrpNumber || '',
                 mrpPlan: (initialData as any).mrpPlan || '',
                 ewayBillNo: (initialData as any).ewayBillNo || prev.ewayBillNo || '',
@@ -512,6 +516,8 @@ export default function JobWorkForm({
                 estimatedWeight: 0,
                 estimatedPrice: 0,
                 jobWorkType: 'store-conversion',
+                purpose: 'Machining',
+                otherPurpose: '',
                 operationMode: 'discrete',
                 assemblyOutputItem: {
                     item: '',
@@ -654,31 +660,39 @@ export default function JobWorkForm({
         if (field === 'item') {
             const selectedId = value;
             const type = current.itemType;
+            let foundMat: any = null;
             if (type === 'rm') {
                 const foundWip = (wipRmItems || []).find((r: any) => String(r.materialId) === String(selectedId) || String(r._id) === String(selectedId) || String(r.id) === String(selectedId));
-                const found = foundWip || (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => m._id === selectedId);
-                if (found) {
-                    current.itemName = found.materialName || found.name;
-                    current.unit = found.unit || (found as any).categoryId?.unit || 'PCS';
-                }
+                foundMat = foundWip || (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => m._id === selectedId);
             } else if (type === 'bo') {
                 const foundWip = (wipBoItems || []).find((b: any) => String(b.materialId) === String(selectedId) || String(b._id) === String(selectedId) || String(b.id) === String(selectedId));
-                const found = foundWip || (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => m._id === selectedId);
-                if (found) {
-                    current.itemName = found.materialName || found.name;
-                    current.unit = found.unit || (found as any).categoryId?.unit || 'PCS';
-                }
+                foundMat = foundWip || (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => m._id === selectedId);
             } else if (type === 'fg') {
                 const sourceList = [...wipFgItems, ...(inHouseItems || [])];
-                const found = sourceList.find((i: any) => 
+                foundMat = sourceList.find((i: any) => 
                     String(i.materialId) === String(selectedId) || 
                     String(i.id) === String(selectedId) || 
                     String(i._id) === String(selectedId)
                 );
-                if (found) {
-                    current.itemName = found.materialName || found.name || found.componentName || 'Finished Good / Component';
-                    current.unit = found.unit || 'PCS';
+            }
+
+            if (foundMat) {
+                current.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || (type === 'rm' ? 'Raw Material' : type === 'bo' ? 'Bought Out' : 'Finished Good');
+                current.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
+                const hasSec = Boolean(foundMat.hasSecondaryUnit || (foundMat.secondaryUnit && Number(foundMat.conversionFactor) > 0));
+                current.hasSecondaryUnit = hasSec;
+                current.secondaryUnit = foundMat.secondaryUnit || '';
+                current.conversionFactor = Number(foundMat.conversionFactor) || 1;
+                current.selectedUnit = current.unit;
+                const priQty = Number(current.quantitySent) || 1;
+                current.secondaryQuantitySent = hasSec ? parseFloat((priQty * current.conversionFactor).toFixed(4)) : 0;
+                
+                const rateVal = Number(foundMat.pricePerUnit || (foundMat as any).rate || (foundMat as any).standardCost || 0);
+                if (!current.processRate || current.processRate === 0) {
+                    current.processRate = rateVal;
                 }
+                current.unitPrice = current.processRate;
+                current.processAmount = (Number(current.quantitySent) || 0) * (Number(current.processRate) || 0);
             }
 
             // Auto-sync first returning item name if blank
@@ -690,16 +704,45 @@ export default function JobWorkForm({
         if (field === 'itemType') {
             current.item = '';
             current.itemName = '';
+            current.hasSecondaryUnit = false;
+            current.secondaryUnit = '';
+            current.conversionFactor = 1;
+            current.secondaryQuantitySent = 0;
+        }
+
+        if (field === 'selectedUnit') {
+            current.selectedUnit = value;
+        }
+
+        if (field === 'purpose') {
+            current.purpose = value;
+            current.processType = value === 'Others' ? (formData.otherPurpose || 'Job Work') : value;
         }
 
         if (field === 'processRate') {
+            current.processRate = value;
             current.unitPrice = value;
             current.processAmount = (Number(current.quantitySent) || 0) * (Number(value) || 0);
         }
 
         if (field === 'quantitySent') {
+            const num = Number(value) || 0;
+            current.quantitySent = value;
+            if (current.hasSecondaryUnit && Number(current.conversionFactor) > 0) {
+                current.secondaryQuantitySent = parseFloat((num * Number(current.conversionFactor)).toFixed(4));
+            }
             const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
-            current.processAmount = (Number(value) || 0) * currentRate;
+            current.processAmount = num * currentRate;
+        }
+
+        if (field === 'secondaryQuantitySent') {
+            const secNum = Number(value) || 0;
+            current.secondaryQuantitySent = value;
+            const conv = Number(current.conversionFactor) || 1;
+            const priVal = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
+            current.quantitySent = priVal;
+            const currentRate = Number(current.processRate != null ? current.processRate : current.unitPrice) || 0;
+            current.processAmount = priVal * currentRate;
         }
 
         newItems[itemIdx] = current;
@@ -728,38 +771,61 @@ export default function JobWorkForm({
         if (field === 'receivedItem') {
             const selectedId = value;
             const type = currentRet.receivedItemType;
+            let found: any = null;
             if (type === 'rm') {
-                const found = (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => m._id === selectedId);
-                if (found) {
-                    currentRet.receivedItemName = found.name;
-                    currentRet.receivingUnit = found.unit || (found as any).categoryId?.unit || 'PCS';
-                }
+                found = (rawMaterials.length > 0 ? rawMaterials : materials).find((m: any) => String(m._id) === String(selectedId));
             } else if (type === 'bo') {
-                const found = (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => m._id === selectedId);
-                if (found) {
-                    currentRet.receivedItemName = found.name;
-                    currentRet.receivingUnit = found.unit || (found as any).categoryId?.unit || 'PCS';
-                }
+                found = (boughtOuts.length > 0 ? boughtOuts : materials).find((m: any) => String(m._id) === String(selectedId));
             } else if (type === 'fg') {
                 const sourceList = [...wipFgItems, ...(inHouseItems || [])];
-                const found = sourceList.find((i: any) => 
+                found = sourceList.find((i: any) => 
                     String(i.materialId) === String(selectedId) || 
                     String(i.id) === String(selectedId) || 
                     String(i._id) === String(selectedId)
                 );
-                if (found) {
-                    currentRet.receivedItemName = found.materialName || found.name || found.componentName || 'Finished Good / Component';
-                    currentRet.receivingUnit = found.unit || 'PCS';
-                } else if (value) {
-                    currentRet.receivedItemName = String(value);
-                    currentRet.receivingUnit = currentRet.receivingUnit || 'PCS';
-                }
             }
+            if (found) {
+                currentRet.receivedItemName = found.materialName || found.name || found.componentName || 'Returning Material';
+                currentRet.receivingUnit = found.unit || (found as any).categoryId?.unit || 'PCS';
+                const hasSec = Boolean(found.hasSecondaryUnit || (found.secondaryUnit && Number(found.conversionFactor) > 0));
+                currentRet.hasSecondaryUnit = hasSec;
+                currentRet.secondaryUnit = found.secondaryUnit || '';
+                currentRet.conversionFactor = Number(found.conversionFactor) || 1;
+                currentRet.selectedUnit = currentRet.receivingUnit;
+                const priQty = Number(currentRet.quantityToBeReceived) || 1;
+                currentRet.secondaryQuantityToBeReceived = hasSec ? parseFloat((priQty * currentRet.conversionFactor).toFixed(4)) : 0;
+            } else if (value) {
+                currentRet.receivedItemName = String(value);
+                currentRet.receivingUnit = currentRet.receivingUnit || 'PCS';
+            }
+        }
+
+        if (field === 'selectedUnit') {
+            currentRet.selectedUnit = value;
+        }
+
+        if (field === 'quantityToBeReceived') {
+            const num = Number(value) || 0;
+            currentRet.quantityToBeReceived = value;
+            if (currentRet.hasSecondaryUnit && Number(currentRet.conversionFactor) > 0) {
+                currentRet.secondaryQuantityToBeReceived = parseFloat((num * Number(currentRet.conversionFactor)).toFixed(4));
+            }
+        }
+
+        if (field === 'secondaryQuantityToBeReceived') {
+            const secNum = Number(value) || 0;
+            currentRet.secondaryQuantityToBeReceived = value;
+            const conv = Number(currentRet.conversionFactor) || 1;
+            currentRet.quantityToBeReceived = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
         }
 
         if (field === 'receivedItemType') {
             currentRet.receivedItem = '';
             currentRet.receivedItemName = '';
+            currentRet.hasSecondaryUnit = false;
+            currentRet.secondaryUnit = '';
+            currentRet.conversionFactor = 1;
+            currentRet.secondaryQuantityToBeReceived = 0;
         }
 
         newRetList[retIdx] = currentRet;
@@ -894,6 +960,11 @@ export default function JobWorkForm({
             currentItem.item = '';
             currentItem.itemName = '';
             currentItem.unit = 'PCS';
+            currentItem.hasSecondaryUnit = false;
+            currentItem.secondaryUnit = '';
+            currentItem.conversionFactor = 1;
+            currentItem.secondaryQuantitySent = 0;
+            currentItem.selectedUnit = 'PCS';
             currentItem.unitPrice = 0;
             currentItem.processRate = 0;
             currentItem.processAmount = 0;
@@ -901,43 +972,71 @@ export default function JobWorkForm({
 
         if (field === 'item') {
             const selectedId = value;
+            let foundMat: any = null;
             if (currentItem.itemType === 'rm') {
                 const foundWip = (wipRmItems || []).find((r: any) => String(r.materialId) === String(selectedId) || String(r._id) === String(selectedId) || String(r.id) === String(selectedId));
-                const foundMat = foundWip || [...rawMaterials, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
-                if (foundMat) {
-                    currentItem.itemName = foundMat.materialName || foundMat.name || 'Raw Material';
-                    currentItem.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
-                    currentItem.unitPrice = Number(foundMat.pricePerUnit || (foundMat as any).rate || (foundMat as any).standardCost || 0);
-                    if (!currentItem.processRate || currentItem.processRate === 0) {
-                        currentItem.processRate = currentItem.unitPrice;
-                    }
-                    currentItem.processAmount = (Number(currentItem.quantitySent) || 0) * (Number(currentItem.processRate) || 0);
-                }
+                foundMat = foundWip || [...rawMaterials, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
             } else if (currentItem.itemType === 'bo') {
                 const foundWip = (wipBoItems || []).find((b: any) => String(b.materialId) === String(selectedId) || String(b._id) === String(selectedId) || String(b.id) === String(selectedId));
-                const foundMat = foundWip || [...boughtOuts, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
-                if (foundMat) {
-                    currentItem.itemName = foundMat.materialName || foundMat.name || 'Bought Out';
-                    currentItem.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
-                    currentItem.unitPrice = Number(foundMat.pricePerUnit || (foundMat as any).rate || (foundMat as any).standardCost || 0);
-                    if (!currentItem.processRate || currentItem.processRate === 0) {
-                        currentItem.processRate = currentItem.unitPrice;
-                    }
-                    currentItem.processAmount = (Number(currentItem.quantitySent) || 0) * (Number(currentItem.processRate) || 0);
-                }
+                foundMat = foundWip || [...boughtOuts, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
             } else {
-                const foundFg = [...wipFgItems, ...(inHouseItems || [])].find((f: any) => String(f.materialId || f.id || f._id) === String(selectedId));
-                if (foundFg) {
-                    currentItem.itemName = foundFg.materialName || foundFg.name || foundFg.componentName || 'WIP FG Item';
-                    currentItem.unit = foundFg.unit || 'PCS';
+                foundMat = [...wipFgItems, ...(inHouseItems || [])].find((f: any) => String(f.materialId || f.id || f._id) === String(selectedId));
+            }
+
+            if (foundMat) {
+                currentItem.itemName = foundMat.materialName || foundMat.name || foundMat.componentName || 'Material';
+                currentItem.unit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
+                const hasSec = Boolean(foundMat.hasSecondaryUnit || (foundMat.secondaryUnit && Number(foundMat.conversionFactor) > 0));
+                currentItem.hasSecondaryUnit = hasSec;
+                currentItem.secondaryUnit = foundMat.secondaryUnit || '';
+                currentItem.conversionFactor = Number(foundMat.conversionFactor) || 1;
+                currentItem.selectedUnit = currentItem.unit;
+                const priQty = Number(currentItem.quantitySent) || 1;
+                currentItem.secondaryQuantitySent = hasSec ? parseFloat((priQty * currentItem.conversionFactor).toFixed(4)) : 0;
+
+                currentItem.unitPrice = Number(foundMat.pricePerUnit || (foundMat as any).rate || (foundMat as any).standardCost || 0);
+                if (!currentItem.processRate || currentItem.processRate === 0) {
+                    currentItem.processRate = currentItem.unitPrice;
                 }
+                currentItem.processAmount = (Number(currentItem.quantitySent) || 0) * (Number(currentItem.processRate) || 0);
             }
         }
 
-        if (field === 'quantitySent' || field === 'processRate' || field === 'unitPrice') {
-            const q = Number(field === 'quantitySent' ? value : currentItem.quantitySent) || 0;
-            const r = Number(field === 'processRate' ? value : (currentItem.processRate != null ? currentItem.processRate : currentItem.unitPrice)) || 0;
+        if (field === 'selectedUnit') {
+            currentItem.selectedUnit = value;
+        }
+
+        if (field === 'secondaryQuantitySent') {
+            const secNum = Number(value) || 0;
+            currentItem.secondaryQuantitySent = value;
+            const conv = Number(currentItem.conversionFactor) || 1;
+            const priVal = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
+            currentItem.quantitySent = priVal;
+            const r = Number(currentItem.processRate != null ? currentItem.processRate : currentItem.unitPrice) || 0;
+            currentItem.processAmount = priVal * r;
+        }
+
+        if (field === 'quantitySent') {
+            const q = Number(value) || 0;
+            currentItem.quantitySent = value;
+            if (currentItem.hasSecondaryUnit && Number(currentItem.conversionFactor) > 0) {
+                currentItem.secondaryQuantitySent = parseFloat((q * Number(currentItem.conversionFactor)).toFixed(4));
+            }
+            const r = Number(currentItem.processRate != null ? currentItem.processRate : currentItem.unitPrice) || 0;
             currentItem.processAmount = q * r;
+        }
+
+        if (field === 'processRate') {
+            const r = Number(value) || 0;
+            currentItem.processRate = value;
+            currentItem.unitPrice = value;
+            const q = Number(currentItem.quantitySent) || 0;
+            currentItem.processAmount = q * r;
+        }
+
+        if (field === 'purpose') {
+            currentItem.purpose = value;
+            currentItem.processType = value === 'Others' ? (formData.otherPurpose || 'Job Work') : value;
         }
 
         const newItems = [...currentGroups[grpIdx].items];
@@ -980,18 +1079,36 @@ export default function JobWorkForm({
                 currentOut.itemName = foundFg.materialName || foundFg.name || foundFg.componentName || 'Assembled Product';
                 currentOut.receivingUnit = foundFg.unit || 'PCS';
                 currentOut.itemType = 'fg';
+                const hasSec = Boolean(foundFg.hasSecondaryUnit || (foundFg.secondaryUnit && Number(foundFg.conversionFactor) > 0));
+                currentOut.hasSecondaryUnit = hasSec;
+                currentOut.secondaryUnit = foundFg.secondaryUnit || '';
+                currentOut.conversionFactor = Number(foundFg.conversionFactor) || 1;
+                currentOut.selectedUnit = currentOut.receivingUnit;
+                const priQty = Number(currentOut.quantityToBeReceived) || 1;
+                currentOut.secondaryQuantityToBeReceived = hasSec ? parseFloat((priQty * currentOut.conversionFactor).toFixed(4)) : 0;
             } else {
                 const foundMat = [...rawMaterials, ...boughtOuts, ...(materials || [])].find((m: any) => String(m._id) === String(selectedId));
                 if (foundMat) {
                     currentOut.itemName = foundMat.name || 'Converted Material';
                     currentOut.receivingUnit = foundMat.unit || (foundMat as any).categoryId?.unit || 'PCS';
                     currentOut.itemType = (foundMat.type === 'bo' || foundMat.itemType === 'bo') ? 'bo' : 'rm';
+                    const hasSec = Boolean(foundMat.hasSecondaryUnit || (foundMat.secondaryUnit && Number(foundMat.conversionFactor) > 0));
+                    currentOut.hasSecondaryUnit = hasSec;
+                    currentOut.secondaryUnit = foundMat.secondaryUnit || '';
+                    currentOut.conversionFactor = Number(foundMat.conversionFactor) || 1;
+                    currentOut.selectedUnit = currentOut.receivingUnit;
+                    const priQty = Number(currentOut.quantityToBeReceived) || 1;
+                    currentOut.secondaryQuantityToBeReceived = hasSec ? parseFloat((priQty * currentOut.conversionFactor).toFixed(4)) : 0;
                 } else if (value) {
                     currentOut.itemName = String(value);
                     currentOut.receivingUnit = currentOut.receivingUnit || 'PCS';
                     currentOut.itemType = formData.jobWorkType === 'store-conversion' ? 'rm' : 'fg';
                 }
             }
+        }
+
+        if (field === 'selectedUnit') {
+            currentOut.selectedUnit = value;
         }
 
         if (field === 'processRate') {
@@ -1002,8 +1119,21 @@ export default function JobWorkForm({
 
         if (field === 'quantityToBeReceived') {
             const q = Number(value) || 0;
+            currentOut.quantityToBeReceived = value;
+            if (currentOut.hasSecondaryUnit && Number(currentOut.conversionFactor) > 0) {
+                currentOut.secondaryQuantityToBeReceived = parseFloat((q * Number(currentOut.conversionFactor)).toFixed(4));
+            }
             const r = Number(currentOut.processRate) || 0;
             currentOut.processAmount = q * r;
+        }
+
+        if (field === 'secondaryQuantityToBeReceived') {
+            const secNum = Number(value) || 0;
+            currentOut.secondaryQuantityToBeReceived = value;
+            const conv = Number(currentOut.conversionFactor) || 1;
+            currentOut.quantityToBeReceived = (conv > 0 && secNum > 0) ? parseFloat((secNum / conv).toFixed(4)) : 0;
+            const r = Number(currentOut.processRate) || 0;
+            currentOut.processAmount = currentOut.quantityToBeReceived * r;
         }
 
         currentGroups[grpIdx] = {
@@ -1217,6 +1347,13 @@ export default function JobWorkForm({
         // Validation 2: Challan Date
         if (!formData.date) {
             errors.date = 'Challan date is required';
+        }
+
+        // Validation: Purpose of Outward Movement
+        if (!formData.purpose) {
+            errors.purpose = 'Purpose of outward movement is required';
+        } else if (formData.purpose === 'Others' && !formData.otherPurpose?.trim()) {
+            errors.otherPurpose = 'Please specify custom purpose';
         }
 
         // Validation 3: MRP Number requirement for WIP flows
@@ -1586,6 +1723,89 @@ export default function JobWorkForm({
                                 />
                             </div>
 
+                            {/* Purpose of Outward Movement / Processing */}
+                            <div className={formData.purpose === 'Others' ? "lg:col-span-2" : "lg:col-span-2"} data-has-error={!!formErrors.purpose}>
+                                <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                                    <span className="flex items-center gap-1">
+                                        <span>Purpose of Outward Movement</span>
+                                        <span className="text-red-500">*</span>
+                                    </span>
+                                    {formErrors.purpose && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.purpose}</span>}
+                                </label>
+                                <select
+                                    value={formData.purpose || 'Machining'}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            purpose: val,
+                                            items: prev.items.map(it => ({
+                                                ...it,
+                                                processType: val === 'Others' ? (prev.otherPurpose || 'Job Work') : val,
+                                                purpose: val
+                                            })),
+                                            assemblyOutputItem: prev.assemblyOutputItem ? {
+                                                ...prev.assemblyOutputItem,
+                                                processType: val === 'Others' ? (prev.otherPurpose || 'Job Work') : val
+                                            } : prev.assemblyOutputItem,
+                                            assemblyGroups: prev.assemblyGroups?.map(g => ({
+                                                ...g,
+                                                assemblyOutputItem: {
+                                                    ...g.assemblyOutputItem,
+                                                    processType: val === 'Others' ? (prev.otherPurpose || 'Job Work') : val
+                                                }
+                                            }))
+                                        }));
+                                        if (val) clearError('purpose');
+                                    }}
+                                    className="w-full h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                >
+                                    {JOB_WORK_PURPOSES.map((p) => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Conditional: Specify Purpose if "Others" */}
+                            {formData.purpose === 'Others' && (
+                                <div className="lg:col-span-2 animate-in fade-in slide-in-from-top-1 duration-200" data-has-error={!!formErrors.otherPurpose}>
+                                    <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
+                                        <span className="flex items-center gap-1">
+                                            <span>Specify Custom Purpose</span>
+                                            <span className="text-red-500">*</span>
+                                        </span>
+                                        {formErrors.otherPurpose && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.otherPurpose}</span>}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Laser Engraving, Electroplating, Deburring..."
+                                        value={formData.otherPurpose || ''}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                otherPurpose: val,
+                                                items: prev.items.map(it => ({
+                                                    ...it,
+                                                    processType: val || 'Job Work',
+                                                    purpose: 'Others'
+                                                })),
+                                                assemblyOutputItem: prev.assemblyOutputItem ? {
+                                                    ...prev.assemblyOutputItem,
+                                                    processType: val || 'Job Work'
+                                                } : prev.assemblyOutputItem
+                                            }));
+                                            if (val.trim()) clearError('otherPurpose');
+                                        }}
+                                        className={`w-full h-9 px-3 border rounded-xl text-xs font-semibold focus:ring-2 outline-none transition-all ${
+                                            formErrors.otherPurpose
+                                                ? 'bg-rose-50/50 dark:bg-rose-950/40 border-rose-500 text-rose-900 dark:text-rose-100 ring-1 ring-rose-400 focus:ring-rose-500'
+                                                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-200'
+                                        }`}
+                                    />
+                                </div>
+                            )}
+
                             {/* Challan Date */}
                             <div data-has-error={!!formErrors.date}>
                                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1 flex items-center justify-between">
@@ -1842,7 +2062,7 @@ export default function JobWorkForm({
                                                             </div>
 
                                                             {/* Outward Item Selector */}
-                                                            <div className="sm:col-span-2 lg:col-span-4" data-has-error={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_item`]}>
+                                                            <div className="sm:col-span-2 lg:col-span-3" data-has-error={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_item`]}>
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                     <span>Outward Item <span className="text-red-500">*</span></span>
                                                                     {formErrors[`grp_${grpIdx}_item_${itemIdx}_item`] && (
@@ -1883,45 +2103,89 @@ export default function JobWorkForm({
                                                                 )}
                                                             </div>
 
-                                                            {/* Quantity Sent */}
-                                                            <div className="sm:col-span-1 lg:col-span-2" data-has-error={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_quantitySent`]}>
+                                                            {/* Purpose of Outward */}
+                                                            <div className="sm:col-span-2 lg:col-span-2">
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                                    <span>Qty Sent <span className="text-red-500">*</span></span>
+                                                                    <span>Purpose</span>
+                                                                </label>
+                                                                <select
+                                                                    value={sentItem.purpose || formData.purpose || 'Machining'}
+                                                                    onChange={(e) => handleGroupOutwardItemChange(grpIdx, itemIdx, 'purpose', e.target.value)}
+                                                                    className="w-full h-9 px-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                                                >
+                                                                    {JOB_WORK_PURPOSES.map((p) => (
+                                                                        <option key={p} value={p}>{p}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+
+                                                            {/* Unit (Dual-Unit Aware) */}
+                                                            <div className="sm:col-span-1 lg:col-span-1">
+                                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                                    Unit
+                                                                </label>
+                                                                {sentItem.hasSecondaryUnit && sentItem.secondaryUnit ? (
+                                                                    <select
+                                                                        value={sentItem.selectedUnit || sentItem.unit || 'PCS'}
+                                                                        onChange={(e) => handleGroupOutwardItemChange(grpIdx, itemIdx, 'selectedUnit', e.target.value)}
+                                                                        className="w-full h-9 px-1 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                                                    >
+                                                                        <option value={sentItem.unit}>{sentItem.unit} (Pri)</option>
+                                                                        <option value={sentItem.secondaryUnit}>{sentItem.secondaryUnit} (Sec)</option>
+                                                                    </select>
+                                                                ) : (
+                                                                    <input
+                                                                        type="text"
+                                                                        value={sentItem.unit || 'PCS'}
+                                                                        onChange={(e) => handleGroupOutwardItemChange(grpIdx, itemIdx, 'unit', e.target.value)}
+                                                                        className="w-full h-9 px-2 border rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 uppercase"
+                                                                    />
+                                                                )}
+                                                            </div>
+
+                                                            {/* Quantity Sent (Dual-Unit Aware) */}
+                                                            <div className="sm:col-span-1 lg:col-span-1" data-has-error={!!formErrors[`grp_${grpIdx}_item_${itemIdx}_quantitySent`]}>
+                                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                                    <span>Qty</span>
                                                                     {formErrors[`grp_${grpIdx}_item_${itemIdx}_quantitySent`] && (
                                                                         <span className="text-[9px] text-rose-600 font-bold">Req</span>
                                                                     )}
                                                                 </label>
                                                                 <input
                                                                     type="number"
-                                                                    min="0.01"
+                                                                    min="0.0001"
                                                                     step="any"
-                                                                    value={sentItem.quantitySent || ''}
+                                                                    value={
+                                                                        (sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit)
+                                                                            ? (sentItem.secondaryQuantitySent !== undefined ? sentItem.secondaryQuantitySent : '')
+                                                                            : (sentItem.quantitySent !== undefined ? sentItem.quantitySent : '')
+                                                                    }
                                                                     onChange={(e) => {
-                                                                        const val = Number(e.target.value);
-                                                                        handleGroupOutwardItemChange(grpIdx, itemIdx, 'quantitySent', val);
-                                                                        if (val > 0) clearError(`grp_${grpIdx}_item_${itemIdx}_quantitySent`);
+                                                                        const raw = e.target.value;
+                                                                        if (sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit) {
+                                                                            handleGroupOutwardItemChange(grpIdx, itemIdx, 'secondaryQuantitySent', raw);
+                                                                        } else {
+                                                                            handleGroupOutwardItemChange(grpIdx, itemIdx, 'quantitySent', raw);
+                                                                        }
+                                                                        if (Number(raw) > 0) clearError(`grp_${grpIdx}_item_${itemIdx}_quantitySent`);
                                                                     }}
                                                                     className="w-full h-9 px-2 border rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100"
                                                                 />
+                                                                {sentItem.hasSecondaryUnit && sentItem.secondaryUnit && (
+                                                                    <div className="text-[9px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                                                                        {sentItem.selectedUnit === sentItem.secondaryUnit ? (
+                                                                            <span>↳ = {sentItem.quantitySent || 0} {sentItem.unit || 'PCS'}</span>
+                                                                        ) : (
+                                                                            <span>↳ = {sentItem.secondaryQuantitySent || 0} {sentItem.secondaryUnit}</span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </div>
 
-                                                            {/* Unit */}
+                                                            {/* Process Price (₹) */}
                                                             <div className="sm:col-span-1 lg:col-span-1">
                                                                 <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                    Unit
-                                                                </label>
-                                                                <input
-                                                                    type="text"
-                                                                    value={sentItem.unit || 'PCS'}
-                                                                    onChange={(e) => handleGroupOutwardItemChange(grpIdx, itemIdx, 'unit', e.target.value)}
-                                                                    className="w-full h-9 px-2 border rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 uppercase"
-                                                                />
-                                                            </div>
-
-                                                            {/* Process Rate */}
-                                                            <div className="sm:col-span-1 lg:col-span-2">
-                                                                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                    Rate (₹)
+                                                                    Price (₹)
                                                                 </label>
                                                                 <input
                                                                     type="number"
@@ -1934,16 +2198,18 @@ export default function JobWorkForm({
                                                                 />
                                                             </div>
 
-                                                            {/* Amount + Trash */}
-                                                            <div className="sm:col-span-2 lg:col-span-2 flex items-center gap-2">
-                                                                <div className="flex-1">
-                                                                    <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
-                                                                        Amount
-                                                                    </label>
-                                                                    <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-slate-700 dark:text-slate-200 truncate">
-                                                                        ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.processRate != null ? sentItem.processRate : sentItem.unitPrice) || 0)).toFixed(2)}
-                                                                    </div>
+                                                            {/* Amount */}
+                                                            <div className="sm:col-span-1 lg:col-span-1 flex flex-col justify-center">
+                                                                <label className="block text-[9px] font-semibold text-slate-400 uppercase tracking-tight mb-1 text-right">
+                                                                    Amount
+                                                                </label>
+                                                                <div className="h-9 flex items-center justify-end font-mono font-bold text-xs text-slate-700 dark:text-slate-200 truncate">
+                                                                    ₹{((Number(sentItem.quantitySent) || 0) * (Number(sentItem.processRate != null ? sentItem.processRate : sentItem.unitPrice) || 0)).toFixed(2)}
                                                                 </div>
+                                                            </div>
+
+                                                            {/* Trash Button */}
+                                                            <div className="sm:col-span-1 lg:col-span-1 flex items-end justify-center pb-0.5">
                                                                 {group.items.length > 1 && (
                                                                     <button
                                                                         type="button"
@@ -2213,7 +2479,7 @@ export default function JobWorkForm({
                                                     </div>
 
                                                     {/* Outward Item Selector + Live Stock Badge */}
-                                                    <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
+                                                    <div className="sm:col-span-2 lg:col-span-3 xl:col-span-3" data-has-error={!!formErrors[`item_${itemIdx}_item`]}>
                                                         <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                             <span>Item Name <span className="text-red-500">*</span></span>
                                                             {formErrors[`item_${itemIdx}_item`] && (
@@ -2265,10 +2531,56 @@ export default function JobWorkForm({
                                                         )}
                                                     </div>
 
-                                                    {/* Quantity Sent */}
-                                                    <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1" data-has-error={!!formErrors[`item_${itemIdx}_quantitySent`]}>
+                                                    {/* Purpose of Outward (Dropdown) */}
+                                                    <div className="sm:col-span-2 lg:col-span-2 xl:col-span-2">
                                                         <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                            <span>Qty Sent <span className="text-red-500">*</span></span>
+                                                            <span>Purpose</span>
+                                                        </label>
+                                                        <select
+                                                            value={sentItem.purpose || formData.purpose || 'Machining'}
+                                                            onChange={(e) => handleSentItemChange(itemIdx, 'purpose', e.target.value)}
+                                                            className="w-full h-9 px-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                                        >
+                                                            {JOB_WORK_PURPOSES.map((p) => (
+                                                                <option key={p} value={p}>{p}</option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+
+                                                    {/* Unit (Dual-Unit Aware) */}
+                                                    <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1">
+                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                            Unit
+                                                        </label>
+                                                        {sentItem.hasSecondaryUnit && sentItem.secondaryUnit ? (
+                                                            <select
+                                                                value={sentItem.selectedUnit || sentItem.unit || 'PCS'}
+                                                                onChange={(e) => handleSentItemChange(itemIdx, 'selectedUnit', e.target.value)}
+                                                                className="w-full h-9 px-1 border border-indigo-300 dark:border-indigo-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 focus:ring-2 focus:ring-indigo-500/20 outline-none cursor-pointer"
+                                                            >
+                                                                <option value={sentItem.unit}>{sentItem.unit} (Pri)</option>
+                                                                <option value={sentItem.secondaryUnit}>{sentItem.secondaryUnit} (Sec)</option>
+                                                            </select>
+                                                        ) : (
+                                                            <input
+                                                                type="text"
+                                                                value={sentItem.unit || 'PCS'}
+                                                                onChange={(e) => handleSentItemChange(itemIdx, 'unit', e.target.value)}
+                                                                className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                            />
+                                                        )}
+                                                    </div>
+
+                                                    {/* Quantity Sent (Dual-Unit Aware) */}
+                                                    <div className="sm:col-span-1 lg:col-span-2 xl:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_quantitySent`]}>
+                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
+                                                            <span className="flex items-center gap-1">
+                                                                <span>Qty ({sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit ? sentItem.secondaryUnit : (sentItem.unit || 'PCS')})</span>
+                                                                {sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit && (
+                                                                    <span className="text-[9px] font-extrabold px-1 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">2nd</span>
+                                                                )}
+                                                                <span className="text-red-500">*</span>
+                                                            </span>
                                                             {formErrors[`item_${itemIdx}_quantitySent`] && (
                                                                 <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold truncate">
                                                                     {formErrors[`item_${itemIdx}_quantitySent`]}
@@ -2277,13 +2589,21 @@ export default function JobWorkForm({
                                                         </label>
                                                         <input
                                                             type="number"
-                                                            min="0.01"
+                                                            min="0.0001"
                                                             step="any"
-                                                            value={sentItem.quantitySent || ''}
+                                                            value={
+                                                                (sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit)
+                                                                    ? (sentItem.secondaryQuantitySent !== undefined ? sentItem.secondaryQuantitySent : '')
+                                                                    : (sentItem.quantitySent !== undefined ? sentItem.quantitySent : '')
+                                                            }
                                                             onChange={(e) => {
-                                                                const val = Number(e.target.value);
-                                                                handleSentItemChange(itemIdx, 'quantitySent', val);
-                                                                if (val > 0) clearError(`item_${itemIdx}_quantitySent`);
+                                                                const raw = e.target.value;
+                                                                if (sentItem.hasSecondaryUnit && sentItem.selectedUnit === sentItem.secondaryUnit) {
+                                                                    handleSentItemChange(itemIdx, 'secondaryQuantitySent', raw);
+                                                                } else {
+                                                                    handleSentItemChange(itemIdx, 'quantitySent', raw);
+                                                                }
+                                                                if (Number(raw) > 0) clearError(`item_${itemIdx}_quantitySent`);
                                                             }}
                                                             className={`w-full h-9 px-2 border rounded-xl text-xs font-bold text-center outline-none transition-all ${
                                                                 formErrors[`item_${itemIdx}_quantitySent`]
@@ -2293,42 +2613,22 @@ export default function JobWorkForm({
                                                                         : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20'
                                                             }`}
                                                         />
+                                                        {sentItem.hasSecondaryUnit && sentItem.secondaryUnit && (
+                                                            <div className="text-[9px] font-mono font-semibold text-indigo-600 dark:text-indigo-400 mt-1 truncate">
+                                                                {sentItem.selectedUnit === sentItem.secondaryUnit ? (
+                                                                    <span>↳ = {sentItem.quantitySent || 0} {sentItem.unit || 'PCS'}</span>
+                                                                ) : (
+                                                                    <span>↳ = {sentItem.secondaryQuantitySent || 0} {sentItem.secondaryUnit}</span>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    {/* Unit */}
+                                                    {/* Process Price (₹) - Only 1 Price Field */}
                                                     <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1">
-                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                            Unit
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            value={sentItem.unit || 'PCS'}
-                                                            onChange={(e) => handleSentItemChange(itemIdx, 'unit', e.target.value)}
-                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                        />
-                                                    </div>
-
-                                                    {/* Unit Price (₹) */}
-                                                    <div className="sm:col-span-1 lg:col-span-1 xl:col-span-1">
-                                                        <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                            Price (₹)
-                                                        </label>
-                                                        <input
-                                                            type="number"
-                                                            min="0"
-                                                            step="any"
-                                                            value={sentItem.unitPrice !== undefined ? sentItem.unitPrice : ''}
-                                                            onChange={(e) => handleSentItemChange(itemIdx, 'unitPrice', e.target.value)}
-                                                            placeholder="0.00"
-                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-right bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                        />
-                                                    </div>
-
-                                                    {/* Process Rate (₹) */}
-                                                    <div className="sm:col-span-1 lg:col-span-2 xl:col-span-2">
                                                         <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
-                                                            <span>Process Rate</span>
-                                                            <span className="text-[9px] text-slate-400 font-normal">₹ / unit</span>
+                                                            <span>Price</span>
+                                                            <span className="text-[9px] text-slate-400 font-normal">₹/{sentItem.unit || 'unit'}</span>
                                                         </label>
                                                         <input
                                                             type="number"
@@ -2401,7 +2701,7 @@ export default function JobWorkForm({
                                                                 </div>
 
                                                                 {/* Return Item Selector */}
-                                                                <div className="sm:col-span-5 lg:col-span-6" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
+                                                                <div className={retItem.hasSecondaryUnit && retItem.secondaryUnit ? "sm:col-span-4 lg:col-span-4" : "sm:col-span-5 lg:col-span-6"} data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_item`]}>
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                         <span>Converted Returning Item <span className="text-red-500">*</span></span>
                                                                         {formErrors[`item_${itemIdx}_ret_${retIdx}_item`] && (
@@ -2427,8 +2727,32 @@ export default function JobWorkForm({
                                                                     />
                                                                 </div>
 
-                                                                {/* Quantity To Receive */}
-                                                                <div className="sm:col-span-2 lg:col-span-2" data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
+                                                                {/* Receiving Unit Selector / Display */}
+                                                                <div className={retItem.hasSecondaryUnit && retItem.secondaryUnit ? "sm:col-span-2 lg:col-span-2" : "sm:col-span-2 lg:col-span-1"}>
+                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                                                                        Unit {retItem.hasSecondaryUnit && <span className="text-[9px] text-amber-600 font-bold">(Dual)</span>}
+                                                                    </label>
+                                                                    {retItem.hasSecondaryUnit && retItem.secondaryUnit ? (
+                                                                        <select
+                                                                            value={retItem.selectedUnit || retItem.receivingUnit || 'PCS'}
+                                                                            onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'selectedUnit', e.target.value)}
+                                                                            className="w-full h-9 px-2 border border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 rounded-xl text-xs font-bold outline-none cursor-pointer"
+                                                                        >
+                                                                            <option value={retItem.receivingUnit || 'PCS'}>Pri: {retItem.receivingUnit || 'PCS'}</option>
+                                                                            <option value={retItem.secondaryUnit}>Sec: {retItem.secondaryUnit}</option>
+                                                                        </select>
+                                                                    ) : (
+                                                                        <input
+                                                                            type="text"
+                                                                            value={retItem.receivingUnit || 'PCS'}
+                                                                            onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'receivingUnit', e.target.value)}
+                                                                            className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                        />
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Quantity To Receive with Dual Unit live conversion */}
+                                                                <div className={retItem.hasSecondaryUnit && retItem.secondaryUnit ? "sm:col-span-3 lg:col-span-3" : "sm:col-span-2 lg:col-span-2"} data-has-error={!!formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`]}>
                                                                     <label className="block text-[10px] font-semibold text-slate-500 mb-1 flex items-center justify-between">
                                                                         <span>Return Qty <span className="text-red-500">*</span></span>
                                                                         {formErrors[`item_${itemIdx}_ret_${retIdx}_quantity`] && (
@@ -2437,31 +2761,47 @@ export default function JobWorkForm({
                                                                             </span>
                                                                         )}
                                                                     </label>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0.01"
-                                                                        step="any"
-                                                                        value={retItem.quantityToBeReceived || ''}
-                                                                        onChange={(e) => {
-                                                                            const val = Number(e.target.value);
-                                                                            handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
-                                                                            if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
-                                                                        }}
-                                                                        className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                                    />
-                                                                </div>
-
-                                                                {/* Receiving Unit */}
-                                                                <div className="sm:col-span-1 lg:col-span-1">
-                                                                    <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                                                                        Unit
-                                                                    </label>
-                                                                    <input
-                                                                        type="text"
-                                                                        value={retItem.receivingUnit || 'PCS'}
-                                                                        onChange={(e) => handleReturningItemChange(itemIdx, retIdx, 'receivingUnit', e.target.value)}
-                                                                        className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 uppercase focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                                                                    />
+                                                                    {retItem.hasSecondaryUnit && retItem.secondaryUnit && retItem.selectedUnit === retItem.secondaryUnit ? (
+                                                                        <div>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0.0001"
+                                                                                step="any"
+                                                                                value={retItem.secondaryQuantityToBeReceived || ''}
+                                                                                onChange={(e) => {
+                                                                                    const val = Number(e.target.value);
+                                                                                    handleReturningItemChange(itemIdx, retIdx, 'secondaryQuantityToBeReceived', val);
+                                                                                    if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
+                                                                                }}
+                                                                                placeholder={`In ${retItem.secondaryUnit}`}
+                                                                                className="w-full h-9 px-2 border border-amber-300 dark:border-amber-600 rounded-xl text-xs font-bold text-center bg-amber-50/30 dark:bg-amber-950/20 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-amber-500/30 outline-none"
+                                                                            />
+                                                                            <div className="text-[10px] text-amber-600 dark:text-amber-400 font-mono mt-0.5 text-right font-medium">
+                                                                                ↳ = {retItem.quantityToBeReceived || 0} {retItem.receivingUnit || 'PCS'}
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0.01"
+                                                                                step="any"
+                                                                                value={retItem.quantityToBeReceived || ''}
+                                                                                onChange={(e) => {
+                                                                                    const val = Number(e.target.value);
+                                                                                    handleReturningItemChange(itemIdx, retIdx, 'quantityToBeReceived', val);
+                                                                                    if (val > 0) clearError(`item_${itemIdx}_ret_${retIdx}_quantity`);
+                                                                                }}
+                                                                                placeholder={retItem.hasSecondaryUnit ? `In ${retItem.receivingUnit || 'PCS'}` : ''}
+                                                                                className="w-full h-9 px-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-center bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                                                            />
+                                                                            {retItem.hasSecondaryUnit && retItem.secondaryUnit && (
+                                                                                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5 text-right font-medium">
+                                                                                    ↳ = {retItem.secondaryQuantityToBeReceived || 0} {retItem.secondaryUnit}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
 
                                                                 {/* Action Delete */}

@@ -166,9 +166,10 @@ export default function MasterDetailPreviewModal({
             btnBg: 'bg-teal-600 hover:bg-teal-700',
         };
     } else if (tabKey === 'fg-items' || tabKey === 'fg-item' || tabKey === 'finished-goods') {
+        const cat = typeof item.category === 'object' ? item.category?.name : (typeof item.categoryId === 'object' ? item.categoryId?.name : (item.category || item.categoryId || ''));
         theme = {
             title: item.name || item.productName || 'Finished Goods Details',
-            subtitle: `FG Code: ${item.code || item.productCode || 'N/A'} • Type: ${item.type || item.category || 'Assembly'}`,
+            subtitle: `FG Code: ${item.code || item.productCode || 'N/A'}${cat ? ` • Category: ${cat}` : ''} • Type: ${item.type || 'Assembly'}`,
             badge: item.type || 'Assembly',
             headerGradient: 'from-purple-950 via-violet-900 to-purple-900',
             borderColor: 'border-purple-700',
@@ -600,7 +601,13 @@ export default function MasterDetailPreviewModal({
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                         <span className="text-slate-500 dark:text-slate-400">Type / Classification:</span>
-                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || item.category || 'Component'}</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">{item.type || 'Component'}</span>
+                                    </div>
+                                    <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
+                                        <span className="text-slate-500 dark:text-slate-400">Category:</span>
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                            {typeof item.category === 'object' ? item.category?.name : (typeof item.categoryId === 'object' ? item.categoryId?.name : (item.category || item.categoryId || '-'))}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-700/60">
                                         <span className="text-slate-500 dark:text-slate-400">Primary Unit:</span>

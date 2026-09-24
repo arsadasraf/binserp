@@ -64,6 +64,8 @@ export const createJobWorkChallan = async (req, res) => {
       estimatedWeight,
       estimatedPrice,
       jobWorkType = "store-conversion",
+      purpose = "Machining",
+      otherPurpose = "",
       mrpPlan,
       mrpNumber,
       routeCardRef,
@@ -309,12 +311,24 @@ export const createJobWorkChallan = async (req, res) => {
           if (retFg) finalReceivedItemName = retFg.name || retFg.componentName;
         }
 
+        const retHasSec = Boolean(retItem.hasSecondaryUnit);
+        const retSecUnit = retItem.secondaryUnit || "";
+        const retConvFactor = Number(retItem.conversionFactor) || 1;
+        const retQtyPri = Number(quantityToBeReceived) || Number(quantitySent) || 1;
+        const retQtySec = Number(retItem.secondaryQuantityToBeReceived) || (retHasSec ? (retQtyPri * retConvFactor) : 0);
+
         const retDoc = {
           receivedItemName: finalReceivedItemName || itemName || "Returning Material",
           receivedItemType: receivedItemType || "fg",
-          quantityToBeReceived: Number(quantityToBeReceived) || Number(quantitySent) || 1,
+          quantityToBeReceived: retQtyPri,
           quantityReceived: 0,
           receivingUnit: receivingUnit || unit || "PCS",
+          hasSecondaryUnit: retHasSec,
+          secondaryUnit: retSecUnit,
+          conversionFactor: retConvFactor,
+          secondaryQuantityToBeReceived: retQtySec,
+          secondaryQuantityReceived: 0,
+          selectedUnit: retItem.selectedUnit || receivingUnit || unit || "PCS",
           status: "Sent"
         };
 
@@ -330,13 +344,25 @@ export const createJobWorkChallan = async (req, res) => {
       const rateValue = Number(item.processRate != null ? item.processRate : unitPrice) || 0;
       const sentQtyNum = Number(quantitySent) || 0;
 
+      const hasSec = Boolean(item.hasSecondaryUnit);
+      const secUnit = item.secondaryUnit || "";
+      const convFactor = Number(item.conversionFactor) || 1;
+      const secQtySent = Number(item.secondaryQuantitySent) || (hasSec ? (sentQtyNum * convFactor) : 0);
+
       const processedItem = {
         itemName,
         itemType: itemType || "custom",
-        processType: processType || "Job Work",
+        processType: processType || (purpose === "Others" && otherPurpose ? otherPurpose : purpose) || "Machining",
+        purpose: item.purpose || (purpose === "Others" && otherPurpose ? otherPurpose : purpose) || "Machining",
         quantitySent: sentQtyNum,
         quantityReceived: 0,
         unit: unit || "PCS",
+        hasSecondaryUnit: hasSec,
+        secondaryUnit: secUnit,
+        conversionFactor: convFactor,
+        secondaryQuantitySent: secQtySent,
+        secondaryQuantityReceived: 0,
+        selectedUnit: item.selectedUnit || unit || "PCS",
         unitPrice: rateValue,
         processRate: rateValue,
         processAmount: sentQtyNum * rateValue,
@@ -385,6 +411,11 @@ export const createJobWorkChallan = async (req, res) => {
           const outQty = Number(grpOut.quantityToBeReceived) || 1;
           const rateVal = Number(grpOut.processRate) || 0;
 
+          const grpOutHasSec = Boolean(grpOut.hasSecondaryUnit);
+          const grpOutSecUnit = grpOut.secondaryUnit || "";
+          const grpOutConv = Number(grpOut.conversionFactor) || 1;
+          const grpOutSecQty = Number(grpOut.secondaryQuantityToBeReceived) || (grpOutHasSec ? (outQty * grpOutConv) : 0);
+
           const singleProcessedOutput = {
             item: outItemId || undefined,
             itemName: outName || `Assembled Product #${gIdx + 1}`,
@@ -392,6 +423,12 @@ export const createJobWorkChallan = async (req, res) => {
             quantityToBeReceived: outQty,
             quantityReceived: 0,
             receivingUnit: grpOut.receivingUnit || "PCS",
+            hasSecondaryUnit: grpOutHasSec,
+            secondaryUnit: grpOutSecUnit,
+            conversionFactor: grpOutConv,
+            secondaryQuantityToBeReceived: grpOutSecQty,
+            secondaryQuantityReceived: 0,
+            selectedUnit: grpOut.selectedUnit || grpOut.receivingUnit || "PCS",
             processType: grpOut.processType || "Assembly",
             processRate: rateVal,
             processAmount: Number(grpOut.processAmount) || (outQty * rateVal),
@@ -402,6 +439,10 @@ export const createJobWorkChallan = async (req, res) => {
           const grpItems = (grp.items || []).map((gi) => {
             const sentQty = Number(gi.quantitySent) || 0;
             const pRate = Number(gi.processRate) || 0;
+            const giHasSec = Boolean(gi.hasSecondaryUnit);
+            const giSecUnit = gi.secondaryUnit || "";
+            const giConv = Number(gi.conversionFactor) || 1;
+            const giSecQty = Number(gi.secondaryQuantitySent) || (giHasSec ? (sentQty * giConv) : 0);
             return {
               item: isValidObjectId(gi.item) ? gi.item : undefined,
               itemName: gi.itemName || "Raw Material",
@@ -409,7 +450,13 @@ export const createJobWorkChallan = async (req, res) => {
               quantitySent: sentQty,
               quantityReceived: 0,
               unit: gi.unit || "PCS",
-              unitPrice: Number(gi.unitPrice) || 0,
+              hasSecondaryUnit: giHasSec,
+              secondaryUnit: giSecUnit,
+              conversionFactor: giConv,
+              secondaryQuantitySent: giSecQty,
+              secondaryQuantityReceived: 0,
+              selectedUnit: gi.selectedUnit || gi.unit || "PCS",
+              unitPrice: pRate,
               processRate: pRate,
               processAmount: Number(gi.processAmount) || (sentQty * pRate),
               processType: gi.processType || "Welding & Assembly",
@@ -447,6 +494,11 @@ export const createJobWorkChallan = async (req, res) => {
         const outQty = Number(assemblyOutputItem.quantityToBeReceived) || 1;
         const rateVal = Number(assemblyOutputItem.processRate) || 0;
 
+        const outHasSec = Boolean(assemblyOutputItem.hasSecondaryUnit);
+        const outSecUnit = assemblyOutputItem.secondaryUnit || "";
+        const outConv = Number(assemblyOutputItem.conversionFactor) || 1;
+        const outSecQty = Number(assemblyOutputItem.secondaryQuantityToBeReceived) || (outHasSec ? (outQty * outConv) : 0);
+
         processedAssemblyOutput = {
           item: outItemId || undefined,
           itemName: outName || "Assembled / Welded Product",
@@ -454,6 +506,12 @@ export const createJobWorkChallan = async (req, res) => {
           quantityToBeReceived: outQty,
           quantityReceived: 0,
           receivingUnit: assemblyOutputItem.receivingUnit || "PCS",
+          hasSecondaryUnit: outHasSec,
+          secondaryUnit: outSecUnit,
+          conversionFactor: outConv,
+          secondaryQuantityToBeReceived: outSecQty,
+          secondaryQuantityReceived: 0,
+          selectedUnit: assemblyOutputItem.selectedUnit || assemblyOutputItem.receivingUnit || "PCS",
           processType: assemblyOutputItem.processType || "Assembly",
           processRate: rateVal,
           processAmount: Number(assemblyOutputItem.processAmount) || (outQty * rateVal),
@@ -479,6 +537,8 @@ export const createJobWorkChallan = async (req, res) => {
       estimatedWeight: Number(estimatedWeight) || 0,
       estimatedPrice: Number(estimatedPrice) || 0,
       jobWorkType,
+      purpose: purpose || "Machining",
+      otherPurpose: otherPurpose || "",
       operationMode: operationMode || "discrete",
       assemblyOutputItem: processedAssemblyOutput || undefined,
       assemblyGroups: processedAssemblyGroups.length > 0 ? processedAssemblyGroups : undefined,
@@ -535,6 +595,10 @@ export const createJobWorkChallan = async (req, res) => {
             recipientOrSource: vendorName,
             purpose: jobWorkType === "store-conversion" ? `RM Conversion Outward Dispatch to ${vendorName} (Challan #${challanNumber})` : (item.processType || `Subcontractor Outward Dispatch (${jobWorkType})`),
             performedBy: req.user?.id || req.user?._id,
+            hasSecondaryUnit: item.hasSecondaryUnit || false,
+            secondaryUnit: item.secondaryUnit || "",
+            secondaryQuantity: item.hasSecondaryUnit ? -Number(item.secondaryQuantitySent || (item.quantitySent * (item.conversionFactor || 1))) : 0,
+            conversionFactor: item.conversionFactor || 1,
           }
         );
         

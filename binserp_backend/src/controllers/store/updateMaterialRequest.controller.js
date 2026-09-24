@@ -148,6 +148,10 @@ export const updateMaterialRequest = async (req, res) => {
                   referenceDocNumber: issueNumber,
                   recipientOrSource: `Shop Floor (${materialRequest.department || 'Production'})`,
                   purpose: `Issued against Request #${materialRequest.requestNumber}`,
+                  hasSecondaryUnit: item.hasSecondaryUnit || false,
+                  secondaryUnit: item.secondaryUnit || "",
+                  secondaryQuantity: item.secondaryQuantity || 0,
+                  conversionFactor: item.conversionFactor || 1,
                   performedBy: req.user?.id || req.user?._id,
                 }
               );
