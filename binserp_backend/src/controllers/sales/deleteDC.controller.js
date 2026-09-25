@@ -3,6 +3,7 @@ import { grnSchema, materialIssueSchema, bomSchema, inventorySchema, materialReq
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { incomingRFQSchema, quotationSchema, incomingPOSchema, salesOrderSchema, salesOrderDispatchHistorySchema, deliveryChallanSchema, invoiceSchema } from "../../models/sales/index.js";
 import { reverseSalesItemsStock } from "./salesStockHelper.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
@@ -56,11 +57,10 @@ export const deleteDC = async (req, res) => {
     const dc = await DeliveryChallan.findOne({ _id: id, company: companyId });
     if (!dc) return res.status(404).json({ message: "DC not found" });
 
-    // 24-hour edit/delete restriction
-    const createdTime = new Date(dc.createdAt || dc.date).getTime();
-    const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
-    if (hoursDiff > 24) {
-      return res.status(403).json({ message: "Delivery Challan can only be edited or deleted within 24 hours of creation" });
+    // Dynamic time lock governance
+    const lockCheck = await checkTimeLockGovernance(req, 'deliveryChallan', dc.createdAt || dc.date, 'delete');
+    if (!lockCheck.allowed) {
+      return res.status(403).json({ message: lockCheck.message });
     }
 
     // If DC had deducted stock (not Cancelled), restore stock across FG, RM, BO, and Consumables

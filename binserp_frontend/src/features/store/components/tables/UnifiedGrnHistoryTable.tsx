@@ -27,8 +27,10 @@ import {
   LayoutGrid,
   ChevronDown,
   X,
-  CheckSquare
+  CheckSquare,
+  ShieldCheck
 } from "lucide-react";
+import { useTimeLockPolicy } from "@/src/hooks/useTimeLockPolicy";
 import { useGetStoreDataQuery, useDeleteStoreRecordMutation } from "@/src/store/services/storeService";
 import GRNDetailModal from "../modals/GRNDetailModal";
 import jsPDF from "jspdf";
@@ -90,36 +92,52 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
     }
   }, []);
 
-  // Live 1-second ticking timer for 24h edit/delete countdown
+  // Live 1-second ticking timer for dynamic edit/delete countdown
   const [nowTime, setNowTime] = useState(Date.now());
   React.useEffect(() => {
     const timer = setInterval(() => setNowTime(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
 
+  const { getPolicyHours } = useTimeLockPolicy();
+
   const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
     if (!createdAt) return 0;
+    const policyHours = getPolicyHours('grn');
+    if (policyHours === -1) return Infinity;
+    if (policyHours <= 0) return 0;
     const created = new Date(createdAt).getTime();
+    if (isNaN(created)) return 0;
     const elapsed = Math.floor((nowTime - created) / 1000);
-    const limit = 24 * 3600; // 24 hours standard
+    const limit = policyHours * 3600;
     return Math.max(0, limit - elapsed);
   };
 
+  const isEditAllowed = (createdAt: string | Date | undefined) => {
+    const policyHours = getPolicyHours('grn');
+    if (policyHours === -1) return true;
+    if (policyHours <= 0) return false;
+    return getRemainingEditSeconds(createdAt) > 0;
+  };
+
   const formatRemainingTime = (totalSeconds: number) => {
-    if (totalSeconds <= 0) return '00:00:00';
+    if (totalSeconds === Infinity) return "Unlimited";
+    if (totalSeconds <= 0) return "00:00:00";
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   };
 
   const handleDeleteGrn = async (grn: any) => {
-    const rem = getRemainingEditSeconds(grn.createdAt || grn.date);
-    if (rem <= 0) {
+    if (!isEditAllowed(grn.createdAt || grn.date)) {
+      const hrs = getPolicyHours('grn');
       Swal.fire({
         icon: 'error',
         title: 'Action Expired',
-        text: 'This GRN cannot be deleted because the 24-hour edit/delete window has expired.',
+        text: hrs <= 0 
+          ? 'This GRN cannot be deleted because it is locked immediately upon creation by company policy.' 
+          : `This GRN cannot be deleted because the ${hrs}-hour edit/delete window has expired.`,
       });
       return;
     }
@@ -1104,7 +1122,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                 });
 
                 const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
-                const canEditOrDelete = remainingSecs > 0;
+                const canEditOrDelete = isEditAllowed(grn.createdAt || grn.date);
 
                 const firstItem = grn.items?.[0];
                 const firstItemName =
@@ -1295,13 +1313,23 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                       {/* Edit / Delete / Countdown */}
                       {canEditOrDelete ? (
                         <div className="flex items-center gap-1 shrink-0">
-                          <span
-                            title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
-                            className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1"
-                          >
-                            <Clock size={11} className="text-amber-600 animate-pulse" />
-                            {formatRemainingTime(remainingSecs)}
-                          </span>
+                          {remainingSecs === Infinity ? (
+                            <span
+                              title="Unlimited editing window configured by company policy"
+                              className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1"
+                            >
+                              <ShieldCheck size={11} className="text-emerald-600" />
+                              Unlimited
+                            </span>
+                          ) : (
+                            <span
+                              title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                              className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1"
+                            >
+                              <Clock size={11} className="text-amber-600 animate-pulse" />
+                              {formatRemainingTime(remainingSecs)}
+                            </span>
+                          )}
 
                           {onEdit && (
                             <button
@@ -1324,7 +1352,7 @@ export default function UnifiedGrnHistoryTable({ onEdit, onDelete, initialTypeFi
                         </div>
                       ) : (
                         <span
-                          title="Editing and deleting window expired (24h limit)"
+                          title={`Editing and deleting window expired (${getPolicyHours('grn')}h limit)`}
                           className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70 shrink-0"
                         >
                           <Lock size={11} /> Locked

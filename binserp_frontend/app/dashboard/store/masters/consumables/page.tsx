@@ -164,7 +164,7 @@ export default function ConsumablesPage() {
   if (isLoading) return <LoadingSpinner />;
 
   return (
-    <div className="space-y-4 relative">
+    <div className="flex-1 min-h-0 flex flex-col relative w-full">
       {/* Centered Error / Alert Modal */}
       {toast && toast.type === 'error' && (
         <div 
@@ -224,7 +224,7 @@ export default function ConsumablesPage() {
         </div>
       )}
 
-      <div className="h-[calc(100dvh-230px)] md:h-[calc(100vh-220px)] min-h-[420px]">
+      <div className="flex-1 min-h-[420px] h-[calc(100dvh-200px)] md:h-[calc(100vh-185px)] w-full">
         <ConsumableTable
           onAdd={() => {
             setEditingItem(null);

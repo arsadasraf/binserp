@@ -455,22 +455,46 @@ export default function MRPOutwardRfqModal({
                           />
                         </td>
                         <td className="px-3 py-2 text-center">
-                          {items.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveItem(idx)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors cursor-pointer"
-                              title="Remove item"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
+                          <div className="flex items-center justify-center gap-1">
+                            {idx === items.length - 1 && (
+                              <button
+                                type="button"
+                                onClick={handleAddItem}
+                                className="p-1 text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 rounded-lg transition-colors cursor-pointer"
+                                title="Add Next Item"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            )}
+                            {items.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(idx)}
+                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 rounded-lg transition-colors cursor-pointer"
+                                title="Remove item"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            {/* Bottom Add Line Item Bar */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleAddItem}
+                className="w-full py-2.5 px-4 border-2 border-dashed border-cyan-200 hover:border-cyan-500 dark:border-cyan-800/80 dark:hover:border-cyan-500 bg-cyan-50/40 hover:bg-cyan-50 dark:bg-cyan-950/20 dark:hover:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+              >
+                <Plus size={15} className="text-cyan-600 dark:text-cyan-400 group-hover:scale-110 transition-transform" />
+                <span>+ Add Material Item</span>
+              </button>
             </div>
           </div>
 

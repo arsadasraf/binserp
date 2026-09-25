@@ -1023,16 +1023,33 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
 
                 <div className="space-y-4">
                   {formData.items.map((item, index) => (
-                    <div key={index} className="p-4 bg-gray-50/50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700/50 rounded-xl relative group">
-                      {formData.items.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeItem(index)}
-                          className="absolute -top-2 -right-2 p-1.5 bg-red-100 text-red-600 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-200 shadow-sm"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
+                    <div key={index} className="p-4 bg-gray-50/50 dark:bg-gray-800/30 border border-gray-200 dark:border-gray-700/50 rounded-xl relative group space-y-3">
+                      <div className="flex justify-between items-center pb-2 border-b border-gray-200/60 dark:border-gray-700/60">
+                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400">Line Item #{index + 1}</span>
+                        <div className="flex items-center gap-1.5">
+                          {index === formData.items.length - 1 && (
+                            <button
+                              type="button"
+                              onClick={addItem}
+                              className="flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/40 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                              title="Add Next Item"
+                            >
+                              <Plus size={14} />
+                              <span>Add Item</span>
+                            </button>
+                          )}
+                          {formData.items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeItem(index)}
+                              className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="Remove Item"
+                            >
+                              <X size={15} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                         {/* Item Type & Selection */}
@@ -1204,6 +1221,18 @@ export const IncomingPOForm: React.FC<IncomingPOFormProps> = ({
                       </div>
                     </div>
                   ))}
+                </div>
+
+                {/* Bottom Add Line Item Bar */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={addItem}
+                    className="w-full py-3 px-4 border-2 border-dashed border-indigo-200 hover:border-indigo-500 dark:border-indigo-800/80 dark:hover:border-indigo-500 bg-indigo-50/40 hover:bg-indigo-50 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+                  >
+                    <Plus size={16} className="text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                    <span>+ Add Another PO Item</span>
+                  </button>
                 </div>
               </div>
 

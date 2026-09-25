@@ -126,6 +126,18 @@ export const purchaseOrderSchema = new mongoose.Schema(
         updatedAt: { type: Date, default: Date.now },
       },
     ],
+    followUps: [
+      {
+        comment: { type: String, required: true },
+        category: { type: String, default: "General" },
+        author: String,
+        authorId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true, strict: false }
 );

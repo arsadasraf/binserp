@@ -23,6 +23,7 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { updateInventoryStock } from "./updateInventoryStock.controller.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 import { recordStockTransaction } from "../../services/stockTransaction.service.js";
 import { signPhotos } from "../../utils/s3.js";
 
@@ -825,14 +826,13 @@ export const updateMRBDisposition = asyncHandler(async (req, res) => {
     throw new ApiError(404, "MRB Ticket not found");
   }
 
-  // 24-Hour Edit Governance Validation
-  if (ticket.dispositionDate) {
-    const elapsedMs = Date.now() - new Date(ticket.dispositionDate).getTime();
-    const elapsedHours = elapsedMs / (1000 * 60 * 60);
-    if (elapsedHours > 24) {
+  // Dynamic Time Lock Governance Validation
+  if (ticket.dispositionDate || ticket.createdAt) {
+    const lockCheck = await checkTimeLockGovernance(req, 'mrbDisposition', ticket.dispositionDate || ticket.createdAt, 'edit');
+    if (!lockCheck.allowed) {
       ticket.isLocked = true;
       await ticket.save();
-      throw new ApiError(403, `Editing locked. The 24-hour edit window elapsed (${elapsedHours.toFixed(1)} hours ago).`);
+      throw new ApiError(403, lockCheck.message);
     }
   }
 

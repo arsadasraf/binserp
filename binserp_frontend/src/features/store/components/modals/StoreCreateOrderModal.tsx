@@ -363,20 +363,23 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                                 {index + 1}
                                             </div>
 
-                                            <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                                <button
-                                                    type="button"
-                                                    onClick={handleAddItem}
-                                                    className="p-2 text-gray-400 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-all"
-                                                    title="Add Item"
-                                                >
-                                                    <Plus size={16} />
-                                                </button>
+                                            <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                                                {index === items.length - 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleAddItem}
+                                                        className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-pink-700 bg-pink-50 hover:bg-pink-100 border border-pink-200 rounded-lg transition-all shadow-2xs cursor-pointer"
+                                                        title="Add Next Item"
+                                                    >
+                                                        <Plus size={14} />
+                                                        <span>Add Item</span>
+                                                    </button>
+                                                )}
                                                 {items.length > 1 && (
                                                     <button
                                                         type="button"
                                                         onClick={() => handleRemoveItem(index)}
-                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all cursor-pointer"
                                                         title="Remove Item"
                                                     >
                                                         <Trash2 size={16} />
@@ -479,6 +482,18 @@ export default function StoreCreateOrderModal({ isOpen, onClose, onSuccess, init
                                             </div>
                                         </div>
                                     ))}
+
+                                    {/* Bottom Add Line Item Bar */}
+                                    <div className="pt-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleAddItem}
+                                            className="w-full py-3 px-4 border-2 border-dashed border-pink-200 hover:border-pink-500 bg-pink-50/40 hover:bg-pink-50 text-pink-700 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+                                        >
+                                            <Plus size={16} className="text-pink-600 group-hover:scale-110 transition-transform" />
+                                            <span>+ Add Another Order Part (FG)</span>
+                                        </button>
+                                    </div>
 
                                     <div className="flex justify-end pt-4 border-t border-gray-100">
                                         <div className="bg-pink-50 text-pink-800 rounded-xl px-6 py-4 flex items-center gap-4">

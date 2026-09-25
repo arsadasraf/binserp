@@ -10,11 +10,11 @@ export default function PurchaseLayout({ children }: { children: React.ReactNode
   const pathname = usePathname();
 
   const tabs = [
-    { name: 'MRP', href: '/dashboard/store/purchase/mrp', icon: CalendarClock },
+    { name: 'Outward PO', href: '/dashboard/store/purchase/po', icon: ShoppingCart },
     { name: 'Outward RFQ', href: '/dashboard/store/purchase/rfq', icon: Send },
     { name: 'Inward Quotation', href: '/dashboard/store/purchase/vendor-quotation', icon: FileText },
-    { name: 'Outward PO', href: '/dashboard/store/purchase/po', icon: ShoppingCart },
     { name: 'Price List', href: '/dashboard/store/purchase/vendor-price-list', icon: Tag },
+    { name: 'Purchase Bills', href: '/dashboard/store/purchase/purchase-bill', icon: Building2 },
   ];
 
   return (

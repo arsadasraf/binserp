@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { companyInfoSchema } from "../../models/store/index.js";
 import { incomingPOSchema, deliveryChallanSchema } from "../../models/sales/index.js";
 import { validateSalesItemsStock, deductSalesItemsStock, reverseSalesItemsStock } from "./salesStockHelper.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -21,11 +22,10 @@ export const updateDC = async (req, res) => {
       return res.status(404).json({ message: "Delivery Challan not found" });
     }
 
-    // 24-hour edit restriction
-    const createdTime = new Date(existingDC.createdAt || existingDC.date).getTime();
-    const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
-    if (hoursDiff > 24) {
-      return res.status(403).json({ message: "Delivery Challan can only be edited or deleted within 24 hours of creation" });
+    // Dynamic time lock governance
+    const lockCheck = await checkTimeLockGovernance(req, 'deliveryChallan', existingDC.createdAt || existingDC.date, 'edit');
+    if (!lockCheck.allowed) {
+      return res.status(403).json({ message: lockCheck.message });
     }
 
     const shouldReduceStock = req.body.reduceStock !== false && req.body.reduceStock !== 'false' && existingDC.reduceStock !== false;

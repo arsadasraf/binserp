@@ -26,7 +26,7 @@ export default function MasterTabs({ masterTab, setMasterTab, excludedTabs = [] 
         { value: "rm-bo-item", label: "Rm/Bo Items" },
         { value: "consumable-item", label: "Consumable Items" },
         { value: "fg-items", label: "FG Items" },
-        { value: "prefix-settings", label: "Prefix Settings" },
+        { value: "prefix-settings", label: "Store Settings" },
         { value: "ppc-products", label: "Inhouse Products" },
         { value: "grn-history", label: "BO GRN History" },
         { value: "fg-grn-history", label: "FG GRN History" },

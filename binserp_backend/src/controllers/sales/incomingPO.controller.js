@@ -4,6 +4,7 @@ import { customerSchema } from "../../models/store/index.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { uploadOnS3 } from "../../utils/s3.js";
 import { generateOrderNumber } from "./salesOrder.controller.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -258,11 +259,10 @@ export const updateIncomingPO = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Incoming PO not found" });
   }
 
-  // 24-hour edit restriction
-  const createdTime = new Date(existingPO.createdAt || existingPO.date).getTime();
-  const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
-  if (hoursDiff > 24) {
-    return res.status(403).json({ message: "Customer PO can only be edited or deleted within 24 hours of creation" });
+  // Dynamic time lock governance
+  const lockCheck = await checkTimeLockGovernance(req, 'customerPo', existingPO.createdAt || existingPO.date, 'edit');
+  if (!lockCheck.allowed) {
+    return res.status(403).json({ message: lockCheck.message });
   }
 
   let photoUrls = req.body.existingPhotos || existingPO.photos;
@@ -366,11 +366,10 @@ export const deleteIncomingPO = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Incoming PO not found" });
   }
 
-  // 24-hour delete restriction
-  const createdTime = new Date(existingPO.createdAt || existingPO.date).getTime();
-  const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
-  if (hoursDiff > 24) {
-    return res.status(403).json({ message: "Customer PO can only be edited or deleted within 24 hours of creation" });
+  // Dynamic time lock governance
+  const lockCheck = await checkTimeLockGovernance(req, 'customerPo', existingPO.createdAt || existingPO.date, 'delete');
+  if (!lockCheck.allowed) {
+    return res.status(403).json({ message: lockCheck.message });
   }
 
   await IncomingPO.deleteOne({ _id: id, company: companyId });

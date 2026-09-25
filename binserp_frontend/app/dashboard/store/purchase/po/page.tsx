@@ -17,7 +17,7 @@ export default function PurchasePOPage() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div className="space-y-4">
+    <div className="w-full h-full flex-1 flex flex-col min-h-0">
       <POTable
         data={poList || []}
         vendors={vendors || []}

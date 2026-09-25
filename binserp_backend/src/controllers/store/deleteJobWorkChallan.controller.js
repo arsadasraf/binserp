@@ -5,6 +5,7 @@ import {
 } from "../../models/store/index.js";
 import { updateInventoryStock } from './updateInventoryStock.controller.js';
 import { componentSchema, jobSchema } from "../../models/ppc/index.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -26,13 +27,10 @@ export const deleteJobWorkChallan = async (req, res) => {
       return res.status(400).json({ message: "Cannot delete a challan that has received items" });
     }
 
-    // 2. Enforce 24-hour deletion window
-    const createdAt = new Date(existingChallan.createdAt);
-    const diffInHours = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
-    if (diffInHours > 24) {
-      return res.status(400).json({ 
-        message: "Job Work Challan cannot be deleted after 24 hours from creation to preserve audit integrity." 
-      });
+    // 2. Dynamic time lock governance
+    const lockCheck = await checkTimeLockGovernance(req, 'jobWorkChallan', existingChallan.createdAt, 'delete');
+    if (!lockCheck.allowed) {
+      return res.status(403).json({ message: lockCheck.message });
     }
 
     // 3. Revert outward stock for all sent items

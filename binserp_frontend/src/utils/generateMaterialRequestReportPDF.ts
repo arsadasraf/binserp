@@ -158,3 +158,168 @@ export function generateMaterialRequestReportPDF(
 
   printWindow.document.close();
 }
+
+/**
+ * Generate official printable / saveable PDF slip for an individual Material Requisition.
+ * Adheres strictly to Binserp Item Display Standards (Item Name & Technical Description).
+ */
+export function generateSingleMaterialRequestSlipPDF(request: any, companyInfo?: any) {
+  if (!request) return;
+
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    alert("Please allow popups to preview and print Material Requisition Slip");
+    return;
+  }
+
+  let resolvedCompany = companyInfo;
+  if (!resolvedCompany || !resolvedCompany.companyName) {
+    try {
+      const cached = localStorage.getItem("storeCompanyInfo") || localStorage.getItem("companyInfo");
+      if (cached) resolvedCompany = JSON.parse(cached);
+    } catch (e) {}
+  }
+
+  const reqDate = request.createdAt ? new Date(request.createdAt).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }) : "-";
+
+  const requester = request.requestedBy?.name || request.createdByName || "Store User";
+  const dept = request.department || request.requestedBy?.department || "Production / Store";
+  const approver = request.approvedByName || request.approvedBy?.name || (request.status === 'Approved' || request.status === 'Issued' ? 'Authorized Approver' : 'Pending Approval');
+  const issuer = request.issuedByName || request.issuedBy?.name || (request.status === 'Issued' ? 'Store In-Charge' : 'Pending Issue');
+  const typeStr = (request.type || 'rm').toUpperCase();
+  const soOrMrp = request.mrpNumber ? `MRP: ${request.mrpNumber}` : (request.soNumber || request.salesOrder?.orderNumber || 'General Store Request');
+
+  const itemsHtml = (request.items || []).map((item: any, idx: number) => {
+    const desc = item.materialDescription || item.description || item.specification || item.grade || '';
+    const mainQty = item.selectedUnit === item.secondaryUnit ? item.secondaryQuantity : item.quantity;
+    const mainUnit = item.selectedUnit || item.unit || 'PCS';
+    const hasSec = Boolean(item.hasSecondaryUnit && item.secondaryUnit);
+    const secDisplay = hasSec 
+      ? (item.selectedUnit === item.secondaryUnit 
+          ? `(≈ ${item.quantity} ${item.unit})` 
+          : `(≈ ${item.secondaryQuantity} ${item.secondaryUnit})`)
+      : '';
+
+    return `
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+        <td style="padding: 8px 6px; text-align: center; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
+        <td style="padding: 8px 10px; border-right: 1px solid #e2e8f0;">
+          <div style="font-weight: 700; color: #0f172a; font-size: 12px;">${item.materialName || item.name || 'Material Item'}</div>
+          ${desc ? `<div style="font-size: 10px; color: #64748b; font-style: italic; margin-top: 2px;">${desc}</div>` : ''}
+        </td>
+        <td style="padding: 8px 6px; text-align: center; border-right: 1px solid #e2e8f0; font-weight: 600; color: #475569;">
+          ${item.itemType || typeStr}
+        </td>
+        <td style="padding: 8px 8px; text-align: center; border-right: 1px solid #e2e8f0;">
+          <div style="font-weight: 800; color: #1e3a8a; font-size: 13px;">${mainQty} <span style="font-size: 10px; color: #64748b;">${mainUnit}</span></div>
+          ${secDisplay ? `<div style="font-size: 9px; color: #4338ca; font-weight: 600;">${secDisplay}</div>` : ''}
+        </td>
+        <td style="padding: 8px 10px; color: #334155; font-size: 10.5px;">
+          ${item.purpose || request.remarks || '-'}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Material Requisition - ${request.requestNumber || 'Slip'}</title>
+      <style>
+        @page { size: A4 portrait; margin: 12mm; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 12px; }
+        @media print {
+          body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .no-print { display: none !important; }
+        }
+      </style>
+    </head>
+    <body onload="window.print()">
+      <div class="no-print" style="margin-bottom: 12px; display: flex; justify-content: flex-end; gap: 8px;">
+        <button onclick="window.print()" style="padding: 6px 14px; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">Print / Save as PDF</button>
+      </div>
+
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e3a8a; padding-bottom: 12px; margin-bottom: 14px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 900; color: #0f172a; text-transform: uppercase;">
+            ${resolvedCompany?.companyName || resolvedCompany?.name || 'BINSERP MANUFACTURING'}
+          </h2>
+          ${resolvedCompany?.address ? `<p style="margin: 2px 0 0; font-size: 10px; color: #475569;">${resolvedCompany.address}</p>` : ''}
+          ${resolvedCompany?.gstNumber ? `<p style="margin: 1px 0 0; font-size: 10px; color: #475569;"><strong>GSTIN:</strong> ${resolvedCompany.gstNumber}</p>` : ''}
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 16px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px; text-transform: uppercase;">MATERIAL REQUISITION SLIP</div>
+          <div style="font-size: 13px; font-weight: 800; font-family: monospace; color: #0f172a; margin-top: 3px;"># ${request.requestNumber || '-'}</div>
+          <div style="display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; background: ${request.status === 'Approved' ? '#dcfce7; color: #166534;' : request.status === 'Issued' ? '#f3e8ff; color: #6b21a8;' : '#fef9c3; color: #854d0e;'}">
+            STATUS: ${request.status || 'PENDING'}
+          </div>
+        </div>
+      </div>
+
+      <!-- Info Meta Cards -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px;">
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px;">
+          <div style="font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">Requisition Date</div>
+          <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 2px;">${reqDate}</div>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px;">
+          <div style="font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">Requested By / Dept</div>
+          <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 2px;">${requester}</div>
+          <div style="font-size: 9.5px; color: #64748b;">${dept}</div>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px;">
+          <div style="font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">Inventory Category</div>
+          <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-top: 2px;">${typeStr}</div>
+        </div>
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px;">
+          <div style="font-size: 9px; font-weight: bold; color: #64748b; text-transform: uppercase;">MRP / Order Reference</div>
+          <div style="font-size: 11px; font-weight: 700; color: #1e3a8a; margin-top: 2px;">${soOrMrp}</div>
+        </div>
+      </div>
+
+      <!-- Item Table -->
+      <table style="border-collapse: collapse; width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; margin-bottom: 20px;">
+        <thead style="background: #1e3a8a; color: #ffffff;">
+          <tr style="font-size: 10px; font-weight: 800; text-transform: uppercase;">
+            <th style="padding: 7px 6px; text-align: center; width: 5%;">#</th>
+            <th style="padding: 7px 10px; text-align: left; width: 45%;">Material Name & Technical Description</th>
+            <th style="padding: 7px 6px; text-align: center; width: 15%;">Type</th>
+            <th style="padding: 7px 8px; text-align: center; width: 15%;">Req Qty</th>
+            <th style="padding: 7px 10px; text-align: left; width: 20%;">Purpose / Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml || `<tr><td colspan="5" style="padding: 16px; text-align: center; color: #94a3b8;">No items listed in this request.</td></tr>`}
+        </tbody>
+      </table>
+
+      <!-- Signatures / Authorizations -->
+      <div style="margin-top: 36px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center;">
+        <div style="border-top: 1px solid #94a3b8; padding-top: 6px;">
+          <div style="font-size: 11px; font-weight: 800; color: #0f172a;">${requester}</div>
+          <div style="font-size: 9.5px; color: #64748b; text-transform: uppercase; font-weight: 600;">Requested By</div>
+        </div>
+        <div style="border-top: 1px solid #94a3b8; padding-top: 6px;">
+          <div style="font-size: 11px; font-weight: 800; color: #0f172a;">${approver}</div>
+          <div style="font-size: 9.5px; color: #64748b; text-transform: uppercase; font-weight: 600;">Authorized Approval</div>
+        </div>
+        <div style="border-top: 1px solid #94a3b8; padding-top: 6px;">
+          <div style="font-size: 11px; font-weight: 800; color: #0f172a;">${issuer}</div>
+          <div style="font-size: 9.5px; color: #64748b; text-transform: uppercase; font-weight: 600;">Store In-Charge / Issued</div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `);
+
+  printWindow.document.close();
+}
+

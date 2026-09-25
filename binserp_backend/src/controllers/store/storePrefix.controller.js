@@ -25,12 +25,43 @@ export const getStorePrefixSettings = async (req, res) => {
             CNY: 11.95,
         };
 
+        const defaultTimeLockPolicies = {
+            grn: 24,
+            customerPo: 24,
+            deliveryChallan: 24,
+            invoice: 24,
+            purchasePo: 24,
+            jobWorkChallan: 24,
+            rfqQuotation: 24,
+            mrbDisposition: 24,
+        };
+
+        const defaultApprovalSettings = {
+            materialRequest: {
+                enabled: false,
+                allowAllUsers: true,
+                approvers: [],
+                approverNames: [],
+            },
+            outwardPo: {
+                enabled: false,
+                allowAllUsers: true,
+                approvers: [],
+                approverNames: [],
+            },
+        };
+
         if (!settings) {
             settings = new StorePrefix();
         }
 
         const settingsObj = settings.toObject ? settings.toObject() : { ...settings };
         settingsObj.exchangeRates = { ...defaultRates, ...(settingsObj.exchangeRates || {}) };
+        settingsObj.timeLockPolicies = { ...defaultTimeLockPolicies, ...(settingsObj.timeLockPolicies || {}) };
+        settingsObj.approvalSettings = {
+            materialRequest: { ...defaultApprovalSettings.materialRequest, ...(settingsObj.approvalSettings?.materialRequest || {}) },
+            outwardPo: { ...defaultApprovalSettings.outwardPo, ...(settingsObj.approvalSettings?.outwardPo || {}) }
+        };
 
         res.status(200).json({ settings: settingsObj });
     } catch (error) {
@@ -63,6 +94,17 @@ export const updateStorePrefixSettings = async (req, res) => {
             CNY: 11.95,
         };
 
+        const defaultTimeLockPolicies = {
+            grn: 24,
+            customerPo: 24,
+            deliveryChallan: 24,
+            invoice: 24,
+            purchasePo: 24,
+            jobWorkChallan: 24,
+            rfqQuotation: 24,
+            mrbDisposition: 24,
+        };
+
         const updateData = {
             grnPrefix: req.body.grnPrefix,
             rmBoGrnPrefix: req.body.rmBoGrnPrefix,
@@ -93,6 +135,34 @@ export const updateStorePrefixSettings = async (req, res) => {
                 }
             });
             updateData.exchangeRates = sanitizedRates;
+        }
+
+        if (req.body.timeLockPolicies && typeof req.body.timeLockPolicies === 'object') {
+            const sanitizedPolicies = { ...defaultTimeLockPolicies };
+            Object.keys(req.body.timeLockPolicies).forEach(key => {
+                const val = Number(req.body.timeLockPolicies[key]);
+                if (!isNaN(val)) {
+                    sanitizedPolicies[key] = val;
+                }
+            });
+            updateData.timeLockPolicies = sanitizedPolicies;
+        }
+
+        if (req.body.approvalSettings && typeof req.body.approvalSettings === 'object') {
+            updateData.approvalSettings = {
+                materialRequest: {
+                    enabled: Boolean(req.body.approvalSettings.materialRequest?.enabled),
+                    allowAllUsers: req.body.approvalSettings.materialRequest?.allowAllUsers !== false,
+                    approvers: Array.isArray(req.body.approvalSettings.materialRequest?.approvers) ? req.body.approvalSettings.materialRequest.approvers : [],
+                    approverNames: Array.isArray(req.body.approvalSettings.materialRequest?.approverNames) ? req.body.approvalSettings.materialRequest.approverNames : [],
+                },
+                outwardPo: {
+                    enabled: Boolean(req.body.approvalSettings.outwardPo?.enabled),
+                    allowAllUsers: req.body.approvalSettings.outwardPo?.allowAllUsers !== false,
+                    approvers: Array.isArray(req.body.approvalSettings.outwardPo?.approvers) ? req.body.approvalSettings.outwardPo.approvers : [],
+                    approverNames: Array.isArray(req.body.approvalSettings.outwardPo?.approverNames) ? req.body.approvalSettings.outwardPo.approverNames : [],
+                }
+            };
         }
 
         Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);

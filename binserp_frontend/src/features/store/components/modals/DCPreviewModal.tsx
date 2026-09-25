@@ -174,24 +174,24 @@ export default function DCPreviewModal({
                 }
             `}</style>
 
-            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-6xl max-h-[94vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto overflow-hidden">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-6xl max-h-[94vh] flex flex-col border border-slate-200 dark:border-slate-800 my-auto overflow-hidden">
                 
                 {/* Header with Mode Switcher */}
-                <div className="no-print p-4 sm:p-5 bg-slate-900 text-white flex flex-wrap justify-between items-center gap-3 border-b border-slate-800 flex-shrink-0">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-600/25 rounded-2xl flex items-center justify-center border border-blue-500/40 shadow-sm">
-                            <Truck className="text-blue-400 w-5 h-5" />
+                <div className="no-print p-3.5 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 bg-blue-50 dark:bg-blue-950/60 rounded-2xl flex items-center justify-center border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 shrink-0">
+                            <Truck className="w-5 h-5" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <div className="flex items-center gap-2">
-                                <h2 className="text-base sm:text-lg font-black font-mono tracking-tight text-white">
+                                <h2 className="text-base sm:text-lg font-black font-mono tracking-tight text-blue-600 dark:text-blue-400 truncate">
                                     DC #{dc.dcNumber}
                                 </h2>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                                     {dc.status || "Issued"}
                                 </span>
                             </div>
-                            <p className="text-xs text-slate-400">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                                 Creation Date: {formatDateTime(dc.createdAt || dc.date)}
                             </p>
                         </div>
@@ -200,14 +200,14 @@ export default function DCPreviewModal({
                     {/* Mode Toggle & Copy Selector */}
                     <div className="flex flex-wrap items-center gap-2">
                         {/* Mode Switcher Buttons */}
-                        <div className="bg-slate-800 p-1 rounded-xl border border-slate-700 flex items-center gap-1">
+                        <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1">
                             <button
                                 type="button"
                                 onClick={() => setPreviewMode("interactive")}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                                     previewMode === "interactive"
                                         ? "bg-blue-600 text-white shadow-xs"
-                                        : "text-slate-300 hover:text-white"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                                 }`}
                             >
                                 <Eye size={13} /> Clickable Details
@@ -218,7 +218,7 @@ export default function DCPreviewModal({
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                                     previewMode === "print"
                                         ? "bg-blue-600 text-white shadow-xs"
-                                        : "text-slate-300 hover:text-white"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                                 }`}
                             >
                                 <Printer size={13} /> A4 Print View
@@ -229,7 +229,7 @@ export default function DCPreviewModal({
                         <select
                             value={selectedCopyType}
                             onChange={(e: any) => setSelectedCopyType(e.target.value)}
-                            className="bg-slate-800 text-white text-xs px-3 py-1.5 rounded-xl border border-slate-700 font-semibold focus:outline-none"
+                            className="bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 font-semibold focus:outline-none cursor-pointer"
                         >
                             <option value="all">Full 3-Copy Set</option>
                             <option value="original">Original (Recipient)</option>
@@ -238,8 +238,10 @@ export default function DCPreviewModal({
                         </select>
 
                         <button
+                            type="button"
                             onClick={onClose}
-                            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-colors cursor-pointer ml-1"
+                            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-1"
+                            title="Close"
                         >
                             <X size={18} />
                         </button>

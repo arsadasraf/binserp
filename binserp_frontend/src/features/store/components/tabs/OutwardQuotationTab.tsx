@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { FileText, Plus, Search, Calendar, User, Eye, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, ShoppingCart, AlertTriangle, IndianRupee, ChevronDown, ChevronUp, RotateCcw, Tag, Settings } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
+import SearchableMultiSelect from '../SearchableMultiSelect';
 import { generateFrontendOutwardQuotationPDF } from '@/src/utils/frontendPdfHelper';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
@@ -25,10 +26,19 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
-    const [filterCustomer, setFilterCustomer] = useState<string>('All');
-    const [showDashboard, setShowDashboard] = useState<boolean>(true);
+    const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
+    const [showFilters, setShowFilters] = useState<boolean>(false);
     const [filterDateType, setFilterDateType] = useState<'entry' | 'validity' | 'either'>('entry');
     const [filterMonth, setFilterMonth] = useState<string>('');
+
+    const customerOptions = useMemo(() => {
+        return (Array.isArray(customers) ? customers : []).map((c: any) => ({
+            value: (c._id || c.id)?.toString(),
+            label: c.name || c.companyName || 'Customer',
+            subLabel: c.code ? `Code: ${c.code}` : undefined
+        })).filter(o => o.value);
+    }, [customers]);
 
     // Create / Edit Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -582,17 +592,18 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
     const filteredQuotations = useMemo(() => {
         return (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
             const matchSearch =
+                !searchTerm ||
                 (q.quotationNumber && q.quotationNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (q.rfqNumber && q.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (q.customerName && q.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (q.items && q.items.some((i: any) => (i.productName || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                (q.items && q.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
 
             const matchStatus = filterStatus === 'All' || q.status === filterStatus;
 
             let matchCustomer = true;
-            if (filterCustomer !== 'All') {
-                const custId = q.customer?._id || q.customer;
-                matchCustomer = custId?.toString() === filterCustomer?.toString();
+            if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+                const custId = (q.customer?._id || q.customer)?.toString();
+                matchCustomer = filterCustomers.includes(custId);
             }
 
             let matchMonth = true;
@@ -610,11 +621,55 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             return matchSearch && matchStatus && matchCustomer && matchMonth;
         });
-    }, [quotations, searchTerm, filterStatus, filterCustomer, filterMonth, filterDateType]);
+    }, [quotations, searchTerm, filterStatus, filterCustomers, filterMonth, filterDateType]);
+
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (filterStatus !== 'All') count++;
+        if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) count++;
+        if (filterMonth) count++;
+        if (searchTerm.trim()) count++;
+        return count;
+    }, [filterStatus, filterCustomers, filterMonth, searchTerm]);
+
+    const isFiltered = activeFilterCount > 0;
+
+    // Scoped quotations based on active search, customer, and date/month filters (used for live status dropdown counts)
+    const scopedQuotations = useMemo(() => {
+        return (Array.isArray(quotations) ? quotations : []).filter((q: any) => {
+            const matchSearch =
+                !searchTerm ||
+                (q.quotationNumber && q.quotationNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (q.rfqNumber && q.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (q.customerName && q.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (q.items && q.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
+
+            let matchCustomer = true;
+            if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+                const custId = (q.customer?._id || q.customer)?.toString();
+                matchCustomer = filterCustomers.includes(custId);
+            }
+
+            let matchMonth = true;
+            if (filterMonth) {
+                const entryMonth = q.date ? new Date(q.date).toISOString().slice(0, 7) : '';
+                const validMonth = q.validUntil ? new Date(q.validUntil).toISOString().slice(0, 7) : '';
+                if (filterDateType === 'entry') {
+                    matchMonth = entryMonth === filterMonth;
+                } else if (filterDateType === 'validity') {
+                    matchMonth = validMonth === filterMonth;
+                } else {
+                    matchMonth = entryMonth === filterMonth || validMonth === filterMonth;
+                }
+            }
+
+            return matchSearch && matchCustomer && matchMonth;
+        });
+    }, [quotations, searchTerm, filterCustomers, filterMonth, filterDateType]);
 
     const statusCounts = useMemo(() => {
         const counts: Record<string, number> = {
-            All: Array.isArray(quotations) ? quotations.length : 0,
+            All: scopedQuotations.length,
             Draft: 0,
             'Pending Approval': 0,
             Approved: 0,
@@ -622,7 +677,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             Closed: 0,
             Rejected: 0
         };
-        (Array.isArray(quotations) ? quotations : []).forEach((q: any) => {
+        scopedQuotations.forEach((q: any) => {
             const st = q.status || 'Draft';
             if (counts[st] !== undefined) {
                 counts[st] = (counts[st] || 0) + 1;
@@ -631,8 +686,9 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             }
         });
         return counts;
-    }, [quotations]);
+    }, [scopedQuotations]);
 
+    // Dynamic Quotation Pipeline Financials in INR calculated on filtered quotations
     const overallQuoteFinancials = useMemo(() => {
         let totalPipelineInr = 0;
         let sentActiveInr = 0;
@@ -647,7 +703,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
         const currencyTotals: Record<string, number> = {};
         const currencyInrTotals: Record<string, number> = {};
 
-        (Array.isArray(quotations) ? quotations : []).forEach((q: any) => {
+        (Array.isArray(filteredQuotations) ? filteredQuotations : []).forEach((q: any) => {
             const amt = Number(q.totalAmount || q.grandTotal || q.subtotal || 0);
             const curr = normalizeCurrencyCode(q.currency);
             const inrVal = convertToINR(amt, curr).inrAmount;
@@ -690,17 +746,15 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             currencyInrTotals,
             hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
         };
-    }, [quotations, convertToINR]);
+    }, [filteredQuotations, convertToINR]);
 
     const handleResetFilters = () => {
         setSearchTerm('');
         setFilterStatus('All');
-        setFilterCustomer('All');
+        setFilterCustomers([]);
         setFilterMonth('');
         setFilterDateType('entry');
     };
-
-    const isFiltered = searchTerm !== '' || filterStatus !== 'All' || filterCustomer !== 'All' || filterMonth !== '';
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
@@ -709,14 +763,19 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             <div className="space-y-3">
                 {!showDashboard ? (
                     /* Collapsed Compact State */
-                    <div className="bg-slate-100/90 dark:bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 flex items-center justify-between gap-3 text-xs">
+                    <div className="hidden sm:flex bg-slate-100/90 dark:bg-slate-800/80 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/60 items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-3 overflow-x-auto py-0.5">
                             <span className="font-extrabold uppercase tracking-wider text-[11px] text-slate-500 dark:text-slate-400 shrink-0 flex items-center gap-1.5">
                                 <IndianRupee size={13} className="text-indigo-600" /> Quotation Summary:
                             </span>
                             <span className="font-bold text-slate-700 dark:text-slate-200 shrink-0">
-                                Pipeline: <strong className="text-indigo-600 font-mono">{overallQuoteFinancials.formattedTotalPipelineInr}</strong> ({overallQuoteFinancials.totalPipelineCount})
+                                Pipeline: <strong className="text-indigo-600 font-mono">{overallQuoteFinancials.formattedTotalPipelineInr}</strong> ({filteredQuotations.length})
                             </span>
+                            {isFiltered && (
+                                <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded text-[9px] font-bold border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                    Filtered
+                                </span>
+                            )}
                             <span className="text-slate-300 dark:text-slate-600">|</span>
                             <span className="text-slate-600 dark:text-slate-300 shrink-0">
                                 Sent/Active: <strong className="text-blue-600 font-mono">{overallQuoteFinancials.formattedSentActiveInr}</strong> ({overallQuoteFinancials.sentActiveCount})
@@ -733,7 +792,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                         <button
                             type="button"
                             onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer"
+                            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-1 shrink-0 cursor-pointer px-2 py-1 rounded-lg hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors"
+                            title="Show Executive KPI Dashboard"
                         >
                             <span>Show Dashboard</span>
                             <ChevronDown size={14} />
@@ -742,6 +802,27 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                 ) : (
                     /* Expanded 4 KPI Cards */
                     <>
+                        {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
+                        <div className="flex items-center justify-between pb-1 px-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive Quotation Dashboard</span>
+                                {isFiltered && (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                                        Filtered ({filteredQuotations.length} of {quotations.length})
+                                    </span>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowDashboard(false)}
+                                className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
+                                title="Hide Executive KPI Dashboard"
+                            >
+                                <ChevronUp size={14} />
+                                <span>Hide</span>
+                            </button>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                             {/* Card 1: Total Pipeline Value */}
                             <div className="bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 dark:from-indigo-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-xs relative overflow-hidden">
@@ -756,15 +837,19 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                 </div>
                                 <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
                                     <span>Active Proposals</span>
-                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{overallQuoteFinancials.totalPipelineCount} Quotes</span>
+                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{filteredQuotations.length} Quotes</span>
                                 </div>
                             </div>
 
                             {/* Card 2: Sent / Active Proposals */}
-                            <div className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-xs relative overflow-hidden">
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Sent' ? 'All' : 'Sent')}
+                                className="bg-gradient-to-br from-blue-50/90 via-white to-slate-50 dark:from-blue-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/40 shadow-xs relative overflow-hidden cursor-pointer group hover:border-blue-400 dark:hover:border-blue-600 transition-colors"
+                                title="Click to filter Active / Sent Quotes"
+                            >
                                 <div className="flex items-center justify-between text-blue-600 dark:text-blue-400 mb-2">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Active / Sent Quotes</span>
-                                    <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                                    <div className="w-8 h-8 rounded-xl bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center group-hover:scale-105 transition-transform">
                                         <ArrowRight size={16} />
                                     </div>
                                 </div>
@@ -778,10 +863,14 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             </div>
 
                             {/* Card 3: Pending Approvals */}
-                            <div className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-xs relative overflow-hidden">
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Pending Approval' ? 'All' : 'Pending Approval')}
+                                className="bg-gradient-to-br from-amber-50/90 via-white to-slate-50 dark:from-amber-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-xs relative overflow-hidden cursor-pointer group hover:border-amber-400 dark:hover:border-amber-600 transition-colors"
+                                title="Click to filter Pending Approval Quotes"
+                            >
                                 <div className="flex items-center justify-between text-amber-600 dark:text-amber-400 mb-2">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pending Approval</span>
-                                    <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                                    <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center group-hover:scale-105 transition-transform">
                                         <Clock size={16} />
                                     </div>
                                 </div>
@@ -795,10 +884,14 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             </div>
 
                             {/* Card 4: Approved / Converted */}
-                            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-xs relative overflow-hidden">
+                            <div 
+                                onClick={() => setFilterStatus(filterStatus === 'Approved' ? 'All' : 'Approved')}
+                                className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 dark:from-emerald-950/30 dark:via-slate-900 dark:to-slate-900 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-xs relative overflow-hidden cursor-pointer group hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors"
+                                title="Click to filter Approved Quotes"
+                            >
                                 <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 mb-2">
                                     <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Approved / Converted</span>
-                                    <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                                    <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center group-hover:scale-105 transition-transform">
                                         <CheckCircle2 size={16} />
                                     </div>
                                 </div>
@@ -860,78 +953,51 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
             </div>
             
             {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-                {/* Primary Row: Search + Action Buttons */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Search Quote #, RFQ #, Customer or Item..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                        {searchTerm && (
-                            <button
-                                type="button"
-                                onClick={() => setSearchTerm('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                                title="Clear search"
-                            >
-                                <X size={14} />
-                            </button>
-                        )}
-                    </div>
-
-                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(prev => !prev)}
-                            className="flex-1 sm:flex-initial px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border border-slate-200 dark:border-slate-700"
-                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
-                        >
-                            {showDashboard ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                            <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={handleOpenCreateModal}
-                            className="flex-1 sm:flex-initial px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                        >
-                            <Plus size={15} /> <span>Create Outward Quote</span>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Filters Row: Customer Dropdown + Status Dropdown + Month Date Filter + Reset */}
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-                        {/* Customer Filter Dropdown */}
-                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[150px] sm:min-w-0">
-                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Customer:</label>
-                            <select
-                                value={filterCustomer}
-                                onChange={(e) => setFilterCustomer(e.target.value)}
-                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-full sm:max-w-[240px]"
-                            >
-                                <option value="All">All Customers</option>
-                                {(Array.isArray(customers) ? customers : []).map((c: any) => (
-                                    <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
-                                        {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
-                                    </option>
-                                ))}
-                            </select>
+            <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5">
+                {/* Main Control Row - Fits in a SINGLE line on Desktop (`lg:flex`) */}
+                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 sm:gap-2.5">
+                    {/* Left & Center: Search + Desktop Inline Filters */}
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {/* Search Input: Compact on desktop so filters fit in the same line */}
+                        <div className="relative flex-1 lg:flex-initial lg:w-48 xl:w-56 shrink-0">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <input
+                                type="text"
+                                placeholder="Search Quote, RFQ, customer, item..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            />
+                            {searchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                    title="Clear search"
+                                >
+                                    <X size={13} />
+                                </button>
+                            )}
                         </div>
 
-                        {/* Status Filter Dropdown */}
-                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[160px] sm:min-w-0">
-                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Status:</label>
+                        {/* Inline Filters on Desktop (`lg:flex`) */}
+                        <div className="hidden lg:flex items-center gap-2 flex-wrap min-w-0">
+                            {/* Customer Select */}
+                            <SearchableMultiSelect
+                                options={customerOptions}
+                                selectedValues={filterCustomers}
+                                onChange={setFilterCustomers}
+                                placeholder="All Customers"
+                                searchPlaceholder="Search customer..."
+                                className="w-40 xl:w-52"
+                            />
+
+                            {/* Status Select */}
                             <select
                                 value={filterStatus}
                                 onChange={(e) => setFilterStatus(e.target.value)}
-                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-full sm:max-w-[260px]"
+                                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-[140px] xl:max-w-[160px]"
+                                title="Filter by Status"
                             >
                                 <option value="All">All Statuses ({statusCounts.All || 0})</option>
                                 <option value="Draft">Draft ({statusCounts.Draft || 0})</option>
@@ -941,51 +1007,193 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                 <option value="Closed">Closed ({statusCounts.Closed || 0})</option>
                                 <option value="Rejected">Rejected ({statusCounts.Rejected || 0})</option>
                             </select>
-                        </div>
 
-                        {/* Month-based Date Filter */}
-                        <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800/60 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                            <Calendar size={13} className="text-slate-400 shrink-0" />
-                            <select
-                                value={filterDateType}
-                                onChange={(e) => setFilterDateType(e.target.value as any)}
-                                className="bg-transparent text-xs font-bold text-slate-600 dark:text-slate-300 outline-none cursor-pointer pr-1"
-                            >
-                                <option value="entry">Quote Date</option>
-                                <option value="validity">Valid Until</option>
-                                <option value="either">Either Date</option>
-                            </select>
-                            <input
-                                type="month"
-                                value={filterMonth}
-                                onChange={(e) => setFilterMonth(e.target.value)}
-                                className="bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                            />
-                            {filterMonth && (
+                            {/* Month Filter */}
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                                <Calendar size={13} className="text-slate-400 shrink-0" />
+                                <select
+                                    value={filterDateType}
+                                    onChange={(e) => setFilterDateType(e.target.value as any)}
+                                    className="bg-transparent text-xs font-bold text-slate-600 dark:text-slate-300 outline-none cursor-pointer pr-1"
+                                    title="Date basis"
+                                >
+                                    <option value="entry">Quote</option>
+                                    <option value="validity">Valid</option>
+                                    <option value="either">Any</option>
+                                </select>
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => setFilterMonth(e.target.value)}
+                                    className="px-1.5 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer text-center"
+                                    title="Choose month"
+                                />
+                                {filterMonth && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterMonth('')}
+                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                                        title="Clear month filter"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Reset Button (only when filters active) */}
+                            {isFiltered && (
                                 <button
                                     type="button"
-                                    onClick={() => setFilterMonth('')}
-                                    className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                                    title="Clear month filter"
+                                    onClick={handleResetFilters}
+                                    className="p-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 text-xs font-bold"
+                                    title="Reset all filters"
                                 >
-                                    <X size={12} />
+                                    <RotateCcw size={13} />
+                                    <span className="hidden xl:inline">Reset</span>
                                 </button>
                             )}
                         </div>
                     </div>
 
-                    {/* Reset Filters Action */}
-                    {isFiltered && (
+                    {/* Right Action Group: Mobile Toggles + Dashboard Toggle + Action Button */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-end lg:self-auto">
+                        {/* Mobile Only: Small Filter Toggle Icon */}
                         <button
                             type="button"
-                            onClick={handleResetFilters}
-                            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ml-auto"
+                            onClick={() => setShowFilters(prev => !prev)}
+                            className={`lg:hidden p-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer border ${
+                                showFilters || activeFilterCount > 0
+                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
+                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={showFilters ? "Hide Filters" : "Show Filters"}
+                            aria-label="Toggle Filters"
                         >
-                            <RotateCcw size={12} />
-                            <span>Reset Filters</span>
+                            <Filter size={15} />
+                            {activeFilterCount > 0 && (
+                                <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold">
+                                    {activeFilterCount}
+                                </span>
+                            )}
                         </button>
-                    )}
+
+                        {/* Dashboard Toggle: Small icon on mobile, compact labeled button on desktop */}
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className={`p-2 sm:px-2.5 sm:py-1.5 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                showDashboard
+                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
+                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
+                            aria-label="Toggle Dashboard"
+                        >
+                            <LayoutGrid size={15} />
+                            <span className="hidden sm:inline">{showDashboard ? "Hide" : "Dashboard"}</span>
+                        </button>
+
+                        {/* Primary Action Button */}
+                        <button
+                            type="button"
+                            onClick={handleOpenCreateModal}
+                            className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} />
+                            <span className="hidden sm:inline">Create Outward Quote</span>
+                            <span className="sm:hidden">Create</span>
+                        </button>
+                    </div>
                 </div>
+
+                {/* Mobile Collapsible Filter Drawer (Hidden on desktop because filters are inline) */}
+                {showFilters && (
+                    <div className="lg:hidden pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between pb-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Filter Options</span>
+                            <button
+                                type="button"
+                                onClick={() => setShowFilters(false)}
+                                className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center gap-0.5"
+                            >
+                                <ChevronUp size={13} />
+                                <span>Close</span>
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {/* Mobile Customer Select */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500">Customer:</label>
+                                <SearchableMultiSelect
+                                    options={customerOptions}
+                                    selectedValues={filterCustomers}
+                                    onChange={setFilterCustomers}
+                                    placeholder="All Customers"
+                                    searchPlaceholder="Search customer..."
+                                    className="w-full"
+                                />
+                            </div>
+
+                            {/* Mobile Status Select */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500">Status:</label>
+                                <select
+                                    value={filterStatus}
+                                    onChange={(e) => setFilterStatus(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none"
+                                >
+                                    <option value="All">All Statuses ({statusCounts.All || 0})</option>
+                                    <option value="Draft">Draft ({statusCounts.Draft || 0})</option>
+                                    <option value="Pending Approval">Pending Approval ({statusCounts['Pending Approval'] || 0})</option>
+                                    <option value="Approved">Approved ({statusCounts.Approved || 0})</option>
+                                    <option value="Sent">Sent ({statusCounts.Sent || 0})</option>
+                                    <option value="Closed">Closed ({statusCounts.Closed || 0})</option>
+                                    <option value="Rejected">Rejected ({statusCounts.Rejected || 0})</option>
+                                </select>
+                            </div>
+
+                            {/* Mobile Month Filter */}
+                            <div className="sm:col-span-2 flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <Calendar size={13} className="text-slate-400 shrink-0" />
+                                <select
+                                    value={filterDateType}
+                                    onChange={(e) => setFilterDateType(e.target.value as any)}
+                                    className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none"
+                                >
+                                    <option value="entry">Quote Date</option>
+                                    <option value="validity">Valid Until</option>
+                                    <option value="either">Either Date</option>
+                                </select>
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => setFilterMonth(e.target.value)}
+                                    className="flex-1 px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 outline-none"
+                                />
+                                {filterMonth && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterMonth('')}
+                                        className="text-slate-400 p-0.5"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {isFiltered && (
+                            <button
+                                type="button"
+                                onClick={handleResetFilters}
+                                className="w-full py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                                <RotateCcw size={13} />
+                                <span>Reset All Filters</span>
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {loading ? (
@@ -1265,27 +1473,32 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             {/* Create / Edit Outward Quotation Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
-                        <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-indigo-600/20 rounded-xl flex items-center justify-center border border-indigo-500/30">
-                                    {editingQuote ? <Edit2 size={20} className="text-indigo-400" /> : <FileText size={20} className="text-indigo-400" />}
+                        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    {editingQuote ? <Edit2 size={20} /> : <FileText size={20} />}
                                 </div>
-                                <div>
-                                    <h2 className="text-xl font-extrabold tracking-tight">
+                                <div className="min-w-0">
+                                    <h2 className="text-base sm:text-lg font-black tracking-tight truncate">
                                         {editingQuote ? 'Edit Outward Sales Quotation' : 'Create Outward Sales Quotation'}
                                     </h2>
-                                    <p className="text-xs text-slate-400 mt-0.5">Quotation #: <span className="font-mono font-bold text-indigo-300">{newQuote.quotationNumber}</span></p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">Quotation #: <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{newQuote.quotationNumber}</span></p>
                                 </div>
                             </div>
-                            <button onClick={() => { setIsCreateModalOpen(false); setEditingQuote(null); }} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors">
+                            <button
+                                type="button"
+                                onClick={() => { setIsCreateModalOpen(false); setEditingQuote(null); }}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Close"
+                            >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
+                        <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 space-y-4 sm:space-y-6">
                             
                             {/* In-Form Error Guidance Banner */}
                             {Object.keys(formErrors).length > 0 && (
@@ -1305,13 +1518,13 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             )}
 
                             {/* Step 1: Linked RFQ & Customer Logistics */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3 sm:space-y-4">
                                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                                     1. Linked Inward RFQ & Customer Details
                                 </h3>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <div className="md:col-span-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                                    <div className="sm:col-span-2">
                                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                             Linked Inward RFQ <span className="text-slate-400 font-normal">(Optional - Direct Quotation if empty)</span>
                                         </label>
@@ -1341,7 +1554,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         />
                                     </div>
 
-                                    <div className="md:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
+                                    <div className="sm:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
                                         <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                             <span>Customer / Client <span className="text-rose-500">*</span></span>
                                             {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
@@ -1498,7 +1711,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             </div>
 
                             {/* Step 2: Quoted Product Items - All in 1 Line on Desktop */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                                         2. Quoted Product Items & Rates
@@ -1506,7 +1719,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                     <button
                                         type="button"
                                         onClick={handleAddItem}
-                                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-950/80 bg-indigo-50 dark:bg-indigo-950/60 px-3.5 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800 transition-colors"
+                                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-950/80 bg-indigo-50 dark:bg-indigo-950/60 px-3.5 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
                                     >
                                         + Add Item
                                     </button>
@@ -1515,8 +1728,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                     <div className="col-span-3">FG Item * (Price List)</div>
-                                    <div className="col-span-1 text-center">HSN</div>
                                     <div className="col-span-2">Specifications</div>
+                                    <div className="col-span-1 text-center">HSN</div>
                                     <div className="col-span-1 text-center">Qty</div>
                                     <div className="col-span-1 text-center">Unit</div>
                                     <div className="col-span-2 text-right">Unit Rate ({getCurrencySymbol(newQuote.currency)})</div>
@@ -1527,8 +1740,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                 {/* Items Rows */}
                                 <div className="space-y-2.5">
                                     {newQuote.items.map((item, idx) => (
-                                        <div key={idx} className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                            <div className="grid grid-cols-12 gap-3 items-center">
+                                        <div key={idx} className="p-3 sm:p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                            <div className="grid grid-cols-12 gap-2.5 sm:gap-3 items-center">
                                                 
                                                 {/* FG Item Column */}
                                                 <div className="col-span-12 lg:col-span-3" data-has-error={!!formErrors[`item_${idx}_fgItem`]}>
@@ -1545,22 +1758,8 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                     />
                                                 </div>
 
-                                                {/* HSN Code Column */}
-                                                <div className="col-span-6 lg:col-span-1">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        HSN
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={item.hsnCode || ''}
-                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
-                                                        placeholder="HSN"
-                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                                                    />
-                                                </div>
-
                                                 {/* Specifications */}
-                                                <div className="col-span-12 lg:col-span-2">
+                                                <div className="col-span-12 sm:col-span-6 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Specifications
                                                     </label>
@@ -1573,8 +1772,22 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                     />
                                                 </div>
 
+                                                {/* HSN Code Column */}
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        HSN
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsnCode || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN"
+                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-indigo-500"
+                                                    />
+                                                </div>
+
                                                 {/* Qty */}
-                                                <div className="col-span-6 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
                                                     <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         <span>Qty <span className="text-rose-500">*</span></span>
                                                         {formErrors[`item_${idx}_quantity`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_quantity`]}</span>}
@@ -1593,7 +1806,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 </div>
 
                                                 {/* Unit */}
-                                                <div className="col-span-6 lg:col-span-1">
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Unit
                                                     </label>
@@ -1606,7 +1819,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 </div>
 
                                                 {/* Rate */}
-                                                <div className="col-span-6 lg:col-span-2" data-has-error={!!formErrors[`item_${idx}_rate`]}>
+                                                <div className="col-span-6 sm:col-span-4 lg:col-span-2" data-has-error={!!formErrors[`item_${idx}_rate`]}>
                                                     <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         <span>Rate <span className="text-rose-500">*</span></span>
                                                         {formErrors[`item_${idx}_rate`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_rate`]}</span>}
@@ -1627,7 +1840,7 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 </div>
 
                                                 {/* GST % */}
-                                                <div className="col-span-5 lg:col-span-1">
+                                                <div className="col-span-4 sm:col-span-3 lg:col-span-1">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         GST %
                                                     </label>
@@ -1642,12 +1855,22 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                                 </div>
 
                                                 {/* Action Column */}
-                                                <div className="col-span-1 text-right">
+                                                <div className="col-span-2 sm:col-span-2 lg:col-span-1 flex justify-end items-end pb-0.5 gap-1.5">
+                                                    {idx === newQuote.items.length - 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleAddItem}
+                                                            className="p-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                                                            title="Add Next Line Item"
+                                                        >
+                                                            <Plus size={18} />
+                                                        </button>
+                                                    )}
                                                     {newQuote.items.length > 1 && (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveItem(idx)}
-                                                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
+                                                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
                                                             title="Remove Item"
                                                         >
                                                             <X size={18} />
@@ -1659,10 +1882,22 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         </div>
                                     ))}
                                 </div>
+
+                                {/* Bottom Add Line Item Bar */}
+                                <div className="pt-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={handleAddItem}
+                                        className="w-full py-3 px-4 border-2 border-dashed border-indigo-200 hover:border-indigo-500 dark:border-indigo-800/80 dark:hover:border-indigo-500 bg-indigo-50/40 hover:bg-indigo-50 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+                                    >
+                                        <Plus size={16} className="text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                                        <span>+ Add New Line Item</span>
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Summary Card */}
-                            <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-5 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-4 sm:p-5 rounded-2xl border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
                                 <div className="text-xs space-y-1">
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
                                         Subtotal: <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
@@ -1671,9 +1906,9 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newQuote.currency)}{newQuote.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                     </div>
                                 </div>
-                                <div className="text-right">
+                                <div className="text-left sm:text-right">
                                     <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Grand Total ({newQuote.currency || 'INR'})</span>
-                                    <span className="text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                    <span className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
                                         {getCurrencySymbol(newQuote.currency)}{newQuote.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </span>
                                 </div>
@@ -1681,14 +1916,14 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
                         </div>
 
-                        <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 flex-shrink-0">
-                            <button onClick={() => { setIsCreateModalOpen(false); setEditingQuote(null); }} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-sm hover:bg-slate-100 transition-colors">
+                        <div className="p-3.5 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 flex-shrink-0">
+                            <button onClick={() => { setIsCreateModalOpen(false); setEditingQuote(null); }} className="w-full sm:w-auto px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-sm hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
                                 Cancel
                             </button>
                             <button
                                 onClick={handleCreateQuoteSubmit}
                                 disabled={submitting}
-                                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2"
+                                className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
                             >
                                 <FileText size={16} />
                                 {submitting ? 'Saving...' : (editingQuote ? 'Update Outward Quote' : 'Save Outward Quote')}
@@ -1701,20 +1936,30 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
 
             {/* View Quotation & User Audit Details Modal */}
             {selectedQuote && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
-                        <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
-                            <div>
-                                <h2 className="text-xl font-extrabold font-mono text-indigo-300">{selectedQuote.quotationNumber}</h2>
-                                <p className="text-xs text-slate-400 mt-0.5">Outward Sales Quotation & User Audit Details</p>
+                        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    <FileText size={20} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h2 className="text-base sm:text-lg font-black font-mono tracking-tight text-indigo-600 dark:text-indigo-400 truncate">{selectedQuote.quotationNumber}</h2>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">Outward Sales Quotation & User Audit Details</p>
+                                </div>
                             </div>
-                            <button onClick={() => setSelectedQuote(null)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors">
+                            <button
+                                type="button"
+                                onClick={() => setSelectedQuote(null)}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Close"
+                            >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        <div className="p-6 overflow-y-auto space-y-5">
+                        <div className="p-3.5 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5">
                             
                             {/* General Status & Interactive Control */}
                             <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 text-xs bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
@@ -1870,11 +2115,11 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                             </div>
                         </div>
 
-                        <div className="p-4 bg-slate-50 dark:bg-slate-800 flex justify-between items-center border-t border-slate-200 dark:border-slate-700">
-                            <div className="flex gap-2">
+                        <div className="p-3.5 sm:p-4 bg-slate-50 dark:bg-slate-800 flex flex-wrap gap-2.5 justify-between items-center border-t border-slate-200 dark:border-slate-700">
+                            <div className="flex flex-wrap gap-2">
                                 <button
                                     onClick={() => handlePrintQuotePdf(selectedQuote)}
-                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1 shadow-sm"
+                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
                                 >
                                     <Printer size={14} /> Print PDF
                                 </button>
@@ -1884,18 +2129,18 @@ export default function OutwardQuotationTab({ token, initialRfqId, onError, onSu
                                         setSelectedQuote(null);
                                         handleOpenEditModal(quoteToEdit);
                                     }}
-                                    className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-bold text-xs rounded-xl transition-colors flex items-center gap-1"
+                                    className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
                                 >
                                     <Edit2 size={14} /> Edit Quotation
                                 </button>
                                 <button
                                     onClick={() => handleDeleteQuote(selectedQuote)}
-                                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 font-bold text-xs rounded-xl transition-colors flex items-center gap-1"
+                                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
                                 >
                                     <Trash2 size={14} /> Delete
                                 </button>
                             </div>
-                            <button onClick={() => setSelectedQuote(null)} className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl">
+                            <button onClick={() => setSelectedQuote(null)} className="px-5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold text-xs rounded-xl transition-colors cursor-pointer">
                                 Close
                             </button>
                         </div>

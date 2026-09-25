@@ -175,32 +175,32 @@ export default function InvoicePreviewModal({
                 }
             `}</style>
 
-            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-5xl xl:max-w-6xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-5xl xl:max-w-6xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh]">
                 
                 {/* Header Bar */}
-                <div className="p-4 sm:p-5 bg-slate-900 text-white flex flex-wrap justify-between items-center gap-3 flex-shrink-0 border-b border-slate-800">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-600/20 rounded-2xl flex items-center justify-center border border-indigo-500/30">
-                            <FileText className="text-indigo-400 w-5 h-5" />
+                <div className="p-3.5 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex flex-wrap justify-between items-center gap-3 flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shrink-0">
+                            <FileText className="w-5 h-5" />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-extrabold text-base sm:text-lg tracking-tight text-white">
+                                <h3 className="font-extrabold text-base sm:text-lg tracking-tight text-indigo-600 dark:text-indigo-400 truncate">
                                     TAX INVOICE #{invoice.invoiceNumber || 'INV-001'}
                                 </h3>
                                 {isWithin24h ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                        <Clock size={12} className="text-amber-400 animate-pulse" />
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                        <Clock size={12} className="text-amber-500 animate-pulse" />
                                         <span>⏳ {formatRemainingTime(remainingSecs)} left to edit/delete</span>
                                     </span>
                                 ) : (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
                                         <Lock size={12} />
                                         <span>Locked (&gt;24h)</span>
                                     </span>
                                 )}
                             </div>
-                            <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 truncate">
                                 <span>Creation: {formatDateTime(invoice.createdAt || invoice.date)}</span>
                             </p>
                         </div>
@@ -208,14 +208,14 @@ export default function InvoicePreviewModal({
 
                     {/* Mode Toggle Switcher & Close */}
                     <div className="flex items-center gap-2.5">
-                        <div className="bg-slate-800 p-1 rounded-xl border border-slate-700 flex items-center gap-1">
+                        <div className="bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center gap-1">
                             <button
                                 type="button"
                                 onClick={() => setPreviewMode("interactive")}
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                                     previewMode === "interactive"
                                         ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/30"
-                                        : "text-slate-400 hover:text-slate-200"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                                 }`}
                             >
                                 <Eye size={13} />
@@ -227,7 +227,7 @@ export default function InvoicePreviewModal({
                                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                                     previewMode === "print"
                                         ? "bg-indigo-600 text-white shadow-sm shadow-indigo-500/30"
-                                        : "text-slate-400 hover:text-slate-200"
+                                        : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                                 }`}
                             >
                                 <Printer size={13} />
@@ -236,8 +236,10 @@ export default function InvoicePreviewModal({
                         </div>
 
                         <button
+                            type="button"
                             onClick={onClose}
-                            className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 transition-all flex items-center justify-center text-slate-300 hover:text-white border border-slate-700 cursor-pointer"
+                            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                            title="Close"
                         >
                             <X size={18} />
                         </button>

@@ -14,6 +14,7 @@ export interface CustomerPOItemWiseViewProps {
   customers?: any[];
   onViewPo: (po: any) => void;
   searchTerm?: string;
+  filterCustomers?: string[];
   filterCustomer?: string;
 }
 
@@ -60,6 +61,7 @@ export default function CustomerPOItemWiseView({
   customers = [],
   onViewPo,
   searchTerm = '',
+  filterCustomers = [],
   filterCustomer = 'All'
 }: CustomerPOItemWiseViewProps) {
   const [selectedItemForPreview, setSelectedItemForPreview] = useState<AggregatedItem | null>(null);
@@ -176,6 +178,10 @@ export default function CustomerPOItemWiseView({
 
   // Filter items by search term, customer, and status
   const filteredItems = useMemo(() => {
+    const custFilterList = Array.isArray(filterCustomers) && filterCustomers.length > 0
+      ? filterCustomers
+      : (filterCustomer && filterCustomer !== 'All' ? [filterCustomer] : []);
+
     return aggregatedItems.filter((item) => {
       const q = searchTerm.toLowerCase().trim();
       const matchesSearch = !q || 
@@ -188,8 +194,8 @@ export default function CustomerPOItemWiseView({
 
       if (!matchesSearch) return false;
 
-      if (filterCustomer !== 'All') {
-        const hasCustomerPo = item.linkedPos.some(lp => lp.customerId === filterCustomer);
+      if (custFilterList.length > 0 && !custFilterList.includes('All') && !custFilterList.includes('all')) {
+        const hasCustomerPo = item.linkedPos.some(lp => lp.customerId && custFilterList.includes(lp.customerId));
         if (!hasCustomerPo) return false;
       }
 
@@ -201,7 +207,7 @@ export default function CustomerPOItemWiseView({
 
       return true;
     });
-  }, [aggregatedItems, searchTerm, filterCustomer, statusFilter]);
+  }, [aggregatedItems, searchTerm, filterCustomers, filterCustomer, statusFilter]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {

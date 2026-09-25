@@ -107,6 +107,7 @@ const ROUTE_HEADER_MAP: Array<{ prefix: string; exact?: boolean; title: string; 
   { prefix: "/dashboard/admin/roles", exact: false, title: "Role Management", subtitle: "User Roles & Permissions Policies" },
   { prefix: "/dashboard/admin", exact: true, title: "User Management", subtitle: "Company Users & Staff Accounts" },
   { prefix: "/dashboard/hr", exact: false, title: "HR Management", subtitle: "Human Resources, Attendance & Payroll" },
+  { prefix: "/dashboard/store/mrp", exact: false, title: "MRP Planning", subtitle: "Material Requirements Planning, Shortages & Procurement Workbench" },
   { prefix: "/dashboard/store", exact: false, title: "Store & Inventory", subtitle: "Raw Materials, Bought-Outs, Stock & Requisitions" },
   { prefix: "/dashboard/ppc", exact: false, title: "PPC & Production", subtitle: "Production Planning, BOM & Work Orders" },
   { prefix: "/dashboard/gate-entry", exact: false, title: "Gate Entry & Security", subtitle: "Visitor & Material Gate Pass Management" },

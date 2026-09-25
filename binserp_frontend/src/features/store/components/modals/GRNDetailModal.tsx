@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Clock, Lock } from 'lucide-react';
+import { X, Download, FileText, Camera, IndianRupee, ArrowLeft, ChevronLeft, ChevronRight, Clock, Lock, ShieldCheck } from 'lucide-react';
 import { generateFrontendGrnPDF } from '@/src/utils/frontendPdfHelper';
 import { API_BASE_URL } from '@/src/utils/config';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 
 interface GRNDetailModalProps {
     grn: any;
@@ -48,15 +49,29 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
 
     if (!isOpen || !grn) return null;
 
+    const { getPolicyHours } = useTimeLockPolicy();
+
     const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
         if (!createdAt) return 0;
+        const policyHours = getPolicyHours('grn');
+        if (policyHours === -1) return Infinity;
+        if (policyHours <= 0) return 0;
         const created = new Date(createdAt).getTime();
+        if (isNaN(created)) return 0;
         const elapsed = Math.floor((nowTime - created) / 1000);
-        const limit = 24 * 3600;
+        const limit = policyHours * 3600;
         return Math.max(0, limit - elapsed);
     };
 
+    const isEditAllowed = (createdAt: string | Date | undefined) => {
+        const policyHours = getPolicyHours('grn');
+        if (policyHours === -1) return true;
+        if (policyHours <= 0) return false;
+        return getRemainingEditSeconds(createdAt) > 0;
+    };
+
     const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds === Infinity) return 'Unlimited';
         if (totalSeconds <= 0) return '00:00:00';
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -65,6 +80,7 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
     };
 
     const remainingSecs = getRemainingEditSeconds(grn.createdAt || grn.date);
+    const isWithinLimit = isEditAllowed(grn.createdAt || grn.date);
 
     const totalAmount = grn.items?.reduce((sum: number, item: any) => {
         return sum + ((item.rate || 0) * (item.quantity || 0));
@@ -93,13 +109,20 @@ export default function GRNDetailModal({ grn, isOpen, onClose }: GRNDetailModalP
                                 <h2 className="text-2xl font-bold">GRN Details</h2>
                                 <p className="text-indigo-100 text-sm font-mono">{grn.grnNumber}</p>
                             </div>
-                            {remainingSecs > 0 ? (
-                                <span className="px-2.5 py-1 bg-amber-400/20 text-amber-100 rounded-lg font-mono text-xs font-bold border border-amber-300/40 inline-flex items-center gap-1.5 ml-2">
-                                    <Clock size={13} className="text-amber-300 animate-pulse" />
-                                    {formatRemainingTime(remainingSecs)} left to edit/delete
-                                </span>
+                            {isWithinLimit ? (
+                                remainingSecs === Infinity ? (
+                                    <span className="px-2.5 py-1 bg-emerald-400/20 text-emerald-100 rounded-lg font-mono text-xs font-bold border border-emerald-300/40 inline-flex items-center gap-1.5 ml-2">
+                                        <ShieldCheck size={13} className="text-emerald-300" />
+                                        Unlimited Window
+                                    </span>
+                                ) : (
+                                    <span className="px-2.5 py-1 bg-amber-400/20 text-amber-100 rounded-lg font-mono text-xs font-bold border border-amber-300/40 inline-flex items-center gap-1.5 ml-2">
+                                        <Clock size={13} className="text-amber-300 animate-pulse" />
+                                        {formatRemainingTime(remainingSecs)} left to edit/delete
+                                    </span>
+                                )
                             ) : (
-                                <span className="px-2.5 py-1 bg-white/10 text-indigo-100 rounded-lg font-mono text-xs font-semibold inline-flex items-center gap-1.5 ml-2 opacity-80">
+                                <span className="px-2.5 py-1 bg-white/10 text-indigo-100 rounded-lg font-mono text-xs font-semibold inline-flex items-center gap-1.5 ml-2 opacity-80" title={`Locked (${getPolicyHours('grn')}h limit)`}>
                                     <Lock size={13} /> Window Locked
                                 </span>
                             )}

@@ -31,6 +31,30 @@ export const storePrefixSchema = new mongoose.Schema(
             JPY: { type: Number, default: 0.56 },
             CNY: { type: Number, default: 11.95 },
         },
+        timeLockPolicies: {
+            grn: { type: Number, default: 24 },
+            customerPo: { type: Number, default: 24 },
+            deliveryChallan: { type: Number, default: 24 },
+            invoice: { type: Number, default: 24 },
+            purchasePo: { type: Number, default: 24 },
+            jobWorkChallan: { type: Number, default: 24 },
+            rfqQuotation: { type: Number, default: 24 },
+            mrbDisposition: { type: Number, default: 24 },
+        },
+        approvalSettings: {
+            materialRequest: {
+                enabled: { type: Boolean, default: false },
+                allowAllUsers: { type: Boolean, default: true },
+                approvers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+                approverNames: [{ type: String }],
+            },
+            outwardPo: {
+                enabled: { type: Boolean, default: false },
+                allowAllUsers: { type: Boolean, default: true },
+                approvers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+                approverNames: [{ type: String }],
+            },
+        },
     },
     { timestamps: true }
 );

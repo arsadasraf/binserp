@@ -3,6 +3,7 @@ import { vendorSchema, grnSchema, rmBoItemSchema, rawMaterialSchema, boughtOutSc
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -575,7 +576,30 @@ export const updatePO = asyncHandler(async (req, res) => {
     throw new ApiError(404, "PO not found");
   }
 
+  // Check if this update is purely a follow-up comment or status progression
+  const bodyKeys = Object.keys(req.body);
+  const isOnlyFollowUpOrStatus = bodyKeys.length > 0 && bodyKeys.every(k => ['newFollowUp', 'followUps', 'status', 'remarks'].includes(k));
+
+  if (!isOnlyFollowUpOrStatus) {
+    // 1. Check if GRN exists for this PO
+    const GRN = req.getModel('GRN', grnSchema);
+    const grnExists = await GRN.exists({
+      company: companyId,
+      $or: [{ purchaseOrder: id }, { poNumber: existingPO.poNumber }]
+    });
+    if (grnExists) {
+      throw new ApiError(400, "Cannot edit Purchase Order core line items/vendor because an Inward GRN receipt has already been created.");
+    }
+
+    // 2. Check timeLock governance from Prefix Settings
+    const governance = await checkTimeLockGovernance(req, 'purchasePo', existingPO.createdAt || existingPO.date, 'edit');
+    if (!governance.allowed) {
+      throw new ApiError(403, governance.message || "Purchase Order cannot be edited due to prefix policy time lock.");
+    }
+  }
+
   const updateData = { ...req.body };
+  delete updateData.newFollowUp; // Handled separately via $push
   updateData.updatedBy = req.user?.id || req.user?._id;
   updateData.updatedByName = userName;
 
@@ -626,13 +650,27 @@ export const updatePO = asyncHandler(async (req, res) => {
     updateData.totalAmount = req.body.grandTotal || req.body.totalAmount || grandTotal;
   }
 
+  // Handle followUp appending
+  if (req.body.newFollowUp && req.body.newFollowUp.comment) {
+    const followUpEntry = {
+      comment: String(req.body.newFollowUp.comment).trim(),
+      category: req.body.newFollowUp.category || "General",
+      author: userName,
+      authorId: req.user?.id || req.user?._id,
+      createdAt: new Date()
+    };
+    if (!updateData.$push) updateData.$push = {};
+    updateData.$push.followUps = followUpEntry;
+  }
+
   if (req.body.status && req.body.status !== existingPO.status) {
     const newHistoryItem = {
       status: req.body.status,
       updatedBy: userName,
       updatedAt: new Date()
     };
-    updateData.$push = { history: newHistoryItem };
+    if (!updateData.$push) updateData.$push = {};
+    updateData.$push.history = newHistoryItem;
   }
 
   const po = await PurchaseOrder.findOneAndUpdate(
@@ -646,6 +684,7 @@ export const updatePO = asyncHandler(async (req, res) => {
 
 export const deletePO = asyncHandler(async (req, res) => {
   const PurchaseOrder = req.getModel('PurchaseOrder', purchaseOrderSchema);
+  const GRN = req.getModel('GRN', grnSchema);
   const companyId = getCompanyId(req);
   const { id } = req.params;
 
@@ -654,14 +693,29 @@ export const deletePO = asyncHandler(async (req, res) => {
     throw new ApiError(404, "PO not found");
   }
 
-  const createdTime = new Date(po.createdAt || po.date).getTime();
-  const isOlderThan24Hours = (Date.now() - createdTime) > 24 * 60 * 60 * 1000;
-
-  if (isOlderThan24Hours) {
-    throw new ApiError(400, "PO cannot be deleted after 24 hours of creation");
+  // 1. Check if GRN exists for this PO
+  const grnExists = await GRN.exists({
+    company: companyId,
+    $or: [{ purchaseOrder: id }, { poNumber: po.poNumber }]
+  });
+  if (grnExists) {
+    throw new ApiError(400, "Cannot delete Purchase Order because an Inward GRN receipt has already been created for it.");
   }
+
+  // 2. Check dynamic timeLock governance from Prefix Settings
+  const governance = await checkTimeLockGovernance(req, 'purchasePo', po.createdAt || po.date, 'delete');
+  if (!governance.allowed) {
+    throw new ApiError(403, governance.message || "Purchase Order cannot be deleted due to prefix policy time lock.");
+  }
+
+  const userName = req.user?.name || req.user?.username || req.user?.email || 'Admin';
+  console.log(`[PO Audit] PO ${po.poNumber} (${id}) deleted by ${userName} (${req.user?.id || req.user?._id}) at ${new Date().toISOString()}`);
 
   await PurchaseOrder.deleteOne({ _id: id, company: companyId });
 
-  res.status(200).json(new ApiResponse(200, {}, "PO deleted successfully"));
+  res.status(200).json(new ApiResponse(200, {
+    deletedPoNumber: po.poNumber,
+    deletedBy: userName,
+    deletedAt: new Date()
+  }, "PO deleted successfully"));
 });

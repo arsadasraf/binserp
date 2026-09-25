@@ -59,54 +59,54 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
   const isProcurementFulfilled = !hasShortages;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         
         {/* Modal Header */}
-        <div className="p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex justify-between items-start shrink-0 border-b border-indigo-900">
-          <div>
+        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-start shrink-0 border-b border-slate-200 dark:border-slate-800">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="px-2.5 py-0.5 bg-indigo-500/30 text-indigo-300 border border-indigo-400/30 rounded-lg text-xs font-mono font-bold">
+              <span className="px-2.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-mono font-bold">
                 {mrpPlan.mrpNumber}
               </span>
               {mrpPlan.isConsolidated && (
-                <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
                   <Layers size={12} />
                   <span>Consolidated ({mrpPlan.customerPOs?.length || 2} Customer POs)</span>
                 </span>
               )}
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                mrpPlan.status === 'Completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                mrpPlan.status === 'In Production' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
-                mrpPlan.status === 'Partially Completed' ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30' :
-                'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                mrpPlan.status === 'Completed' ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' :
+                mrpPlan.status === 'In Production' ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800' :
+                mrpPlan.status === 'Partially Completed' ? 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800' :
+                'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
               }`}>
                 {mrpPlan.status}
               </span>
             </div>
-            <h2 className="text-lg font-black text-white mt-1.5 flex items-center gap-2">
-              <Package className="text-teal-400 w-5 h-5" />
-              MRP Demand Plan & FG Inward Progress
+            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white mt-1.5 flex items-center gap-2 truncate">
+              <Package className="text-teal-600 dark:text-teal-400 w-5 h-5 shrink-0" />
+              <span>MRP Demand Plan & FG Inward Progress</span>
             </h2>
-            <p className="text-xs text-indigo-200 mt-0.5">
-              Customer: <strong>{mrpPlan.customerName || "Internal Production"}</strong>
-              {mrpPlan.customerPoNumber && <span> • PO: <strong>{mrpPlan.customerPoNumber}</strong></span>}
-              {mrpPlan.poDate && <span> • PO Date: <strong>{new Date(mrpPlan.poDate).toLocaleDateString()}</strong></span>}
-              {mrpPlan.targetDate && <span> • Committed: <strong>{new Date(mrpPlan.targetDate).toLocaleDateString()}</strong></span>}
-              <span className="ml-2 pl-2 border-l border-indigo-400/40">
-                Created by: <strong>{mrpPlan.createdByName || "Planner"}</strong>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              Customer: <strong className="text-slate-800 dark:text-slate-200">{mrpPlan.customerName || "Internal Production"}</strong>
+              {mrpPlan.customerPoNumber && <span> • PO: <strong className="text-slate-800 dark:text-slate-200">{mrpPlan.customerPoNumber}</strong></span>}
+              {mrpPlan.poDate && <span> • PO Date: <strong className="text-slate-800 dark:text-slate-200">{new Date(mrpPlan.poDate).toLocaleDateString()}</strong></span>}
+              {mrpPlan.targetDate && <span> • Committed: <strong className="text-slate-800 dark:text-slate-200">{new Date(mrpPlan.targetDate).toLocaleDateString()}</strong></span>}
+              <span className="ml-2 pl-2 border-l border-slate-300 dark:border-slate-700">
+                Created by: <strong className="text-slate-800 dark:text-slate-200">{mrpPlan.createdByName || "Planner"}</strong>
                 {mrpPlan.updatedByName && (
-                  <span className="text-amber-300 ml-2">
+                  <span className="text-amber-600 dark:text-amber-400 ml-2">
                     • Edited by: <strong>{mrpPlan.updatedByName}</strong>
                   </span>
                 )}
               </span>
             </p>
             {mrpPlan.isConsolidated && mrpPlan.customerPOs && mrpPlan.customerPOs.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-indigo-900/60 text-[11px]">
-                <span className="text-indigo-300 font-semibold">Consolidated POs:</span>
+              <div className="flex items-center gap-1.5 flex-wrap mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 text-[11px]">
+                <span className="text-slate-600 dark:text-slate-400 font-semibold">Consolidated POs:</span>
                 {mrpPlan.customerPOs.map((cpo: any, idx: number) => (
-                  <span key={idx} className="px-2 py-0.5 rounded bg-indigo-900/50 text-indigo-200 font-mono text-[10px] border border-indigo-700/50">
+                  <span key={idx} className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] border border-indigo-200 dark:border-indigo-800">
                     {cpo.customerPoNumber} {cpo.customerName ? `(${cpo.customerName})` : ''}
                   </span>
                 ))}
@@ -115,10 +115,12 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/20 transition-all cursor-pointer"
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+            title="Close"
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
@@ -331,10 +333,11 @@ export default function MRPDetailsModal({ isOpen, onClose, mrpPlan }: MRPDetails
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end bg-slate-50 dark:bg-slate-900/80">
+        <div className="p-3.5 sm:p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end bg-slate-50 dark:bg-slate-900/80">
           <button
+            type="button"
             onClick={onClose}
-            className="px-5 py-2 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold text-xs rounded-xl shadow-xs cursor-pointer"
+            className="px-5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold text-xs rounded-xl transition-colors cursor-pointer"
           >
             Close Preview
           </button>

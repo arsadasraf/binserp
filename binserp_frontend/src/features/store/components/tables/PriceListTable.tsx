@@ -1,7 +1,8 @@
 "use client";
-import React, { useState, useRef, useEffect } from "react";
-import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check } from "lucide-react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Edit2, Trash2, Search, Tag, Info, Image as ImageIcon, Plus, Filter, Check, Globe } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getCurrencySymbol } from "@/src/utils/currencyHelper";
 
 export type FgTypeFilter = "all" | "assembly" | "subassembly" | "component";
 
@@ -31,6 +32,7 @@ export default function PriceListTable({
 }: PriceListTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedType, setSelectedType] = useState<FgTypeFilter>("all");
+  const [selectedCurrency, setSelectedCurrency] = useState<string>("all");
   const [isTypeFilterOpen, setIsTypeFilterOpen] = useState(false);
   const typeFilterRef = useRef<HTMLTableCellElement>(null);
 
@@ -49,6 +51,23 @@ export default function PriceListTable({
     };
   }, [isTypeFilterOpen]);
 
+  // Map to easily find assigned price configs for each FG Item
+  const priceListMap = (priceLists || []).reduce((acc, curr) => {
+    const fgItemId = (curr.fgItem?._id || curr.fgItem)?.toString();
+    if (fgItemId) acc[fgItemId] = curr;
+    return acc;
+  }, {} as Record<string, any>);
+
+  // Compute available currencies for filter
+  const availableCurrencies = useMemo(() => {
+    const set = new Set<string>();
+    (priceLists || []).forEach((p: any) => {
+      if (p.currency) set.add(p.currency.toUpperCase());
+    });
+    if (set.size === 0) set.add('INR');
+    return Array.from(set);
+  }, [priceLists]);
+
   // Compute category counts
   const typeCounts = {
     all: fgItems.length,
@@ -66,18 +85,17 @@ export default function PriceListTable({
     if (!matchesSearch) return false;
 
     if (selectedType !== "all") {
-      return normalizeFgType(item.type) === selectedType;
+      if (normalizeFgType(item.type) !== selectedType) return false;
+    }
+
+    if (selectedCurrency !== "all") {
+      const p = priceListMap[item._id?.toString()];
+      const itemCurrency = (p?.currency || item.currency || "INR").toUpperCase();
+      if (itemCurrency !== selectedCurrency) return false;
     }
 
     return true;
   });
-
-  // Map to easily find assigned price configs for each FG Item
-  const priceListMap = (priceLists || []).reduce((acc, curr) => {
-    const fgItemId = (curr.fgItem?._id || curr.fgItem)?.toString();
-    if (fgItemId) acc[fgItemId] = curr;
-    return acc;
-  }, {} as Record<string, any>);
 
   const renderTypeBadge = (type?: string) => {
     const norm = normalizeFgType(type);
@@ -120,8 +138,25 @@ export default function PriceListTable({
             />
           </div>
 
-          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-            <div className="text-xs text-gray-500 hidden sm:flex items-center gap-1.5 font-medium">
+          <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 flex-wrap">
+            {/* Currency Filter Dropdown */}
+            <div className="flex items-center gap-1.5">
+              <select
+                value={selectedCurrency}
+                onChange={(e) => setSelectedCurrency(e.target.value)}
+                className="px-2.5 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-2xs"
+                title="Filter by Currency"
+              >
+                <option value="all">All Currencies</option>
+                {availableCurrencies.map((c) => (
+                  <option key={c} value={c}>
+                    {c} ({getCurrencySymbol(c).trim()})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="text-xs text-gray-500 hidden lg:flex items-center gap-1.5 font-medium">
               <Info size={14} /> Showing {filteredItems.length} of {fgItems.length} Items
             </div>
 
@@ -129,20 +164,20 @@ export default function PriceListTable({
               <button
                 type="button"
                 onClick={onAddPriceList}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                className="px-3 sm:px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
-                <Plus size={14} /> Add Price & Tax Rate
+                <Plus size={14} /> <span className="hidden sm:inline">Add Price & Tax Rate</span><span className="sm:hidden">Add Price</span>
               </button>
             )}
           </div>
         </div>
       </div>
 
-      {/* Desktop Table View */}
-      <div className="hidden md:block overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50 dark:bg-gray-800/50 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
+      {/* Desktop Table View - Scrollable with Sticky Header */}
+      <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] min-h-[350px]">
+        <table className="w-full text-left border-collapse relative">
+          <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800 shadow-2xs">
+            <tr className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">
               <th className="p-4 font-medium first:pl-6 w-16">Photo</th>
               <th className="p-4 font-medium">Item Details</th>
               <th className="p-4 font-medium relative" ref={typeFilterRef}>
@@ -229,7 +264,7 @@ export default function PriceListTable({
                 </AnimatePresence>
               </th>
               <th className="p-4 font-medium">HSN Code (Master)</th>
-              <th className="p-4 font-medium text-right">Price (₹)</th>
+              <th className="p-4 font-medium text-right">Selling Price</th>
               <th className="p-4 font-medium text-right">Tax Rate (%)</th>
               <th className="p-4 font-medium text-right last:pr-6 w-48">Actions</th>
             </tr>
@@ -295,9 +330,14 @@ export default function PriceListTable({
                     </td>
                     <td className="p-4 text-right font-medium">
                       {isAssigned ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                          ₹{priceConfig.price?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                        </span>
+                        <div className="flex items-center justify-end gap-1.5 font-bold font-mono">
+                          <span className="text-emerald-600 dark:text-emerald-400 text-sm">
+                            {getCurrencySymbol(priceConfig.currency)}{Number(priceConfig.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                          <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {priceConfig.currency || "INR"}
+                          </span>
+                        </div>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
@@ -357,8 +397,8 @@ export default function PriceListTable({
         </table>
       </div>
 
-      {/* Mobile Card View */}
-      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40">
+      {/* Mobile Card View - Scrollable */}
+      <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-gray-900/40 max-h-[calc(100vh-270px)] overflow-y-auto">
         {filteredItems.length === 0 ? (
           <div className="text-center py-10 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
             <Tag className="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
@@ -424,12 +464,19 @@ export default function PriceListTable({
                     </p>
                   </div>
                   <div className="col-span-2">
-                    <span className="text-[10px] font-bold text-gray-400 uppercase">Price (₹)</span>
-                    <p className="font-extrabold text-sm text-emerald-600 dark:text-emerald-400">
-                      {isAssigned
-                        ? `₹${priceConfig.price?.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`
-                        : "Price Not Configured"}
-                    </p>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase">Selling Price</span>
+                    {isAssigned ? (
+                      <div className="flex items-center gap-1.5 font-mono mt-0.5">
+                        <p className="font-extrabold text-sm text-emerald-600 dark:text-emerald-400">
+                          {getCurrencySymbol(priceConfig.currency)}{Number(priceConfig.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                          {priceConfig.currency || "INR"}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="font-semibold text-xs text-gray-400 mt-0.5">Price Not Configured</p>
+                    )}
                   </div>
                 </div>
 

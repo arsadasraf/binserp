@@ -17,6 +17,7 @@ import LoadingSpinner from '@/src/components/LoadingSpinner';
 
 import StoreCreateOrderModal from "../modals/StoreCreateOrderModal";
 import StoreOrderDetailModal from "../modals/StoreOrderDetailModal";
+import SearchableMultiSelect from "../SearchableMultiSelect";
 
 interface jsPDFWithPlugin extends jsPDF {
   autoTable: (options: UserOptions) => jsPDF;
@@ -111,7 +112,7 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
   const [searchTerm, setSearchTerm] = useState("");
   const [filterMonth, setFilterMonth] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
-  const [filterCustomer, setFilterCustomer] = useState("");
+  const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
@@ -145,12 +146,15 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
       result = result.filter((o: any) => o.status === filterStatus);
     }
     
-    if (filterCustomer) {
-      result = result.filter((o: any) => (o.customer?.name || "") === filterCustomer);
+    if (filterCustomers.length > 0 && !filterCustomers.includes("") && !filterCustomers.includes("all") && !filterCustomers.includes("All")) {
+      result = result.filter((o: any) => {
+        const name = o.customer?.name || o.customerName || "";
+        return filterCustomers.includes(name);
+      });
     }
 
     return result;
-  }, [searchTerm, filterMonth, filterStatus, filterCustomer, orders, currentSubTab]);
+  }, [searchTerm, filterMonth, filterStatus, filterCustomers, orders, currentSubTab]);
 
   const uniqueMonths = useMemo(() => {
     const months = new Set<string>();
@@ -164,12 +168,16 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
     return Array.from(new Set(orders.map((o: any) => o.status))).sort();
   }, [orders]);
 
-  const uniqueCustomers = useMemo(() => {
+  const customerOptions = useMemo(() => {
     const customers = new Set<string>();
     orders.forEach((o: any) => {
-      if (o.customer?.name) customers.add(o.customer.name);
+      const name = o.customer?.name || o.customerName;
+      if (name) customers.add(name);
     });
-    return Array.from(customers).sort();
+    return Array.from(customers).sort().map(name => ({
+      value: name,
+      label: name
+    }));
   }, [orders]);
 
   const handleExportExcel = () => {
@@ -320,16 +328,14 @@ function OrderListTab({ currentSubTab, onEditOrder, onCreateOrder }: { currentSu
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-            <select
-              value={filterCustomer}
-              onChange={(e) => setFilterCustomer(e.target.value)}
-              className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-700 w-full md:w-auto"
-            >
-              <option value="">All Customers</option>
-              {uniqueCustomers.map((c: any) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            <SearchableMultiSelect
+              options={customerOptions}
+              selectedValues={filterCustomers}
+              onChange={setFilterCustomers}
+              placeholder="All Customers"
+              searchPlaceholder="Search customer..."
+              className="w-full md:w-52"
+            />
           </div>
         </div>
         <div className="flex gap-2">

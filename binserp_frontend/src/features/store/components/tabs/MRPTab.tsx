@@ -15,6 +15,8 @@ import POModal from '../modals/POModal';
 import MRPProcurementWorkbench from './MRPProcurementWorkbench';
 import MRP360WipDrawer from '../modals/MRP360WipDrawer';
 import MRPItemWiseView from '../views/MRPItemWiseView';
+import { calculateMRPLockStatus } from '@/src/features/mrp/utils/mrpStatusHelper';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 
 interface MRPTabProps {
   token?: string | null;
@@ -47,37 +49,10 @@ export default function MRPTab({ token: propToken, onError, onSuccess }: MRPTabP
     return () => clearInterval(timer);
   }, []);
 
+  const { getPolicyHours } = useTimeLockPolicy(propToken);
+
   const getPlanLockStatus = (plan: any) => {
-    const createdAtMs = new Date(plan.createdAt || Date.now()).getTime();
-    const remainingMs = Math.max(0, (createdAtMs + 24 * 3600 * 1000) - currentTime);
-    const is24hExpired = remainingMs <= 0;
-    const hours = Math.floor(remainingMs / 3600000);
-    const minutes = Math.floor((remainingMs % 3600000) / 60000);
-    const seconds = Math.floor((remainingMs % 60000) / 1000);
-    const countdownText = `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s left`;
-
-    const hasTransactions = Boolean(
-      plan.hasTransactions || 
-      (plan.linkedPOCount && plan.linkedPOCount > 0) || 
-      (plan.rmRequirements || []).some((r: any) => r.status === 'PO Raised' || (r.orderedQuantity && r.orderedQuantity > 0) || (r.receivedQuantity && r.receivedQuantity > 0)) ||
-      (plan.boRequirements || []).some((b: any) => b.status === 'PO Raised' || (b.orderedQuantity && b.orderedQuantity > 0) || (b.receivedQuantity && b.receivedQuantity > 0)) ||
-      (plan.fgItems || []).some((f: any) => f.receivedQuantity && f.receivedQuantity > 0) ||
-      plan.status !== 'Planned' || 
-      plan.ppcStatus === 'Sent'
-    );
-
-    const canEdit = !is24hExpired && !hasTransactions;
-    const canDelete = !is24hExpired && !hasTransactions;
-
-    return {
-      remainingMs,
-      is24hExpired,
-      countdownText,
-      hasTransactions,
-      canEdit,
-      canDelete,
-      linkedPOCount: plan.linkedPOCount || 0
-    };
+    return calculateMRPLockStatus(plan, currentTime, getPolicyHours('rfqQuotation'));
   };
 
   const [selectedPlanForDetails, setSelectedPlanForDetails] = useState<any | null>(null);

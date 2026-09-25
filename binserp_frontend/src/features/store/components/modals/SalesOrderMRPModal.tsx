@@ -129,12 +129,12 @@ export default function SalesOrderMRPModal({
       if (res.ok && data.success) {
         await Swal.fire({
           icon: "success",
-          title: "Sent to Purchase MRP Bucket!",
+          title: "Sent to MRP Bucket!",
           text: data.message,
-          confirmButtonText: "Open Purchase MRP Bucket Page"
+          confirmButtonText: "Open MRP Planning Page"
         });
         if (onRefetch) onRefetch();
-        window.location.href = "/dashboard/store/purchase/mrp";
+        window.location.href = "/dashboard/store/mrp";
       } else {
         Swal.fire("Error", data.message || "Failed to send to Purchase MRP.", "error");
       }
@@ -194,32 +194,34 @@ export default function SalesOrderMRPModal({
   const currentStatus = salesOrder.status || salesOrder.fulfillmentStatus || 'Pending';
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-4xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-4xl my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
 
         {/* Minimal Header */}
-        <div className="p-4 sm:p-5 bg-slate-900 text-white flex justify-between items-center flex-shrink-0">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-extrabold text-base sm:text-lg text-white">
+        <div className="p-3.5 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-extrabold text-base sm:text-lg text-indigo-600 dark:text-indigo-400 truncate">
                 Sales Order #{salesOrder.orderNumber}
               </h3>
               <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
-                currentStatus === 'Items Allocated' || currentStatus === 'Fully Allocated' ? 'bg-cyan-900/60 text-cyan-300 border-cyan-700' :
-                currentStatus === 'Moved to MRP' || currentStatus === 'Moved MRP' ? 'bg-indigo-900/60 text-indigo-300 border-indigo-700' :
-                'bg-amber-900/60 text-amber-300 border-amber-700'
+                currentStatus === 'Items Allocated' || currentStatus === 'Fully Allocated' ? 'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800' :
+                currentStatus === 'Moved to MRP' || currentStatus === 'Moved MRP' ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800' :
+                'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
               }`}>
                 {currentStatus}
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Customer: <b className="text-slate-200">{custName}</b> | Target Date: {targetDateStr}
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+              Customer: <b className="text-slate-800 dark:text-slate-200">{custName}</b> | Target Date: {targetDateStr}
             </p>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-all"
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white transition-all cursor-pointer shrink-0 ml-2"
+            title="Close"
           >
             <X size={18} />
           </button>

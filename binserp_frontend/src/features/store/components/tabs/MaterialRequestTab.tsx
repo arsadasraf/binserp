@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import Swal from 'sweetalert2';
-import { apiGet, apiPost } from '@/src/lib/api';
+import { apiGet, apiPost, apiPut } from '@/src/lib/api';
 import { usePermission } from '@/src/hooks/usePermission';
 import MaterialRequestModal, { RequestInventoryType } from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
@@ -782,6 +782,10 @@ export default function MaterialRequestTab({
           isOpen={isDetailsModalOpen}
           onClose={() => setIsDetailsModalOpen(false)}
           request={selectedRequestForDetails}
+          onApprove={async (id) => {
+            await apiPut(`/api/store/material-request/${id}`, { status: 'Approved' }, token);
+            fetchData();
+          }}
         />
       )}
     </div>

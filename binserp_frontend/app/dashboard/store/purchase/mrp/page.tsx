@@ -1,12 +1,18 @@
 "use client";
 
-import React from 'react';
-import MRPTab from "@/src/features/store/components/tabs/MRPTab";
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function PurchaseMRPPage() {
+export default function LegacyPurchaseMRPRedirect() {
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace('/dashboard/store/mrp');
+  }, [router]);
+
   return (
-    <div className="space-y-4">
-      <MRPTab />
+    <div className="p-12 flex justify-center items-center">
+      <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
     </div>
   );
 }

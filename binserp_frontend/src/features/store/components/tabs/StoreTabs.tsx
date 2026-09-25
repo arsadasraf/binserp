@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useHeader } from "@/src/context/HeaderContext";
-import { Package, Settings, IndianRupee, ShoppingCart, ClipboardList } from "lucide-react";
+import { Package, Settings, IndianRupee, ShoppingCart, ClipboardList, CalendarClock } from "lucide-react";
 import { usePermission } from "@/src/hooks/usePermission";
 
 export default function StoreTabs() {
@@ -13,6 +13,7 @@ export default function StoreTabs() {
   const { hasTabAccess, userType, isModuleAllowed } = usePermission();
 
   const isSalesActive = pathname.startsWith("/dashboard/store/sales");
+  const isMrpActive = pathname.startsWith("/dashboard/store/mrp");
   const isPurchaseActive = pathname.startsWith("/dashboard/store/purchase");
   const isMastersActive = pathname.startsWith("/dashboard/store/masters");
   const isWipActive = pathname.startsWith("/dashboard/store/wip");
@@ -22,7 +23,8 @@ export default function StoreTabs() {
     { id: "inventory", key: "inventory", label: "Inventory", icon: Package, href: "/dashboard/store/inventory/rm-bo-stock", isActive: isHomeActive },
     { id: "wip", key: "wip", label: "WIP", icon: ClipboardList, href: "/dashboard/store/wip/requests", isActive: isWipActive },
     { id: "sales", key: "sales", label: "Sales", icon: IndianRupee, href: "/dashboard/store/sales/orders", isActive: isSalesActive },
-    { id: "purchase", key: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store/purchase/mrp", isActive: isPurchaseActive },
+    { id: "mrp", key: "mrp", label: "MRP", icon: CalendarClock, href: "/dashboard/store/mrp", isActive: isMrpActive },
+    { id: "purchase", key: "purchase", label: "Purchase", icon: ShoppingCart, href: "/dashboard/store/purchase/po", isActive: isPurchaseActive },
     { id: "masters", key: "masters", label: "Masters", icon: Settings, href: "/dashboard/store/masters/vendors", isActive: isMastersActive },
   ];
 

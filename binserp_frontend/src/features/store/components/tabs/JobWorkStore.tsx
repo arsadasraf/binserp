@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, 
     FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
-    AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert 
+    AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert, ShieldCheck 
 } from 'lucide-react';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
 import JobWorkForm from '../forms/JobWorkForm';
 import JobWorkReceiveModal from '../modals/JobWorkReceiveModal';
@@ -95,16 +96,29 @@ export default function JobWorkStore({
         return () => clearInterval(timer);
     }, []);
 
+    const { getPolicyHours } = useTimeLockPolicy(token);
+
     const getRemainingEditSeconds = (createdAt?: string | Date) => {
         if (!createdAt) return 0;
+        const policyHours = getPolicyHours('jobWorkChallan');
+        if (policyHours === -1) return Infinity;
+        if (policyHours <= 0) return 0;
         const created = new Date(createdAt).getTime();
         if (isNaN(created)) return 0;
         const elapsed = Math.floor((nowTime - created) / 1000);
-        const limit = 24 * 3600; // 24 hours in seconds
+        const limit = policyHours * 3600;
         return Math.max(0, limit - elapsed);
     };
 
+    const isEditAllowed = (createdAt?: string | Date) => {
+        const policyHours = getPolicyHours('jobWorkChallan');
+        if (policyHours === -1) return true;
+        if (policyHours <= 0) return false;
+        return getRemainingEditSeconds(createdAt) > 0;
+    };
+
     const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds === Infinity) return 'Unlimited';
         if (totalSeconds <= 0) return '00:00:00';
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -171,7 +185,12 @@ export default function JobWorkStore({
         setIsFormOpen(true);
     };
 
-    const handleDelete = async (id: string, challanNumber?: string) => {
+    const handleDelete = async (id: string, challanNumber?: string, createdAt?: string | Date) => {
+        if (createdAt && !isEditAllowed(createdAt)) {
+            const hrs = getPolicyHours('jobWorkChallan');
+            onError(hrs <= 0 ? 'This Job Work Challan is locked immediately upon creation by company policy.' : `This Job Work Challan can only be deleted within ${hrs} hours of creation.`);
+            return;
+        }
         const confirmMsg = challanNumber 
             ? `Are you sure you want to delete Returnable DC #${challanNumber}? Outward stock will be safely restored.`
             : 'Are you sure you want to delete this challan? Outward stock will be restored.';
@@ -575,7 +594,7 @@ export default function JobWorkStore({
                                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                     {filteredChallans.map((challan, idx) => {
                                         const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
-                                        const isActionable = remainingSecs > 0 && challan.status !== 'Closed' && challan.status !== 'Partial';
+                                        const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed' && challan.status !== 'Partial';
                                         const isOverdue = challan.expectedReturnDate && new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed';
 
                                         // Material Sent Summary
@@ -849,16 +868,26 @@ export default function JobWorkStore({
                                                             <FileSpreadsheet size={14} />
                                                         </button>
 
-                                                        {/* 24-Hour Edit/Delete Countdown Timer */}
+                                                        {/* Edit/Delete Countdown Timer */}
                                                         {isActionable ? (
                                                             <div className="flex items-center gap-1 shrink-0 ml-0.5">
-                                                                <span 
-                                                                    title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
-                                                                    className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
-                                                                >
-                                                                    <Clock size={11} className="text-amber-600 animate-pulse" />
-                                                                    {formatRemainingTime(remainingSecs)}
-                                                                </span>
+                                                                {remainingSecs === Infinity ? (
+                                                                    <span 
+                                                                        title="Unlimited editing window configured by company policy"
+                                                                        className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1 shrink-0"
+                                                                    >
+                                                                        <ShieldCheck size={11} className="text-emerald-600" />
+                                                                        Unlimited
+                                                                    </span>
+                                                                ) : (
+                                                                    <span 
+                                                                        title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                        className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                                    >
+                                                                        <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                        {formatRemainingTime(remainingSecs)}
+                                                                    </span>
+                                                                )}
 
                                                                 <button 
                                                                     onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} 
@@ -869,7 +898,7 @@ export default function JobWorkStore({
                                                                 </button>
 
                                                                 <button 
-                                                                    onClick={() => handleDelete(challan._id, challan.challanNumber)} 
+                                                                    onClick={() => handleDelete(challan._id, challan.challanNumber, challan.createdAt || challan.date)} 
                                                                     className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer border border-rose-200 dark:border-rose-800" 
                                                                     title={`Delete Returnable DC (${formatRemainingTime(remainingSecs)} left)`}
                                                                 >
@@ -878,7 +907,7 @@ export default function JobWorkStore({
                                                             </div>
                                                         ) : (
                                                             <span 
-                                                                title={challan.status === 'Closed' ? 'Challan is fully closed and locked' : challan.status === 'Partial' ? 'Challan has received items and cannot be edited' : 'Action window expired (24 hours elapsed)'}
+                                                                title={challan.status === 'Closed' ? 'Challan is fully closed and locked' : challan.status === 'Partial' ? 'Challan has received items and cannot be edited' : `Action window expired (${getPolicyHours('jobWorkChallan')}h limit)`}
                                                                 className="px-2 py-1 bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500 rounded-xl text-[10px] font-semibold inline-flex items-center gap-1 border border-slate-200 dark:border-slate-700"
                                                             >
                                                                 <Lock size={11} /> Locked
@@ -898,7 +927,7 @@ export default function JobWorkStore({
                     <div className="md:hidden flex flex-col gap-3 pb-28 sm:pb-20">
                         {filteredChallans.map((challan) => {
                             const remainingSecs = getRemainingEditSeconds(challan.createdAt || challan.date);
-                            const isActionable = remainingSecs > 0 && challan.status !== 'Closed' && challan.status !== 'Partial';
+                            const isActionable = isEditAllowed(challan.createdAt || challan.date) && challan.status !== 'Closed' && challan.status !== 'Partial';
                             const isOverdue = challan.expectedReturnDate && new Date(challan.expectedReturnDate) < new Date() && challan.status !== 'Closed';
 
                             const isAssembly = challan.operationMode === 'assembly';
@@ -1046,9 +1075,16 @@ export default function JobWorkStore({
 
                                             {isActionable ? (
                                                 <div className="flex items-center gap-1">
-                                                    <span className="px-1.5 py-1 bg-amber-50 text-amber-700 rounded font-mono text-[9px] font-bold border border-amber-200">
-                                                        {formatRemainingTime(remainingSecs)}
-                                                    </span>
+                                                    {remainingSecs === Infinity ? (
+                                                        <span className="px-1.5 py-1 bg-emerald-50 text-emerald-700 rounded font-mono text-[9px] font-bold border border-emerald-200 flex items-center gap-0.5">
+                                                            <ShieldCheck size={9} className="text-emerald-600" />
+                                                            Unlimited
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-1.5 py-1 bg-amber-50 text-amber-700 rounded font-mono text-[9px] font-bold border border-amber-200">
+                                                            {formatRemainingTime(remainingSecs)}
+                                                        </span>
+                                                    )}
                                                     <button 
                                                         onClick={() => { setPrefillData(challan); setIsFormOpen(true); }} 
                                                         className="p-1.5 text-blue-600 bg-blue-50 rounded-lg cursor-pointer"
@@ -1056,7 +1092,7 @@ export default function JobWorkStore({
                                                         <Edit2 size={12} />
                                                     </button>
                                                     <button 
-                                                        onClick={() => handleDelete(challan._id, challan.challanNumber)} 
+                                                        onClick={() => handleDelete(challan._id, challan.challanNumber, challan.createdAt || challan.date)} 
                                                         className="p-1.5 text-rose-600 bg-rose-50 rounded-lg cursor-pointer"
                                                     >
                                                         <Trash2 size={12} />

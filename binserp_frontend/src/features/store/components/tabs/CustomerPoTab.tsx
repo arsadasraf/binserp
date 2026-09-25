@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
+import SearchableMultiSelect from '../SearchableMultiSelect';
 import OrderAcknowledgementModal from '../modals/OrderAcknowledgementModal';
 import MRPModal from '../modals/MRPModal';
 import MRPDetailsModal from '../modals/MRPDetailsModal';
@@ -17,6 +18,7 @@ import CustomerPOItemWiseView from '../views/CustomerPOItemWiseView';
 import { generateFrontendOrderAcknowledgementPDF } from '@/src/utils/generateOrderAcknowledgementPDF';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 
 interface CustomerPoTabProps {
     token: string | null;
@@ -35,12 +37,21 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
-    const [filterCustomer, setFilterCustomer] = useState<string>('All');
+    const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
     const [excludeMrpDone, setExcludeMrpDone] = useState(false);
     const [filterDateType, setFilterDateType] = useState<'entry' | 'committed' | 'either'>('entry');
     const [filterMonth, setFilterMonth] = useState<string>(''); // format: 'YYYY-MM'
     const [viewMode, setViewMode] = useState<'po' | 'items'>('po');
-    const [showDashboard, setShowDashboard] = useState<boolean>(true);
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
+    const [showFilters, setShowFilters] = useState<boolean>(false);
+
+    const customerOptions = useMemo(() => {
+        return (Array.isArray(customers) ? customers : []).map((c: any) => ({
+            value: (c._id || c.id)?.toString(),
+            label: c.name || c.companyName || 'Customer',
+            subLabel: c.code ? `Code: ${c.code}` : undefined
+        })).filter(o => o.value);
+    }, [customers]);
 
     const uniquePoItemsCount = useMemo(() => {
         const itemKeys = new Set<string>();
@@ -76,22 +87,36 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     // Order Acknowledgement Modal State
     const [acknowledgingPo, setAcknowledgingPo] = useState<any | null>(null);
 
-    // Live 1-second ticking timer for 24h edit/delete countdown
+    // Live 1-second ticking timer for dynamic edit/delete countdown
     const [nowTime, setNowTime] = useState(Date.now());
     useEffect(() => {
         const timer = setInterval(() => setNowTime(Date.now()), 1000);
         return () => clearInterval(timer);
     }, []);
 
+    const { getPolicyHours } = useTimeLockPolicy(token);
+
     const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
         if (!createdAt) return 0;
+        const policyHours = getPolicyHours('customerPo');
+        if (policyHours === -1) return Infinity;
+        if (policyHours <= 0) return 0;
         const created = new Date(createdAt).getTime();
+        if (isNaN(created)) return 0;
         const elapsed = Math.floor((nowTime - created) / 1000);
-        const limit = 24 * 3600; // 24 hours in seconds
+        const limit = policyHours * 3600;
         return Math.max(0, limit - elapsed);
     };
 
+    const isEditAllowed = (createdAt: string | Date | undefined) => {
+        const policyHours = getPolicyHours('customerPo');
+        if (policyHours === -1) return true;
+        if (policyHours <= 0) return false;
+        return getRemainingEditSeconds(createdAt) > 0;
+    };
+
     const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds === Infinity) return 'Unlimited';
         if (totalSeconds <= 0) return '00:00:00';
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -100,9 +125,9 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     };
 
     const handleDeletePo = async (po: any) => {
-        const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
-        if (remainingSecs <= 0) {
-            onError("Customer PO can only be deleted within 24 hours of creation");
+        if (!isEditAllowed(po.createdAt || po.date)) {
+            const hrs = getPolicyHours('customerPo');
+            onError(hrs <= 0 ? "Customer PO is locked immediately upon creation by company policy" : `Customer PO can only be deleted within ${hrs} hours of creation`);
             return;
         }
         if (!window.confirm(`Are you sure you want to delete Customer PO #${po.poNumber}?`)) return;
@@ -190,8 +215,9 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
                     return pFgId?.toString() === (m._id || m.id)?.toString();
                 });
+                const pCurrency = pEntry?.currency || m.currency || 'INR';
                 const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.unitPrice || 0));
-                const priceText = rate > 0 ? ` — ₹${rate}` : '';
+                const priceText = rate > 0 ? ` — ${getCurrencySymbol(pCurrency)}${rate} (${pCurrency})` : '';
                 const desc = m.description || m.descriptions || '';
                 const descText = desc ? ` — ${desc}` : '';
                 return {
@@ -290,9 +316,9 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     };
 
     const handleOpenEditModal = (po: any) => {
-        const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
-        if (remainingSecs <= 0) {
-            onError("Customer PO can only be edited or deleted within 24 hours of creation");
+        if (!isEditAllowed(po.createdAt || po.date)) {
+            const hrs = getPolicyHours('customerPo');
+            onError(hrs <= 0 ? "Customer PO is locked immediately upon creation by company policy" : `Customer PO can only be edited or deleted within ${hrs} hours of creation`);
             return;
         }
         setEditingPo(po);
@@ -628,20 +654,22 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
     const filteredPoList = useMemo(() => {
         return (Array.isArray(poList) ? poList : []).filter((p: any) => {
             const matchSearch =
+                !searchTerm ||
                 (p.poNumber && p.poNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (p.customerName && p.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (p.customer?.name && p.customer.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (p.items && p.items.some((i: any) => (i.productName || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                (p.quotationReference && p.quotationReference.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (p.items && p.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
 
             const matchStatus = filterStatus === 'All' || p.status === filterStatus;
 
             let matchCustomer = true;
-            if (filterCustomer !== 'All') {
-                const custId = p.customer?._id || p.customer;
-                matchCustomer = custId?.toString() === filterCustomer?.toString();
+            if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+                const custId = (p.customer?._id || p.customer)?.toString();
+                matchCustomer = filterCustomers.includes(custId);
             }
 
-            const matchMrpDone = !excludeMrpDone || p.status !== 'MRP Done';
+            const matchMrpDone = !excludeMrpDone || (p.status !== 'MRP Done' && p.status !== 'Partially Dispatched' && p.status !== 'Completed');
 
             let matchDate = true;
             if (filterMonth) {
@@ -652,8 +680,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
                 };
 
-                const entryYm = getYearMonth(p.date || p.createdAt);
-                const commitYm = getYearMonth(p.committedDispatchDate);
+                const entryYm = getYearMonth(p.date || p.createdAt || p.poDate);
+                const commitYm = getYearMonth(p.committedDispatchDate || p.committedDeliveryDate || p.deliveryDate);
 
                 if (filterDateType === 'entry') {
                     matchDate = entryYm === filterMonth;
@@ -666,18 +694,76 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
             return matchSearch && matchStatus && matchCustomer && matchMrpDone && matchDate;
         });
-    }, [poList, searchTerm, filterStatus, filterCustomer, excludeMrpDone, filterMonth, filterDateType]);
+    }, [poList, searchTerm, filterStatus, filterCustomers, excludeMrpDone, filterMonth, filterDateType]);
 
-    // Live PO count per status for the dropdown
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (filterStatus !== 'All') count++;
+        if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) count++;
+        if (excludeMrpDone) count++;
+        if (filterMonth) count++;
+        if (searchTerm.trim()) count++;
+        return count;
+    }, [filterStatus, filterCustomers, excludeMrpDone, filterMonth, searchTerm]);
+
+    const hasActiveFilters = activeFilterCount > 0;
+
+    // Scoped POs based on active search, customer, excludeMrpDone, and date/month filters (used for live status dropdown counts)
+    const scopedPoList = useMemo(() => {
+        return (Array.isArray(poList) ? poList : []).filter((po: any) => {
+            const matchSearch =
+                !searchTerm ||
+                (po.poNumber && po.poNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (po.customerName && po.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (po.quotationReference && po.quotationReference.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (po.items && po.items.some((i: any) => (i.productName || i.description || i.fgItem?.name || '').toLowerCase().includes(searchTerm.toLowerCase())));
+
+            let matchCustomer = true;
+            if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+                const custId = (po.customer?._id || po.customer)?.toString();
+                matchCustomer = filterCustomers.includes(custId);
+            }
+
+            let matchMrpDone = true;
+            if (excludeMrpDone) {
+                matchMrpDone = po.status !== 'MRP Done' && po.status !== 'Partially Dispatched' && po.status !== 'Completed';
+            }
+
+            let matchDate = true;
+            if (filterMonth) {
+                const getYearMonth = (val: any) => {
+                    if (!val) return '';
+                    const d = new Date(val);
+                    if (isNaN(d.getTime())) return '';
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                };
+
+                const entryYm = getYearMonth(po.date || po.poDate || po.createdAt);
+                const commitYm = getYearMonth(po.committedDeliveryDate || po.deliveryDate);
+
+                if (filterDateType === 'entry') {
+                    matchDate = entryYm === filterMonth;
+                } else if (filterDateType === 'committed') {
+                    matchDate = commitYm === filterMonth;
+                } else {
+                    matchDate = entryYm === filterMonth || commitYm === filterMonth;
+                }
+            }
+
+            return matchSearch && matchCustomer && matchMrpDone && matchDate;
+        });
+    }, [poList, searchTerm, filterCustomers, excludeMrpDone, filterMonth, filterDateType]);
+
+    // Live PO count per status for the dropdown (dynamically scoped)
     const statusCounts = useMemo(() => {
-        const counts: Record<string, number> = { All: Array.isArray(poList) ? poList.length : 0 };
+        const counts: Record<string, number> = { All: scopedPoList.length };
         ['Received', 'Accepted', 'MRP Done', 'Partially Dispatched', 'Completed', 'Cancelled'].forEach(st => {
-            counts[st] = (Array.isArray(poList) ? poList : []).filter(p => p.status === st).length;
+            counts[st] = scopedPoList.filter(p => p.status === st).length;
         });
         return counts;
-    }, [poList]);
+    }, [scopedPoList]);
 
-    // Overall Order Book Financials in INR (Configured in Store > Master > Setting Prefix)
+    // Dynamic Order Book Financials in INR calculated on filtered POs
     const overallFinancials = useMemo(() => {
         let totalInr = 0;
         let readyForMrpInr = 0;
@@ -689,7 +775,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         const currencyTotals: Record<string, number> = {};
         const currencyInrTotals: Record<string, number> = {};
 
-        (Array.isArray(poList) ? poList : []).forEach(po => {
+        (Array.isArray(filteredPoList) ? filteredPoList : []).forEach(po => {
             if (po.status === 'Cancelled') return;
             const amount = Number(po.totalAmount || po.subtotal || 0);
             const curr = (po.currency || 'INR').trim().toUpperCase();
@@ -728,7 +814,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             currencyInrTotals,
             hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
         };
-    }, [poList, convertToINR]);
+    }, [filteredPoList, convertToINR]);
 
     // Filtered Order Book Financials in INR
     const consolidatedFinancials = useMemo(() => {
@@ -841,19 +927,22 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
         setSelectedPoIds(prev => prev.includes(poId) ? prev.filter(id => id !== poId) : [...prev, poId]);
     };
 
-    const hasActiveFilters = Boolean(searchTerm || filterStatus !== 'All' || filterCustomer !== 'All' || excludeMrpDone || filterMonth);
-
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
             {/* 1. EXECUTIVE CUSTOMER PO DASHBOARD - CONVERTED VALUATIONS & METRICS */}
             <div className="space-y-3">
                 {!showDashboard ? (
-                    <div className="bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
+                    <div className="hidden sm:flex bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
                             <div className="flex items-center gap-1.5">
                                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Order Book:</span>
                                 <span className="font-mono font-bold text-slate-900 dark:text-white">{overallFinancials.formattedTotalInr}</span>
-                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-extrabold">({poList.length} POs)</span>
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 font-extrabold">({filteredPoList.length} POs)</span>
+                                {hasActiveFilters && (
+                                    <span className="px-1.5 py-0.2 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 rounded text-[9px] font-bold border border-blue-200 dark:border-blue-800">
+                                        Filtered
+                                    </span>
+                                )}
                             </div>
                             <div className="hidden sm:flex items-center gap-1.5">
                                 <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Ready for MRP:</span>
@@ -871,14 +960,37 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         <button
                             type="button"
                             onClick={() => setShowDashboard(true)}
-                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/50 cursor-pointer shrink-0 transition-colors"
+                            className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/50 cursor-pointer shrink-0 transition-colors"
+                            title="Show Executive KPI Dashboard"
                         >
-                            <span>Show Dashboard</span>
+                            <span className="hidden sm:inline">Show Dashboard</span>
+                            <span className="sm:hidden text-[11px]">Stats</span>
                             <ChevronDown size={14} />
                         </button>
                     </div>
                 ) : (
                     <>
+                        {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
+                        <div className="flex items-center justify-between pb-1 px-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive Customer PO Dashboard</span>
+                                {hasActiveFilters && (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300">
+                                        Filtered ({filteredPoList.length} of {poList.length})
+                                    </span>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowDashboard(false)}
+                                className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
+                                title="Hide Executive KPI Dashboard"
+                            >
+                                <ChevronUp size={14} />
+                                <span>Hide</span>
+                            </button>
+                        </div>
+
                         {/* 4 Primary Executive KPI Cards */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             {/* Card 1: Total Order Book */}
@@ -894,7 +1006,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         {overallFinancials.formattedTotalInr}
                                     </div>
                                     <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
-                                        <span className="text-blue-600 dark:text-blue-400 font-extrabold">{poList.length} POs</span>
+                                        <span className="text-blue-600 dark:text-blue-400 font-extrabold">{filteredPoList.length} POs</span>
                                         <span>•</span>
                                         <span>Converted to INR</span>
                                     </div>
@@ -1067,43 +1179,255 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
             </div>
 
             {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-                {/* Primary Row: Search + View Mode Switcher + Action Buttons */}
-                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-                    {/* Search Input & View Mode */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-1 min-w-0">
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+            <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5">
+                {/* Main Control Row - Fits in a SINGLE line on Desktop (`lg:flex`) */}
+                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 sm:gap-2.5">
+                    {/* Left & Center: Search + ViewMode + Desktop Inline Filters */}
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {/* Search Input: Compact on desktop so filters fit in the same line */}
+                        <div className="relative flex-1 lg:flex-initial lg:w-44 xl:w-52 shrink-0">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
                             <input
                                 type="text"
-                                placeholder={viewMode === 'items' ? "Search Item Name, Description, PO #..." : "Search PO #, Customer or Item..."}
+                                placeholder={viewMode === 'items' ? "Search Item, Description, PO #..." : "Search PO #, Customer or Item..."}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                                className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-slate-50/50 dark:bg-slate-800/50"
                             />
                             {searchTerm && (
                                 <button
                                     type="button"
                                     onClick={() => setSearchTerm('')}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                                     title="Clear search"
                                 >
-                                    <X size={14} />
+                                    <X size={13} />
                                 </button>
                             )}
                         </div>
 
                         {/* View Mode Toggle Button */}
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80 self-stretch sm:self-auto">
+                        <div className="hidden sm:flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80">
                             <button
                                 type="button"
                                 onClick={() => setViewMode('po')}
-                                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                className={`flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                     viewMode === 'po'
                                         ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
                                         : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                                 }`}
                                 title="View Customer Purchase Orders"
+                            >
+                                <FileCheck size={13} />
+                                <span>POs ({poList.length})</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('items')}
+                                className={`flex items-center justify-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    viewMode === 'items'
+                                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                }`}
+                                title="View All Items and their Customer POs"
+                            >
+                                <Package size={13} />
+                                <span>Items ({uniquePoItemsCount})</span>
+                            </button>
+                        </div>
+
+                        {/* Inline Filters on Desktop (`lg:flex`) */}
+                        <div className="hidden lg:flex items-center gap-1.5 xl:gap-2 flex-wrap min-w-0">
+                            {/* Customer Select */}
+                            <SearchableMultiSelect
+                                options={customerOptions}
+                                selectedValues={filterCustomers}
+                                onChange={setFilterCustomers}
+                                placeholder="All Customers"
+                                searchPlaceholder="Search customer..."
+                                className="w-36 xl:w-48"
+                            />
+
+                            {/* Status Select */}
+                            <select
+                                value={filterStatus}
+                                onChange={(e) => setFilterStatus(e.target.value)}
+                                className="px-2 xl:px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-[125px] xl:max-w-[145px]"
+                                title="Filter by Status"
+                            >
+                                <option value="All">All Statuses ({statusCounts.All || 0})</option>
+                                <option value="Received">Received ({statusCounts.Received || 0})</option>
+                                <option value="Accepted">Accepted ({statusCounts.Accepted || 0})</option>
+                                <option value="MRP Done">MRP Done ({statusCounts['MRP Done'] || 0})</option>
+                                <option value="Partially Dispatched">Part. Dispatched ({statusCounts['Partially Dispatched'] || 0})</option>
+                                <option value="Completed">Completed ({statusCounts.Completed || 0})</option>
+                                <option value="Cancelled">Cancelled ({statusCounts.Cancelled || 0})</option>
+                            </select>
+
+                            {/* Month Filter */}
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                                <Calendar size={13} className="text-blue-500 shrink-0" />
+                                <select
+                                    value={filterDateType}
+                                    onChange={(e) => setFilterDateType(e.target.value as any)}
+                                    className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer pr-1"
+                                    title="Date basis"
+                                >
+                                    <option value="entry">PO</option>
+                                    <option value="committed">Due</option>
+                                    <option value="either">Any</option>
+                                </select>
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => setFilterMonth(e.target.value)}
+                                    className="px-1.5 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer text-center"
+                                    title="Choose month (YYYY-MM)"
+                                />
+                                {filterMonth && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterMonth('')}
+                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                                        title="Clear month"
+                                    >
+                                        <X size={12} />
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Exclude MRP Done */}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setExcludeMrpDone(prev => !prev);
+                                    if (filterStatus === 'MRP Done') setFilterStatus('All');
+                                }}
+                                className={`px-2 xl:px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1 ${
+                                    excludeMrpDone
+                                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs'
+                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                                }`}
+                                title={excludeMrpDone ? "Currently hiding MRP Done POs" : "Click to hide MRP Done POs"}
+                            >
+                                <span>{excludeMrpDone ? '✓ Excl. MRP' : 'Hide MRP'}</span>
+                            </button>
+
+                            {/* Reset Button (only when filters active) */}
+                            {hasActiveFilters && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchTerm('');
+                                        setFilterStatus('All');
+                                        setFilterCustomers([]);
+                                        setExcludeMrpDone(false);
+                                        setFilterMonth('');
+                                        setFilterDateType('entry');
+                                    }}
+                                    className="p-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 text-xs font-bold"
+                                    title="Reset all filters"
+                                >
+                                    <RotateCcw size={13} />
+                                    <span className="hidden xl:inline">Reset</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Right Action Group: Mobile Toggles + Dashboard Toggle + Actions */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-end lg:self-auto">
+                        {/* Mobile Only: Small Filter Toggle Icon */}
+                        <button
+                            type="button"
+                            onClick={() => setShowFilters(prev => !prev)}
+                            className={`lg:hidden p-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer border ${
+                                showFilters || activeFilterCount > 0
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
+                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={showFilters ? "Hide Filters" : "Show Filters"}
+                            aria-label="Toggle Filters"
+                        >
+                            <Filter size={15} />
+                            {activeFilterCount > 0 && (
+                                <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">
+                                    {activeFilterCount}
+                                </span>
+                            )}
+                        </button>
+
+                        {/* Dashboard Toggle: Small icon on mobile, compact labeled button on desktop */}
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className={`p-2 sm:px-2.5 sm:py-1.5 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                showDashboard
+                                    ? 'bg-blue-50 border-blue-300 text-blue-700 dark:bg-blue-950/60 dark:border-blue-800 dark:text-blue-300'
+                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
+                            aria-label="Toggle Dashboard"
+                        >
+                            <LayoutGrid size={15} />
+                            <span className="hidden sm:inline">{showDashboard ? "Hide" : "Dashboard"}</span>
+                        </button>
+
+                        {/* Consolidated MRP Button */}
+                        <button
+                            type="button"
+                            onClick={() => setIsMrpModalOpen(true)}
+                            className={`px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
+                                selectedPoIds.length > 0 
+                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm' 
+                                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                            }`}
+                            title="Create Single Consolidated MRP from multiple Customer POs"
+                        >
+                            <Layers size={14} />
+                            <span className="hidden xl:inline">Consolidated MRP</span>
+                            <span className="xl:hidden">MRP</span>
+                            {selectedPoIds.length > 0 ? ` (${selectedPoIds.length})` : ''}
+                        </button>
+
+                        {/* Log Customer PO Button */}
+                        <button
+                            type="button"
+                            onClick={handleOpenCreateModal}
+                            className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} />
+                            <span className="hidden sm:inline">Log Customer PO</span>
+                            <span className="sm:hidden">Log</span>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Mobile Collapsible Filter Drawer */}
+                {showFilters && (
+                    <div className="lg:hidden pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between pb-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Filter Options</span>
+                            <button
+                                type="button"
+                                onClick={() => setShowFilters(false)}
+                                className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center gap-0.5"
+                            >
+                                <ChevronUp size={13} />
+                                <span>Collapse</span>
+                            </button>
+                        </div>
+
+                        {/* Mobile View Mode Switcher */}
+                        <div className="flex sm:hidden bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('po')}
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    viewMode === 'po'
+                                        ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
+                                        : 'text-slate-500'
+                                }`}
                             >
                                 <FileCheck size={14} />
                                 <span>POs ({poList.length})</span>
@@ -1111,166 +1435,119 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             <button
                                 type="button"
                                 onClick={() => setViewMode('items')}
-                                className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                                     viewMode === 'items'
                                         ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs'
-                                        : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                                        : 'text-slate-500'
                                 }`}
-                                title="View All Items and their Customer POs"
                             >
                                 <Package size={14} />
                                 <span>Items ({uniquePoItemsCount})</span>
                             </button>
                         </div>
-                    </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(prev => !prev)}
-                            className="flex-1 sm:flex-initial px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border border-slate-200 dark:border-slate-700"
-                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
-                        >
-                            {showDashboard ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                            <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={() => setIsMrpModalOpen(true)}
-                            className={`flex-1 sm:flex-initial px-3.5 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap ${
-                                selectedPoIds.length > 0 
-                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm' 
-                                    : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                            }`}
-                            title="Create Single Consolidated MRP from multiple Customer POs"
-                        >
-                            <Layers size={15} />
-                            <span>Create Consolidated MRP {selectedPoIds.length > 0 ? `(${selectedPoIds.length})` : ''}</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={handleOpenCreateModal}
-                            className="flex-1 sm:flex-initial px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                        >
-                            <Plus size={15} />
-                            <span>Log Customer PO</span>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Filters Row: Customer Dropdown + Status Dropdown + Month Date Filter + Hide MRP Done Pill + Reset */}
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-                        {/* Customer Filter Dropdown */}
-                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[150px] sm:min-w-0">
-                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Customer:</label>
-                            <select
-                                value={filterCustomer}
-                                onChange={(e) => setFilterCustomer(e.target.value)}
-                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-full sm:max-w-[240px]"
-                            >
-                                <option value="All">All Customers</option>
-                                {(Array.isArray(customers) ? customers : []).map((c: any) => (
-                                    <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
-                                        {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Status Filter Dropdown */}
-                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[160px] sm:min-w-0">
-                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Status:</label>
-                            <select
-                                value={filterStatus}
-                                onChange={(e) => setFilterStatus(e.target.value)}
-                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-blue-500/20 max-w-full sm:max-w-[260px]"
-                            >
-                                <option value="All">All Statuses ({statusCounts.All || 0})</option>
-                                <option value="Received">Received ({statusCounts.Received || 0})</option>
-                                <option value="Accepted">Accepted ({statusCounts.Accepted || 0})</option>
-                                <option value="MRP Done">MRP Done ({statusCounts['MRP Done'] || 0})</option>
-                                <option value="Partially Dispatched">Partially Dispatched ({statusCounts['Partially Dispatched'] || 0})</option>
-                                <option value="Completed">Completed ({statusCounts.Completed || 0})</option>
-                                <option value="Cancelled">Cancelled ({statusCounts.Cancelled || 0})</option>
-                            </select>
-                        </div>
-
-                        {/* Month-Based Date Filter (Entry Date / Committed Date) */}
-                        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 flex-1 sm:flex-none min-w-[230px] sm:min-w-0">
-                            <Calendar size={13} className="text-blue-500 shrink-0" />
-                            <select
-                                value={filterDateType}
-                                onChange={(e) => setFilterDateType(e.target.value as any)}
-                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer pr-1"
-                                title="Select date basis for month filter"
-                            >
-                                <option value="entry">PO / Entry Month</option>
-                                <option value="committed">Committed Month</option>
-                                <option value="either">Either Month</option>
-                            </select>
-                            <div className="relative flex items-center">
-                                <input
-                                    type="month"
-                                    value={filterMonth}
-                                    onChange={(e) => setFilterMonth(e.target.value)}
-                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer text-center"
-                                    title="Choose month (YYYY-MM)"
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {/* Mobile Customer Select */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[11px] font-bold text-slate-500">Customer</label>
+                                <SearchableMultiSelect
+                                    options={customerOptions}
+                                    selectedValues={filterCustomers}
+                                    onChange={setFilterCustomers}
+                                    placeholder="All Customers"
+                                    searchPlaceholder="Search customer..."
+                                    className="w-full"
                                 />
-                                {filterMonth && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setFilterMonth('')}
-                                        className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
-                                        title="Clear month filter"
+                            </div>
+
+                            {/* Mobile Status Select */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[11px] font-bold text-slate-500">Status</label>
+                                <select
+                                    value={filterStatus}
+                                    onChange={(e) => setFilterStatus(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none"
+                                >
+                                    <option value="All">All Statuses ({statusCounts.All || 0})</option>
+                                    <option value="Received">Received ({statusCounts.Received || 0})</option>
+                                    <option value="Accepted">Accepted ({statusCounts.Accepted || 0})</option>
+                                    <option value="MRP Done">MRP Done ({statusCounts['MRP Done'] || 0})</option>
+                                    <option value="Partially Dispatched">Partially Dispatched ({statusCounts['Partially Dispatched'] || 0})</option>
+                                    <option value="Completed">Completed ({statusCounts.Completed || 0})</option>
+                                    <option value="Cancelled">Cancelled ({statusCounts.Cancelled || 0})</option>
+                                </select>
+                            </div>
+
+                            {/* Mobile Month Filter */}
+                            <div className="flex flex-col gap-1 sm:col-span-2">
+                                <label className="text-[11px] font-bold text-slate-500">Month Filter</label>
+                                <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <Calendar size={13} className="text-blue-500 shrink-0" />
+                                    <select
+                                        value={filterDateType}
+                                        onChange={(e) => setFilterDateType(e.target.value as any)}
+                                        className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none"
                                     >
-                                        <X size={12} />
-                                    </button>
-                                )}
+                                        <option value="entry">PO / Entry Month</option>
+                                        <option value="committed">Committed Month</option>
+                                        <option value="either">Either Month</option>
+                                    </select>
+                                    <input
+                                        type="month"
+                                        value={filterMonth}
+                                        onChange={(e) => setFilterMonth(e.target.value)}
+                                        className="flex-1 px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 outline-none text-center"
+                                    />
+                                    {filterMonth && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFilterMonth('')}
+                                            className="text-slate-400 p-0.5"
+                                        >
+                                            <X size={12} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        {/* Hide MRP Done Pill Toggle */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setExcludeMrpDone(prev => !prev);
-                                if (filterStatus === 'MRP Done') setFilterStatus('All');
-                            }}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap border shrink-0 flex items-center gap-1.5 ${
-                                excludeMrpDone
-                                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700 shadow-2xs'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                            }`}
-                            title={excludeMrpDone ? "Currently hiding MRP Done POs. Click to show all." : "Click to hide Customer POs where MRP has already been created"}
-                        >
-                            <span>{excludeMrpDone ? '✓ Exclude MRP Done' : 'Hide MRP Done'}</span>
-                        </button>
-                    </div>
+                        {/* Mobile Bottom Actions (Exclude MRP + Reset) */}
+                        <div className="flex items-center justify-between pt-1">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setExcludeMrpDone(prev => !prev);
+                                    if (filterStatus === 'MRP Done') setFilterStatus('All');
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                                    excludeMrpDone
+                                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                                }`}
+                            >
+                                <span>{excludeMrpDone ? '✓ Exclude MRP Done' : 'Hide MRP Done'}</span>
+                            </button>
 
-                    {/* Reset Filters Button */}
-                    {hasActiveFilters && (
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setSearchTerm('');
-                                setFilterStatus('All');
-                                setFilterCustomer('All');
-                                setExcludeMrpDone(false);
-                                setFilterMonth('');
-                                setFilterDateType('entry');
-                            }}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 ml-auto sm:ml-0"
-                            title="Reset all search queries and filters"
-                        >
-                            <RotateCcw size={12} />
-                            <span>Reset Filters</span>
-                        </button>
-                    )}
-                </div>
+                            {hasActiveFilters && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchTerm('');
+                                        setFilterStatus('All');
+                                        setFilterCustomers([]);
+                                        setExcludeMrpDone(false);
+                                        setFilterMonth('');
+                                        setFilterDateType('entry');
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-1"
+                                >
+                                    <RotateCcw size={12} />
+                                    <span>Reset Filters</span>
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Live Counter & Valuation Indicator */}
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 flex-wrap gap-2">
@@ -1294,7 +1571,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                     customers={customers}
                     onViewPo={(po) => setSelectedPo(po)}
                     searchTerm={searchTerm}
-                    filterCustomer={filterCustomer}
+                    filterCustomers={filterCustomers}
                 />
             ) : (
                 <>
@@ -1320,7 +1597,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     onClick={() => {
                                         setSearchTerm('');
                                         setFilterStatus('All');
-                                        setFilterCustomer('All');
+                                        setFilterCustomers([]);
                                         setExcludeMrpDone(false);
                                         setFilterMonth('');
                                         setFilterDateType('entry');
@@ -1572,19 +1849,29 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                                                 {(() => {
                                                     const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
-                                                    const isWithin24h = remainingSecs > 0;
+                                                    const isWithinLimit = isEditAllowed(po.createdAt || po.date);
 
                                                     return (
                                                         <>
-                                                            {isWithin24h ? (
+                                                            {isWithinLimit ? (
                                                                 <>
-                                                                    <span 
-                                                                        title={`Editing and deletion allowed for another ${formatRemainingTime(remainingSecs)}`}
-                                                                        className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
-                                                                    >
-                                                                        <Clock size={11} className="text-amber-600 animate-pulse" />
-                                                                        {formatRemainingTime(remainingSecs)}
-                                                                    </span>
+                                                                    {remainingSecs === Infinity ? (
+                                                                        <span 
+                                                                            title="Unlimited editing window configured by company policy"
+                                                                            className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1 shrink-0"
+                                                                        >
+                                                                            <ShieldCheck size={11} className="text-emerald-600" />
+                                                                            Unlimited
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span 
+                                                                            title={`Editing and deletion allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                            className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                                        >
+                                                                            <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                            {formatRemainingTime(remainingSecs)}
+                                                                        </span>
+                                                                    )}
                                                                     <button
                                                                         onClick={() => handleOpenEditModal(po)}
                                                                         title={`Edit PO (${formatRemainingTime(remainingSecs)} left)`}
@@ -1595,13 +1882,13 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                                     <button
                                                                         onClick={() => handleDeletePo(po)}
                                                                         title={`Delete PO (${formatRemainingTime(remainingSecs)} left)`}
-                                                                        className="px-2 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 text-xs font-bold rounded-xl transition-colors inline-flex items-center"
+                                                                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 text-xs font-bold rounded-xl transition-colors inline-flex items-center"
                                                                     >
                                                                         <Trash2 size={13} />
                                                                     </button>
                                                                 </>
                                                             ) : (
-                                                                <span title="Editing and deleting window expired (24h limit)" className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[11px] font-medium rounded-xl inline-flex items-center gap-1 opacity-60">
+                                                                <span title={`Editing and deleting window expired (${getPolicyHours('customerPo')}h limit)`} className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[11px] font-medium rounded-xl inline-flex items-center gap-1 opacity-60">
                                                                     <Lock size={12} /> Locked
                                                                 </span>
                                                             )}
@@ -1621,7 +1908,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                         {filteredPoList.map((po) => {
                             const total = Number(po.totalAmount || po.subtotal || 0);
                             const remainingSecs = getRemainingEditSeconds(po.createdAt || po.date);
-                            const isWithin24h = remainingSecs > 0;
+                            const isWithinLimit = isEditAllowed(po.createdAt || po.date);
                             const hasOA = Boolean(po.acknowledgementNumber || po.acknowledgementDate || po.committedDispatchDate);
                             const commitDate = po.committedDispatchDate;
                             const leadDays = commitDate && po.date
@@ -1664,11 +1951,18 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                         {po.pdf ? "PDF" : "Photo"}
                                                     </a>
                                                 )}
-                                                {isWithin24h ? (
-                                                    <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-md font-mono text-[9px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-0.5">
-                                                        <Clock size={9} className="text-amber-600 animate-pulse" />
-                                                        {formatRemainingTime(remainingSecs)}
-                                                    </span>
+                                                {isWithinLimit ? (
+                                                    remainingSecs === Infinity ? (
+                                                        <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-md font-mono text-[9px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-0.5">
+                                                            <ShieldCheck size={9} className="text-emerald-600" />
+                                                            Unlimited
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-1.5 py-0.5 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-md font-mono text-[9px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-0.5">
+                                                            <Clock size={9} className="text-amber-600 animate-pulse" />
+                                                            {formatRemainingTime(remainingSecs)}
+                                                        </span>
+                                                    )
                                                 ) : (
                                                     <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-400 rounded-md text-[9px] font-bold inline-flex items-center gap-0.5">
                                                         <Lock size={9} /> Locked
@@ -1787,7 +2081,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             <FileText size={13} /> {hasOA ? '✓ OA' : 'OA / Accept'}
                                         </button>
 
-                                        {isWithin24h ? (
+                                        {isWithinLimit ? (
                                             <>
                                                 <button
                                                     onClick={() => handleOpenEditModal(po)}
@@ -1818,27 +2112,32 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
             {/* Create / Edit Customer PO Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
-                        <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center border border-blue-500/30">
-                                    {editingPo ? <Edit2 size={20} className="text-blue-400" /> : <FileCheck size={20} className="text-blue-400" />}
+                        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                                    {editingPo ? <Edit2 size={20} /> : <FileCheck size={20} />}
                                 </div>
-                                <div>
-                                    <h2 className="text-xl font-extrabold tracking-tight">
+                                <div className="min-w-0">
+                                    <h2 className="text-base sm:text-lg font-black tracking-tight truncate">
                                         {editingPo ? 'Edit Customer Purchase Order' : 'Log Customer Purchase Order (Inward PO)'}
                                     </h2>
-                                    <p className="text-xs text-slate-400 mt-0.5">PO #: <span className="font-mono font-bold text-blue-300">{newPo.poNumber}</span></p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">PO #: <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{newPo.poNumber}</span></p>
                                 </div>
                             </div>
-                            <button onClick={() => { setIsCreateModalOpen(false); setEditingPo(null); }} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors">
+                            <button
+                                type="button"
+                                onClick={() => { setIsCreateModalOpen(false); setEditingPo(null); }}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Close"
+                            >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
+                        <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 space-y-4 sm:space-y-6">
                             
                             {/* In-Form Error Guidance Banner */}
                             {Object.keys(formErrors).length > 0 && (
@@ -1858,13 +2157,13 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             )}
 
                             {/* Step 1: Customer & Linked Quotation Logistics */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3 sm:space-y-4">
                                 <h3 className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
                                     1. Customer & Linked Quotation Details
                                 </h3>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <div className="md:col-span-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                                    <div className="sm:col-span-2">
                                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                             Linked Outward Quotation <span className="text-slate-400 font-normal">(Optional - Auto-Fills Customer & Rates)</span>
                                         </label>
@@ -1889,7 +2188,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         />
                                     </div>
 
-                                    <div className="md:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
+                                    <div className="sm:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
                                         <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                             <span>Customer from Master <span className="text-rose-500">*</span></span>
                                             {formErrors.customer && <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">{formErrors.customer}</span>}
@@ -2001,7 +2300,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             </div>
 
                             {/* Step 2: Ordered Items - 1 Line on Desktop */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-4 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3">
                                 <div className="flex justify-between items-center">
                                     <h3 className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
                                         2. Ordered Items & Line Pricing
@@ -2009,7 +2308,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                     <button
                                         type="button"
                                         onClick={handleAddItem}
-                                        className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/80 bg-blue-50 dark:bg-blue-950/60 px-3.5 py-1.5 rounded-xl border border-blue-200 dark:border-blue-800 transition-colors"
+                                        className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-950/80 bg-blue-50 dark:bg-blue-950/60 px-3.5 py-1.5 rounded-xl border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer"
                                     >
                                         + Add Item
                                     </button>
@@ -2018,8 +2317,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 {/* Desktop Table Header */}
                                 <div className="hidden lg:grid grid-cols-12 gap-3 px-3 py-1.5 text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                                     <div className="col-span-3">FG Item * (Price List)</div>
-                                    <div className="col-span-1 text-center">HSN</div>
                                     <div className="col-span-2">Specifications</div>
+                                    <div className="col-span-1 text-center">HSN</div>
                                     <div className="col-span-1 text-center">Qty</div>
                                     <div className="col-span-1 text-center">Unit</div>
                                     <div className="col-span-2 text-right">Unit Rate ({getCurrencySymbol(newPo.currency)})</div>
@@ -2030,8 +2329,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                 {/* Items Rows */}
                                 <div className="space-y-2.5">
                                     {newPo.items.map((item, idx) => (
-                                        <div key={idx} className="p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-                                            <div className="grid grid-cols-12 gap-3 items-center">
+                                        <div key={idx} className="p-3 sm:p-3.5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                                            <div className="grid grid-cols-12 gap-2.5 sm:gap-3 items-center">
                                                 
                                                 {/* FG Item Column */}
                                                 <div className="col-span-12 lg:col-span-3" data-has-error={!!formErrors[`item_${idx}_fgItem`]}>
@@ -2048,22 +2347,8 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     />
                                                 </div>
 
-                                                {/* HSN Code Column */}
-                                                <div className="col-span-6 lg:col-span-1">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        HSN
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={item.hsnCode || ''}
-                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
-                                                        placeholder="HSN"
-                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-blue-500"
-                                                    />
-                                                </div>
-
                                                 {/* Specifications */}
-                                                <div className="col-span-12 lg:col-span-2">
+                                                <div className="col-span-12 sm:col-span-6 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Specifications
                                                     </label>
@@ -2076,8 +2361,22 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                     />
                                                 </div>
 
+                                                {/* HSN Code Column */}
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        HSN
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsnCode || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN"
+                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-blue-500"
+                                                    />
+                                                </div>
+
                                                 {/* Qty */}
-                                                <div className="col-span-6 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
                                                     <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         <span>Qty <span className="text-rose-500">*</span></span>
                                                         {formErrors[`item_${idx}_quantity`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_quantity`]}</span>}
@@ -2096,7 +2395,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
 
                                                 {/* Unit */}
-                                                <div className="col-span-6 lg:col-span-1">
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Unit
                                                     </label>
@@ -2109,7 +2408,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
 
                                                 {/* Rate */}
-                                                <div className="col-span-6 lg:col-span-2" data-has-error={!!formErrors[`item_${idx}_rate`]}>
+                                                <div className="col-span-6 sm:col-span-4 lg:col-span-2" data-has-error={!!formErrors[`item_${idx}_rate`]}>
                                                     <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         <span>Rate <span className="text-rose-500">*</span></span>
                                                         {formErrors[`item_${idx}_rate`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_rate`]}</span>}
@@ -2130,7 +2429,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
 
                                                 {/* GST % */}
-                                                <div className="col-span-5 lg:col-span-1">
+                                                <div className="col-span-4 sm:col-span-3 lg:col-span-1">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         GST %
                                                     </label>
@@ -2145,12 +2444,22 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                                 </div>
 
                                                 {/* Action Column */}
-                                                <div className="col-span-1 text-right">
+                                                <div className="col-span-2 sm:col-span-2 lg:col-span-1 flex justify-end items-end pb-0.5 gap-1.5">
+                                                    {idx === newPo.items.length - 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleAddItem}
+                                                            className="p-2 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                                                            title="Add Next Line Item"
+                                                        >
+                                                            <Plus size={18} />
+                                                        </button>
+                                                    )}
                                                     {newPo.items.length > 1 && (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveItem(idx)}
-                                                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
+                                                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
                                                             title="Remove Item"
                                                         >
                                                             <X size={18} />
@@ -2161,6 +2470,18 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+
+                                {/* Bottom Add Line Item Bar */}
+                                <div className="pt-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={handleAddItem}
+                                        className="w-full py-3 px-4 border-2 border-dashed border-blue-200 hover:border-blue-500 dark:border-blue-800/80 dark:hover:border-blue-500 bg-blue-50/40 hover:bg-blue-50 dark:bg-blue-950/20 dark:hover:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+                                    >
+                                        <Plus size={16} className="text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
+                                        <span>+ Add New Line Item</span>
+                                    </button>
                                 </div>
                             </div>
 
@@ -2316,7 +2637,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             </div>
 
                             {/* Summary Card */}
-                            <div className="bg-blue-50/70 dark:bg-blue-950/40 p-5 rounded-2xl border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                            <div className="bg-blue-50/70 dark:bg-blue-950/40 p-4 sm:p-5 rounded-2xl border border-blue-200 dark:border-blue-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
                                 <div className="text-xs space-y-1">
                                     <div className="font-bold text-slate-700 dark:text-slate-300">
                                         Subtotal: <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newPo.currency)}{newPo.subtotal.toLocaleString()}</span>
@@ -2325,9 +2646,9 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         Total Tax (GST): <span className="font-mono text-slate-900 dark:text-white">{getCurrencySymbol(newPo.currency)}{newPo.taxAmount.toLocaleString()}</span>
                                     </div>
                                 </div>
-                                <div className="text-right">
+                                <div className="text-left sm:text-right">
                                     <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Grand Total PO Amount ({newPo.currency || 'INR'})</span>
-                                    <span className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono">
+                                    <span className="text-xl sm:text-2xl font-black text-blue-600 dark:text-blue-400 font-mono">
                                         {getCurrencySymbol(newPo.currency)}{newPo.totalAmount.toLocaleString()}
                                     </span>
                                 </div>
@@ -2335,14 +2656,14 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
                         </div>
 
-                        <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 flex-shrink-0">
-                            <button onClick={() => { setIsCreateModalOpen(false); setEditingPo(null); }} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-sm hover:bg-slate-100 transition-colors">
+                        <div className="p-3.5 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex flex-col-reverse sm:flex-row justify-end gap-2.5 sm:gap-3 flex-shrink-0">
+                            <button onClick={() => { setIsCreateModalOpen(false); setEditingPo(null); }} className="w-full sm:w-auto px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-sm hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer">
                                 Cancel
                             </button>
                             <button
                                 onClick={handleCreatePoSubmit}
                                 disabled={submitting}
-                                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-blue-600/20 flex items-center gap-2"
+                                className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-blue-600/20 flex items-center justify-center gap-2 cursor-pointer"
                             >
                                 <FileCheck size={16} />
                                 {submitting ? 'Saving...' : (editingPo ? 'Update Customer PO' : 'Save Customer PO')}
@@ -2355,24 +2676,34 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
 
             {/* View Details & Document Fulfillment Timeline Modal */}
             {selectedPo && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
-                        <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
-                            <div>
-                                <h2 className="text-xl font-extrabold font-mono text-blue-300">{selectedPo.poNumber}</h2>
-                                <p className="text-xs text-slate-400 mt-0.5">Customer PO Overview, User Ownership Audit & Document Timeline</p>
+                        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 flex items-center justify-center text-blue-600 dark:text-blue-400 shrink-0">
+                                    <FileCheck size={20} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h2 className="text-base sm:text-lg font-black font-mono tracking-tight text-blue-600 dark:text-blue-400 truncate">{selectedPo.poNumber}</h2>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">Customer PO Overview, User Ownership Audit & Document Timeline</p>
+                                </div>
                             </div>
-                            <button onClick={() => setSelectedPo(null)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors">
+                            <button
+                                type="button"
+                                onClick={() => setSelectedPo(null)}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Close"
+                            >
                                 <X size={18} />
                             </button>
                         </div>
 
                         {/* Modal Tab Bar */}
-                        <div className="flex bg-slate-100 dark:bg-slate-800/80 px-6 pt-2 border-b border-slate-200 dark:border-slate-800 gap-2 flex-shrink-0">
+                        <div className="flex overflow-x-auto bg-slate-100 dark:bg-slate-800/80 px-3 sm:px-6 pt-2 border-b border-slate-200 dark:border-slate-800 gap-1.5 sm:gap-2 flex-shrink-0">
                             <button
                                 onClick={() => setActiveViewTab('overview')}
-                                className={`px-5 py-2.5 font-bold text-xs flex items-center gap-2 rounded-t-xl transition-all ${
+                                className={`px-4 sm:px-5 py-2.5 font-bold text-xs flex items-center gap-2 rounded-t-xl transition-all whitespace-nowrap cursor-pointer ${
                                     activeViewTab === 'overview'
                                         ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-t-2 border-x border-blue-600 dark:border-blue-500 shadow-sm'
                                         : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -2382,7 +2713,7 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                             </button>
                             <button
                                 onClick={() => setActiveViewTab('dispatch')}
-                                className={`px-5 py-2.5 font-bold text-xs flex items-center gap-2 rounded-t-xl transition-all ${
+                                className={`px-4 sm:px-5 py-2.5 font-bold text-xs flex items-center gap-2 rounded-t-xl transition-all whitespace-nowrap cursor-pointer ${
                                     activeViewTab === 'dispatch'
                                         ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-t-2 border-x border-blue-600 dark:border-blue-500 shadow-sm'
                                         : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
@@ -2904,18 +3235,18 @@ export default function CustomerPoTab({ token, onError, onSuccess }: CustomerPoT
                                         setSelectedPo(null);
                                         handleOpenEditModal(poToEdit);
                                     }}
-                                    className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-bold text-xs rounded-xl transition-colors flex items-center gap-1"
+                                    className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
                                 >
                                     <Edit2 size={14} /> Edit Customer PO
                                 </button>
                                 <button
                                     onClick={() => handleDeletePo(selectedPo)}
-                                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 font-bold text-xs rounded-xl transition-colors flex items-center gap-1"
+                                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 cursor-pointer"
                                 >
                                     <Trash2 size={14} /> Delete PO
                                 </button>
                             </div>
-                            <button onClick={() => setSelectedPo(null)} className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl">
+                            <button onClick={() => setSelectedPo(null)} className="px-5 py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold text-xs rounded-xl transition-colors cursor-pointer">
                                 Close
                             </button>
                         </div>

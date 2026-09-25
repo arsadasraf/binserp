@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Inbox, Plus, Search, Calendar, User, Eye, FileText, CheckCircle2, Clock, Filter, ArrowRight, X, Building2, Printer, LayoutGrid, List, Edit2, Trash2, UserCheck, History, ShieldCheck, Download, AlertTriangle, IndianRupee, ChevronDown, ChevronUp, RotateCcw, Tag, Settings } from 'lucide-react';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/src/lib/api';
 import SearchableSelect from '../SearchableSelect';
+import SearchableMultiSelect from '../SearchableMultiSelect';
 import { generateFrontendInwardRfqPDF } from '@/src/utils/frontendPdfHelper';
 import { getCurrencySymbol, CURRENCY_OPTIONS, normalizeCurrencyCode } from '@/src/utils/currencyHelper';
 import { useExchangeRates } from '@/src/hooks/useExchangeRates';
@@ -25,10 +26,11 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     
     const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState<string>('All');
-    const [filterCustomer, setFilterCustomer] = useState<string>('All');
+    const [filterCustomers, setFilterCustomers] = useState<string[]>([]);
     const [filterDateType, setFilterDateType] = useState<'entry' | 'expected' | 'either'>('entry');
     const [filterMonth, setFilterMonth] = useState<string>(''); // format: 'YYYY-MM'
-    const [showDashboard, setShowDashboard] = useState<boolean>(true);
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
+    const [showFilters, setShowFilters] = useState<boolean>(false);
 
     // Create/Edit RFQ Modal State
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -122,6 +124,15 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         }
     };
 
+    // Formatted Customer options for SearchableMultiSelect
+    const customerOptions = useMemo(() => {
+        return (Array.isArray(customers) ? customers : []).map((c: any) => ({
+            value: (c._id || c.id)?.toString(),
+            label: c.name || c.companyName || 'Customer',
+            subLabel: c.code ? `Code: ${c.code}` : undefined
+        })).filter(o => o.value);
+    }, [customers]);
+
     // Formatted FG options for SearchableSelect with list price and descriptions
     const fgOptions = useMemo(() => {
         return (Array.isArray(fgItems) ? fgItems : [])
@@ -130,8 +141,9 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                     const pFgId = typeof p.fgItem === 'string' ? p.fgItem : (p.fgItem?._id || p.fgItem?.id);
                     return pFgId?.toString() === (m._id || m.id)?.toString();
                 });
+                const pCurrency = pEntry?.currency || m.currency || 'INR';
                 const rate = pEntry && pEntry.price != null ? Number(pEntry.price) : (Number(m.sellingPrice || m.rate || 0));
-                const priceText = rate > 0 ? ` — ${getCurrencySymbol(newRfq.currency)}${rate}` : '';
+                const priceText = rate > 0 ? ` — ${getCurrencySymbol(pCurrency)}${rate} (${pCurrency})` : '';
                 const descText = m.description ? ` (${m.description})` : '';
                 const codeText = m.code ? ` [${m.code}]` : '';
                 return {
@@ -349,16 +361,17 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
     const filteredRfqs = useMemo(() => {
         return (Array.isArray(rfqs) ? rfqs : []).filter((rfq: any) => {
             const matchSearch =
+                !searchTerm ||
                 (rfq.rfqNumber && rfq.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (rfq.customerName && rfq.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (rfq.items && rfq.items.some((i: any) => (i.fgItem?.name || i.itemName || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                (rfq.items && rfq.items.some((i: any) => (i.fgItem?.name || i.itemName || i.description || '').toLowerCase().includes(searchTerm.toLowerCase())));
 
             const matchStatus = filterStatus === 'All' || rfq.status === filterStatus;
 
             let matchCustomer = true;
-            if (filterCustomer !== 'All') {
-                const custId = rfq.customer?._id || rfq.customer;
-                matchCustomer = custId?.toString() === filterCustomer?.toString();
+            if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+                const custId = (rfq.customer?._id || rfq.customer)?.toString();
+                matchCustomer = filterCustomers.includes(custId);
             }
 
             let matchDate = true;
@@ -384,18 +397,69 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
             return matchSearch && matchStatus && matchCustomer && matchDate;
         });
-    }, [rfqs, searchTerm, filterStatus, filterCustomer, filterMonth, filterDateType]);
+    }, [rfqs, searchTerm, filterStatus, filterCustomers, filterMonth, filterDateType]);
 
-    // Live RFQ count per status for the dropdown
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (filterStatus !== 'All') count++;
+        if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) count++;
+        if (filterMonth) count++;
+        if (searchTerm.trim()) count++;
+        return count;
+    }, [filterStatus, filterCustomers, filterMonth, searchTerm]);
+
+    const hasActiveFilters = activeFilterCount > 0;
+
+    // Scoped RFQs based on active search, customer, and date/month filters (used for live status dropdown counts)
+    const scopedRfqs = useMemo(() => {
+        return (Array.isArray(rfqs) ? rfqs : []).filter((rfq: any) => {
+            const matchSearch =
+                !searchTerm ||
+                (rfq.rfqNumber && rfq.rfqNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (rfq.customerName && rfq.customerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                (rfq.items && rfq.items.some((i: any) => (i.fgItem?.name || i.itemName || i.description || '').toLowerCase().includes(searchTerm.toLowerCase())));
+
+            let matchCustomer = true;
+            if (filterCustomers.length > 0 && !filterCustomers.includes('All') && !filterCustomers.includes('all')) {
+                const custId = (rfq.customer?._id || rfq.customer)?.toString();
+                matchCustomer = filterCustomers.includes(custId);
+            }
+
+            let matchDate = true;
+            if (filterMonth) {
+                const getYearMonth = (val: any) => {
+                    if (!val) return '';
+                    const d = new Date(val);
+                    if (isNaN(d.getTime())) return '';
+                    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                };
+
+                const entryYm = getYearMonth(rfq.date || rfq.createdAt);
+                const expectedYm = getYearMonth(rfq.expectedDeliveryDate || rfq.dueDate);
+
+                if (filterDateType === 'entry') {
+                    matchDate = entryYm === filterMonth;
+                } else if (filterDateType === 'expected') {
+                    matchDate = expectedYm === filterMonth;
+                } else {
+                    matchDate = entryYm === filterMonth || expectedYm === filterMonth;
+                }
+            }
+
+            return matchSearch && matchCustomer && matchDate;
+        });
+    }, [rfqs, searchTerm, filterCustomers, filterMonth, filterDateType]);
+
+    // Live RFQ count per status for the dropdown (dynamically scoped)
     const statusCounts = useMemo(() => {
-        const counts: Record<string, number> = { All: Array.isArray(rfqs) ? rfqs.length : 0 };
+        const counts: Record<string, number> = { All: scopedRfqs.length };
         ['Draft', 'Open', 'Quoted', 'Closed', 'Rejected'].forEach(st => {
-            counts[st] = (Array.isArray(rfqs) ? rfqs : []).filter(r => r.status === st).length;
+            counts[st] = scopedRfqs.filter(r => r.status === st).length;
         });
         return counts;
-    }, [rfqs]);
+    }, [scopedRfqs]);
 
-    // Overall RFQ Pipeline Financials in INR
+    // Dynamic RFQ Pipeline Financials in INR calculated on filtered RFQs
     const overallRfqFinancials = useMemo(() => {
         let totalInr = 0;
         let openInr = 0;
@@ -407,7 +471,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         const currencyTotals: Record<string, number> = {};
         const currencyInrTotals: Record<string, number> = {};
 
-        (Array.isArray(rfqs) ? rfqs : []).forEach(rfq => {
+        (Array.isArray(filteredRfqs) ? filteredRfqs : []).forEach(rfq => {
             if (rfq.status === 'Rejected') return;
             const rfqTotal = calculateRfqTotalTargetValue(rfq);
             const curr = (rfq.currency || 'INR').trim().toUpperCase();
@@ -446,7 +510,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             currencyInrTotals,
             hasForeign: Object.keys(currencyTotals).some(c => c !== 'INR' && currencyTotals[c] > 0)
         };
-    }, [rfqs, calculateRfqTotalTargetValue, convertToINR]);
+    }, [filteredRfqs, calculateRfqTotalTargetValue, convertToINR]);
 
     // Consolidated Filtered RFQ Financials in INR
     const consolidatedRfqFinancials = useMemo(() => {
@@ -475,19 +539,30 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
         };
     }, [filteredRfqs, calculateRfqTotalTargetValue, convertToINR]);
 
-    const hasActiveFilters = Boolean(searchTerm || filterStatus !== 'All' || filterCustomer !== 'All' || filterMonth);
+    const handleResetFilters = () => {
+        setSearchTerm('');
+        setFilterStatus('All');
+        setFilterCustomers([]);
+        setFilterMonth('');
+        setFilterDateType('entry');
+    };
 
     return (
         <div className="space-y-4 animate-in fade-in duration-300">
             {/* 1. EXECUTIVE INWARD RFQ DASHBOARD - CONVERTED PIPELINE VALUATIONS & METRICS */}
             <div className="space-y-3">
                 {!showDashboard ? (
-                    <div className="bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between gap-3 text-xs">
+                    <div className="hidden sm:flex bg-white dark:bg-slate-900 p-2.5 sm:px-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs items-center justify-between gap-3 text-xs">
                         <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
                             <div className="flex items-center gap-1.5">
                                 <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Pipeline Value:</span>
                                 <span className="font-mono font-bold text-slate-900 dark:text-white">{overallRfqFinancials.formattedTotalInr}</span>
-                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold">({rfqs.length} RFQs)</span>
+                                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold">({filteredRfqs.length} RFQs)</span>
+                                {hasActiveFilters && (
+                                    <span className="px-1.5 py-0.2 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 rounded text-[9px] font-bold border border-indigo-200 dark:border-indigo-800">
+                                        Filtered
+                                    </span>
+                                )}
                             </div>
                             <div className="hidden sm:flex items-center gap-1.5">
                                 <span className="text-[11px] font-bold text-slate-500">Open RFQs:</span>
@@ -506,6 +581,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                             type="button"
                             onClick={() => setShowDashboard(true)}
                             className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-900/50 cursor-pointer shrink-0 transition-colors"
+                            title="Show Executive KPI Dashboard"
                         >
                             <span>Show Dashboard</span>
                             <ChevronDown size={14} />
@@ -513,6 +589,27 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                     </div>
                 ) : (
                     <>
+                        {/* Top Dashboard Header with Title and Accessible Hide / Collapse Button */}
+                        <div className="flex items-center justify-between pb-1 px-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Executive RFQ Dashboard</span>
+                                {hasActiveFilters && (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                                        Filtered ({filteredRfqs.length} of {rfqs.length})
+                                    </span>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowDashboard(false)}
+                                className="px-2.5 py-1 text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1 cursor-pointer border border-slate-200 dark:border-slate-700"
+                                title="Hide Executive KPI Dashboard"
+                            >
+                                <ChevronUp size={14} />
+                                <span>Hide</span>
+                            </button>
+                        </div>
+
                         {/* 4 Primary Executive KPI Cards */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                             {/* Card 1: Total Pipeline Target Value */}
@@ -528,7 +625,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                         {overallRfqFinancials.formattedTotalInr}
                                     </div>
                                     <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400 flex-wrap">
-                                        <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{rfqs.length} RFQs</span>
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">{filteredRfqs.length} RFQs</span>
                                         <span>•</span>
                                         <span>Converted to INR</span>
                                     </div>
@@ -656,78 +753,50 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
             </div>
             
             {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-                {/* Primary Row: Search + Action Buttons */}
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder="Search RFQ #, Customer or Item..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
-                        {searchTerm && (
-                            <button
-                                type="button"
-                                onClick={() => setSearchTerm('')}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-                                title="Clear search"
-                            >
-                                <X size={14} />
-                            </button>
-                        )}
-                    </div>
-
-                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
-                        <button
-                            type="button"
-                            onClick={() => setShowDashboard(prev => !prev)}
-                            className="flex-1 sm:flex-initial px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap border border-slate-200 dark:border-slate-700"
-                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
-                        >
-                            {showDashboard ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                            <span>{showDashboard ? "Hide Dashboard" : "Show Dashboard"}</span>
-                        </button>
-
-                        <button
-                            type="button"
-                            onClick={handleOpenCreateModal}
-                            className="flex-1 sm:flex-initial px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
-                        >
-                            <Plus size={15} /> <span>Log Inward RFQ</span>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Filters Row: Customer Dropdown + Status Dropdown + Month Date Filter + Reset */}
-                <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5">
-                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-0">
-                        {/* Customer Filter Dropdown */}
-                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[150px] sm:min-w-0">
-                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Customer:</label>
-                            <select
-                                value={filterCustomer}
-                                onChange={(e) => setFilterCustomer(e.target.value)}
-                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-full sm:max-w-[240px]"
-                            >
-                                <option value="All">All Customers</option>
-                                {(Array.isArray(customers) ? customers : []).map((c: any) => (
-                                    <option key={c._id || c.id} value={(c._id || c.id)?.toString()}>
-                                        {c.name || c.companyName} {c.code ? `(${c.code})` : ''}
-                                    </option>
-                                ))}
-                            </select>
+            <div className="bg-white dark:bg-slate-900 p-2.5 sm:p-3 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-2.5">
+                {/* Main Control Row - Fits in a SINGLE line on Desktop (`lg:flex`) */}
+                <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 sm:gap-2.5">
+                    {/* Left & Center: Search + Desktop Inline Filters */}
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                        {/* Search Input: Compact on desktop so filters fit in the same line */}
+                        <div className="relative flex-1 lg:flex-initial lg:w-48 xl:w-56 shrink-0">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                            <input
+                                type="text"
+                                placeholder="Search RFQ, customer, item..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-8 pr-7 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-800/50"
+                            />
+                            {searchTerm && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                                    title="Clear search"
+                                >
+                                    <X size={13} />
+                                </button>
+                            )}
                         </div>
 
-                        {/* Status Filter Dropdown */}
-                        <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-[160px] sm:min-w-0">
-                            <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap shrink-0">Status:</label>
+                        {/* Inline Filters on Desktop (`lg:flex`) */}
+                        <div className="hidden lg:flex items-center gap-2 flex-wrap min-w-0">
+                            {/* Searchable Multi-Select Customer Filter */}
+                            <SearchableMultiSelect
+                                options={customerOptions}
+                                selectedValues={filterCustomers}
+                                onChange={setFilterCustomers}
+                                placeholder="All Customers"
+                                searchPlaceholder="Search customer..."
+                            />
+
+                            {/* Status Select */}
                             <select
                                 value={filterStatus}
                                 onChange={(e) => setFilterStatus(e.target.value)}
-                                className="w-full sm:w-auto px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-full sm:max-w-[260px]"
+                                className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-indigo-500/20 max-w-[140px] xl:max-w-[160px]"
+                                title="Filter by Status"
                             >
                                 <option value="All">All Statuses ({statusCounts.All || 0})</option>
                                 <option value="Draft">Draft ({statusCounts.Draft || 0})</option>
@@ -736,62 +805,192 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                 <option value="Closed">Closed ({statusCounts.Closed || 0})</option>
                                 <option value="Rejected">Rejected ({statusCounts.Rejected || 0})</option>
                             </select>
-                        </div>
 
-                        {/* Month-Based Date Filter */}
-                        <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 flex-1 sm:flex-none min-w-[230px] sm:min-w-0">
-                            <Calendar size={13} className="text-indigo-500 shrink-0" />
-                            <select
-                                value={filterDateType}
-                                onChange={(e) => setFilterDateType(e.target.value as any)}
-                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer pr-1"
-                                title="Select date basis for month filter"
-                            >
-                                <option value="entry">RFQ / Log Month</option>
-                                <option value="expected">Expected Month</option>
-                                <option value="either">Either Month</option>
-                            </select>
-                            <div className="relative flex items-center">
+                            {/* Month Filter */}
+                            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                                <Calendar size={13} className="text-indigo-500 shrink-0" />
+                                <select
+                                    value={filterDateType}
+                                    onChange={(e) => setFilterDateType(e.target.value as any)}
+                                    className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none cursor-pointer pr-1"
+                                    title="Date basis"
+                                >
+                                    <option value="entry">Log</option>
+                                    <option value="expected">Due</option>
+                                    <option value="either">Any</option>
+                                </select>
                                 <input
                                     type="month"
                                     value={filterMonth}
                                     onChange={(e) => setFilterMonth(e.target.value)}
-                                    className="px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded-lg border border-slate-200 dark:border-slate-700 outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer text-center"
-                                    title="Choose month (YYYY-MM)"
+                                    className="px-1.5 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 outline-none cursor-pointer text-center"
+                                    title="Choose month"
                                 />
                                 {filterMonth && (
                                     <button
                                         type="button"
                                         onClick={() => setFilterMonth('')}
-                                        className="ml-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5"
-                                        title="Clear month filter"
+                                        className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 cursor-pointer"
+                                        title="Clear month"
                                     >
                                         <X size={12} />
                                     </button>
                                 )}
                             </div>
+
+                            {/* Reset Button (only when filters active) */}
+                            {hasActiveFilters && (
+                                <button
+                                    type="button"
+                                    onClick={handleResetFilters}
+                                    className="p-1.5 rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 text-xs font-bold"
+                                    title="Reset all filters"
+                                >
+                                    <RotateCcw size={13} />
+                                    <span className="hidden xl:inline">Reset</span>
+                                </button>
+                            )}
                         </div>
                     </div>
 
-                    {/* Reset Filters Button */}
-                    {hasActiveFilters && (
+                    {/* Right Action Group: Mobile Toggles + Dashboard Toggle + Action Button */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-end lg:self-auto">
+                        {/* Mobile Only: Small Filter Toggle Icon */}
                         <button
                             type="button"
-                            onClick={() => {
-                                setSearchTerm('');
-                                setFilterStatus('All');
-                                setFilterCustomer('All');
-                                setFilterMonth('');
-                                setFilterDateType('entry');
-                            }}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all flex items-center gap-1 cursor-pointer shrink-0 ml-auto sm:ml-0"
-                            title="Reset all search queries and filters"
+                            onClick={() => setShowFilters(prev => !prev)}
+                            className={`lg:hidden p-2 rounded-xl transition-all flex items-center justify-center gap-1 cursor-pointer border ${
+                                showFilters || activeFilterCount > 0
+                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
+                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={showFilters ? "Hide Filters" : "Show Filters"}
+                            aria-label="Toggle Filters"
                         >
-                            <RotateCcw size={12} />
-                            <span>Reset Filters</span>
+                            <Filter size={15} />
+                            {activeFilterCount > 0 && (
+                                <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold">
+                                    {activeFilterCount}
+                                </span>
+                            )}
                         </button>
-                    )}
+
+                        {/* Dashboard Toggle: Small icon on mobile, compact labeled button on desktop */}
+                        <button
+                            type="button"
+                            onClick={() => setShowDashboard(prev => !prev)}
+                            className={`p-2 sm:px-2.5 sm:py-1.5 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer border ${
+                                showDashboard
+                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
+                                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700'
+                            }`}
+                            title={showDashboard ? "Hide Executive KPI Dashboard" : "Show Executive KPI Dashboard"}
+                            aria-label="Toggle Dashboard"
+                        >
+                            <LayoutGrid size={15} />
+                            <span className="hidden sm:inline">{showDashboard ? "Hide" : "Dashboard"}</span>
+                        </button>
+
+                        {/* Primary Action Button */}
+                        <button
+                            type="button"
+                            onClick={handleOpenCreateModal}
+                            className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                            <Plus size={15} />
+                            <span className="hidden sm:inline">Log Inward RFQ</span>
+                            <span className="sm:hidden">Log</span>
+                        </button>
+                    </div>
                 </div>
+
+                {/* Mobile Collapsible Filter Drawer (Hidden on desktop because filters are inline) */}
+                {showFilters && (
+                    <div className="lg:hidden pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between pb-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Filter Options</span>
+                            <button
+                                type="button"
+                                onClick={() => setShowFilters(false)}
+                                className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center gap-0.5"
+                            >
+                                <ChevronUp size={13} />
+                                <span>Close</span>
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {/* Mobile Customer Select */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500">Customer:</label>
+                                <SearchableMultiSelect
+                                    options={customerOptions}
+                                    selectedValues={filterCustomers}
+                                    onChange={setFilterCustomers}
+                                    placeholder="All Customers"
+                                    searchPlaceholder="Search customer..."
+                                    className="w-full"
+                                />
+                            </div>
+
+                            {/* Mobile Status Select */}
+                            <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500">Status:</label>
+                                <select
+                                    value={filterStatus}
+                                    onChange={(e) => setFilterStatus(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 outline-none"
+                                >
+                                    <option value="All">All Statuses ({statusCounts.All || 0})</option>
+                                    <option value="Draft">Draft ({statusCounts.Draft || 0})</option>
+                                    <option value="Open">Open ({statusCounts.Open || 0})</option>
+                                    <option value="Quoted">Quoted ({statusCounts.Quoted || 0})</option>
+                                    <option value="Closed">Closed ({statusCounts.Closed || 0})</option>
+                                    <option value="Rejected">Rejected ({statusCounts.Rejected || 0})</option>
+                                </select>
+                            </div>
+
+                            {/* Mobile Month Filter */}
+                            <div className="sm:col-span-2 flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                                <Calendar size={13} className="text-indigo-500 shrink-0" />
+                                <select
+                                    value={filterDateType}
+                                    onChange={(e) => setFilterDateType(e.target.value as any)}
+                                    className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 outline-none"
+                                >
+                                    <option value="entry">RFQ / Log Month</option>
+                                    <option value="expected">Expected Month</option>
+                                    <option value="either">Either Month</option>
+                                </select>
+                                <input
+                                    type="month"
+                                    value={filterMonth}
+                                    onChange={(e) => setFilterMonth(e.target.value)}
+                                    className="flex-1 px-2 py-0.5 bg-white dark:bg-slate-900 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 outline-none"
+                                />
+                                {filterMonth && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterMonth('')}
+                                        className="text-slate-400 p-0.5"
+                                    >
+                                        <X size={13} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        {hasActiveFilters && (
+                            <button
+                                type="button"
+                                onClick={handleResetFilters}
+                                className="w-full py-1.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center justify-center gap-1 cursor-pointer"
+                            >
+                                <RotateCcw size={13} />
+                                <span>Reset All Filters</span>
+                            </button>
+                        )}
+                    </div>
+                )}
 
                 {/* Live Counter & Pipeline Indicator */}
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400 flex-wrap gap-2">
@@ -829,7 +1028,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                             onClick={() => {
                                 setSearchTerm('');
                                 setFilterStatus('All');
-                                setFilterCustomer('All');
+                                setFilterCustomers([]);
                                 setFilterMonth('');
                                 setFilterDateType('entry');
                             }}
@@ -986,8 +1185,8 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                         </table>
                     </div>
 
-                    {/* Mobile Card View */}
-                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40">
+                    {/* Mobile Card View - Scrollable */}
+                    <div className="block md:hidden p-3 space-y-3 pb-28 sm:pb-20 bg-gray-50/50 dark:bg-slate-900/40 max-h-[calc(100vh-270px)] overflow-y-auto">
                         {filteredRfqs.map((rfq) => {
                             const firstItemName = rfq.items?.[0]?.fgItem?.name || rfq.items?.[0]?.itemName || 'FG Item';
                             const extraCount = (rfq.items?.length || 1) - 1;
@@ -1100,31 +1299,39 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
             {/* Create / Edit Inward RFQ Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
-                        <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-indigo-600/20 rounded-xl flex items-center justify-center border border-indigo-500/30">
-                                    {editingRfq ? <Edit2 size={20} className="text-indigo-400" /> : <Inbox size={20} className="text-indigo-400" />}
+                        {/* Modal Header: Clean, modern, adaptive header without forced dark theme */}
+                        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    {editingRfq ? <Edit2 size={20} /> : <Inbox size={20} />}
                                 </div>
-                                <div>
-                                    <h2 className="text-xl font-extrabold tracking-tight">
+                                <div className="min-w-0">
+                                    <h2 className="text-base sm:text-lg font-black tracking-tight truncate">
                                         {editingRfq ? 'Edit Inward RFQ' : 'Create Inward RFQ'}
                                     </h2>
-                                    <p className="text-xs text-slate-400 mt-0.5">RFQ Number: <span className="font-mono font-bold text-indigo-300">{newRfq.rfqNumber}</span></p>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                                        RFQ Number: <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{newRfq.rfqNumber}</span>
+                                    </p>
                                 </div>
                             </div>
-                            <button onClick={() => { setIsCreateModalOpen(false); setEditingRfq(null); }} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors">
+                            <button
+                                type="button"
+                                onClick={() => { setIsCreateModalOpen(false); setEditingRfq(null); }}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Close"
+                            >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
+                        <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 space-y-4 sm:space-y-6">
                             
                             {/* In-Form Error Guidance Banner */}
                             {Object.keys(formErrors).length > 0 && (
-                                <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-2xl flex items-center justify-between gap-3 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-xs">
+                                <div className="p-3.5 sm:p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-2xl flex items-center justify-between gap-3 text-rose-800 dark:text-rose-300 animate-in fade-in duration-150 shadow-xs">
                                     <div className="flex items-center gap-2.5">
                                         <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
                                         <span className="text-xs font-bold">
@@ -1140,12 +1347,12 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                             )}
 
                             {/* General & Customer Info Panel */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                            <div className="bg-slate-50/80 dark:bg-slate-800/40 p-3.5 sm:p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-3 sm:space-y-4">
                                 <h3 className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
                                     1. Customer & Logistics Details
                                 </h3>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                                     <div className="md:col-span-2 space-y-1" data-has-error={!!formErrors.customer}>
                                         <label className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                                             <span>Select Customer from Master <span className="text-rose-500">*</span></span>
@@ -1275,20 +1482,6 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                     />
                                                 </div>
 
-                                                {/* HSN Code Column */}
-                                                <div className="col-span-6 lg:col-span-1">
-                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
-                                                        HSN
-                                                    </label>
-                                                    <input
-                                                        type="text"
-                                                        value={item.hsnCode || ''}
-                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
-                                                        placeholder="HSN"
-                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-indigo-500"
-                                                    />
-                                                </div>
-
                                                 {/* Specifications / Technical Details Column */}
                                                 <div className="col-span-12 lg:col-span-3">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
@@ -1303,8 +1496,22 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                     />
                                                 </div>
 
+                                                {/* HSN Code Column */}
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-1">
+                                                    <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                                                        HSN
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        value={item.hsnCode || ''}
+                                                        onChange={(e) => handleItemChange(idx, 'hsnCode', e.target.value)}
+                                                        placeholder="HSN"
+                                                        className="w-full px-2 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-slate-200 text-center outline-none focus:ring-1 focus:ring-indigo-500"
+                                                    />
+                                                </div>
+
                                                 {/* Target / List Price Column */}
-                                                <div className="col-span-6 lg:col-span-2">
+                                                <div className="col-span-6 sm:col-span-3 lg:col-span-2">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Target Price ({getCurrencySymbol(newRfq.currency)})
                                                     </label>
@@ -1320,7 +1527,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 </div>
 
                                                 {/* Required Qty Column */}
-                                                <div className="col-span-3 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
+                                                <div className="col-span-5 sm:col-span-3 lg:col-span-1" data-has-error={!!formErrors[`item_${idx}_quantity`]}>
                                                     <label className="flex justify-between items-center lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         <span>Qty <span className="text-rose-500">*</span></span>
                                                         {formErrors[`item_${idx}_quantity`] && <span className="text-[9px] text-rose-600 dark:text-rose-400 font-bold">{formErrors[`item_${idx}_quantity`]}</span>}
@@ -1340,7 +1547,7 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 </div>
 
                                                 {/* Unit Column */}
-                                                <div className="col-span-3 lg:col-span-1">
+                                                <div className="col-span-4 sm:col-span-2 lg:col-span-1">
                                                     <label className="block lg:hidden text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
                                                         Unit
                                                     </label>
@@ -1353,12 +1560,22 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                                 </div>
 
                                                 {/* Action Column */}
-                                                <div className="col-span-1 text-right">
+                                                <div className="col-span-3 sm:col-span-1 lg:col-span-1 flex justify-end items-center gap-1.5">
+                                                    {idx === newRfq.items.length - 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleAddItem}
+                                                            className="p-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 rounded-xl transition-colors cursor-pointer shadow-2xs"
+                                                            title="Add Next Line Item"
+                                                        >
+                                                            <Plus size={18} />
+                                                        </button>
+                                                    )}
                                                     {newRfq.items.length > 1 && (
                                                         <button
                                                             type="button"
                                                             onClick={() => handleRemoveItem(idx)}
-                                                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors"
+                                                            className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer"
                                                             title="Remove Item"
                                                         >
                                                             <X size={18} />
@@ -1369,21 +1586,38 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
                                         </div>
                                     ))}
                                 </div>
+
+                                {/* Bottom Add Line Item Bar */}
+                                <div className="pt-1.5">
+                                    <button
+                                        type="button"
+                                        onClick={handleAddItem}
+                                        className="w-full py-3 px-4 border-2 border-dashed border-indigo-200 hover:border-indigo-500 dark:border-indigo-800/80 dark:hover:border-indigo-500 bg-indigo-50/40 hover:bg-indigo-50 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+                                    >
+                                        <Plus size={16} className="text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                                        <span>+ Add New Line Item</span>
+                                    </button>
+                                </div>
                             </div>
 
                         </div>
 
-                        <div className="p-4 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-3 flex-shrink-0">
-                            <button onClick={() => { setIsCreateModalOpen(false); setEditingRfq(null); }} className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-sm hover:bg-slate-100 transition-colors">
+                        <div className="p-3.5 sm:p-5 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3 flex-shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => { setIsCreateModalOpen(false); setEditingRfq(null); }}
+                                className="w-full sm:w-auto px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 font-semibold text-sm hover:bg-slate-100 transition-colors"
+                            >
                                 Cancel
                             </button>
                             <button
+                                type="button"
                                 onClick={handleCreateRfqSubmit}
                                 disabled={submitting}
-                                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2"
+                                className="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                             >
                                 <Inbox size={16} />
-                                {submitting ? 'Saving...' : (editingRfq ? 'Update Inward RFQ' : 'Save Inward RFQ')}
+                                <span>{submitting ? 'Saving...' : (editingRfq ? 'Update Inward RFQ' : 'Save Inward RFQ')}</span>
                             </button>
                         </div>
 
@@ -1393,15 +1627,28 @@ export default function InwardRfqTab({ token, onError, onSuccess }: InwardRfqTab
 
             {/* View RFQ & User Audit Details Modal */}
             {selectedRfq && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                         
-                        <div className="p-5 sm:p-6 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
-                            <div>
-                                <h2 className="text-xl font-extrabold font-mono text-indigo-300">{selectedRfq.rfqNumber}</h2>
-                                <p className="text-xs text-slate-400 mt-0.5">Inward RFQ & User Audit Details</p>
+                        {/* View Modal Header: Clean, modern adaptive header without dark theme */}
+                        <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    <Inbox size={20} />
+                                </div>
+                                <div className="min-w-0">
+                                    <h2 className="text-base sm:text-lg font-black font-mono text-indigo-600 dark:text-indigo-400 truncate">
+                                        {selectedRfq.rfqNumber}
+                                    </h2>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">Inward RFQ & User Audit Details</p>
+                                </div>
                             </div>
-                            <button onClick={() => setSelectedRfq(null)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors">
+                            <button
+                                type="button"
+                                onClick={() => setSelectedRfq(null)}
+                                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                                title="Close"
+                            >
                                 <X size={18} />
                             </button>
                         </div>

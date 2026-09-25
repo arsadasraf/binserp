@@ -1,15 +1,87 @@
-import React from 'react';
-import { X, Calendar, User, FileText, ShoppingCart, Layers, Package, Boxes, ShieldCheck, Edit3 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Calendar, User, FileText, ShoppingCart, Layers, Package, Boxes, ShieldCheck, Edit3, Printer, Lock, CheckCircle2 } from 'lucide-react';
 import { formatDateTime } from '../tables/MaterialIssueHistoryTable';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
+import { generateSingleMaterialRequestSlipPDF } from '@/src/utils/generateMaterialRequestReportPDF';
+import { API_BASE_URL } from '@/src/utils/config';
 
 interface MaterialRequestDetailsModalProps {
     isOpen: boolean;
     onClose: () => void;
     request: any;
+    onApprove?: (requestId: string) => Promise<void>;
 }
 
-export default function MaterialRequestDetailsModal({ isOpen, onClose, request }: MaterialRequestDetailsModalProps) {
-    if (!isOpen || !request) return null;
+export default function MaterialRequestDetailsModal({ isOpen, onClose, request, onApprove }: MaterialRequestDetailsModalProps) {
+    const [currentRequest, setCurrentRequest] = useState<any>(request);
+    const [isApproving, setIsApproving] = useState(false);
+
+    useEffect(() => {
+        setCurrentRequest(request);
+    }, [request]);
+
+    const { isApprovalRequired, canUserApprove, getApproverNames } = useStoreApprovalSettings();
+    const currentUser = useMemo(() => {
+        try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem('userInfo') : null;
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
+    }, []);
+    const userType = useMemo(() => {
+        return typeof window !== 'undefined' ? (localStorage.getItem('userType') || 'user') : 'user';
+    }, []);
+
+    if (!isOpen || !currentRequest) return null;
+
+    const approvalRequired = isApprovalRequired('materialRequest');
+    const isApproved = currentRequest.status === 'Approved' || currentRequest.status === 'Issued';
+    const isPdfLocked = approvalRequired && !isApproved;
+    const userCanApprove = canUserApprove('materialRequest', currentUser, userType);
+
+    const handleApproveAction = async () => {
+        if (!userCanApprove) {
+            const approvers = getApproverNames('materialRequest');
+            const approversMsg = approvers.length > 0 ? `Authorized approvers: ${approvers.join(', ')}` : "Contact company management.";
+            alert(`Approval Permission Denied: You do not have permission to approve this Material Request. ${approversMsg}`);
+            return;
+        }
+
+        try {
+            setIsApproving(true);
+            const reqId = currentRequest._id || currentRequest.id;
+            if (onApprove) {
+                await onApprove(reqId);
+            } else {
+                const token = typeof window !== 'undefined' ? localStorage.getItem('token') : '';
+                const res = await fetch(`${API_BASE_URL}/api/store/material-request/${reqId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: 'Approved' })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.message || 'Failed to approve requisition');
+                }
+            }
+            setCurrentRequest((prev: any) => ({
+                ...prev,
+                status: 'Approved',
+                approvedByName: currentUser?.name || 'You',
+                approvedAt: new Date().toISOString()
+            }));
+            alert('Material Request approved successfully! PDF generation is now unlocked.');
+        } catch (e: any) {
+            console.error("Approve error:", e);
+            alert(e.message || "Failed to approve requisition");
+        } finally {
+            setIsApproving(false);
+        }
+    };
 
     const renderTypeBadge = (type?: string) => {
         const norm = (type || 'rm').toLowerCase();
@@ -51,16 +123,16 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                         <div className="flex items-center gap-3">
                             <h2 className="text-xl font-black text-gray-900 dark:text-white">Material Request Details</h2>
                             <span className={`px-3 py-0.5 rounded-full text-xs font-bold
-                                ${request.status === 'Approved' ? 'bg-green-100 text-green-700' :
-                                    request.status === 'Rejected' ? 'bg-red-100 text-red-700' :
-                                        request.status === 'Issued' ? 'bg-purple-100 text-purple-700' :
+                                ${currentRequest.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                                    currentRequest.status === 'Rejected' ? 'bg-red-100 text-red-700' :
+                                        currentRequest.status === 'Issued' ? 'bg-purple-100 text-purple-700' :
                                             'bg-yellow-100 text-yellow-700'}`}>
-                                {request.status}
+                                {currentRequest.status}
                             </span>
                         </div>
                         <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-gray-500 dark:text-gray-400 font-mono text-xs font-bold">{request.requestNumber}</span>
-                            {renderTypeBadge(request.type)}
+                            <span className="text-gray-500 dark:text-gray-400 font-mono text-xs font-bold">{currentRequest.requestNumber}</span>
+                            {renderTypeBadge(currentRequest.type)}
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500">
@@ -76,7 +148,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 <Calendar size={14} /> Created Date & Time
                             </div>
                             <div className="text-gray-900 dark:text-gray-100 font-bold text-xs font-mono">
-                                {formatDateTime(request.createdAt)}
+                                {formatDateTime(currentRequest.createdAt)}
                             </div>
                         </div>
 
@@ -84,8 +156,8 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                             <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider font-bold mb-1">
                                 <User size={14} /> Requested By
                             </div>
-                            <div className="text-gray-900 dark:text-gray-100 font-bold text-sm truncate" title={request.requestedBy?.name || request.createdByName || 'Store Admin'}>
-                                {request.requestedBy?.name || request.createdByName || 'Store Admin'}
+                            <div className="text-gray-900 dark:text-gray-100 font-bold text-sm truncate" title={currentRequest.requestedBy?.name || currentRequest.createdByName || 'Store Admin'}>
+                                {currentRequest.requestedBy?.name || currentRequest.createdByName || 'Store Admin'}
                             </div>
                         </div>
 
@@ -94,7 +166,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 <ShoppingCart size={14} /> Order / MRP Plan
                             </div>
                             <div className="font-bold font-mono text-sm text-indigo-900 dark:text-indigo-200">
-                                {request.mrpNumber ? `MRP: ${request.mrpNumber}` : (request.soNumber || request.salesOrder?.orderNumber || 'General Store Request')}
+                                {currentRequest.mrpNumber ? `MRP: ${currentRequest.mrpNumber}` : (currentRequest.soNumber || currentRequest.salesOrder?.orderNumber || 'General Store Request')}
                             </div>
                         </div>
                     </div>
@@ -103,7 +175,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                     <div>
                         <h3 className="text-xs font-bold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center gap-2">
                             <FileText size={15} className="text-blue-500" />
-                            Requested Materials & Items ({request.items?.length || 0})
+                            Requested Materials & Items ({currentRequest.items?.length || 0})
                         </h3>
                         <div className="border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden shadow-sm">
                             <table className="w-full text-left text-xs">
@@ -116,7 +188,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                                    {(request.items || []).map((item: any, idx: number) => {
+                                    {(currentRequest.items || []).map((item: any, idx: number) => {
                                         const desc = item.materialDescription || item.description || item.specification || item.grade || '';
                                         return (
                                             <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
@@ -130,7 +202,7 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
                                                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                                                        {item.itemType || (request.type === 'consumable' ? 'Consumable' : request.type === 'fg' ? 'FG Item' : request.type === 'bo' ? 'Bought Out' : 'Raw Material')}
+                                                        {item.itemType || (currentRequest.type === 'consumable' ? 'Consumable' : currentRequest.type === 'fg' ? 'FG Item' : currentRequest.type === 'bo' ? 'Bought Out' : 'Raw Material')}
                                                     </span>
                                                 </td>
                                                 <td className="px-4 py-3 text-center">
@@ -178,9 +250,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold text-gray-400">Created By</div>
-                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.createdByName || request.requestedBy?.name || 'System'}</div>
+                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{currentRequest.createdByName || currentRequest.requestedBy?.name || 'System'}</div>
                                     <div className="text-[10px] text-gray-500">
-                                        {request.createdAt ? new Date(request.createdAt).toLocaleDateString() : '-'}
+                                        {currentRequest.createdAt ? new Date(currentRequest.createdAt).toLocaleDateString() : '-'}
                                     </div>
                                 </div>
                             </div>
@@ -191,9 +263,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold text-gray-400">Approved By</div>
-                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.approvedByName || request.approvedBy?.name || '-'}</div>
+                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{currentRequest.approvedByName || currentRequest.approvedBy?.name || '-'}</div>
                                     <div className="text-[10px] text-gray-500">
-                                        {request.status === 'Approved' || request.status === 'Issued' ? 'Approved' : 'Pending'}
+                                        {currentRequest.status === 'Approved' || currentRequest.status === 'Issued' ? 'Approved' : 'Pending'}
                                     </div>
                                 </div>
                             </div>
@@ -204,9 +276,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold text-gray-400">Issued By</div>
-                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.issuedByName || request.issuedBy?.name || '-'}</div>
+                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{currentRequest.issuedByName || currentRequest.issuedBy?.name || '-'}</div>
                                     <div className="text-[10px] text-gray-500">
-                                        {request.issuedAt ? new Date(request.issuedAt).toLocaleDateString() : '-'}
+                                        {currentRequest.issuedAt ? new Date(currentRequest.issuedAt).toLocaleDateString() : '-'}
                                     </div>
                                 </div>
                             </div>
@@ -217,9 +289,9 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                                 </div>
                                 <div>
                                     <div className="text-[10px] uppercase font-bold text-gray-400">Last Modified</div>
-                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{request.updatedByName || request.createdByName || 'System'}</div>
+                                    <div className="font-bold text-gray-900 dark:text-gray-100 text-xs">{currentRequest.updatedByName || currentRequest.createdByName || 'System'}</div>
                                     <div className="text-[10px] text-gray-500">
-                                        {request.updatedAt ? new Date(request.updatedAt).toLocaleDateString() : '-'}
+                                        {currentRequest.updatedAt ? new Date(currentRequest.updatedAt).toLocaleDateString() : '-'}
                                     </div>
                                 </div>
                             </div>
@@ -227,15 +299,59 @@ export default function MaterialRequestDetailsModal({ isOpen, onClose, request }
                     </div>
                 </div>
 
-                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/80 rounded-b-3xl flex justify-end sticky bottom-0 backdrop-blur-md">
+                {/* Footer Controls: Close, Approve (if permitted), and PDF button (locked if approval required) */}
+                <div className="p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/80 rounded-b-3xl flex flex-wrap justify-between items-center gap-3 sticky bottom-0 backdrop-blur-md">
                     <button
                         onClick={onClose}
-                        className="px-5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-sm text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        className="px-5 py-2.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 shadow-sm text-gray-700 dark:text-gray-300 font-bold text-xs rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
                     >
                         Close
                     </button>
+
+                    <div className="flex items-center gap-2">
+                        {/* Approve Requisition Button */}
+                        {currentRequest.status === 'Pending' && (
+                            <button
+                                type="button"
+                                onClick={handleApproveAction}
+                                disabled={isApproving}
+                                className={`px-4 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                                    userCanApprove 
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20' 
+                                        : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                                }`}
+                                title={userCanApprove ? "Approve Material Requisition" : "Only designated approvers or administrators can approve"}
+                            >
+                                <CheckCircle2 size={15} />
+                                <span>{isApproving ? 'Approving...' : 'Approve Requisition'}</span>
+                            </button>
+                        )}
+
+                        {/* PDF Generator Button */}
+                        {isPdfLocked ? (
+                            <button
+                                type="button"
+                                onClick={() => alert("Approval Required: This Material Request must be approved by an authorized user before generating or downloading the official PDF.")}
+                                className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                title="Requisition must be approved before generating PDF"
+                            >
+                                <Lock size={14} className="text-amber-500" />
+                                <span>PDF Locked (Pending Approval)</span>
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => generateSingleMaterialRequestSlipPDF(currentRequest)}
+                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <Printer size={15} />
+                                <span>Print / Save PDF Slip</span>
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
+

@@ -18,7 +18,7 @@ export default function MastersLayout({ children }: { children: React.ReactNode 
     { name: 'Bought Out (BO)', href: '/dashboard/store/masters/bought-out', icon: Box },
     { name: 'Consumables', href: '/dashboard/store/masters/consumables', icon: Box },
     { name: 'FG Items', href: '/dashboard/store/masters/finished-goods', icon: Box },
-    { name: 'Prefix Settings', href: '/dashboard/store/masters/prefix-settings', icon: Hash },
+    { name: 'Store Settings', href: '/dashboard/store/masters/prefix-settings', icon: Hash },
     { name: 'Company Info', href: '/dashboard/store/masters/company-info', icon: Building2 },
   ];
 

@@ -105,6 +105,7 @@ import authRoutes from "./routes/auth.routes.js";
 import accountsRoutes from "./routes/accounts.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import purchaseRoutes from "./routes/purchase.routes.js";
+import mrpRoutes from "./routes/mrp.routes.js";
 import roleRoutes from "./routes/role.routes.js";
 import reportsRoutes from "./routes/reports.routes.js";
 
@@ -128,6 +129,7 @@ app.use("/auth", authRoutes);
 app.use("/api/accounts", accountsRoutes);
 app.use("/api/documents", documentRoutes);
 app.use("/api/purchase", purchaseRoutes);
+app.use("/api/mrp", mrpRoutes);
 app.use("/api/roles", roleRoutes);
 app.use("/api/reports", reportsRoutes);
 

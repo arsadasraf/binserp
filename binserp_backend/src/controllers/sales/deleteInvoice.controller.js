@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import { fgItemSchema } from "../../models/store/index.js";
 import { incomingPOSchema, invoiceSchema } from "../../models/sales/index.js";
 import { reverseSalesItemsStock } from "./salesStockHelper.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 
 const getCompanyId = (req) => {
   return req.company?._id || (req.userType === "company" ? req.user.id : req.user.company?._id);
@@ -17,11 +18,10 @@ export const deleteInvoice = async (req, res) => {
     const invoice = await Invoice.findOne({ _id: id, company: companyId });
     if (!invoice) return res.status(404).json({ message: "Invoice not found" });
 
-    // 24-hour edit/delete restriction
-    const createdTime = new Date(invoice.createdAt || invoice.date).getTime();
-    const hoursDiff = (Date.now() - createdTime) / (1000 * 60 * 60);
-    if (hoursDiff > 24) {
-      return res.status(403).json({ message: "Tax Invoice can only be edited or deleted within 24 hours of creation" });
+    // Dynamic time lock governance
+    const lockCheck = await checkTimeLockGovernance(req, 'invoice', invoice.createdAt || invoice.date, 'delete');
+    if (!lockCheck.allowed) {
+      return res.status(403).json({ message: lockCheck.message });
     }
 
     // Check if invoice was a direct standalone invoice (not created from DC)

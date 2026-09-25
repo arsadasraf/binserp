@@ -6,6 +6,7 @@ import { deliveryChallanSchema, invoiceSchema, quotationSchema } from "../../mod
 import { storePrefixSchema } from "../../models/store/index.js";
 import { componentSchema, jobSchema, processSchema } from "../../models/ppc/index.js";
 import { uploadOnS3, deleteFromS3, signPhotos } from "../../utils/s3.js";
+import { checkTimeLockGovernance } from "../../utils/timeLockGovernance.js";
 import fs from 'fs';
 import path from 'path';
 
@@ -61,6 +62,12 @@ export const updateGRN = async (req, res) => {
     const grn = await GRN.findOne({ _id: id, company: companyId });
     if (!grn) {
       return res.status(404).json({ message: "GRN not found" });
+    }
+
+    // Dynamic time lock governance
+    const lockCheck = await checkTimeLockGovernance(req, 'grn', grn.createdAt || grn.date, 'edit');
+    if (!lockCheck.allowed) {
+      return res.status(403).json({ message: lockCheck.message });
     }
 
     req.body.updatedBy = userId;

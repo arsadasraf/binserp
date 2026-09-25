@@ -97,6 +97,22 @@ export const fgItemSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    currency: {
+      type: String,
+      default: "INR",
+      trim: true,
+      uppercase: true,
+    },
+    sellingPrice: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    taxRate: {
+      type: Number,
+      default: 18,
+      min: 0,
+    },
     quantity: {
       type: Number,
       default: 0,

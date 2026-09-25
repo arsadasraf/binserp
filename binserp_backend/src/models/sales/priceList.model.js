@@ -12,6 +12,12 @@ export const priceListSchema = new mongoose.Schema(
       ref: "FGItem",
       required: true,
     },
+    currency: {
+      type: String,
+      default: "INR",
+      trim: true,
+      uppercase: true,
+    },
     price: {
       type: Number,
       required: true,

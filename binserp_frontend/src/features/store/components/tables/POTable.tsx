@@ -10,8 +10,8 @@
  * - 24-hour delete restriction
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Edit2, Trash2, Download, FileSpreadsheet, Eye, X, Printer, Building2, ShoppingCart, Search, Clock, User, ShieldCheck, History, Truck, Plus, Lock, Package, ChevronDown, Check, Layers, IndianRupee, BarChart3, MessageSquare, Send } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { generateDocument } from '@/src/utils/documentHelper';
 import { generateFrontendPoPDF } from '@/src/utils/frontendPdfHelper';
@@ -20,6 +20,8 @@ import { API_BASE_URL } from '@/src/utils/config';
 import MasterExcelImportModal from '../modals/MasterExcelImportModal';
 import { downloadMasterExcelTemplate } from '@/src/utils/excelMasterHelper';
 import OutwardPOItemWiseView from '../views/OutwardPOItemWiseView';
+import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
+import { useStoreApprovalSettings } from '@/src/hooks/useStoreApprovalSettings';
 
 interface POTableProps {
     data: any[];
@@ -73,15 +75,63 @@ const getVendorGstStr = (vendorObj: any): string => {
     return vendorObj.gst || vendorObj.gstNumber || vendorObj.gstin || '';
 };
 
+const ALL_STATUSES = ['Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'] as const;
+
 export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendors = [], materials = [], companyInfo, onStatusChange }: POTableProps) {
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedPoPreview, setSelectedPoPreview] = useState<any | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterVendor, setFilterVendor] = useState<string>('All');
-    const [filterStatus, setFilterStatus] = useState<string>('All');
+    const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
+    const [isVendorDropdownOpen, setIsVendorDropdownOpen] = useState(false);
+    const [vendorSearchTerm, setVendorSearchTerm] = useState('');
+    const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+    const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'po' | 'items'>('po');
     const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
     const [fetchedCompanyInfo, setFetchedCompanyInfo] = useState<any>(null);
+
+    // Approval workflow policies
+    const { isApprovalRequired, canUserApprove, getApproverNames } = useStoreApprovalSettings();
+    const currentUser = useMemo(() => {
+        try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem('userInfo') : null;
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            return null;
+        }
+    }, []);
+    const userType = useMemo(() => {
+        return typeof window !== 'undefined' ? (localStorage.getItem('userType') || 'user') : 'user';
+    }, []);
+
+    const poRequiresApproval = isApprovalRequired('outwardPo');
+    const isPoApproved = (po: any) => (po?.status || '').toLowerCase() === 'approved';
+    const isPoPdfLocked = (po: any) => poRequiresApproval && !isPoApproved(po);
+
+    // Dashboard visibility: Default hidden as requested
+    const [showDashboard, setShowDashboard] = useState<boolean>(false);
+
+    // Follow-up comment tracker state for PO preview
+    const [newCommentText, setNewCommentText] = useState('');
+    const [newCommentCategory, setNewCommentCategory] = useState('General');
+    const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+    const [localFollowUpsMap, setLocalFollowUpsMap] = useState<Record<string, any[]>>({});
+
+    const statusDropdownRef = useRef<HTMLDivElement>(null);
+    const vendorDropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (statusDropdownRef.current && !statusDropdownRef.current.contains(event.target as Node)) {
+                setIsStatusDropdownOpen(false);
+            }
+            if (vendorDropdownRef.current && !vendorDropdownRef.current.contains(event.target as Node)) {
+                setIsVendorDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const uniqueItemCount = useMemo(() => {
         const itemKeys = new Set<string>();
@@ -133,15 +183,29 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         return () => clearInterval(timer);
     }, []);
 
+    const { getPolicyHours } = useTimeLockPolicy();
+
     const getRemainingEditSeconds = (createdAt: string | Date | undefined) => {
         if (!createdAt) return 0;
+        const policyHours = getPolicyHours('purchasePo');
+        if (policyHours === -1) return Infinity;
+        if (policyHours <= 0) return 0;
         const created = new Date(createdAt).getTime();
+        if (isNaN(created)) return 0;
         const elapsed = Math.floor((nowTime - created) / 1000);
-        const limit = 24 * 3600;
+        const limit = policyHours * 3600;
         return Math.max(0, limit - elapsed);
     };
 
+    const isEditAllowed = (createdAt: string | Date | undefined) => {
+        const policyHours = getPolicyHours('purchasePo');
+        if (policyHours === -1) return true;
+        if (policyHours <= 0) return false;
+        return getRemainingEditSeconds(createdAt) > 0;
+    };
+
     const formatRemainingTime = (totalSeconds: number) => {
+        if (totalSeconds === Infinity) return 'Unlimited';
         if (totalSeconds <= 0) return '00:00:00';
         const hours = Math.floor(totalSeconds / 3600);
         const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -149,10 +213,27 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     };
 
+    // GRN existence verification helper
+    const checkPoHasGrn = (po: any): boolean => {
+        if (!po) return false;
+        if (Array.isArray(po.linkedGrns) && po.linkedGrns.length > 0) return true;
+        if (Array.isArray(po.transactions) && po.transactions.length > 0) return true;
+        if (Number(po.receivedQuantity || 0) > 0) return true;
+        if (Array.isArray(po.items) && po.items.some((it: any) => Number(it.receivedQuantity || 0) > 0)) return true;
+        if (['Partially Received', 'Completed'].includes(po.status)) return true;
+        return false;
+    };
+
     const handleDeleteSafe = (item: any) => {
-        const rem = getRemainingEditSeconds(item.createdAt || item.date);
-        if (rem <= 0) {
-            alert("This Purchase Order cannot be deleted because the 24-hour edit window has expired.");
+        if (checkPoHasGrn(item)) {
+            alert("This Purchase Order cannot be deleted because an Inward Goods Receipt Note (GRN) has already been created for it.");
+            return;
+        }
+        if (!isEditAllowed(item.createdAt || item.date)) {
+            const hrs = getPolicyHours('purchasePo');
+            alert(hrs <= 0 
+                ? "This Purchase Order cannot be deleted because it is locked immediately upon creation by company policy." 
+                : `This Purchase Order cannot be deleted because the ${hrs}-hour edit window has expired.`);
             return;
         }
         if (window.confirm(`Are you sure you want to delete Outward PO #${item.poNumber || ''}?`)) {
@@ -160,7 +241,82 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         }
     };
 
+    const handleEditSafe = (item: any) => {
+        if (checkPoHasGrn(item)) {
+            alert("This Purchase Order cannot be edited because an Inward Goods Receipt Note (GRN) has already been created for it.");
+            return;
+        }
+        if (!isEditAllowed(item.createdAt || item.date)) {
+            const hrs = getPolicyHours('purchasePo');
+            alert(hrs <= 0 
+                ? "This Purchase Order cannot be edited because it is locked immediately upon creation by company policy." 
+                : `This Purchase Order cannot be edited because the ${hrs}-hour edit window has expired.`);
+            return;
+        }
+        onEdit(item);
+    };
+
+    const handleAddFollowUp = async () => {
+        if (!newCommentText.trim() || !selectedPoPreview) return;
+        setIsSubmittingComment(true);
+        try {
+            const token = localStorage.getItem('token');
+            const poId = selectedPoPreview._id || selectedPoPreview.id;
+            const res = await fetch(`${API_BASE_URL}/api/purchase/po/${poId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    newFollowUp: {
+                        comment: newCommentText.trim(),
+                        category: newCommentCategory
+                    }
+                })
+            });
+
+            if (res.ok) {
+                const json = await res.json();
+                const updated = json.data || json;
+                const newEntry = {
+                    comment: newCommentText.trim(),
+                    category: newCommentCategory,
+                    author: updated?.updatedByName || 'You',
+                    createdAt: new Date().toISOString()
+                };
+
+                const newFollowUpsList = updated?.followUps || [...(selectedPoPreview?.followUps || []), newEntry];
+
+                setSelectedPoPreview((prev: any) => ({
+                    ...prev,
+                    followUps: newFollowUpsList
+                }));
+
+                setLocalFollowUpsMap(prev => ({
+                    ...prev,
+                    [poId]: newFollowUpsList
+                }));
+
+                setNewCommentText('');
+            } else {
+                const errJson = await res.json().catch(() => ({}));
+                alert(errJson.message || "Failed to add follow-up note.");
+            }
+        } catch (e) {
+            console.error("Failed to add follow-up:", e);
+            alert("Error posting follow-up note.");
+        } finally {
+            setIsSubmittingComment(false);
+        }
+    };
+
     const downloadPOAsPDF = async (po: any) => {
+        if (isPoPdfLocked(po)) {
+            alert("Approval Required: This Outward Purchase Order must be approved before generating or downloading the official PDF.");
+            return;
+        }
+
         const vendorId = typeof po.vendor === 'object' ? (po.vendor?._id || po.vendor?.id) : (po.vendor || po.vendorId);
         const resolvedVendor = vendors?.find((v: any) => (v._id || v.id) === vendorId) || (typeof po.vendor === 'object' ? po.vendor : null);
 
@@ -210,6 +366,15 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
     };
 
     const handleUpdateStatus = async (poId: string, newStatus: string) => {
+        if (newStatus === 'Approved' && poRequiresApproval) {
+            if (!canUserApprove('outwardPo', currentUser, userType)) {
+                const approvers = getApproverNames('outwardPo');
+                const approverListStr = approvers.length > 0 ? `Authorized approvers: ${approvers.join(', ')}` : "Contact company management.";
+                alert(`Approval Permission Denied: You do not have permission to approve this Outward PO. ${approverListStr}`);
+                return;
+            }
+        }
+
         setUpdatingStatusId(poId);
         try {
             const token = localStorage.getItem('token');
@@ -257,7 +422,6 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
 
     const statusCounts = useMemo(() => {
         const counts: Record<string, number> = {
-            'All': Array.isArray(data) ? data.length : 0,
             'Released': 0,
             'Approved': 0,
             'Partially Received': 0,
@@ -274,6 +438,26 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         }
         return counts;
     }, [data]);
+
+    const vendorPoCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        if (Array.isArray(data)) {
+            data.forEach((po: any) => {
+                const vId = typeof po.vendor === 'string' ? po.vendor : (po.vendor?._id || po.vendor?.id || po.vendorId);
+                const vName = getVendorNameStr(po);
+                if (vId) counts[vId.toString()] = (counts[vId.toString()] || 0) + 1;
+                if (vName) counts[vName] = (counts[vName] || 0) + 1;
+            });
+        }
+        return counts;
+    }, [data]);
+
+    const filteredVendorList = useMemo(() => {
+        if (!Array.isArray(vendors)) return [];
+        if (!vendorSearchTerm) return vendors;
+        const q = vendorSearchTerm.toLowerCase();
+        return vendors.filter((v: any) => (v.name || v.companyName || '').toLowerCase().includes(q));
+    }, [vendors, vendorSearchTerm]);
 
     const getPoCategory = (item: any): 'RM' | 'BO' | 'Consumable' => {
         if (!item) return 'RM';
@@ -298,23 +482,30 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             const poNo = item.poNumber || '';
 
             const matchSearch = 
+                !searchTerm ||
                 poNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 vName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 mName.toLowerCase().includes(searchTerm.toLowerCase());
 
-            const matchStatus = filterStatus === 'All' || (item.status || 'Released') === filterStatus;
+            const poStatus = item.status || 'Released';
+            const matchStatus = 
+                selectedStatuses.length === 0 || 
+                selectedStatuses.includes(poStatus);
 
             let matchVendor = true;
-            if (filterVendor !== 'All') {
-                const vId = typeof item.vendor === 'string' ? item.vendor : (item.vendor?._id || item.vendorId);
-                matchVendor = vId?.toString() === filterVendor?.toString() || vName.toLowerCase().includes(filterVendor.toLowerCase());
+            if (selectedVendors.length > 0) {
+                const vId = typeof item.vendor === 'string' 
+                    ? item.vendor 
+                    : (item.vendor?._id || item.vendor?.id || item.vendorId);
+                const vIdStr = vId ? vId.toString() : '';
+                matchVendor = selectedVendors.includes(vIdStr) || selectedVendors.some(sel => vName.toLowerCase().includes(sel.toLowerCase()));
             }
 
             const matchType = filterType === 'All' || getPoCategory(item) === filterType;
 
             return matchSearch && matchStatus && matchVendor && matchType;
         });
-    }, [data, searchTerm, filterStatus, filterVendor, filterType]);
+    }, [data, searchTerm, selectedStatuses, selectedVendors, filterType]);
 
     const metrics = useMemo(() => {
         let totalItemsCount = 0;
@@ -339,13 +530,33 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             totalPOValue += Number(po.grandTotal || po.totalAmount || po.amount || 0);
         });
 
+        let releasedCount = 0;
+        let approvedCount = 0;
+        let partiallyReceivedCount = 0;
+        let completedCount = 0;
+        let cancelledCount = 0;
+
+        filteredData.forEach((po: any) => {
+            const st = po.status || 'Released';
+            if (st === 'Released') releasedCount++;
+            else if (st === 'Approved') approvedCount++;
+            else if (st === 'Partially Received') partiallyReceivedCount++;
+            else if (st === 'Completed') completedCount++;
+            else if (st === 'Cancelled') cancelledCount++;
+        });
+
         return {
             totalPOs: Array.isArray(data) ? data.length : 0,
             filteredCount: filteredData.length,
             totalItemsCount,
             totalPiecesCount,
             totalQuantity,
-            totalPOValue
+            totalPOValue,
+            releasedCount,
+            approvedCount,
+            partiallyReceivedCount,
+            completedCount,
+            cancelledCount
         };
     }, [data, filteredData]);
 
@@ -373,32 +584,132 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'Purchase Orders');
         XLSX.writeFile(wb, `Purchase_Orders_${new Date().toISOString().split('T')[0]}.xlsx`);
-    };
-
-    return (
-        <div className="w-full space-y-4">
-            {/* Search, Filter & Action Toolbar */}
-            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1 min-w-0">
-                    <div className="relative flex-1 min-w-[200px]">
-                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                        <input
-                            type="text"
-                            placeholder={viewMode === 'items' ? "Search Material Name, Description, PO #..." : "Search PO #, Vendor, or Material..."}
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50"
-                        />
+    };    return (
+        <div className="w-full h-full flex-1 overflow-y-auto space-y-4 pb-28 sm:pb-20 pr-1 sm:pr-2 scroll-smooth">
+            {/* Top Dashboard: Dynamic KPI & Operations Summary (Default Hidden) */}
+            {showDashboard && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+                    {/* Card 1: Total Outward POs */}
+                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                        <div className="min-w-0">
+                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                Total Outward POs
+                            </span>
+                            <div className="flex items-baseline gap-1.5 mt-0.5">
+                                <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white font-mono">
+                                    {metrics.totalPOs}
+                                </span>
+                                {(searchTerm || selectedStatuses.length > 0 || selectedVendors.length > 0 || filterType !== 'All') && (
+                                    <span className="text-[10px] sm:text-xs text-purple-600 dark:text-purple-400 font-bold bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded-md truncate">
+                                        Shown: {metrics.filteredCount}
+                                    </span>
+                                )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-0.5 truncate font-medium">
+                                {metrics.totalPOs - metrics.completedCount - metrics.cancelledCount} Active in Pipeline
+                            </span>
+                        </div>
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 shrink-0">
+                            <ShoppingCart size={20} className="sm:w-[22px] sm:h-[22px]" />
+                        </div>
                     </div>
 
-                    {/* Small View Mode Toggle Button next to search bar */}
-                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80 self-stretch sm:self-auto">
+                    {/* Card 2: Status Pipeline Breakdown */}
+                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                        <div className="min-w-0">
+                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                Status Pipeline
+                            </span>
+                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-cyan-50 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border border-cyan-200 dark:border-cyan-800/60">
+                                    Rel: {metrics.releasedCount}
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60">
+                                    Appr: {metrics.approvedCount}
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+                                    Done: {metrics.completedCount}
+                                </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-1 truncate font-medium">
+                                Partially Recv: {metrics.partiallyReceivedCount}
+                            </span>
+                        </div>
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 shrink-0">
+                            <Layers size={20} className="sm:w-[22px] sm:h-[22px]" />
+                        </div>
+                    </div>
+
+                    {/* Card 3: Total Materials & Piece Count */}
+                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                        <div className="min-w-0">
+                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                Materials & Pieces
+                            </span>
+                            <div className="text-xl sm:text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5 truncate">
+                                {metrics.totalPiecesCount > 0 ? `${metrics.totalPiecesCount} Pcs` : `${metrics.totalQuantity} Units`}
+                            </div>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 block mt-0.5 truncate font-medium">
+                                {metrics.totalItemsCount} items across {metrics.filteredCount} PO(s)
+                            </span>
+                        </div>
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/40 shrink-0">
+                            <Package size={20} className="sm:w-[22px] sm:h-[22px]" />
+                        </div>
+                    </div>
+
+                    {/* Card 4: Total Order Value */}
+                    <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                        <div className="min-w-0">
+                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block truncate">
+                                Total Order Value
+                            </span>
+                            <div className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400 font-mono mt-0.5 truncate">
+                                ₹{metrics.totalPOValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                            </div>
+                            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5 truncate font-semibold">
+                                Pre-tax + GST & Freight
+                            </span>
+                        </div>
+                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40 shrink-0">
+                            <IndianRupee size={20} className="sm:w-[22px] sm:h-[22px]" />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Search, Filter & Action Toolbar */}
+            <div className="bg-white dark:bg-slate-900 p-3 sm:p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-2xs flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+                    {/* Search Bar */}
+                    <div className="relative flex-1 min-w-[180px] sm:min-w-[220px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
+                        <input
+                            type="text"
+                            placeholder={viewMode === 'items' ? "Search Material, Description, PO #..." : "Search PO #, Vendor, or Material..."}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-8 py-2 rounded-xl border border-gray-200 dark:border-slate-700 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-slate-50/50 dark:bg-slate-800/50 text-slate-900 dark:text-white"
+                        />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchTerm('')}
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer p-0.5"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Small View Mode Toggle Button */}
+                    <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl shrink-0 border border-slate-200/80 dark:border-slate-700/80">
                         <button
                             type="button"
                             onClick={() => setViewMode('po')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                 viewMode === 'po'
-                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-xs'
+                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
                                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                             }`}
                             title="View Outward Purchase Orders"
@@ -409,9 +720,9 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         <button
                             type="button"
                             onClick={() => setViewMode('items')}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                                 viewMode === 'items'
-                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-xs'
+                                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-300 shadow-2xs'
                                     : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                             }`}
                             title="View All Materials & Linked Outward POs"
@@ -421,30 +732,213 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                         </button>
                     </div>
 
-                    {/* Vendor Selector */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Vendor:</label>
-                        <select
-                            value={filterVendor}
-                            onChange={(e) => setFilterVendor(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20 max-w-[200px] truncate"
+                    {/* Status Multi-Select Dropdown */}
+                    <div className="relative shrink-0" ref={statusDropdownRef}>
+                        <button
+                            type="button"
+                            onClick={() => setIsStatusDropdownOpen(prev => !prev)}
+                            className={`flex items-center justify-between gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer min-w-[130px] ${
+                                selectedStatuses.length > 0
+                                    ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-2xs'
+                                    : 'bg-slate-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-700'
+                            }`}
                         >
-                            <option value="All">All Vendors ({vendors.length})</option>
-                            {(Array.isArray(vendors) ? vendors : []).map((v: any) => (
-                                <option key={v._id || v.id} value={(v._id || v.id)?.toString()}>
-                                    {v.name || v.companyName}
-                                </option>
-                            ))}
-                        </select>
+                            <div className="flex items-center gap-1.5 truncate">
+                                <Clock size={13} className="text-purple-500 shrink-0" />
+                                <span className="truncate">
+                                    {selectedStatuses.length === 0
+                                        ? 'All Statuses'
+                                        : selectedStatuses.length === 1
+                                        ? selectedStatuses[0]
+                                        : `Status (${selectedStatuses.length})`}
+                                </span>
+                            </div>
+                            <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {isStatusDropdownOpen && (
+                            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-2.5 space-y-2">
+                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter Status</span>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedStatuses([...ALL_STATUSES])}
+                                            className="text-[11px] text-purple-600 dark:text-purple-400 hover:underline font-bold cursor-pointer"
+                                        >
+                                            Select All
+                                        </button>
+                                        <span className="text-slate-300 dark:text-slate-600">•</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedStatuses([])}
+                                            className="text-[11px] text-slate-500 hover:underline font-bold cursor-pointer"
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    {ALL_STATUSES.map((st) => {
+                                        const isSelected = selectedStatuses.includes(st);
+                                        const count = statusCounts[st] || 0;
+                                        return (
+                                            <div
+                                                key={st}
+                                                onClick={() => {
+                                                    setSelectedStatuses(prev => 
+                                                        prev.includes(st) 
+                                                            ? prev.filter(s => s !== st) 
+                                                            : [...prev, st]
+                                                    );
+                                                }}
+                                                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors ${
+                                                        isSelected 
+                                                            ? 'bg-purple-600 border-purple-600 text-white' 
+                                                            : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                    }`}>
+                                                        {isSelected && <Check size={12} strokeWidth={3} />}
+                                                    </div>
+                                                    <span className={`text-xs font-semibold ${isSelected ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                        {st}
+                                                    </span>
+                                                </div>
+                                                <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                                    {count}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Searchable Multi-Select Vendor Dropdown */}
+                    <div className="relative shrink-0" ref={vendorDropdownRef}>
+                        <button
+                            type="button"
+                            onClick={() => setIsVendorDropdownOpen(prev => !prev)}
+                            className={`flex items-center justify-between gap-1.5 px-3 py-2 rounded-xl border text-xs font-bold transition-all cursor-pointer min-w-[140px] max-w-[200px] ${
+                                selectedVendors.length > 0
+                                    ? 'bg-purple-50 dark:bg-purple-950/50 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300 shadow-2xs'
+                                    : 'bg-slate-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-700'
+                            }`}
+                        >
+                            <div className="flex items-center gap-1.5 truncate">
+                                <Building2 size={13} className="text-purple-500 shrink-0" />
+                                <span className="truncate">
+                                    {selectedVendors.length === 0
+                                        ? `All Vendors (${vendors.length})`
+                                        : selectedVendors.length === 1
+                                        ? (() => {
+                                            const v = vendors.find((vend: any) => (vend._id || vend.id)?.toString() === selectedVendors[0] || vend.name === selectedVendors[0]);
+                                            return v?.name || v?.companyName || selectedVendors[0];
+                                          })()
+                                        : `Vendors (${selectedVendors.length})`}
+                                </span>
+                            </div>
+                            <ChevronDown size={13} className={`text-slate-400 shrink-0 transition-transform ${isVendorDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {isVendorDropdownOpen && (
+                            <div className="absolute left-0 sm:left-auto sm:right-0 mt-1.5 w-72 sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-50 p-2.5 space-y-2">
+                                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5 px-1">
+                                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter Vendors</span>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedVendors([])}
+                                            className="text-[11px] text-slate-500 hover:underline font-bold cursor-pointer"
+                                        >
+                                            Reset (All)
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Vendor Keyword Search Input */}
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search vendor name..."
+                                        value={vendorSearchTerm}
+                                        onChange={(e) => setVendorSearchTerm(e.target.value)}
+                                        className="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-1 focus:ring-purple-500 text-slate-900 dark:text-white"
+                                    />
+                                    {vendorSearchTerm && (
+                                        <button 
+                                            type="button"
+                                            onClick={() => setVendorSearchTerm('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                                        >
+                                            ×
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Vendor List with Checkboxes */}
+                                <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+                                    {filteredVendorList.length === 0 ? (
+                                        <div className="p-3 text-center text-xs text-slate-400">
+                                            No vendors match "{vendorSearchTerm}"
+                                        </div>
+                                    ) : (
+                                        filteredVendorList.map((v: any) => {
+                                            const vId = (v._id || v.id)?.toString();
+                                            const vName = v.name || v.companyName || 'Vendor';
+                                            const isSelected = selectedVendors.includes(vId) || selectedVendors.includes(vName);
+                                            const poCount = vendorPoCounts[vId] || vendorPoCounts[vName] || 0;
+
+                                            return (
+                                                <div
+                                                    key={vId || vName}
+                                                    onClick={() => {
+                                                        const targetKey = vId || vName;
+                                                        setSelectedVendors(prev =>
+                                                            prev.includes(targetKey)
+                                                                ? prev.filter(k => k !== targetKey)
+                                                                : [...prev, targetKey]
+                                                        );
+                                                    }}
+                                                    className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-2 min-w-0 pr-2">
+                                                        <div className={`w-4 h-4 rounded flex items-center justify-center border transition-colors shrink-0 ${
+                                                            isSelected 
+                                                                ? 'bg-purple-600 border-purple-600 text-white' 
+                                                                : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                        }`}>
+                                                            {isSelected && <Check size={12} strokeWidth={3} />}
+                                                        </div>
+                                                        <span className={`text-xs truncate ${isSelected ? 'text-slate-900 dark:text-white font-bold' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                            {vName}
+                                                        </span>
+                                                    </div>
+                                                    {poCount > 0 && (
+                                                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
+                                                            {poCount} POs
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Material Type Selector */}
-                    <div className="flex items-center gap-2 shrink-0">
-                        <label className="text-xs font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">Type:</label>
+                    <div className="flex items-center gap-1.5 shrink-0">
                         <select
                             value={filterType}
                             onChange={(e) => setFilterType(e.target.value)}
-                            className="w-full sm:w-auto px-3 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20"
+                            className="px-2.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 outline-none cursor-pointer focus:ring-2 focus:ring-purple-500/20"
                         >
                             <option value="All">All Types</option>
                             <option value="RM">Raw Material (RM)</option>
@@ -454,39 +948,29 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     </div>
                 </div>
 
-                {/* Right Side: Status Buttons & Action Buttons */}
-                <div className="flex flex-wrap sm:flex-nowrap items-center justify-between sm:justify-end gap-2 shrink-0">
-                    {viewMode === 'po' && (
-                        <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar max-w-full shrink-0 gap-0.5">
-                            {['All', 'Released', 'Approved', 'Partially Received', 'Completed', 'Cancelled'].map(status => (
-                                <button
-                                    key={status}
-                                    onClick={() => setFilterStatus(status)}
-                                    className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap transition-all cursor-pointer flex items-center gap-1.5 ${
-                                        filterStatus === status
-                                            ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-300 shadow-sm font-bold'
-                                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                                    }`}
-                                >
-                                    <span>{status}</span>
-                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                                        filterStatus === status 
-                                            ? 'bg-purple-100 dark:bg-purple-900/60 text-purple-700 dark:text-purple-300' 
-                                            : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'
-                                    }`}>
-                                        {statusCounts[status] || 0}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    )}
+                {/* Right Side: Action Buttons */}
+                <div className="flex items-center justify-end gap-2 shrink-0">
+                    {/* Toggle Top Dashboard / KPI cards */}
+                    <button
+                        type="button"
+                        onClick={() => setShowDashboard(prev => !prev)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border ${
+                            showDashboard
+                                ? 'bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800 shadow-2xs'
+                                : 'bg-slate-100 text-slate-700 border-gray-200 hover:bg-slate-200/80 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                        }`}
+                        title={showDashboard ? "Hide KPI Dashboard" : "Show dynamic KPI metrics"}
+                    >
+                        <BarChart3 size={14} className={showDashboard ? "text-purple-600 dark:text-purple-400" : "text-slate-500"} />
+                        <span>{showDashboard ? "Hide KPI" : "Show KPI"}</span>
+                    </button>
 
                     {onCreatePO && (
                         <button
                             onClick={onCreatePO}
-                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                            className="w-full sm:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-700 active:bg-cyan-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
                         >
-                            <Plus size={15} /> Create Outward PO
+                            <Plus size={15} /> <span>Create Outward PO</span>
                         </button>
                     )}
                 </div>
@@ -499,87 +983,26 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                     vendors={vendors}
                     onViewPo={(po) => setSelectedPoPreview(po)}
                     searchTerm={searchTerm}
-                    filterVendor={filterVendor}
+                    filterVendor={selectedVendors.length > 0 ? selectedVendors : 'All'}
                     filterType={filterType}
                 />
             ) : (
                 <>
-            {/* Top Summary Metrics & KPI Cards Banner */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Outward POs</span>
-                        <div className="flex items-baseline gap-2 mt-0.5">
-                            <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">{metrics.totalPOs}</span>
-                            {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All') && (
-                                <span className="text-xs text-purple-600 dark:text-purple-400 font-bold bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded-md">
-                                    Matched: {metrics.filteredCount}
-                                </span>
-                            )}
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 font-medium">All recorded PO documents</span>
-                    </div>
-                    <div className="w-11 h-11 rounded-2xl bg-purple-50 dark:bg-purple-950/50 flex items-center justify-center text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 shrink-0">
-                        <ShoppingCart size={22} />
-                    </div>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Piece Count</span>
-                        <div className="text-2xl font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5">
-                            {metrics.totalPiecesCount > 0 ? `${metrics.totalPiecesCount} Pcs` : `${metrics.totalItemsCount} Items`}
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 font-medium">Across {metrics.filteredCount} visible PO(s)</span>
-                    </div>
-                    <div className="w-11 h-11 rounded-2xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/40 shrink-0">
-                        <Building2 size={22} />
-                    </div>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Material Quantity</span>
-                        <div className="text-2xl font-black text-cyan-600 dark:text-cyan-400 font-mono mt-0.5">
-                            {metrics.totalQuantity.toLocaleString()} <span className="text-xs font-normal text-slate-400">Units</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 font-medium">{metrics.totalItemsCount} total line item entries</span>
-                    </div>
-                    <div className="w-11 h-11 rounded-2xl bg-cyan-50 dark:bg-cyan-950/50 flex items-center justify-center text-cyan-600 dark:text-cyan-400 border border-cyan-100 dark:border-cyan-900/40 shrink-0">
-                        <Truck size={22} />
-                    </div>
-                </div>
-
-                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-                    <div>
-                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">Total Filtered Value</span>
-                        <div className="text-2xl font-black text-purple-700 dark:text-purple-300 font-mono mt-0.5">
-                            ₹{metrics.totalPOValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                        </div>
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block mt-0.5">Pre-tax + GST & Freight</span>
-                    </div>
-                    <div className="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40 shrink-0">
-                        <ShieldCheck size={22} />
-                    </div>
-                </div>
-            </div>
-
-
             {/* Filter and Search Match Count Bar */}
             <div className="flex items-center justify-between text-xs px-1 text-slate-500 dark:text-slate-400">
                 <div className="flex items-center gap-2">
                     <span>
                         Showing <strong className="text-slate-900 dark:text-white font-bold">{filteredData.length}</strong> of <strong className="text-slate-900 dark:text-white font-bold">{data.length}</strong> Purchase Orders
                     </span>
-                    {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All' || filterType !== 'All') && (
+                    {(searchTerm || selectedStatuses.length > 0 || selectedVendors.length > 0 || filterType !== 'All') && (
                         <span className="text-[11px] text-purple-600 dark:text-purple-400 font-semibold">
                             (Filtered Results)
                         </span>
                     )}
                 </div>
-                {(searchTerm || filterStatus !== 'All' || filterVendor !== 'All' || filterType !== 'All') && (
+                {(searchTerm || selectedStatuses.length > 0 || selectedVendors.length > 0 || filterType !== 'All') && (
                     <button
-                        onClick={() => { setSearchTerm(''); setFilterStatus('All'); setFilterVendor('All'); setFilterType('All'); }}
+                        onClick={() => { setSearchTerm(''); setSelectedStatuses([]); setSelectedVendors([]); setFilterType('All'); }}
                         className="text-purple-600 dark:text-purple-400 hover:underline font-bold text-[11px] cursor-pointer"
                     >
                         Clear Filters
@@ -595,7 +1018,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
             ) : (
                 <>
                     {/* Desktop Table View */}
-                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden">
+                    <div className="hidden md:block bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-x-auto">
                         <table className="w-full text-left border-collapse">
                             <thead>
                                 <tr className="border-b border-gray-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 text-[11px] uppercase font-bold text-gray-500 dark:text-slate-400 tracking-wider">
@@ -638,7 +1061,13 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                     <span className="text-xs text-gray-500 font-medium mt-0.5">{poDate}</span>
                                                     {(item.createdByName || item.createdBy?.name) && (
                                                         <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                                            <User size={10} /> {item.createdByName || item.createdBy?.name}
+                                                            <User size={10} className="shrink-0" />
+                                                            <span>By: <strong className="font-semibold text-slate-700 dark:text-slate-300">{item.createdByName || item.createdBy?.name}</strong></span>
+                                                            {item.createdAt && (
+                                                                <span className="text-slate-400 font-mono text-[9px]">
+                                                                    ({new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                                </span>
+                                                            )}
                                                         </span>
                                                     )}
                                                 </div>
@@ -711,39 +1140,73 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             </td>
 
                                             <td className="px-6 py-4 text-right">
-                                                <div className="flex justify-end gap-1.5">
+                                                <div className="flex justify-end gap-1.5 items-center">
                                                     <button 
-                                                        onClick={() => setSelectedPoPreview(item)} 
-                                                        className="p-1.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 rounded-lg transition-colors" 
+                                                        onClick={() => setSelectedPoPreview({ ...item, followUps: localFollowUpsMap[item._id || item.id] || item.followUps || [] })} 
+                                                        className="p-1.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer" 
                                                         title="Preview PO Details"
                                                     >
                                                         <Eye size={16} />
                                                     </button>
 
-                                                    <button 
-                                                        onClick={() => downloadPOAsPDF(item)} 
-                                                        className="p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors" 
-                                                        title="Download Frontend PDF"
-                                                    >
-                                                        <Download size={16} />
-                                                    </button>
+                                                    {isPoPdfLocked(item) ? (
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => alert("Approval Required: Outward PO must be approved by authorized personnel before generating PDF.")}
+                                                            className="p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition-colors cursor-pointer" 
+                                                            title="PDF Locked: Outward PO requires approval before PDF generation"
+                                                        >
+                                                            <Lock size={15} />
+                                                        </button>
+                                                    ) : (
+                                                        <button 
+                                                            onClick={() => downloadPOAsPDF(item)} 
+                                                            className="p-1.5 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 rounded-lg transition-colors cursor-pointer" 
+                                                            title="Download Frontend PDF"
+                                                        >
+                                                            <Download size={16} />
+                                                        </button>
+                                                    )}
 
                                                     {(() => {
-                                                        const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
-                                                        const isWithin24h = remainingSecs > 0;
-
-                                                        return isWithin24h ? (
-                                                            <>
+                                                        const hasGrn = checkPoHasGrn(item);
+                                                        if (hasGrn) {
+                                                            return (
                                                                 <span 
-                                                                    title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
-                                                                    className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                                    title="Action locked: Inward Goods Receipt Note (GRN) already created for this PO"
+                                                                    className="px-2 py-1 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl text-[10px] font-bold border border-amber-300 dark:border-amber-700/60 inline-flex items-center gap-1 shrink-0 shadow-2xs"
                                                                 >
-                                                                    <Clock size={11} className="text-amber-600 animate-pulse" />
-                                                                    {formatRemainingTime(remainingSecs)}
+                                                                    <Lock size={11} className="text-amber-600 dark:text-amber-400" />
+                                                                    GRN Created
                                                                 </span>
+                                                            );
+                                                        }
+
+                                                        const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
+                                                        const isWithinLimit = isEditAllowed(item.createdAt || item.date);
+
+                                                        return isWithinLimit ? (
+                                                            <>
+                                                                {remainingSecs === Infinity ? (
+                                                                    <span 
+                                                                        title="Unlimited editing window configured by company policy"
+                                                                        className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1 shrink-0"
+                                                                    >
+                                                                        <ShieldCheck size={11} className="text-emerald-600" />
+                                                                        Unlimited
+                                                                    </span>
+                                                                ) : (
+                                                                    <span 
+                                                                        title={`Edit and delete allowed for another ${formatRemainingTime(remainingSecs)}`}
+                                                                        className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1 shrink-0"
+                                                                    >
+                                                                        <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                                        {formatRemainingTime(remainingSecs)}
+                                                                    </span>
+                                                                )}
 
                                                                 <button 
-                                                                    onClick={() => onEdit(item)} 
+                                                                    onClick={() => handleEditSafe(item)} 
                                                                     className="p-1.5 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer" 
                                                                     title={`Edit PO (${formatRemainingTime(remainingSecs)} left)`}
                                                                 >
@@ -760,7 +1223,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                                             </>
                                                         ) : (
                                                             <span 
-                                                                title="Editing and deleting window expired (24h limit)" 
+                                                                title={`Editing and deleting window expired (${getPolicyHours('purchasePo')}h limit)`} 
                                                                 className="px-2 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70"
                                                             >
                                                                 <Lock size={11} /> Locked
@@ -811,7 +1274,7 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                             const amount = Number(item.grandTotal || item.totalAmount || item.amount || 0);
                             const poDate = new Date(item.date || item.createdAt || Date.now()).toLocaleDateString('en-GB');
                             const remainingSecs = getRemainingEditSeconds(item.createdAt || item.date);
-                            const isWithin24h = remainingSecs > 0;
+                            const isWithinLimit = isEditAllowed(item.createdAt || item.date);
                             const category = getPoCategory(item);
 
                             const itemsList = Array.isArray(item.items) && item.items.length > 0 ? item.items : [];
@@ -840,6 +1303,17 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                             </div>
                                             <h4 className="font-bold text-gray-900 dark:text-white text-sm">{vendorName}</h4>
                                             <div className="text-[11px] text-gray-500 dark:text-slate-400 font-medium">{poDate}</div>
+                                            {(item.createdByName || item.createdBy?.name) && (
+                                                <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                                    <User size={10} className="shrink-0" />
+                                                    <span>By: <strong className="font-semibold text-slate-700 dark:text-slate-300">{item.createdByName || item.createdBy?.name}</strong></span>
+                                                    {item.createdAt && (
+                                                        <span className="text-slate-400 font-mono text-[9px]">
+                                                            ({new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                         <select
                                             disabled={updatingStatusId === item._id}
@@ -886,34 +1360,72 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                     {/* Action Buttons & Countdown */}
                                     <div className="flex items-center justify-between gap-1.5 pt-1">
                                         <div className="flex items-center gap-1.5 flex-1">
-                                            <button onClick={() => setSelectedPoPreview(item)} className="flex-1 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1">
+                                            <button onClick={() => setSelectedPoPreview({ ...item, followUps: localFollowUpsMap[item._id || item.id] || item.followUps || [] })} className="flex-1 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1 cursor-pointer">
                                                 <Eye size={14} /> View
                                             </button>
-                                            <button onClick={() => downloadPOAsPDF(item)} className="flex-1 py-2 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-sm">
-                                                <Download size={14} /> PDF
-                                            </button>
+                                            {isPoPdfLocked(item) ? (
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => alert("Approval Required: Outward PO must be approved before generating PDF.")}
+                                                    className="flex-1 py-2 text-xs font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-xl flex items-center justify-center gap-1 cursor-pointer"
+                                                    title="Approval Required before PDF download"
+                                                >
+                                                    <Lock size={13} /> PDF Locked
+                                                </button>
+                                            ) : (
+                                                <button onClick={() => downloadPOAsPDF(item)} className="flex-1 py-2 text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-xl flex items-center justify-center gap-1 shadow-sm cursor-pointer">
+                                                    <Download size={14} /> PDF
+                                                </button>
+                                            )}
                                         </div>
 
-                                        {isWithin24h ? (
-                                            <div className="flex items-center gap-1 shrink-0">
+                                        {(() => {
+                                            const hasGrn = checkPoHasGrn(item);
+                                            if (hasGrn) {
+                                                return (
+                                                    <span 
+                                                        title="Action locked: Inward Goods Receipt Note (GRN) already created for this PO"
+                                                        className="px-2 py-1 bg-amber-50 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl text-[10px] font-bold border border-amber-300 dark:border-amber-700/60 inline-flex items-center gap-1 shrink-0 shadow-2xs"
+                                                    >
+                                                        <Lock size={11} className="text-amber-600 dark:text-amber-400" />
+                                                        GRN Created
+                                                    </span>
+                                                );
+                                            }
+
+                                            return isWithinLimit ? (
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    {remainingSecs === Infinity ? (
+                                                        <span 
+                                                            className="px-2 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 rounded-xl font-mono text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 inline-flex items-center gap-1"
+                                                        >
+                                                            <ShieldCheck size={11} className="text-emerald-600" />
+                                                            Unlimited
+                                                        </span>
+                                                    ) : (
+                                                        <span 
+                                                            className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1"
+                                                        >
+                                                            <Clock size={11} className="text-amber-600 animate-pulse" />
+                                                            {formatRemainingTime(remainingSecs)}
+                                                        </span>
+                                                    )}
+                                                    <button onClick={() => handleEditSafe(item)} className="p-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 rounded-xl flex items-center justify-center cursor-pointer" title="Edit">
+                                                        <Edit2 size={15} />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteSafe(item)} className="p-2 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 rounded-xl flex items-center justify-center cursor-pointer" title="Delete">
+                                                        <Trash2 size={15} />
+                                                    </button>
+                                                </div>
+                                            ) : (
                                                 <span 
-                                                    className="px-2 py-1 bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 rounded-xl font-mono text-[10px] font-bold border border-amber-200 dark:border-amber-800 inline-flex items-center gap-1"
+                                                    title={`Editing and deleting window expired (${getPolicyHours('purchasePo')}h limit)`} 
+                                                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70"
                                                 >
-                                                    <Clock size={11} className="text-amber-600 animate-pulse" />
-                                                    {formatRemainingTime(remainingSecs)}
+                                                    <Lock size={11} /> Locked
                                                 </span>
-                                                <button onClick={() => onEdit(item)} className="p-2 text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 rounded-xl flex items-center justify-center" title="Edit">
-                                                    <Edit2 size={15} />
-                                                </button>
-                                                <button onClick={() => handleDeleteSafe(item)} className="p-2 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 rounded-xl flex items-center justify-center" title="Delete">
-                                                    <Trash2 size={15} />
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <span className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 text-slate-400 text-[10px] font-semibold rounded-xl inline-flex items-center gap-1 opacity-70">
-                                                <Lock size={11} /> Locked
-                                            </span>
-                                        )}
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             );
@@ -1104,6 +1616,112 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                         </div>
                                     </div>
                                 )}
+                            </div>
+
+                            {/* PO Follow-Up & Comment Tracker */}
+                            <div className="bg-gradient-to-br from-indigo-50/70 to-slate-50 dark:from-slate-800/80 dark:to-slate-900 p-4 rounded-2xl border border-indigo-200/80 dark:border-slate-700 text-xs space-y-3 shadow-sm">
+                                <div className="flex justify-between items-center border-b border-indigo-200 dark:border-slate-700 pb-2.5">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-1.5 bg-indigo-600 text-white rounded-lg">
+                                            <MessageSquare size={14} />
+                                        </div>
+                                        <div>
+                                            <h5 className="font-extrabold text-slate-900 dark:text-white text-xs uppercase tracking-wider">
+                                                PO FOLLOW-UP & COMMENT TRACKER
+                                            </h5>
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                                Track vendor communications, delivery reminders & internal notes
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <span className="px-2.5 py-1 bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 font-extrabold text-[10px] rounded-full">
+                                        {(selectedPoPreview.followUps || []).length} Follow-Up Note(s)
+                                    </span>
+                                </div>
+
+                                {/* Existing Notes Timeline */}
+                                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                    {(!selectedPoPreview.followUps || selectedPoPreview.followUps.length === 0) ? (
+                                        <div className="p-3 text-center bg-white dark:bg-slate-900 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400 text-xs">
+                                            <p className="font-medium">No follow-up notes recorded yet.</p>
+                                            <span className="text-[10px]">Add your first follow-up note below to track vendor communications or dispatch status.</span>
+                                        </div>
+                                    ) : (
+                                        selectedPoPreview.followUps.map((fu: any, fIdx: number) => {
+                                            const noteDate = new Date(fu.createdAt || Date.now()).toLocaleString('en-GB', {
+                                                day: '2-digit', month: 'short', year: 'numeric',
+                                                hour: '2-digit', minute: '2-digit'
+                                            });
+                                            const tag = fu.category || 'General';
+
+                                            return (
+                                                <div key={fIdx} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5 shadow-2xs">
+                                                    <div className="flex items-center justify-between text-[10px]">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className={`px-2 py-0.5 rounded-full font-bold uppercase tracking-wide text-[9px] ${
+                                                                tag === 'Vendor Follow-up' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' :
+                                                                tag === 'Dispatch Update' ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' :
+                                                                tag === 'Payment Note' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                                                tag === 'Urgent' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
+                                                                'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
+                                                            }`}>
+                                                                {tag}
+                                                            </span>
+                                                            <span className="font-bold text-slate-700 dark:text-slate-300">
+                                                                By: {fu.author || 'User'}
+                                                            </span>
+                                                        </div>
+                                                        <span className="text-slate-400 font-mono">{noteDate}</span>
+                                                    </div>
+                                                    <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap">
+                                                        {fu.comment}
+                                                    </p>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+
+                                {/* Add New Follow-Up Comment Form */}
+                                <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-indigo-100 dark:border-slate-800 space-y-2">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Category:</span>
+                                        {['General', 'Vendor Follow-up', 'Dispatch Update', 'Payment Note', 'Urgent'].map((cat) => (
+                                            <button
+                                                key={cat}
+                                                type="button"
+                                                onClick={() => setNewCommentCategory(cat)}
+                                                className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                                                    newCommentCategory === cat
+                                                        ? 'bg-indigo-600 text-white shadow-2xs'
+                                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                                                }`}
+                                            >
+                                                {cat}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="Type follow-up update, dispatch note, vendor remarks..."
+                                            value={newCommentText}
+                                            onChange={(e) => setNewCommentText(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddFollowUp(); } }}
+                                            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs bg-slate-50/50 dark:bg-slate-800/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-white"
+                                        />
+                                        <button
+                                            type="button"
+                                            disabled={!newCommentText.trim() || isSubmittingComment}
+                                            onClick={handleAddFollowUp}
+                                            className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0 shadow-xs"
+                                        >
+                                            <Send size={13} />
+                                            <span>{isSubmittingComment ? 'Posting...' : 'Add Note'}</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Linked Inventory GRN Receipts & Timeline */}
@@ -1421,12 +2039,34 @@ export default function POTable({ data = [], onEdit, onDelete, onCreatePO, vendo
                                 Close
                             </button>
 
-                            <button 
-                                onClick={() => downloadPOAsPDF(selectedPoPreview)} 
-                                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-purple-600/20 flex items-center gap-2"
-                            >
-                                <Printer size={15} /> Print / Save PO PDF (Frontend)
-                            </button>
+                            {isPoPdfLocked(selectedPoPreview) ? (
+                                <div className="flex items-center gap-2">
+                                    {canUserApprove('outwardPo', currentUser, userType) && (
+                                        <button 
+                                            onClick={() => handleUpdateStatus(selectedPoPreview._id || selectedPoPreview.id, 'Approved')}
+                                            disabled={updatingStatusId === (selectedPoPreview._id || selectedPoPreview.id)}
+                                            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                                        >
+                                            <ShieldCheck size={15} /> Approve PO
+                                        </button>
+                                    )}
+                                    <button 
+                                        type="button"
+                                        onClick={() => alert("Approval Required: This Outward PO must be marked as Approved before generating official PDF.")}
+                                        className="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+                                        title="Approval Required before generating PDF"
+                                    >
+                                        <Lock size={14} /> PDF Locked (Approval Required)
+                                    </button>
+                                </div>
+                            ) : (
+                                <button 
+                                    onClick={() => downloadPOAsPDF(selectedPoPreview)} 
+                                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer"
+                                >
+                                    <Printer size={15} /> Print / Save PO PDF (Frontend)
+                                </button>
+                            )}
                         </div>
 
                     </div>

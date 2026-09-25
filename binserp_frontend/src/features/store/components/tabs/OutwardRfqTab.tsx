@@ -721,11 +721,24 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                                         </button>
                                                     </div>
 
-                                                    {newRfq.items.length > 1 && (
-                                                        <button onClick={() => handleRemoveItem(idx)} className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer">
-                                                            <X size={15} />
-                                                        </button>
-                                                    )}
+                                                    <div className="flex items-center gap-1.5">
+                                                        {idx === newRfq.items.length - 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleAddItem}
+                                                                className="flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-bold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/60 hover:bg-cyan-100 dark:hover:bg-cyan-900 border border-cyan-200 dark:border-cyan-800 rounded-lg transition-colors cursor-pointer shadow-2xs"
+                                                                title="Add Next Material"
+                                                            >
+                                                                <Plus size={13} />
+                                                                <span>Add Material</span>
+                                                            </button>
+                                                        )}
+                                                        {newRfq.items.length > 1 && (
+                                                            <button type="button" onClick={() => handleRemoveItem(idx)} className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer" title="Remove">
+                                                                <X size={15} />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
 
                                                 <div className="grid grid-cols-12 gap-2.5 items-center">
@@ -780,6 +793,18 @@ export default function OutwardRfqTab({ token, onError, onSuccess }: OutwardRfqT
                                             </div>
                                         );
                                     })}
+                                </div>
+
+                                {/* Bottom Add Material Bar */}
+                                <div className="pt-2">
+                                    <button
+                                        type="button"
+                                        onClick={handleAddItem}
+                                        className="w-full py-3 px-4 border-2 border-dashed border-cyan-200 hover:border-cyan-500 dark:border-cyan-800/80 dark:hover:border-cyan-500 bg-cyan-50/40 hover:bg-cyan-50 dark:bg-cyan-950/20 dark:hover:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 font-bold rounded-2xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] group"
+                                    >
+                                        <Plus size={16} className="text-cyan-600 dark:text-cyan-400 group-hover:scale-110 transition-transform" />
+                                        <span>+ Add Another Material Item</span>
+                                    </button>
                                 </div>
                             </div>
 

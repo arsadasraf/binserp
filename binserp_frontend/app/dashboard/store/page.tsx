@@ -7,8 +7,9 @@ import { usePermission } from "@/src/hooks/usePermission";
 const STORE_TAB_ROUTES = [
   { id: "inventory", href: "/dashboard/store/inventory/rm-bo-stock" },
   { id: "wip", href: "/dashboard/store/wip/requests" },
-  { id: "purchase", href: "/dashboard/store/purchase/mrp" },
   { id: "sales", href: "/dashboard/store/sales/orders" },
+  { id: "mrp", href: "/dashboard/store/mrp" },
+  { id: "purchase", href: "/dashboard/store/purchase/po" },
   { id: "masters", href: "/dashboard/store/masters/vendors" },
 ];
 
@@ -26,8 +27,12 @@ function StoreRedirectContent() {
         router.replace(tabParam.includes("job") ? "/dashboard/store/wip/job-work" : "/dashboard/store/wip/requests");
         return;
       }
-      if ((tabParam === "purchase" || tabParam === "po" || tabParam === "mrp") && (isFullAdmin || hasTabAccess("Store", "purchase"))) {
-        router.replace(tabParam === "po" ? "/dashboard/store/purchase/po" : "/dashboard/store/purchase/mrp");
+      if (tabParam === "mrp" && (isFullAdmin || hasTabAccess("Store", "mrp") || hasTabAccess("Store", "purchase"))) {
+        router.replace("/dashboard/store/mrp");
+        return;
+      }
+      if ((tabParam === "purchase" || tabParam === "po") && (isFullAdmin || hasTabAccess("Store", "purchase"))) {
+        router.replace("/dashboard/store/purchase/po");
         return;
       }
       if ((tabParam === "sales" || tabParam === "orders") && (isFullAdmin || hasTabAccess("Store", "sales"))) {

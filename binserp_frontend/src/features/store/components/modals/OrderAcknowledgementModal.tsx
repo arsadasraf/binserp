@@ -144,37 +144,39 @@ export default function OrderAcknowledgementModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-[96vw] xl:max-w-6xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-[98vw] xl:max-w-6xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                 
                 {/* Header */}
-                <div className="p-5 sm:p-6 bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-blue-800/50">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-600/30 rounded-xl flex items-center justify-center border border-blue-400/30 shadow-inner">
-                            <FileText size={22} className="text-blue-300" />
+                <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 text-slate-900 dark:text-white flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-800">
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shrink-0">
+                            <FileText size={20} />
                         </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-xl font-extrabold tracking-tight">Order Acknowledgement & Acceptance (OA)</h2>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h2 className="text-base sm:text-lg font-black tracking-tight truncate">Order Acknowledgement & Acceptance (OA)</h2>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                                     Commitment Scheduler
                                 </span>
                             </div>
-                            <p className="text-xs text-blue-200/80 mt-0.5">
-                                Customer PO: <strong className="font-mono text-white">{po.poNumber}</strong> &nbsp;|&nbsp; Buyer: <strong className="text-white">{po.customerName || po.customer?.name || 'Customer'}</strong>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                                Customer PO: <strong className="font-mono text-indigo-600 dark:text-indigo-400">{po.poNumber}</strong> &nbsp;|&nbsp; Buyer: <strong className="text-slate-800 dark:text-slate-200">{po.customerName || po.customer?.name || 'Customer'}</strong>
                             </p>
                         </div>
                     </div>
                     <button 
+                        type="button"
                         onClick={onClose} 
-                        className="w-8 h-8 rounded-full bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors"
+                        className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-2"
+                        title="Close"
                     >
                         <X size={18} />
                     </button>
                 </div>
 
                 {/* Body Content */}
-                <div className="p-5 sm:p-7 overflow-y-auto flex-1 space-y-6">
+                <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 space-y-4 sm:space-y-6">
                     
                     {/* 1. Global Promised Dispatch Date & Quick Shortcuts */}
                     <div className="bg-gradient-to-r from-blue-50/70 via-indigo-50/50 to-blue-50/70 dark:from-slate-800/80 dark:via-indigo-950/30 dark:to-slate-800/80 p-5 rounded-2xl border border-blue-200 dark:border-blue-900/50 space-y-3">

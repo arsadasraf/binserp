@@ -417,7 +417,7 @@ export default function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Desktop Table View with Excel-Style Column Filters */}
-      <div className="hidden md:block overflow-x-auto flex-1 relative">
+      <div className="hidden md:block overflow-auto flex-1 min-h-0 relative">
         <table className="w-full text-sm text-left">
           <thead className="text-xs text-gray-700 dark:text-gray-300 uppercase bg-gray-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 sticky top-0 z-10">
             <tr>
@@ -630,7 +630,7 @@ export default function DataTable<T extends Record<string, any>>({
       </div>
 
       {/* Mobile Card View (Visible on screens smaller than md) */}
-      <div className="block md:hidden flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50/60 dark:bg-slate-900/60 pb-20">
+      <div className="block md:hidden flex-1 min-h-0 overflow-y-auto p-3 space-y-3 bg-gray-50/60 dark:bg-slate-900/60 pb-20">
         {paginatedData.length === 0 ? (
           <div className="bg-white dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 p-8 text-center text-gray-500 text-sm shadow-sm">
             No records found.

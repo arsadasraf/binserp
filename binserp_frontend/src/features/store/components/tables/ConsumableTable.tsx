@@ -288,31 +288,28 @@ export default function ConsumableTable({
   ];
 
   return (
-    <div className="space-y-4">
-      {/* Desktop / Responsive Table View */}
-      <DataTable
-        columns={columns}
-        data={data}
-        onRowClick={onView}
-        searchPlaceholder="Search consumable items..."
-        searchableKeys={['name', 'code', 'descriptions', 'category', 'unit', 'hsnCode']}
-        actionButton={
-          <div className="flex flex-wrap items-center gap-2">
-            <StoreMasterExcelActions
-              masterTab="consumable-item"
-              onExport={exportToExcel}
-            />
-            {onAdd && (
-              <button
-                onClick={onAdd}
-                className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 whitespace-nowrap text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
-              >
-                <Plus size={14} /> Add Consumable
-              </button>
-            )}
-          </div>
-        }
-      />
-    </div>
+    <DataTable
+      columns={columns}
+      data={data}
+      onRowClick={onView}
+      searchPlaceholder="Search consumable items..."
+      searchableKeys={['name', 'code', 'descriptions', 'category', 'unit', 'hsnCode']}
+      actionButton={
+        <div className="flex flex-wrap items-center gap-2">
+          <StoreMasterExcelActions
+            masterTab="consumable-item"
+            onExport={exportToExcel}
+          />
+          {onAdd && (
+            <button
+              onClick={onAdd}
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 whitespace-nowrap text-xs font-bold transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
+            >
+              <Plus size={14} /> Add Consumable
+            </button>
+          )}
+        </div>
+      }
+    />
   );
 }

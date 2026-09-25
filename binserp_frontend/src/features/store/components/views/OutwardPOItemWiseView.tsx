@@ -13,7 +13,7 @@ export interface OutwardPOItemWiseViewProps {
   vendors?: any[];
   onViewPo: (po: any) => void;
   searchTerm?: string;
-  filterVendor?: string;
+  filterVendor?: string | string[];
   filterType?: string;
 }
 
@@ -243,9 +243,15 @@ export default function OutwardPOItemWiseView({
       if (!matchesSearch) return false;
 
       // Vendor Filter
-      if (filterVendor !== 'All') {
-        const hasVendor = item.linkedPos.some(lp => lp.vendorId === filterVendor);
-        if (!hasVendor) return false;
+      if (filterVendor && filterVendor !== 'All') {
+        const vList = Array.isArray(filterVendor) ? filterVendor : [filterVendor];
+        if (vList.length > 0) {
+          const hasVendor = item.linkedPos.some(lp => 
+            vList.includes(lp.vendorId || '') || 
+            vList.some(v => lp.vendorName.toLowerCase().includes(v.toLowerCase()))
+          );
+          if (!hasVendor) return false;
+        }
       }
 
       // Material Type Filter (RM, BO, Consumable)

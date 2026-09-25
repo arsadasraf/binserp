@@ -201,7 +201,15 @@ export function usePermission() {
       )) {
         return true;
       }
-      if ((tab === "purchase" || tab === "po" || tab === "mrp") && (
+      if (tab === "mrp" && (
+        permissionSet.has("store:mrp") ||
+        permissionSet.has("Store:mrp") ||
+        permissionSet.has("store:purchase") ||
+        permissionSet.has("Store:purchase")
+      )) {
+        return true;
+      }
+      if ((tab === "purchase" || tab === "po") && (
         permissionSet.has("store:purchase") ||
         permissionSet.has("Store:purchase")
       )) {

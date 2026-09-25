@@ -11,7 +11,7 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
   const PriceList = req.getModel("PriceList", priceListSchema);
   const FGItem = req.getModel("FGItem", fgItemSchema);
   const companyId = getCompanyId(req);
-  const { fgItem, price, taxRate, hsnCode, remarks, pricingUnit, isSecondaryUnit } = req.body;
+  const { fgItem, price, taxRate, currency, hsnCode, remarks, pricingUnit, isSecondaryUnit } = req.body;
 
   if (!fgItem || price === undefined || taxRate === undefined) {
     return res.status(400).json({ message: "FG Item, price, and tax rate are required." });
@@ -22,12 +22,14 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
 
   // Prioritize HSN code from the FG Item Master
   const resolvedHsn = (fgDoc?.hsnCode || hsnCode || "").trim();
+  const normalizedCurrency = (currency || "INR").trim().toUpperCase();
 
   const priceListEntry = await PriceList.findOneAndUpdate(
     { company: companyId, fgItem: fgItemObjectId },
     { 
       price: Number(price), 
       taxRate: Number(taxRate), 
+      currency: normalizedCurrency,
       hsnCode: resolvedHsn, 
       remarks,
       pricingUnit: pricingUnit || "",
@@ -37,10 +39,11 @@ export const createOrUpdatePriceList = asyncHandler(async (req, res) => {
   );
 
   try {
-    // Sync sellingPrice and taxRate to FGItem master
+    // Sync sellingPrice, taxRate, and currency to FGItem master
     await FGItem.findByIdAndUpdate(fgItemObjectId, {
       sellingPrice: Number(price),
       taxRate: Number(taxRate),
+      currency: normalizedCurrency,
       ...(resolvedHsn && !fgDoc?.hsnCode ? { hsnCode: resolvedHsn } : {}),
     });
   } catch (err) {
@@ -61,7 +64,7 @@ export const getAllPriceLists = asyncHandler(async (req, res) => {
   const priceLists = await PriceList.find({ company: companyId })
     .populate({
       path: "fgItem",
-      select: "name code partNumber hsnCode type description descriptions specification unit hasSecondaryUnit secondaryUnit conversionFactor sellingPrice taxRate",
+      select: "name code partNumber hsnCode type description descriptions specification unit hasSecondaryUnit secondaryUnit conversionFactor sellingPrice taxRate currency",
     })
     .sort({ updatedAt: -1 });
 
