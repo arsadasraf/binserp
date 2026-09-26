@@ -10,7 +10,8 @@ import {
     Package, Factory, Download, Search, FileSpreadsheet, ChevronDown, 
     ChevronLeft, ChevronRight, FileDown, RotateCcw, RefreshCw,
     TrendingUp, IndianRupee, AlertTriangle, ArrowUpDown, LayoutGrid,
-    Eye, Boxes, Layers, X, Calendar, Crosshair, Sparkles, CheckCircle2
+    Eye, Boxes, Layers, X, Calendar, Crosshair, Sparkles, CheckCircle2,
+    SlidersHorizontal, BarChart3, Plus, Check
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ColumnFilter from './ColumnFilter';
@@ -63,6 +64,9 @@ export default function InventoryTable({
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isExcelMenuOpen, setIsExcelMenuOpen] = useState(false);
     const [showDashboard, setShowDashboard] = useState<boolean>(false);
+    const [showMobileDashboard, setShowMobileDashboard] = useState<boolean>(false);
+    const [showMobileFilter, setShowMobileFilter] = useState<boolean>(false);
+    const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'low' | 'out' | 'healthy'>('all');
     const [filters, setFilters] = useState<Record<string, string[]>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
@@ -117,6 +121,7 @@ export default function InventoryTable({
         setFilters({});
         setSortConfig(null);
         setSearchQuery('');
+        setStockStatusFilter('all');
     };
 
     // Dashboard Single Item Focus state
@@ -426,6 +431,19 @@ export default function InventoryTable({
                 }
             }
 
+            // Stock Health Status Filter
+            if (stockStatusFilter !== 'all') {
+                const stock = Number(item.currentStock ?? item.quantity ?? 0);
+                const min = Number(item.reorderLevel ?? item.minimumStock ?? 0);
+                if (stockStatusFilter === 'low') {
+                    if (!(min > 0 && stock <= min)) return false;
+                } else if (stockStatusFilter === 'out') {
+                    if (stock > 0) return false;
+                } else if (stockStatusFilter === 'healthy') {
+                    if (stock <= min || stock <= 0) return false;
+                }
+            }
+
             // Column Filters
             return Object.entries(filters).every(([key, selectedValues]) => {
                 if (!selectedValues || selectedValues.length === 0) return true;
@@ -536,8 +554,8 @@ export default function InventoryTable({
         return result;
     };
 
-    const filteredData = useMemo(() => applyFiltersAndSort(data, false), [data, filters, searchQuery, sortConfig]);
-    const filteredInHouseData = useMemo(() => applyFiltersAndSort(inHouseData, true), [inHouseData, filters, searchQuery, sortConfig]);
+    const filteredData = useMemo(() => applyFiltersAndSort(data, false), [data, filters, searchQuery, sortConfig, stockStatusFilter]);
+    const filteredInHouseData = useMemo(() => applyFiltersAndSort(inHouseData, true), [inHouseData, filters, searchQuery, sortConfig, stockStatusFilter]);
 
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
@@ -564,7 +582,7 @@ export default function InventoryTable({
     // Reset pagination when filters, search, or subtab change
     useEffect(() => {
         setCurrentPage(1);
-    }, [searchQuery, filters, sortConfig, activeSubTab]);
+    }, [searchQuery, filters, sortConfig, activeSubTab, stockStatusFilter]);
 
     const isFilterOrSortActive = Object.keys(filters).length > 0 || sortConfig !== null || searchQuery !== '';
     const activeFilterCount = Object.keys(filters).length;
@@ -572,6 +590,24 @@ export default function InventoryTable({
     const currentDataset = useMemo(() => {
         return activeSubTab !== 'inhouse' ? (data || []) : (inHouseData || []);
     }, [activeSubTab, data, inHouseData]);
+
+    const availableCategories = useMemo(() => {
+        const set = new Set<string>();
+        currentDataset.forEach((item: any) => {
+            const cat = getCategoryValue(item);
+            if (cat && cat !== '-') set.add(cat);
+        });
+        return Array.from(set).sort();
+    }, [currentDataset]);
+
+    const availableLocations = useMemo(() => {
+        const set = new Set<string>();
+        currentDataset.forEach((item: any) => {
+            const loc = getLocationValue(item);
+            if (loc && loc !== '-') set.add(loc);
+        });
+        return Array.from(set).sort();
+    }, [currentDataset]);
 
     const focusedItem = useMemo(() => {
         if (!focusedItemId) return null;
@@ -753,8 +789,8 @@ export default function InventoryTable({
 
     return (
         <div className="w-full h-full bg-white dark:bg-slate-900 rounded-xl shadow-xs border border-slate-200/80 dark:border-slate-800 flex flex-col overflow-hidden">
-            {/* Executive KPI Dashboard Header & Cards */}
-            <div className="p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+            {/* Executive KPI Dashboard Header & Cards (Desktop Only) */}
+            <div className="hidden md:block p-3 sm:p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
                 {!showDashboard ? (
                     /* Collapsed Single-Line Summary Bar */
                     <div className="bg-white dark:bg-slate-800/90 px-3.5 py-2 rounded-xl border border-slate-200/90 dark:border-slate-700 shadow-2xs flex items-center justify-between gap-3 text-xs">
@@ -1011,8 +1047,8 @@ export default function InventoryTable({
                 )}
             </div>
 
-            {/* Top Toolbar */}
-            <div className="px-3.5 py-2.5 sm:px-4 border-b border-slate-200 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-2.5 bg-slate-50/60 dark:bg-slate-900/50 shrink-0">
+            {/* Top Toolbar (Desktop Only) */}
+            <div className="hidden md:flex px-3.5 py-2.5 sm:px-4 border-b border-slate-200 dark:border-slate-800 flex-col xl:flex-row justify-between items-stretch xl:items-center gap-2.5 bg-slate-50/60 dark:bg-slate-900/50 shrink-0">
                 {/* Left side: Count, Reset Filters & Dashboard Toggle */}
                 <div className="flex items-center flex-wrap gap-2.5">
                     <span className="text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm">
@@ -1148,6 +1184,105 @@ export default function InventoryTable({
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
+
+            {/* Mobile App Bar (< md screens) */}
+            <div className="md:hidden p-2.5 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 shrink-0 flex flex-col gap-2">
+                {/* Main Action Bar: Left GRN, Center Search, Right Dashboard & Filter Icons */}
+                <div className="flex items-center gap-2">
+                    {/* Left Corner: GRN Button */}
+                    {onCreateGRN && (
+                        <button
+                            type="button"
+                            onClick={onCreateGRN}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl shadow-xs transition-all font-bold text-xs whitespace-nowrap cursor-pointer shrink-0"
+                            title="Create GRN"
+                        >
+                            <Plus size={15} />
+                            <span>GRN</span>
+                        </button>
+                    )}
+
+                    {/* Search Input in Center */}
+                    <div className="relative flex-1 min-w-0">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                        <input
+                            type="text"
+                            placeholder="Search items..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-8 pr-7 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                        />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchQuery('')}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
+                            >
+                                <X size={13} />
+                            </button>
+                        )}
+                    </div>
+
+                    {/* Small Icon: Dashboard */}
+                    <button
+                        type="button"
+                        onClick={() => setShowMobileDashboard(true)}
+                        className={`w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 ${
+                            inventoryKpis.isFocused
+                                ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                                : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750"
+                        }`}
+                        title="View KPI Dashboard"
+                    >
+                        <BarChart3 size={16} />
+                    </button>
+
+                    {/* Small Icon: Filter & Sort */}
+                    <button
+                        type="button"
+                        onClick={() => setShowMobileFilter(true)}
+                        className={`relative w-9 h-9 rounded-xl border flex items-center justify-center transition-all cursor-pointer shrink-0 active:scale-95 ${
+                            isFilterOrSortActive || stockStatusFilter !== 'all'
+                                ? "bg-amber-500 text-white border-amber-500 shadow-xs"
+                                : "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-750"
+                        }`}
+                        title="Filter & Sort"
+                    >
+                        <SlidersHorizontal size={15} />
+                        {(activeFilterCount > 0 || stockStatusFilter !== 'all' || sortConfig !== null) && (
+                            <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-900">
+                                {activeFilterCount + (stockStatusFilter !== 'all' ? 1 : 0) + (sortConfig ? 1 : 0)}
+                            </span>
+                        )}
+                    </button>
+                </div>
+
+                {/* Sub-row: Count & Active Filters Indicator */}
+                <div className="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+                    <div className="flex items-center gap-1.5 truncate">
+                        <span>Showing <strong className="text-slate-900 dark:text-slate-100">{totalCount}</strong> items</span>
+                        {inventoryKpis.isFocused && (
+                            <span className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-0.5 truncate">
+                                &bull; Focused: {inventoryKpis.itemName}
+                            </span>
+                        )}
+                    </div>
+
+                    {(isFilterOrSortActive || stockStatusFilter !== 'all') && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                clearAllFilters();
+                                setStockStatusFilter('all');
+                            }}
+                            className="text-amber-600 dark:text-amber-400 font-bold flex items-center gap-1 active:scale-95 shrink-0 cursor-pointer"
+                        >
+                            <RotateCcw size={11} />
+                            <span>Clear</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -1562,7 +1697,7 @@ export default function InventoryTable({
                                                         setFocusedItemId(null);
                                                     } else {
                                                         setFocusedItemId((item._id || item.id)?.toString());
-                                                        setShowDashboard(true);
+                                                        setShowMobileDashboard(true);
                                                     }
                                                 }}
                                                 className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
@@ -1983,7 +2118,7 @@ export default function InventoryTable({
                                                         setFocusedItemId(null);
                                                     } else {
                                                         setFocusedItemId((item._id || item.id)?.toString());
-                                                        setShowDashboard(true);
+                                                        setShowMobileDashboard(true);
                                                     }
                                                 }}
                                                 className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs ${
@@ -2178,6 +2313,343 @@ export default function InventoryTable({
                     if (refetch) refetch();
                 }}
             />
+
+
+            {/* Mobile KPI Dashboard Bottom Sheet Drawer */}
+            {showMobileDashboard && (
+                <div 
+                    className="fixed inset-0 z-[250] flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 md:hidden"
+                    onClick={() => setShowMobileDashboard(false)}
+                >
+                    <div 
+                        className="bg-white dark:bg-slate-900 rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl border-t border-slate-200 dark:border-slate-800 overflow-hidden animate-in slide-in-from-bottom duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Drag Handle */}
+                        <div className="flex justify-center pt-2.5 pb-1 shrink-0">
+                            <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
+                        </div>
+
+                        {/* Header */}
+                        <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-2">
+                                <BarChart3 size={16} className="text-indigo-600" />
+                                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                                    {inventoryKpis.tabTitle} Dashboard
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowMobileDashboard(false)}
+                                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="p-4 overflow-y-auto space-y-3.5 flex-1">
+                            {/* Focus Item Selector */}
+                            <div className="bg-slate-50 dark:bg-slate-850 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-750 space-y-1.5">
+                                <div className="flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+                                    <span className="flex items-center gap-1.5">
+                                        <Crosshair size={13} className="text-indigo-600 dark:text-indigo-400" />
+                                        Focus Single Item Analysis
+                                    </span>
+                                    {inventoryKpis.isFocused && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setFocusedItemId(null)}
+                                            className="text-[11px] text-rose-500 font-bold hover:underline cursor-pointer"
+                                        >
+                                            Reset Focus
+                                        </button>
+                                    )}
+                                </div>
+                                <select
+                                    value={focusedItemId || ''}
+                                    onChange={(e) => setFocusedItemId(e.target.value ? e.target.value : null)}
+                                    className="w-full text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+                                >
+                                    <option value="">All Items (Executive Overview Mode)</option>
+                                    {currentDataset.map((item: any) => {
+                                        const id = (item._id || item.id)?.toString();
+                                        const name = item.materialName || item.componentName || item.name || 'Unnamed Item';
+                                        return (
+                                            <option key={id} value={id}>
+                                                {name}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+
+                            {/* 4 Cards Grid */}
+                            <div className="grid grid-cols-2 gap-2.5">
+                                {/* Total Units */}
+                                <div className="bg-gradient-to-br from-indigo-50/70 to-white dark:from-indigo-950/30 dark:to-slate-900 p-3 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 shadow-2xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">In-Stock</span>
+                                        <Package size={14} className="text-indigo-600 dark:text-indigo-400" />
+                                    </div>
+                                    <div className="text-sm font-black text-slate-900 dark:text-white font-mono">
+                                        {inventoryKpis.formattedTotalStockUnits}
+                                    </div>
+                                    {inventoryKpis.formattedSecStock && (
+                                        <div className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
+                                            ({inventoryKpis.formattedSecStock})
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Valuation */}
+                                <div className="bg-gradient-to-br from-emerald-50/70 to-white dark:from-emerald-950/30 dark:to-slate-900 p-3 rounded-2xl border border-emerald-100 dark:border-emerald-900/40 shadow-2xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Valuation</span>
+                                        <IndianRupee size={14} className="text-emerald-600 dark:text-emerald-400" />
+                                    </div>
+                                    <div className="text-sm font-black text-emerald-600 font-mono">
+                                        {inventoryKpis.formattedTotalValuation}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                                        {inventoryKpis.isFocused ? inventoryKpis.formattedUnitPrice : `${inventoryKpis.pricedItemsCount} Priced Items`}
+                                    </div>
+                                </div>
+
+                                {/* Reorder Alert */}
+                                <div className="bg-gradient-to-br from-amber-50/70 to-white dark:from-amber-950/30 dark:to-slate-900 p-3 rounded-2xl border border-amber-100 dark:border-amber-900/40 shadow-2xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Reorder Alert</span>
+                                        <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400" />
+                                    </div>
+                                    <div className="text-sm font-black text-amber-600 font-mono">
+                                        {inventoryKpis.lowStockCount} {inventoryKpis.lowStockCount === 1 ? 'Item' : 'Items'}
+                                    </div>
+                                    <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+                                        {inventoryKpis.lowStockCount > 0 ? "⚠️ Threshold reached" : "✅ Stock healthy"}
+                                    </div>
+                                </div>
+
+                                {/* Monthly Flow */}
+                                <div className="bg-gradient-to-br from-purple-50/70 to-white dark:from-purple-950/30 dark:to-slate-900 p-3 rounded-2xl border border-purple-100 dark:border-purple-900/40 shadow-2xs">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[10px] font-bold uppercase text-slate-500 dark:text-slate-400">Monthly Net</span>
+                                        <ArrowUpDown size={14} className="text-purple-600 dark:text-purple-400" />
+                                    </div>
+                                    <div className="text-sm font-black text-purple-600 font-mono">
+                                        {inventoryKpis.formattedNetFlow}
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-mono">
+                                        +{inventoryKpis.formattedInward} / -{inventoryKpis.formattedOutward}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setShowMobileDashboard(false)}
+                                className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                            >
+                                Done
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Mobile Filter & Sort Bottom Sheet Drawer */}
+            {showMobileFilter && (
+                <div 
+                    className="fixed inset-0 z-[250] flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 md:hidden"
+                    onClick={() => setShowMobileFilter(false)}
+                >
+                    <div 
+                        className="bg-white dark:bg-slate-900 rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl border-t border-slate-200 dark:border-slate-800 overflow-hidden animate-in slide-in-from-bottom duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Drag Handle */}
+                        <div className="flex justify-center pt-2.5 pb-1 shrink-0">
+                            <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full" />
+                        </div>
+
+                        {/* Header */}
+                        <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-2">
+                                <SlidersHorizontal size={16} className="text-amber-500" />
+                                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                                    Filter & Sort Items
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowMobileFilter(false)}
+                                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-4 overflow-y-auto space-y-4 flex-1">
+                            {/* Stock Health Status */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">
+                                    Stock Health Status
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                        { id: 'all', label: 'All Items' },
+                                        { id: 'low', label: '⚠️ Reorder Alert' },
+                                        { id: 'out', label: '❌ Out of Stock' },
+                                        { id: 'healthy', label: '✅ Healthy Stock' }
+                                    ].map((status) => (
+                                        <button
+                                            key={status.id}
+                                            type="button"
+                                            onClick={() => setStockStatusFilter(status.id as any)}
+                                            className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all text-left cursor-pointer ${
+                                                stockStatusFilter === status.id
+                                                    ? "bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-2xs font-extrabold"
+                                                    : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                                            }`}
+                                        >
+                                            {status.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Sort Options */}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">
+                                    Sort Order
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {[
+                                        { key: 'materialName', dir: 'asc', label: 'Name (A to Z)' },
+                                        { key: 'materialName', dir: 'desc', label: 'Name (Z to A)' },
+                                        { key: 'currentStock', dir: 'desc', label: 'Stock (Highest)' },
+                                        { key: 'currentStock', dir: 'asc', label: 'Stock (Lowest)' },
+                                        { key: 'valuation', dir: 'desc', label: 'Valuation (Highest)' },
+                                        { key: 'reorderLevel', dir: 'desc', label: 'Min Level (Highest)' }
+                                    ].map((opt, i) => {
+                                        const isSelected = sortConfig?.key === opt.key && sortConfig?.direction === opt.dir;
+                                        return (
+                                            <button
+                                                key={i}
+                                                type="button"
+                                                onClick={() => {
+                                                    if (isSelected) setSortConfig(null);
+                                                    else setSortConfig({ key: opt.key, direction: opt.dir as any });
+                                                }}
+                                                className={`py-2 px-2.5 rounded-xl text-xs font-bold border transition-all text-left cursor-pointer ${
+                                                    isSelected
+                                                        ? "bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-700 dark:text-indigo-300 shadow-2xs font-extrabold"
+                                                        : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                                                }`}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Category Filter */}
+                            {availableCategories.length > 0 && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">
+                                        Category ({availableCategories.length})
+                                    </label>
+                                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 border border-slate-200/60 dark:border-slate-800 rounded-xl">
+                                        {availableCategories.map((cat) => {
+                                            const isSelected = (filters['category'] || []).includes(cat);
+                                            return (
+                                                <button
+                                                    key={cat}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const current = filters['category'] || [];
+                                                        const updated = isSelected 
+                                                            ? current.filter(c => c !== cat)
+                                                            : [...current, cat];
+                                                        handleFilterChange('category', updated);
+                                                    }}
+                                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                                        isSelected
+                                                            ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                                                            : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                                                    }`}
+                                                >
+                                                    {cat}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Location Filter */}
+                            {availableLocations.length > 0 && (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">
+                                        Storage Location ({availableLocations.length})
+                                    </label>
+                                    <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1 border border-slate-200/60 dark:border-slate-800 rounded-xl">
+                                        {availableLocations.map((loc) => {
+                                            const isSelected = (filters['location'] || []).includes(loc);
+                                            return (
+                                                <button
+                                                    key={loc}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const current = filters['location'] || [];
+                                                        const updated = isSelected 
+                                                            ? current.filter(l => l !== loc)
+                                                            : [...current, loc];
+                                                        handleFilterChange('location', updated);
+                                                    }}
+                                                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                                        isSelected
+                                                            ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs"
+                                                            : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                                                    }`}
+                                                >
+                                                    {loc}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    clearAllFilters();
+                                    setStockStatusFilter('all');
+                                }}
+                                className="flex-1 py-2.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                            >
+                                Reset All
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowMobileFilter(false)}
+                                className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                            >
+                                Apply Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

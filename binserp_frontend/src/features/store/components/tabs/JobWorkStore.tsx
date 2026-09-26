@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
     Plus, Search, Eye, Factory, Calendar, Truck, CheckCircle2, 
     FileText, FileSpreadsheet, Clock, Edit2, Trash2, Lock, 
-    AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert, ShieldCheck 
+    AlertTriangle, ArrowRight, Layers, RefreshCw, X, ShieldAlert, ShieldCheck,
+    Check, ChevronDown, SlidersHorizontal
 } from 'lucide-react';
 import { useTimeLockPolicy } from '@/src/hooks/useTimeLockPolicy';
 import { JobWorkChallan, Vendor, JobWorkSupplier, JOB_WORK_PURPOSES } from "@/src/features/store/types/store.types";
@@ -13,6 +14,14 @@ import RejectionReworkHub from './RejectionReworkHub';
 
 import { apiGet, apiDelete } from '@/src/lib/api';
 import { generateDocument } from '@/src/utils/documentHelper';
+
+export type ChallanStatusType = 'active' | 'overdue' | 'received';
+
+export const STATUS_OPTIONS: { id: ChallanStatusType; label: string; dotColor: string; badgeBg: string; badgeText: string }[] = [
+    { id: 'active', label: 'Active / In-Process', dotColor: 'bg-blue-500', badgeBg: 'bg-blue-100 dark:bg-blue-900/60', badgeText: 'text-blue-700 dark:text-blue-300' },
+    { id: 'overdue', label: 'Overdue Return', dotColor: 'bg-red-500', badgeBg: 'bg-red-100 dark:bg-red-900/60', badgeText: 'text-red-700 dark:text-red-300' },
+    { id: 'received', label: 'History / Received', dotColor: 'bg-emerald-500', badgeBg: 'bg-emerald-100 dark:bg-emerald-900/60', badgeText: 'text-emerald-700 dark:text-emerald-300' },
+];
 
 interface JobWorkStoreProps {
     vendors: Vendor[];
@@ -67,8 +76,38 @@ export default function JobWorkStore({
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     
-    // Sub-Tabs: All, Active / In-Process, History / Received, Overdue Return, Rejections
-    const [subTab, setSubTab] = useState<'all' | 'active' | 'received' | 'overdue' | 'rejections'>('active');
+    // Two Main Tabs: 'challans' and 'rejections'
+    const [mainTab, setMainTab] = useState<'challans' | 'rejections'>('challans');
+
+    // Multi-Select Status Filter (Default: ['active'])
+    const [selectedStatuses, setSelectedStatuses] = useState<ChallanStatusType[]>(['active']);
+    const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
+    const statusDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Mobile Filter Bottom-Sheet Drawer
+    const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+
+    // Click outside handler for Status Dropdown
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+                setIsStatusDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleStatus = (id: ChallanStatusType) => {
+        setSelectedStatuses(prev => {
+            if (prev.includes(id)) {
+                const next = prev.filter(s => s !== id);
+                return next.length === 0 ? ['active'] : next;
+            } else {
+                return [...prev, id];
+            }
+        });
+    };
 
     // Filter States
     const [filterMode, setFilterMode] = useState<'daily' | 'monthly' | 'yearly'>('daily');
@@ -298,21 +337,46 @@ export default function JobWorkStore({
                 }
             }
 
-            // SubTab status filtering
-            if (subTab === 'active') {
-                if (c.status === 'Closed') return false;
-            } else if (subTab === 'received') {
-                if (c.status !== 'Closed') return false;
-            } else if (subTab === 'overdue') {
-                if (c.status === 'Closed') return false;
-                if (!c.expectedReturnDate) return false;
-                if (new Date(c.expectedReturnDate) >= new Date()) return false;
+            // Multi-Select Status Filtering
+            if (selectedStatuses.length > 0) {
+                const now = new Date();
+                const isClosed = c.status === 'Closed';
+                const isOverdue = !isClosed && Boolean(c.expectedReturnDate && new Date(c.expectedReturnDate) < now);
+                const isActive = !isClosed;
+
+                const matchesStatus = selectedStatuses.some(st => {
+                    if (st === 'active') return isActive;
+                    if (st === 'overdue') return isOverdue;
+                    if (st === 'received') return isClosed;
+                    return false;
+                });
+
+                if (!matchesStatus) return false;
             }
-            // 'all' includes everything matching filters
 
             return true;
         });
-    }, [challans, searchTerm, workflowFilter, filterSupplier, filterDate, filterMode, subTab]);
+    }, [challans, searchTerm, workflowFilter, filterSupplier, filterPurpose, filterDate, filterMode, selectedStatuses]);
+
+    const activeFilterCount = useMemo(() => {
+        let count = 0;
+        if (workflowFilter !== 'all') count++;
+        if (filterSupplier) count++;
+        if (filterPurpose !== 'all') count++;
+        if (filterDate) count++;
+        if (selectedStatuses.length !== 1 || selectedStatuses[0] !== 'active') count++;
+        return count;
+    }, [workflowFilter, filterSupplier, filterPurpose, filterDate, selectedStatuses]);
+
+    const getStatusDropdownLabel = () => {
+        if (selectedStatuses.length === 3) return `All Statuses (${tabCounts.all})`;
+        if (selectedStatuses.length === 1) {
+            const st = STATUS_OPTIONS.find(o => o.id === selectedStatuses[0]);
+            return `${st?.label || 'Active'} (${tabCounts[selectedStatuses[0]]})`;
+        }
+        const names = selectedStatuses.map(s => s === 'active' ? 'Active' : s === 'overdue' ? 'Overdue' : 'Received');
+        return `${names.join(', ')}`;
+    };
 
     // Render dynamic date input based on selected mode
     const renderDateFilterInput = () => {
@@ -353,162 +417,279 @@ export default function JobWorkStore({
     };
 
     return (
-        <div className="animate-in fade-in duration-300 space-y-4">
+        <div className="animate-in fade-in duration-300 space-y-3.5">
             
-            {/* Top Row: Sub-Tabs & Action Button */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                {/* Sub-Tabs with Counter Badges */}
-                <div className="flex bg-gray-100 dark:bg-gray-800/60 p-1 rounded-xl backdrop-blur-sm overflow-x-auto no-scrollbar gap-1 max-w-full">
+            {/* Mobile App Header (Top bar for mobile view) */}
+            <div className="sm:hidden flex items-center justify-between gap-2 bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+                {/* Left: Create DC Button */}
+                <button
+                    onClick={() => handleCreateChallan()}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all shrink-0 cursor-pointer"
+                >
+                    <Plus size={15} />
+                    <span>Create DC</span>
+                </button>
+
+                {/* Center: Search input */}
+                <div className="relative flex-1 min-w-0">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={13} />
+                    <input
+                        type="text"
+                        placeholder="Search DC..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full h-8.5 pl-7 pr-6 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none"
+                    />
+                    {searchTerm && (
+                        <button
+                            onClick={() => setSearchTerm('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 p-0.5 text-xs font-bold"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
+
+                {/* Right: Filter Bottom Sheet Trigger */}
+                <button
+                    onClick={() => setIsMobileFilterOpen(true)}
+                    className={`relative p-2 rounded-xl border transition-all cursor-pointer ${
+                        activeFilterCount > 0
+                            ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-950/60 dark:border-indigo-800 dark:text-indigo-300'
+                            : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'
+                    }`}
+                    title="Open Filters"
+                >
+                    <SlidersHorizontal size={15} />
+                    {activeFilterCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                            {activeFilterCount}
+                        </span>
+                    )}
+                </button>
+            </div>
+
+            {/* Top Row: Two Main Tabs & Desktop Action Button */}
+            <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2.5">
+                {/* Two Main Tabs: Challans & Rejection Bins */}
+                <div className="flex bg-gray-100 dark:bg-gray-800/70 p-1 rounded-2xl gap-1 w-full sm:w-auto">
                     <button
-                        onClick={() => setSubTab('all')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            subTab === 'all'
+                        onClick={() => setMainTab('challans')}
+                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                            mainTab === 'challans'
                                 ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        <span>All Challans</span>
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'all' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
-                            {tabCounts.all}
+                        <Truck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <span>Job Work Challans</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                            mainTab === 'challans'
+                                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                                : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                        }`}>
+                            {challans.length}
                         </span>
                     </button>
 
                     <button
-                        onClick={() => setSubTab('active')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            subTab === 'active'
-                                ? 'bg-white dark:bg-gray-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <span>Active / In-Process</span>
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'active' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
-                            {tabCounts.active}
-                        </span>
-                    </button>
-
-                    <button
-                        onClick={() => setSubTab('received')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            subTab === 'received'
-                                ? 'bg-white dark:bg-gray-700 text-emerald-600 dark:text-emerald-300 shadow-xs'
-                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <span>History / Received</span>
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'received' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
-                            {tabCounts.received}
-                        </span>
-                    </button>
-
-                    <button
-                        onClick={() => setSubTab('overdue')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            subTab === 'overdue'
-                                ? 'bg-white dark:bg-gray-700 text-red-600 dark:text-red-300 shadow-xs'
-                                : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
-                        }`}
-                    >
-                        <span>Overdue Return</span>
-                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${subTab === 'overdue' ? 'bg-red-100 text-red-700 dark:bg-red-900/60 dark:text-red-300' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}`}>
-                            {tabCounts.overdue}
-                        </span>
-                    </button>
-
-                    <button
-                        onClick={() => setSubTab('rejections')}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
-                            subTab === 'rejections'
+                        onClick={() => setMainTab('rejections')}
+                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                            mainTab === 'rejections'
                                 ? 'bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-400 shadow-xs'
                                 : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
                         }`}
                     >
-                        <ShieldAlert size={14} className="text-rose-500" />
-                        <span>Rejection Bin (DC Return)</span>
+                        <ShieldAlert className="w-4 h-4 text-rose-500" />
+                        <span>Rejection Bins</span>
                     </button>
                 </div>
 
-                {/* Primary Action Button */}
+                {/* Primary Action Button (Desktop) */}
                 <button
                     onClick={() => handleCreateChallan()}
-                    className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer shrink-0"
+                    className="hidden sm:flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
                 >
                     <Plus size={15} />
                     <span>Create Returnable DC</span>
                 </button>
             </div>
 
-            {subTab === 'rejections' ? (
+            {mainTab === 'rejections' ? (
                 <div className="pt-1">
                     <RejectionReworkHub context="wip-jobwork" />
                 </div>
             ) : (
                 <>
-                    {/* Single-Line Unified Toolbar: Search + Workflow + Supplier + Date Switcher & Picker + Count */}
-                    <div className="bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                    
-                    {/* Left: Search & Selectors */}
-                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
-                        {/* Search Input */}
-                        <div className="relative flex-1 min-w-[180px] max-w-xs">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                            <input
-                                type="text"
-                                placeholder="Search Challan #, Vendor, Item, MRP #..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            />
-                            {searchTerm && (
+                    {/* Mobile Quick-Toggle Status Pills */}
+                    <div className="sm:hidden flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                        {STATUS_OPTIONS.map(st => {
+                            const isChecked = selectedStatuses.includes(st.id);
+                            return (
                                 <button
-                                    onClick={() => setSearchTerm('')}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer text-xs font-bold"
+                                    key={st.id}
+                                    type="button"
+                                    onClick={() => toggleStatus(st.id)}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-1.5 border cursor-pointer ${
+                                        isChecked
+                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                                    }`}
                                 >
-                                    ✕
+                                    <div className={`w-2 h-2 rounded-full ${isChecked ? 'bg-white' : st.dotColor}`} />
+                                    <span>{st.label}</span>
+                                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                                        isChecked ? 'bg-white/20 text-white' : `${st.badgeBg} ${st.badgeText}`
+                                    }`}>
+                                        {tabCounts[st.id]}
+                                    </span>
                                 </button>
-                            )}
-                        </div>
-
-                        {/* Workflow Type Selector */}
-                        <select
-                            value={workflowFilter}
-                            onChange={(e) => setWorkflowFilter(e.target.value as any)}
-                            className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[200px] truncate"
-                        >
-                            <option value="all">📦 All DC Types</option>
-                            <option value="store-conversion">🏭 Store Conversion</option>
-                            <option value="store-to-wip">🔄 Store to WIP</option>
-                            <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
-                            <option value="route-card">⚙️ Route-Card Op</option>
-                        </select>
-
-                        {/* Supplier Filter */}
-                        <select
-                            value={filterSupplier}
-                            onChange={(e) => setFilterSupplier(e.target.value)}
-                            className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[180px] truncate"
-                        >
-                            <option value="">🏢 All Vendors</option>
-                            {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
-                                const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
-                                if (!vendor) return null;
-                                return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
-                            })}
-                        </select>
-
-                        {/* Purpose Filter */}
-                        <select
-                            value={filterPurpose}
-                            onChange={(e) => setFilterPurpose(e.target.value)}
-                            className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[170px] truncate"
-                        >
-                            <option value="all">🎯 All Purposes</option>
-                            {JOB_WORK_PURPOSES.map(p => (
-                                <option key={p} value={p}>{p}</option>
-                            ))}
-                        </select>
+                            );
+                        })}
                     </div>
+
+                    {/* Desktop Toolbar: Search + Multi-Select Status Dropdown + Workflow + Supplier + Purpose + Date Switcher & Picker + Count */}
+                    <div className="hidden sm:block bg-white dark:bg-gray-900 p-2.5 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2.5">
+                            
+                            {/* Left: Search & Selectors */}
+                            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                                {/* Search Input */}
+                                <div className="relative flex-1 min-w-[180px] max-w-xs">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search Challan #, Vendor, Item, MRP #..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full h-9 pl-9 pr-7 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                    />
+                                    {searchTerm && (
+                                        <button
+                                            onClick={() => setSearchTerm('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer text-xs font-bold"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* Status Multi-Select Dropdown */}
+                                <div className="relative" ref={statusDropdownRef}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
+                                        className={`h-9 px-3 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                                            isStatusDropdownOpen || selectedStatuses.length > 0
+                                                ? 'bg-indigo-50/80 border-indigo-200 text-indigo-700 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300'
+                                                : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+                                        }`}
+                                        title="Filter by Challan Status (Multiple selection allowed)"
+                                    >
+                                        <span className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                                            <span>Status: {getStatusDropdownLabel()}</span>
+                                        </span>
+                                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+
+                                    {/* Dropdown Menu */}
+                                    {isStatusDropdownOpen && (
+                                        <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[250px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xl p-2.5 space-y-1.5 animate-in fade-in zoom-in-95 duration-100">
+                                            <div className="text-[10px] font-bold text-slate-400 uppercase px-1 pb-1 border-b border-slate-100 dark:border-slate-800">
+                                                Select Status (Multiple Allowed)
+                                            </div>
+
+                                            {STATUS_OPTIONS.map(st => {
+                                                const isChecked = selectedStatuses.includes(st.id);
+                                                return (
+                                                    <button
+                                                        key={st.id}
+                                                        type="button"
+                                                        onClick={() => toggleStatus(st.id)}
+                                                        className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                            isChecked
+                                                                ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-200'
+                                                                : 'hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
+                                                                isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                            }`}>
+                                                                {isChecked && <Check size={12} strokeWidth={3} />}
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <div className={`w-2 h-2 rounded-full ${st.dotColor}`} />
+                                                                <span>{st.label}</span>
+                                                            </div>
+                                                        </div>
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${st.badgeBg} ${st.badgeText}`}>
+                                                            {tabCounts[st.id]}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+
+                                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] px-1 font-bold">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStatuses(['active', 'overdue', 'received'])}
+                                                    className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                                                >
+                                                    Select All
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedStatuses(['active'])}
+                                                    className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                                                >
+                                                    Reset to Active
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Workflow Type Selector */}
+                                <select
+                                    value={workflowFilter}
+                                    onChange={(e) => setWorkflowFilter(e.target.value as any)}
+                                    className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[190px] truncate"
+                                >
+                                    <option value="all">📦 All DC Types</option>
+                                    <option value="store-conversion">🏭 Store Conversion</option>
+                                    <option value="store-to-wip">🔄 Store to WIP</option>
+                                    <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
+                                    <option value="route-card">⚙️ Route-Card Op</option>
+                                </select>
+
+                                {/* Supplier Filter */}
+                                <select
+                                    value={filterSupplier}
+                                    onChange={(e) => setFilterSupplier(e.target.value)}
+                                    className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[180px] truncate"
+                                >
+                                    <option value="">🏢 All Vendors</option>
+                                    {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
+                                        const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
+                                        if (!vendor) return null;
+                                        return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
+                                    })}
+                                </select>
+
+                                {/* Purpose Filter */}
+                                <select
+                                    value={filterPurpose}
+                                    onChange={(e) => setFilterPurpose(e.target.value)}
+                                    className="h-9 px-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer max-w-[170px] truncate"
+                                >
+                                    <option value="all">🎯 All Purposes</option>
+                                    {JOB_WORK_PURPOSES.map(p => (
+                                        <option key={p} value={p}>{p}</option>
+                                    ))}
+                                </select>
+                            </div>
 
                     {/* Right: Date Mode Switcher + Dynamic Date Picker + Live Count */}
                     <div className="flex flex-wrap items-center gap-2">
@@ -1006,12 +1187,19 @@ export default function JobWorkStore({
                                     </div>
 
                                     <div className="text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
-                                        <div className="flex justify-between">
+                                        <div className="flex justify-between items-start">
                                             <span className="text-slate-400">Outward Item:</span>
-                                            <span className="font-bold text-slate-800 dark:text-slate-200 text-right">
-                                                {primarySentItem?.itemName || '-'}
-                                                {sentItemCount > 1 && ` (+${sentItemCount - 1} more)`}
-                                            </span>
+                                            <div className="text-right">
+                                                <div className="font-bold text-slate-800 dark:text-slate-200">
+                                                    {primarySentItem?.itemName || '-'}
+                                                    {sentItemCount > 1 && ` (+${sentItemCount - 1} more)`}
+                                                </div>
+                                                {getItemDescription(primarySentItem) && (
+                                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-0.5 line-clamp-2">
+                                                        {getItemDescription(primarySentItem)}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-400">Sent Qty:</span>
@@ -1112,6 +1300,172 @@ export default function JobWorkStore({
                 </>
             )}
                 </>
+            )}
+
+            {/* Mobile Filter Bottom-Sheet Drawer */}
+            {isMobileFilterOpen && (
+                <div className="sm:hidden fixed inset-0 z-[200] flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+                    <div 
+                        className="fixed inset-0"
+                        onClick={() => setIsMobileFilterOpen(false)}
+                    />
+                    <div className="relative bg-white dark:bg-slate-900 rounded-t-[26px] p-4 space-y-4 max-h-[85vh] overflow-y-auto border-t border-slate-200 dark:border-slate-800 shadow-2xl animate-in slide-in-from-bottom duration-200">
+                        {/* Drawer Handle */}
+                        <div className="flex justify-center pb-1">
+                            <div className="w-12 h-1 bg-slate-300 dark:bg-slate-700 rounded-full" />
+                        </div>
+
+                        {/* Header */}
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                            <div className="flex items-center gap-2">
+                                <SlidersHorizontal size={16} className="text-indigo-600" />
+                                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Filter Challans</h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileFilterOpen(false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        {/* Status Checkboxes */}
+                        <div>
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-2">Challan Status (Multi-Select)</label>
+                            <div className="grid grid-cols-1 gap-2">
+                                {STATUS_OPTIONS.map(st => {
+                                    const isChecked = selectedStatuses.includes(st.id);
+                                    return (
+                                        <button
+                                            key={st.id}
+                                            type="button"
+                                            onClick={() => toggleStatus(st.id)}
+                                            className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                                                isChecked
+                                                    ? 'bg-indigo-50/70 border-indigo-300 text-indigo-900 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-200'
+                                                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
+                                                    isChecked ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
+                                                }`}>
+                                                    {isChecked && <Check size={12} strokeWidth={3} />}
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <div className={`w-2 h-2 rounded-full ${st.dotColor}`} />
+                                                    <span>{st.label}</span>
+                                                </div>
+                                            </div>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${st.badgeBg} ${st.badgeText}`}>
+                                                {tabCounts[st.id]}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Workflow Filter */}
+                        <div>
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">DC Workflow</label>
+                            <select
+                                value={workflowFilter}
+                                onChange={(e) => setWorkflowFilter(e.target.value as any)}
+                                className="w-full h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300"
+                            >
+                                <option value="all">📦 All DC Types</option>
+                                <option value="store-conversion">🏭 Store Conversion</option>
+                                <option value="store-to-wip">🔄 Store to WIP</option>
+                                <option value="wip-to-wip">📦 WIP to WIP (Coating)</option>
+                                <option value="route-card">⚙️ Route-Card Op</option>
+                            </select>
+                        </div>
+
+                        {/* Vendor Filter */}
+                        <div>
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Subcontractor / Vendor</label>
+                            <select
+                                value={filterSupplier}
+                                onChange={(e) => setFilterSupplier(e.target.value)}
+                                className="w-full h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300"
+                            >
+                                <option value="">🏢 All Vendors</option>
+                                {Array.from(new Set(challans.filter(c => c.vendor).map(c => c.vendor!._id))).map(id => {
+                                    const vendor = challans.find(c => c.vendor?._id === id)?.vendor;
+                                    if (!vendor) return null;
+                                    return <option key={vendor._id} value={vendor._id}>{vendor.name}</option>;
+                                })}
+                            </select>
+                        </div>
+
+                        {/* Purpose Filter */}
+                        <div>
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Purpose</label>
+                            <select
+                                value={filterPurpose}
+                                onChange={(e) => setFilterPurpose(e.target.value)}
+                                className="w-full h-9 px-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300"
+                            >
+                                <option value="all">🎯 All Purposes</option>
+                                {JOB_WORK_PURPOSES.map(p => (
+                                    <option key={p} value={p}>{p}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Date Mode & Picker */}
+                        <div>
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Date Filter</label>
+                            <div className="flex gap-2 mb-2">
+                                {[
+                                    { id: 'daily', label: 'Day' },
+                                    { id: 'monthly', label: 'Month' },
+                                    { id: 'yearly', label: 'Year' }
+                                ].map(type => (
+                                    <button
+                                        key={type.id}
+                                        type="button"
+                                        onClick={() => { setFilterMode(type.id as any); setFilterDate(''); }}
+                                        className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                            filterMode === type.id
+                                                ? 'bg-indigo-600 text-white'
+                                                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                                        }`}
+                                    >
+                                        {type.label}
+                                    </button>
+                                ))}
+                            </div>
+                            {renderDateFilterInput()}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSelectedStatuses(['active']);
+                                    setWorkflowFilter('all');
+                                    setFilterSupplier('');
+                                    setFilterPurpose('all');
+                                    setFilterDate('');
+                                }}
+                                className="py-2.5 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 text-center"
+                            >
+                                Reset Filters
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsMobileFilterOpen(false)}
+                                className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold text-center shadow-sm"
+                            >
+                                Apply ({filteredChallans.length})
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Forms & Modals */}

@@ -54,7 +54,7 @@ export default function WipLayout({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden scroll-smooth">
           {children}
         </div>
       </div>

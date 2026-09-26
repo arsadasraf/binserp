@@ -66,50 +66,26 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
       href: '/dashboard/store/wip/requests/all', 
       icon: LayoutGrid, 
       count: allPendingCount,
-      color: 'indigo'
-    },
-    { 
-      name: 'RM Requests', 
-      href: '/dashboard/store/wip/requests/rm', 
-      icon: Layers, 
-      count: rmPendingCount,
-      color: 'blue'
-    },
-    { 
-      name: 'BO Requests', 
-      href: '/dashboard/store/wip/requests/bo', 
-      icon: ShoppingCart, 
-      count: boPendingCount,
-      color: 'emerald'
-    },
-    { 
-      name: 'Consumables Requests', 
-      href: '/dashboard/store/wip/requests/consumables', 
-      icon: Package, 
-      count: consumablePendingCount,
-      color: 'amber'
-    },
-    { 
-      name: 'FG / In-House Requests', 
-      href: '/dashboard/store/wip/requests/fg', 
-      icon: Boxes, 
-      count: fgPendingCount,
-      color: 'purple'
+      color: 'indigo',
+      checkActive: (path: string) => 
+        path === '/dashboard/store/wip/requests/all' || 
+        path === '/dashboard/store/wip/requests' || 
+        path.startsWith('/dashboard/store/wip/requests/rm') ||
+        path.startsWith('/dashboard/store/wip/requests/bo') ||
+        path.startsWith('/dashboard/store/wip/requests/consumables') ||
+        path.startsWith('/dashboard/store/wip/requests/fg')
     },
     { 
       name: 'Issue History', 
       href: '/dashboard/store/wip/requests/history', 
       icon: History, 
       count: historyCount,
-      color: 'slate'
+      color: 'slate',
+      checkActive: (path: string) => path === '/dashboard/store/wip/requests/history'
     },
   ];
 
   const getDefaultType = () => {
-    if (pathname.includes('/consumables')) return 'consumable';
-    if (pathname.includes('/fg')) return 'inhouse';
-    if (pathname.includes('/bo')) return 'bo';
-    if (pathname.includes('/rm')) return 'rm';
     return 'rm';
   };
 
@@ -123,43 +99,34 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
   };
 
   return (
-    <div className="space-y-4">
-      {/* Category Sub-Tabs with Notification Badges & New Request Button on Right Side */}
-      <div className="bg-white dark:bg-slate-900 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
-        <div className="flex bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl gap-1 overflow-x-auto no-scrollbar flex-1 sm:flex-none">
+    <div className="space-y-4 pb-20 sm:pb-0">
+      {/* Two Main Tabs Header (Mobile App-Like Segmented Control) */}
+      <div className="bg-white dark:bg-slate-900 p-1.5 sm:p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex items-center justify-between gap-3">
+        {/* Mobile Full-Width 2-Segment Control / Desktop Tab Switcher */}
+        <div className="grid grid-cols-2 sm:flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl gap-1 w-full sm:w-auto">
           {requestTabs.map((tab) => {
-            const isActive = pathname === tab.href || 
-              (pathname === '/dashboard/store/wip/requests' && tab.href.endsWith('/all')) || 
-              (pathname === '/dashboard/store/wip/requests/rm-bo' && tab.href.endsWith('/rm'));
+            const isActive = tab.checkActive(pathname);
             const Icon = tab.icon;
 
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
-                className={`flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+                className={`flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-lg text-xs font-bold transition-all text-center whitespace-nowrap active:scale-[0.98] ${
                   isActive
                     ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/10'
                     : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
               >
-                <Icon size={14} className={isActive ? (
-                  tab.color === 'indigo' ? 'text-indigo-600' :
-                  tab.color === 'blue' ? 'text-blue-600' :
-                  tab.color === 'emerald' ? 'text-emerald-600' :
-                  tab.color === 'amber' ? 'text-amber-500' :
-                  tab.color === 'purple' ? 'text-purple-600' : 'text-slate-600'
+                <Icon size={15} className={isActive ? (
+                  tab.color === 'indigo' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300'
                 ) : 'text-slate-400'} />
                 <span>{tab.name}</span>
                 {tab.count > 0 && (
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] font-black rounded-full leading-none transition-colors ${
+                    className={`px-2 py-0.5 text-[10px] font-black rounded-full leading-none transition-colors ${
                       isActive
                         ? (tab.color === 'indigo' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300' :
-                           tab.color === 'blue' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300' :
-                           tab.color === 'emerald' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/60 dark:text-emerald-300' :
-                           tab.color === 'amber' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-300' :
-                           tab.color === 'purple' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300' :
                            'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300')
                         : 'bg-slate-200/70 text-slate-500 dark:bg-slate-700/60 dark:text-slate-400'
                     }`}
@@ -172,8 +139,8 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
           })}
         </div>
 
-        {/* Right Side: + New Request Button */}
-        <div className="flex items-center gap-3 px-1 justify-end">
+        {/* Right Side: + New Request Button (Desktop) */}
+        <div className="hidden sm:flex items-center gap-3 px-1 justify-end">
           <button
             onClick={() => setIsRequestModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:shadow-lg hover:shadow-blue-200 dark:hover:shadow-none transition-all font-bold text-xs active:scale-95 shadow-sm shrink-0 cursor-pointer"
@@ -182,6 +149,17 @@ export default function MaterialRequestsLayout({ children }: { children: React.R
             <span>New Request</span>
           </button>
         </div>
+      </div>
+
+      {/* Floating Action Button (FAB) for Mobile App Feel */}
+      <div className="sm:hidden fixed bottom-5 right-4 z-40">
+        <button
+          onClick={() => setIsRequestModalOpen(true)}
+          className="flex items-center gap-2 px-5 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full shadow-xl shadow-blue-500/30 hover:shadow-blue-500/50 transition-all font-extrabold text-xs active:scale-90 cursor-pointer"
+        >
+          <Plus size={18} strokeWidth={2.5} />
+          <span>New Request</span>
+        </button>
       </div>
 
       {/* Nested Page Content */}

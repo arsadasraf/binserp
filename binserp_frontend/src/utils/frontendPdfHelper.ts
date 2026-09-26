@@ -499,7 +499,6 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
                         ${item.description ? `<div style="font-size: 9px; color: #475569; font-weight: normal;">${item.description}</div>` : ''}
                     </td>
                     <td style="text-align: center; font-weight: bold; padding: 6px;">${qty} ${item.unit || item.uom || 'PCS'}</td>
-                    <td style="text-align: center; padding: 6px; color: #64748b;">${item.targetPrice ? '₹' + item.targetPrice : '-'}</td>
                     <td style="text-align: left; padding: 6px;">${item.remarks || ''}</td>
                     <td style="text-align: center; padding: 6px; border-left: 2px solid #0284c7; background: #fafafa;">&nbsp;</td>
                 </tr>
@@ -511,13 +510,13 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
             itemsTableRowsHtml += `
                 <tr>
                     <td style="height: 28px;"></td>
-                    <td></td><td></td><td></td><td></td>
+                    <td></td><td></td><td></td>
                     <td style="border-left: 2px solid #0284c7; background: #fafafa;"></td>
                 </tr>
             `;
         }
     } else {
-        itemsTableRowsHtml = `<tr><td colspan="6" style="text-align: center; padding: 30px;">No materials specified</td></tr>`;
+        itemsTableRowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 30px;">No materials specified</td></tr>`;
     }
 
     const htmlContent = `
@@ -589,10 +588,9 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
                 <thead style="background: #f0f9ff; text-transform: uppercase; font-weight: bold; color: #0369a1;">
                     <tr>
                         <th style="width: 5%; padding: 7px 4px; text-align: center;">S.No</th>
-                        <th style="width: 32%; padding: 7px 8px; text-align: left;">Item Description & Specifications</th>
-                        <th style="width: 13%; padding: 7px 4px; text-align: center;">Req. Qty</th>
-                        <th style="width: 12%; padding: 7px 4px; text-align: center;">Target Rate</th>
-                        <th style="width: 18%; padding: 7px 8px; text-align: left;">Remarks / Specs</th>
+                        <th style="width: 40%; padding: 7px 8px; text-align: left;">Item Description & Specifications</th>
+                        <th style="width: 15%; padding: 7px 4px; text-align: center;">Req. Qty</th>
+                        <th style="width: 20%; padding: 7px 8px; text-align: left;">Remarks / Specs</th>
                         <th style="width: 20%; padding: 7px 8px; text-align: center; background: #e0f2fe;">Vendor Quoted Rate (₹)</th>
                     </tr>
                 </thead>
@@ -603,7 +601,7 @@ export const generateFrontendRfqPDF = (data: { rfq: any; vendor?: any; companyIn
                     <tr>
                         <td colspan="2" style="padding: 6px 8px; text-align: right;">Total Required Quantity =</td>
                         <td style="padding: 6px; text-align: center;">${totalQty}</td>
-                        <td colspan="3"></td>
+                        <td colspan="2"></td>
                     </tr>
                 </tfoot>
             </table>

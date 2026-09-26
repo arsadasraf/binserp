@@ -336,7 +336,7 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
     }
 
     return (
-        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
             {/* Active Column Filters Banner */}
             {activeFilterCount > 0 && (
                 <div className="px-4 py-2.5 bg-blue-50 dark:bg-blue-950/40 border-b border-blue-100 dark:border-blue-900/50 flex items-center justify-between text-xs animate-in fade-in">
@@ -370,9 +370,9 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
             )}
 
             {/* Desktop Table View with Excel Column Filters */}
-            <div className="hidden md:block overflow-x-auto min-h-[350px]">
+            <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-270px)] scrollbar-thin">
                 <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800 text-left border-collapse">
-                    <thead className="bg-gray-50/80 dark:bg-gray-800/60 border-b border-gray-100 dark:border-gray-800">
+                    <thead className="sticky top-0 z-20 bg-gray-50/95 dark:bg-gray-800/95 backdrop-blur-xs border-b border-gray-100 dark:border-gray-800 shadow-2xs">
                         <tr>
                             {renderColumnHeader('issueNumber', 'Issue #')}
                             {renderColumnHeader('type', 'Type')}
@@ -465,7 +465,7 @@ export default function MaterialIssueHistoryTable({ issues, onView }: MaterialIs
             </div>
 
             {/* Mobile Card View */}
-            <div className="md:hidden flex flex-col divide-y divide-gray-100 dark:divide-gray-800 pb-28 sm:pb-20">
+            <div className="md:hidden flex flex-col divide-y divide-gray-100 dark:divide-gray-800 max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain pb-24 sm:pb-8">
                 {filteredIssues.map((issue) => {
                     const typeInfo = resolveIssueType(issue);
 

@@ -1,10 +1,34 @@
-import React, { useState, useMemo } from 'react';
-import { Search, Calendar, XCircle, Filter, Package } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Search, Calendar, XCircle, Filter, Package, Layers, ShoppingCart, Boxes, ChevronDown, Check, SlidersHorizontal } from 'lucide-react';
 import MaterialRequestTable from '../tables/MaterialRequestTable';
 import MaterialIssueHistoryTable, { resolveIssueType } from '../tables/MaterialIssueHistoryTable';
 import MaterialRequestModal from '../modals/MaterialRequestModal';
 import MaterialRequestDetailsModal from '../modals/MaterialRequestDetailsModal';
 import MaterialIssueDetailsModal from '../modals/MaterialIssueDetailsModal';
+
+export type RequestTypeOption = 'rm' | 'bo' | 'consumable' | 'fg';
+
+export const REQUEST_TYPE_CONFIG: {
+    key: RequestTypeOption;
+    label: string;
+    shortLabel: string;
+    badgeColor: string;
+    dotColor: string;
+    icon: any;
+}[] = [
+    { key: 'rm', label: 'Raw Materials (RM)', shortLabel: 'RM', badgeColor: 'bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300 border-blue-200 dark:border-blue-800', dotColor: 'bg-blue-600', icon: Layers },
+    { key: 'bo', label: 'Bought Out (BO)', shortLabel: 'BO', badgeColor: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800', dotColor: 'bg-emerald-600', icon: ShoppingCart },
+    { key: 'consumable', label: 'Consumables', shortLabel: 'Consumables', badgeColor: 'bg-amber-50 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border-amber-200 dark:border-amber-800', dotColor: 'bg-amber-500', icon: Package },
+    { key: 'fg', label: 'Finished Goods / FG', shortLabel: 'FG / In-House', badgeColor: 'bg-purple-50 text-purple-700 dark:bg-purple-950/70 dark:text-purple-300 border-purple-200 dark:border-purple-800', dotColor: 'bg-purple-600', icon: Boxes },
+];
+
+export function normalizeRequestType(r: any): RequestTypeOption {
+    const rType = (r?.type || 'rm').toLowerCase();
+    if (rType === 'consumable') return 'consumable';
+    if (rType === 'fg' || rType === 'inhouse') return 'fg';
+    if (rType === 'bo' || rType === 'bought-out') return 'bo';
+    return 'rm';
+}
 
 interface MaterialIssueTabProps {
     storeData: any;
@@ -22,6 +46,42 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
 
     // Filter States for requests
     const [requestSearchQuery, setRequestSearchQuery] = useState<string>('');
+    const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
+    const typeDropdownRef = useRef<HTMLDivElement>(null);
+
+    const [selectedRequestTypes, setSelectedRequestTypes] = useState<RequestTypeOption[]>(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const typesParam = params.get('types') || params.get('type');
+            if (typesParam) {
+                const split = typesParam.split(',').map(s => s.trim().toLowerCase());
+                const matched = split.map(t => {
+                    if (t === 'inhouse') return 'fg';
+                    if (t === 'bought-out') return 'bo';
+                    if (t === 'raw-material') return 'rm';
+                    return t;
+                }).filter((t): t is RequestTypeOption => ['rm', 'bo', 'consumable', 'fg'].includes(t as any));
+                if (matched.length > 0) return matched;
+            }
+        }
+        if (requestTypeFilter && requestTypeFilter !== 'all') {
+            if (requestTypeFilter === 'inhouse') return ['fg'];
+            if (requestTypeFilter === 'rm-bo') return ['rm', 'bo'];
+            return [requestTypeFilter as RequestTypeOption];
+        }
+        return ['rm', 'bo', 'consumable', 'fg'];
+    });
+
+    // Close type dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (typeDropdownRef.current && !typeDropdownRef.current.contains(event.target as Node)) {
+                setIsTypeDropdownOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     // Filter States for history
     const [searchQuery, setSearchQuery] = useState<string>('');
@@ -47,24 +107,66 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
         loading
     } = storeData;
 
-    // Filter pending requests strictly by category and search
+    // Counts per category for pending requests
+    const typeCounts = useMemo(() => {
+        const counts: Record<RequestTypeOption, number> = { rm: 0, bo: 0, consumable: 0, fg: 0 };
+        (materialRequests || []).forEach((r: any) => {
+            if (r.status === 'Pending' || r.status === 'Approved') {
+                const t = normalizeRequestType(r);
+                counts[t] = (counts[t] || 0) + 1;
+            }
+        });
+        return counts;
+    }, [materialRequests]);
+
+    const totalPendingCount = useMemo(() => {
+        return (materialRequests || []).filter((r: any) => r.status === 'Pending' || r.status === 'Approved').length;
+    }, [materialRequests]);
+
+    const toggleRequestType = (typeKey: RequestTypeOption) => {
+        setSelectedRequestTypes(prev => {
+            if (prev.includes(typeKey)) {
+                // If removing would make it empty, keep at least this or allow empty
+                return prev.filter(t => t !== typeKey);
+            } else {
+                return [...prev, typeKey];
+            }
+        });
+    };
+
+    const selectAllTypes = () => {
+        setSelectedRequestTypes(['rm', 'bo', 'consumable', 'fg']);
+    };
+
+    const clearAllTypes = () => {
+        setSelectedRequestTypes([]);
+    };
+
+    const getTypeDropdownLabel = () => {
+        if (selectedRequestTypes.length === 4) return 'All Types (4)';
+        if (selectedRequestTypes.length === 0) return 'No Types (0)';
+        if (selectedRequestTypes.length === 1) {
+            const conf = REQUEST_TYPE_CONFIG.find(c => c.key === selectedRequestTypes[0]);
+            return conf ? conf.shortLabel : '1 Type';
+        }
+        return `Types: ${selectedRequestTypes.map(k => {
+            const conf = REQUEST_TYPE_CONFIG.find(c => c.key === k);
+            return conf ? conf.shortLabel : k;
+        }).join(', ')} (${selectedRequestTypes.length})`;
+    };
+
+    // Filter pending requests strictly by multiple selected types and search
     const pendingRequests = useMemo(() => {
         return (materialRequests || []).filter((r: any) => {
             const isPending = r.status === 'Pending' || r.status === 'Approved';
             if (!isPending) return false;
 
-            if (requestTypeFilter && requestTypeFilter !== 'all') {
-                const rType = (r.type || 'rm').toLowerCase();
-                if (requestTypeFilter === 'consumable') {
-                    if (rType !== 'consumable') return false;
-                } else if (requestTypeFilter === 'fg' || requestTypeFilter === 'inhouse') {
-                    if (rType !== 'fg' && rType !== 'inhouse') return false;
-                } else if (requestTypeFilter === 'bo') {
-                    if (rType !== 'bo' && rType !== 'bought-out') return false;
-                } else if (requestTypeFilter === 'rm') {
-                    const isRm = rType === 'rm' || rType === 'raw-material' || (!r.type && rType !== 'bo' && rType !== 'bought-out' && rType !== 'consumable' && rType !== 'fg' && rType !== 'inhouse');
-                    if (!isRm) return false;
-                }
+            const normType = normalizeRequestType(r);
+            if (selectedRequestTypes.length > 0 && !selectedRequestTypes.includes(normType)) {
+                return false;
+            }
+            if (selectedRequestTypes.length === 0) {
+                return false;
             }
 
             if (requestSearchQuery.trim()) {
@@ -75,7 +177,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                 const dept = (r.department || '').toLowerCase();
                 const matchesItems = Array.isArray(r.items) && r.items.some((it: any) => {
                     const name = (it.materialName || it.name || '').toLowerCase();
-                    const desc = (it.description || it.descriptions || '').toLowerCase();
+                    const desc = (it.description || it.descriptions || it.materialDescription || '').toLowerCase();
                     return name.includes(query) || desc.includes(query);
                 });
                 const matches = reqNo.includes(query) || targetNo.includes(query) || requester.includes(query) || dept.includes(query) || matchesItems;
@@ -84,7 +186,7 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
 
             return true;
         });
-    }, [materialRequests, requestTypeFilter, requestSearchQuery]);
+    }, [materialRequests, selectedRequestTypes, requestSearchQuery]);
 
     // Filter History: Search + Type-wise Dropdown + Day-wise / Month-wise / Year-wise Date
     const filteredHistory = useMemo(() => {
@@ -301,44 +403,121 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 flex-1 min-h-0 flex flex-col">
             {/* Content Container */}
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col flex-1 min-h-0 overflow-hidden">
                 {activeSubTab === 'requests' ? (
-                    <div className="flex flex-col h-full">
+                    <div className="flex flex-col h-full flex-1 min-h-0">
                         {/* Header & Filter Bar for Requests */}
-                        <div className="p-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
-                                {/* Search Bar */}
-                                <div className="relative flex-1 min-w-[200px] max-w-sm">
-                                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                    <input
-                                        type="text"
-                                        value={requestSearchQuery}
-                                        onChange={(e) => setRequestSearchQuery(e.target.value)}
-                                        placeholder="Search Request #, SO/MRP, material, requester..."
-                                        className="w-full h-9 pl-9 pr-7 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder-gray-400"
-                                    />
-                                    {requestSearchQuery && (
-                                        <button
-                                            onClick={() => setRequestSearchQuery('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
-                                        >
-                                            <XCircle size={14} />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
+                        <div className="p-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 shrink-0">
+                            <div className="flex flex-wrap items-center justify-between gap-2.5">
+                                <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[260px]">
+                                    {/* Search Bar */}
+                                    <div className="relative flex-1 min-w-[180px] max-w-sm">
+                                        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                                        <input
+                                            type="text"
+                                            value={requestSearchQuery}
+                                            onChange={(e) => setRequestSearchQuery(e.target.value)}
+                                            placeholder="Search Request #, SO/MRP, material, requester..."
+                                            className="w-full h-9 pl-9 pr-7 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-medium text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all placeholder-gray-400"
+                                        />
+                                        {requestSearchQuery && (
+                                            <button
+                                                onClick={() => setRequestSearchQuery('')}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 cursor-pointer"
+                                            >
+                                                <XCircle size={14} />
+                                            </button>
+                                        )}
+                                    </div>
 
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-500">Pending:</span>
-                                <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                    {pendingRequests.length} Requests
-                                </span>
+                                    {/* Multi-Select Request Type Dropdown */}
+                                    <div className="relative" ref={typeDropdownRef}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
+                                            className="h-9 px-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-750 flex items-center gap-2 cursor-pointer transition-colors shadow-2xs"
+                                        >
+                                            <Filter size={13} className="text-gray-400" />
+                                            <span>{getTypeDropdownLabel()}</span>
+                                            <div className="flex items-center -space-x-1 ml-0.5">
+                                                {selectedRequestTypes.map(k => {
+                                                    const conf = REQUEST_TYPE_CONFIG.find(c => c.key === k);
+                                                    return conf ? <span key={k} className={`w-2 h-2 rounded-full ring-1 ring-white dark:ring-gray-800 ${conf.dotColor}`} /> : null;
+                                                })}
+                                            </div>
+                                            <ChevronDown size={14} className={`text-gray-400 transition-transform ${isTypeDropdownOpen ? 'rotate-180' : ''}`} />
+                                        </button>
+
+                                        {isTypeDropdownOpen && (
+                                            <div className="absolute left-0 mt-1.5 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl z-50 p-2 animate-in fade-in slide-in-from-top-2 duration-150">
+                                                <div className="flex items-center justify-between px-2 py-1.5 border-b border-gray-100 dark:border-gray-800 mb-1">
+                                                    <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">Request Types</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={selectAllTypes}
+                                                            className="text-[11px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer"
+                                                        >
+                                                            Select All
+                                                        </button>
+                                                        <span className="text-gray-300">|</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={clearAllTypes}
+                                                            className="text-[11px] font-bold text-gray-400 hover:text-gray-600 cursor-pointer"
+                                                        >
+                                                            Clear
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="space-y-0.5">
+                                                    {REQUEST_TYPE_CONFIG.map((conf) => {
+                                                        const isSelected = selectedRequestTypes.includes(conf.key);
+                                                        const count = typeCounts[conf.key] || 0;
+                                                        const Icon = conf.icon;
+                                                        return (
+                                                            <button
+                                                                key={conf.key}
+                                                                type="button"
+                                                                onClick={() => toggleRequestType(conf.key)}
+                                                                className={`w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
+                                                                    isSelected ? 'bg-blue-50/70 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center gap-2.5">
+                                                                    <div className={`w-4 h-4 rounded-md flex items-center justify-center border transition-colors ${
+                                                                        isSelected ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
+                                                                    }`}>
+                                                                        {isSelected && <Check size={11} strokeWidth={3} />}
+                                                                    </div>
+                                                                    <Icon size={14} className={conf.dotColor.replace('bg-', 'text-')} />
+                                                                    <span>{conf.label}</span>
+                                                                </div>
+                                                                <span className="text-[11px] font-bold px-1.5 py-0.2 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500">
+                                                                    {count}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <span className="text-xs font-bold text-slate-500">Showing:</span>
+                                    <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                        {pendingRequests.length} of {totalPendingCount} Requests
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
-                        <div className="p-1">
+                        <div className="p-1 flex-1 min-h-0 flex flex-col">
                             <MaterialRequestTable
                                 requests={pendingRequests}
                                 onIssue={handleIssueRequest}
@@ -348,9 +527,9 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                         </div>
                     </div>
                 ) : (
-                    <div className="flex flex-col h-full">
+                    <div className="flex flex-col h-full flex-1 min-h-0">
                         {/* Unified Single-Line Filter Toolbar for Issue History */}
-                        <div className="p-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40">
+                        <div className="p-3 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 shrink-0">
                             <div className="flex flex-wrap items-center justify-between gap-2.5">
                                 
                                 {/* Left Section: Search Input + Type Dropdown */}
@@ -438,10 +617,12 @@ export default function MaterialIssueTab({ storeData, token, activeSubTab, reque
                         </div>
 
                         {/* Table Area */}
-                        <MaterialIssueHistoryTable
-                            issues={filteredHistory}
-                            onView={(issue) => setViewIssue(issue)}
-                        />
+                        <div className="p-1 flex-1 min-h-0 flex flex-col">
+                            <MaterialIssueHistoryTable
+                                issues={filteredHistory}
+                                onView={(issue) => setViewIssue(issue)}
+                            />
+                        </div>
                     </div>
                 )}
             </div>

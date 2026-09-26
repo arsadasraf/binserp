@@ -1004,26 +1004,27 @@ export default function GRNModal({
             <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-4 bg-slate-950/75 backdrop-blur-md animate-in fade-in duration-200">
                 <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-3xl lg:max-w-4xl overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[92vh]">
                     
-                    {/* Header */}
-                    <div className="px-5 py-4 bg-slate-900 text-white flex justify-between items-center flex-shrink-0 border-b border-slate-800">
+                    {/* Header (Clean light/neutral theme) */}
+                    <div className="px-4 sm:px-5 py-3.5 bg-slate-50/95 dark:bg-slate-800/95 text-slate-900 dark:text-slate-100 flex justify-between items-center flex-shrink-0 border-b border-slate-200 dark:border-slate-700/80 backdrop-blur-md">
                         <div className="flex items-center gap-2.5">
-                            <div className="w-9 h-9 bg-emerald-500/20 text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-500/30">
+                            <div className="w-9 h-9 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-xl flex items-center justify-center border border-emerald-200 dark:border-emerald-800 shrink-0">
                                 <CheckCircle2 className="w-5 h-5" />
                             </div>
                             <div>
-                                <h2 className="text-sm sm:text-base font-black tracking-tight flex items-center gap-2">
+                                <h2 className="text-sm sm:text-base font-bold tracking-tight flex items-center gap-2">
                                     <span>GRN Generated Successfully</span>
-                                    <span className="bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">
+                                    <span className="bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">
                                         {createdGRNData.grnNumber}
                                     </span>
                                 </h2>
-                                <p className="text-slate-400 text-xs mt-0.5">Goods receipt and inventory balances updated.</p>
+                                <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">Goods receipt and inventory balances updated.</p>
                             </div>
                         </div>
 
                         <button
                             onClick={onClose}
-                            className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 transition-all flex items-center justify-center text-slate-300 hover:text-white cursor-pointer"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/70 dark:hover:bg-slate-600/70 border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 transition-all flex items-center justify-center cursor-pointer"
+                            title="Close"
                         >
                             <X size={15} />
                         </button>
@@ -1192,19 +1193,24 @@ export default function GRNModal({
 
     return (
         <>
-            <div className="fixed inset-0 z-[150] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-slate-950/75 backdrop-blur-md overflow-y-auto">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] my-auto overflow-hidden border border-slate-200 dark:border-slate-800 flex flex-col max-h-[94vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[150] flex flex-col justify-end sm:justify-center sm:items-center p-0 sm:p-4 md:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto sm:overflow-hidden">
+            <div className="bg-white dark:bg-slate-900 rounded-t-[28px] sm:rounded-2xl shadow-2xl w-full max-w-full sm:max-w-[96vw] xl:max-w-7xl 2xl:max-w-[1550px] overflow-hidden border-t sm:border border-slate-200 dark:border-slate-800 flex flex-col h-[94vh] sm:h-auto sm:max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200">
                 
-                {/* Thin, Sleek Modal Header */}
-                <div className="px-4 sm:px-5 py-3 bg-slate-900 text-white flex flex-wrap justify-between items-center gap-3 flex-shrink-0 border-b border-slate-800">
-                    <div className="flex items-center gap-2 sm:gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-indigo-600/30 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                {/* Mobile Drawer Drag Handle Indicator */}
+                <div className="sm:hidden flex justify-center pt-2.5 pb-1 bg-slate-50/95 dark:bg-slate-800/95 border-b border-slate-100 dark:border-slate-700/50">
+                    <div className="w-12 h-1 bg-slate-300 dark:bg-slate-600 rounded-full" />
+                </div>
+
+                {/* Clean Light / Neutral Header (Top dark theme removed) */}
+                <div className="px-3.5 sm:px-5 py-2.5 sm:py-3 bg-slate-50/95 dark:bg-slate-800/95 text-slate-900 dark:text-slate-100 flex flex-wrap justify-between items-center gap-2 sm:gap-3 flex-shrink-0 border-b border-slate-200 dark:border-slate-700/80 backdrop-blur-md">
+                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
                             <Upload className="w-4 h-4" />
                         </div>
-                        <div>
-                            <h2 className="text-sm sm:text-base font-black tracking-tight flex items-center gap-2">
-                                <span>{isEditing ? `Edit ${theme.title}` : `New ${theme.title}`}</span>
-                                <span className="bg-indigo-900/80 text-indigo-200 border border-indigo-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md">
+                        <div className="min-w-0">
+                            <h2 className="text-sm sm:text-base font-bold tracking-tight flex items-center gap-2 truncate">
+                                <span className="truncate">{isEditing ? `Edit ${theme.title}` : `New ${theme.title}`}</span>
+                                <span className="bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-700 text-[10px] uppercase font-black px-2 py-0.5 rounded-md shrink-0">
                                     {grnType.toUpperCase()}
                                 </span>
                             </h2>
@@ -1212,24 +1218,25 @@ export default function GRNModal({
                     </div>
 
                     {!isEditing && (
-                        <div className="flex items-center gap-1 bg-slate-800/90 p-1 rounded-xl border border-slate-700/80">
+                        <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-700/60 p-1 rounded-xl border border-slate-300/60 dark:border-slate-600/60 overflow-x-auto max-w-full custom-scrollbar">
                             {[
-                                { id: 'rm', label: 'Raw Material (RM)', activeClass: 'bg-blue-600 text-white' },
-                                { id: 'bo', label: 'Bought Out (BO)', activeClass: 'bg-emerald-600 text-white' },
-                                { id: 'consumable', label: 'Consumable', activeClass: 'bg-amber-600 text-white' },
-                                { id: 'inhouse', label: 'Finished Goods (FG)', activeClass: 'bg-purple-600 text-white' },
+                                { id: 'rm', label: 'RM', fullLabel: 'Raw Material (RM)', activeClass: 'bg-blue-600 text-white shadow-xs' },
+                                { id: 'bo', label: 'BO', fullLabel: 'Bought Out (BO)', activeClass: 'bg-emerald-600 text-white shadow-xs' },
+                                { id: 'consumable', label: 'Consumable', fullLabel: 'Consumable', activeClass: 'bg-amber-600 text-white shadow-xs' },
+                                { id: 'inhouse', label: 'FG', fullLabel: 'Finished Goods (FG)', activeClass: 'bg-purple-600 text-white shadow-xs' },
                             ].map((t) => (
                                 <button
                                     key={t.id}
                                     type="button"
                                     onClick={() => handleSwitchType(t.id)}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                    className={`px-2 sm:px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                                         grnType === t.id
-                                            ? `${t.activeClass} shadow-sm`
-                                            : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+                                            ? t.activeClass
+                                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-white/60 dark:hover:bg-slate-600/60'
                                     }`}
                                 >
-                                    {t.label}
+                                    <span className="hidden sm:inline">{t.fullLabel}</span>
+                                    <span className="sm:hidden">{t.label}</span>
                                 </button>
                             ))}
                         </div>
@@ -1237,14 +1244,18 @@ export default function GRNModal({
 
                     <button
                         onClick={onClose}
-                        className="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 transition-all flex items-center justify-center text-slate-300 hover:text-white cursor-pointer"
+                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/70 dark:hover:bg-slate-600/70 border border-slate-200 dark:border-slate-600 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100 transition-all flex items-center justify-center cursor-pointer ml-auto sm:ml-0"
+                        title="Close"
                     >
                         <X size={15} />
                     </button>
                 </div>
 
-                {/* Form Body */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3.5">
+                {/* Form Body with Scrollable Content and Sticky Bottom Action Footer */}
+                <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                    
+                    {/* Scrollable Content Area */}
+                    <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-3.5">
                     
                     {/* Visual Error Summary Alert Banner */}
                     {Object.keys(formErrors).length > 0 && (
@@ -1657,33 +1668,37 @@ export default function GRNModal({
                     <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
                         
                         {/* Section Header */}
-                        <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Layers className="w-4 h-4 text-indigo-600" />
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
-                                    Item Details & Descriptions
+                        <div className="px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                                <Layers className="w-4 h-4 text-indigo-600 shrink-0" />
+                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 truncate">
+                                    <span>Item Details</span>
+                                    <span className="hidden sm:inline"> & Descriptions</span>
                                 </h3>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                                    {materialEntries.length} Item(s)
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                    {materialEntries.length} <span className="hidden sm:inline">Item(s)</span>
                                 </span>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                                 <button
                                     type="button"
                                     onClick={() => handleOpenQuickMasterModal()}
-                                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                    className="p-1.5 sm:px-3 sm:py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
                                     title="Item not in master? Click to register a new master item on the fly"
+                                    aria-label="Add New Master Item"
                                 >
-                                    <PackagePlus className="w-3.5 h-3.5" />
-                                    <span>+ Add New Master Item</span>
+                                    <PackagePlus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                                    <span className="hidden sm:inline">+ Add New Master Item</span>
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => handleAddMaterial()}
-                                    className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                    className="p-1.5 sm:px-3 sm:py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+                                    title="Add Row"
+                                    aria-label="Add Row"
                                 >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    <span>Add Row</span>
+                                    <Plus className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+                                    <span className="hidden sm:inline">Add Row</span>
                                 </button>
                             </div>
                         </div>
@@ -2081,6 +2096,16 @@ export default function GRNModal({
                                     </div>
                                 );
                             })}
+
+                            {/* Mobile "+ Add Another Item" Button */}
+                            <button
+                                type="button"
+                                onClick={() => handleAddMaterial()}
+                                className="w-full py-2.5 px-3 border-2 border-dashed border-indigo-300 dark:border-indigo-800/80 hover:border-indigo-500 dark:hover:border-indigo-600 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                                <Plus className="w-4 h-4" />
+                                <span>+ Add Another {theme.itemLabel}</span>
+                            </button>
                         </div>
 
                         {/* Global Tax Rate Selector Bar (for RM, BO, Consumables) */}
@@ -2183,20 +2208,36 @@ export default function GRNModal({
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    {/* Modal Actions */}
-                    <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-800">
+                {/* Sticky Bottom Action Footer Bar */}
+                <div className="px-3.5 sm:px-5 py-3 bg-white/95 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 backdrop-blur-md shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                    {/* Left: Summary Preview */}
+                    <div className="flex items-center justify-between sm:justify-start gap-3">
+                        <div className="text-xs text-slate-600 dark:text-slate-400 font-medium">
+                            <span className="font-bold text-slate-900 dark:text-slate-100">{totalItemsCount}</span> items | <span className="font-bold text-slate-900 dark:text-slate-100">{totalQuantity}</span> total qty
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-bold text-slate-500 uppercase sm:inline hidden">Total:</span>
+                            <span className="text-sm sm:text-base font-black text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-xl border border-emerald-300 dark:border-emerald-800">
+                                ₹{grandTotalWithTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Right: Touch-Friendly Action Buttons */}
+                    <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-3">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors cursor-pointer text-center"
                         >
                             Cancel
                         </button>
                         <button
                             type="submit"
                             disabled={loading || isCompressing}
-                            className={`px-6 py-2 rounded-xl text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center gap-2 ${
+                            className={`w-full sm:w-auto px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 ${
                                 theme.buttonBg
                             } ${(loading || isCompressing) ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
@@ -2213,7 +2254,8 @@ export default function GRNModal({
                             )}
                         </button>
                     </div>
-                </form>
+                </div>
+            </form>
             </div>
         </div>
 
